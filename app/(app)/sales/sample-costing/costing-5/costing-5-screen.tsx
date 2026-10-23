@@ -75,6 +75,8 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { BackLink } from "@/components/ui/back-link";
+import { CostingCardLegend, CostingQueueCard, costingCardShared } from "../costing-card";
 import { RowIconAction } from "@/components/ui/row-actions";
 import { MoreActions } from "@/components/ui/more-actions";
 import { Input } from "@/components/ui/input";
@@ -429,6 +431,7 @@ export function SampleCosting5Screen({
     return c;
   }, [searched]);
   const filtered = searched.filter((r) => costingTabOf(r) === tab);
+  const cardShared = costingCardShared(filtered);
 
   // ---- derived state (cheap passes over the sheet's own rows) ---------------
   const draft: CostingDraft = { header, pieces, fabrics, weights, trims, quotes, extras };
@@ -1591,8 +1594,11 @@ export function SampleCosting5Screen({
           <Button variant="ghost" size="sm" onClick={closeEditor} aria-label="Back to list" className="h-10 w-10 shrink-0 px-0 text-lg md:hidden">
             ←
           </Button>
-          {/* No desktop "← Costing" (user 2026-10-15, reversing 2026-10-14's back
-              link): the Costing tab and the footer's Cancel already leave. */}
+          {/* THE DESKTOP BACK, ON EVERY COSTING PAGE (user 2026-10-23, screenshot
+              100852: "ella costing page layum … ulla pona back button venum"),
+              as the main Costing editor has had since 2026-10-21. The app's own
+              BackLink — reads "← Back", asks before discarding unsaved work. */}
+          <BackLink onBack={closeEditor} label="Costing" className="max-md:hidden" />
           <div className="flex min-w-0 shrink-0 items-baseline gap-2 max-md:shrink max-md:flex-wrap">
             <span className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
               {revisingFrom ? "Revise Sample Costing" : !editable ? "View Sample Costing" : editId ? "Edit Sample Costing" : "New Sample Costing"}
@@ -1885,6 +1891,11 @@ export function SampleCosting5Screen({
           }}
         />
       ) : null}
+      {/* EACH WORD ONCE (user 2026-10-23, screenshot 101313: "intha page mariye ella
+          costing page kku"): what every card shares is said here, and stripped below. */}
+      {viewMode.view === "cards" && filtered.length > 0 ? (
+        <CostingCardLegend costing={cardShared.costing} sample={cardShared.sample} currency={cardShared.currency} year={cardShared.year} />
+      ) : null}
       <SampleCards<CostingListRow>
         rows={filtered}
         /* THE BUYER'S ANSWERED PILES ARE A TABLE (as PD Request's Updated): an
@@ -1906,6 +1917,28 @@ export function SampleCosting5Screen({
            approval stage, so a saved-not-sent sheet said "Draft" under Pending
            and a sample with no sheet said "Not costed". One word, one answer. */
         pillText={(r) => TAB_LABEL[costingTabOf(r)]}
+        /* THE COSTING PAGE'S CARD (user 2026-10-23): the same build as Costing's,
+           from costing-card.tsx — each word once, five icon actions. */
+        renderCard={(r) => {
+          const label = `${r.code ?? "Costing"} · ${revisionShort(r.version)}`;
+          return (
+            <CostingQueueCard
+              r={r}
+              live={costingTabOf(r) === "progress"}
+              shared={cardShared}
+              canCreate={perms.canCreate}
+              canEdit={perms.canEdit}
+              canDelete={perms.canDelete}
+              isPending={isPending}
+              onStart={() => startCostingFor(r)}
+              onOpen={() => openById(r.id)}
+              onDecide={(decision) => setListDecision({ id: r.id, label, decision })}
+              onReports={() => router.push(`/sales/sample-costing/${r.id}/reports`)}
+              onRevise={() => reviseNow(r.id)}
+              onDelete={() => del(r)}
+            />
+          );
+        }}
         stats={(r) => [
           {
             label: "Quoted",

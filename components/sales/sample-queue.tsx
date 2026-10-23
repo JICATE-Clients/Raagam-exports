@@ -31,7 +31,7 @@ import { usePagination } from "@/lib/use-pagination";
  * they were above its table.
  */
 
-/** A card's state — the stripe and the pill both read it, so they agree. */
+/** A card's state — the pill and the table's Status column both read it. */
 export type SampleCardState = "pending" | "updated" | "draft" | "neutral";
 
 /* THE ORDERS QUEUE'S OWN SHADES (`QUEUE_THEME` in bom-queue.tsx): Pending a dark
@@ -40,10 +40,6 @@ export type SampleCardState = "pending" | "updated" | "draft" | "neutral";
 const PILL: Partial<Record<SampleCardState, string>> = {
   pending: "border border-red-200 bg-red-50 py-px text-red-700 dark:border-red-900 dark:bg-red-950/60 dark:text-red-300",
   updated: "border border-emerald-200 bg-emerald-50 py-px text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-300",
-};
-const EDGE: Partial<Record<SampleCardState, string>> = {
-  pending: "border-l-red-700 dark:border-l-red-500",
-  updated: "border-l-emerald-500",
 };
 const TONE: Record<SampleCardState, StatusTone> = { pending: "danger", updated: "success", draft: "warning", neutral: "neutral" };
 
@@ -110,7 +106,7 @@ export function SampleCards<R>({
    * component's, and the card props above still name the table's columns.
    */
   renderCard?: (r: R) => ReactNode;
-  /** A ticked card wears the theme colour down its edge. */
+  /** A ticked card is ringed in the theme colour. */
   selected?: (r: R) => boolean;
   footerNote?: (r: R) => ReactNode;
   canDelete?: boolean;
@@ -273,8 +269,7 @@ export function SampleCards<R>({
       // An ICON on the card, the word in its tooltip (components/ui/status-mark.tsx).
       pill={pillText ? (r) => <StatusMark word={((x) => (typeof x === "string" ? x : ""))(pillText(r))} mark={mark?.(r)} tone={TONE[state(r)]} /> : undefined}
       stats={stats}
-      tone={(r) => TONE[state(r)]}
-      accent={(r) => (selected?.(r) ? "border-l-primary" : EDGE[state(r)])}
+      selected={selected}
       footerNote={footerNote}
       onEdit={onOpen}
       canDelete={canDelete}

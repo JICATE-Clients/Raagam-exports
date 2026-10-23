@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Eye, Pencil, Trash2, type LucideIcon } from "lucide-react";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
+import { CardAction, CardActionContext, duoFor, toneFromClass } from "@/components/ui/card-action";
 import { DropdownMenu, type DropdownItem } from "@/components/ui/dropdown-menu";
 // Layering note: `components/ui` reaching into `components/masters` for the view
 // sheet is backwards, and deliberate — the alternative was a second read-only
@@ -115,8 +116,16 @@ export function RowIconAction({
   danger?: boolean;
   className?: string;
 }) {
+  const inCard = useContext(CardActionContext);
   const blocked = !!disabledReason;
   const aria = name ? `${label} ${name}` : label;
+  // IN A CARD'S FOOTER IT IS THE CARD'S DUOTONE TILE (user 2026-10-23: every card's
+  // icons like Sample Costing's) — same handler, same reason, the card's shape.
+  if (inCard) {
+    const duo = duoFor(Icon);
+    const tone = toneFromClass(className, danger) ?? duo.tone;
+    return <CardAction label={label} icon={duo.glyph ?? label} tone={tone} reason={disabledReason} onClick={onClick} />;
+  }
   return (
     <Tooltip label={disabledReason ?? label} touch={blocked}>
       <Button

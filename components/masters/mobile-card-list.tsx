@@ -1,13 +1,11 @@
 "use client";
 
-import { type ReactNode } from "react";
-import { Eye, FileText, Send, Trash2, type LucideIcon } from "lucide-react";
-import { DeleteConfirmButton } from "@/components/masters/delete-confirm-button";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Tooltip } from "@/components/ui/tooltip";
+import { isValidElement, type CSSProperties, type ReactNode } from "react";
+import { Send, type LucideIcon } from "lucide-react";
+import { CardAction, CardActionContext, CardDeleteAction, DUO, duoFor } from "@/components/ui/card-action";
 import { Truncated } from "@/components/ui/truncated";
 import type { StatusTone } from "@/lib/ui/tone";
+import { buyerInitials, GLOW_AVATAR, GLOW_CARD, GLOW_RULE, glowVars } from "@/lib/ui/buyer-glow";
 import { cn } from "@/lib/utils";
 
 /**
@@ -120,12 +118,11 @@ export function MobileCardList<Row>({
   stats,
   footerNote,
   hint,
-  tone,
   badge,
   columns = 1,
   queue = false,
-  accent,
-  iconActions = false,
+  selected,
+  hue,
 }: {
   rows: Row[];
   getKey: (r: Row) => string;
@@ -247,16 +244,10 @@ export function MobileCardList<Row>({
    */
   hint?: (r: Row) => ReactNode;
   /**
-   * The row's status tone, drawn as a 3px stripe down the card's leading edge.
-   *
-   * The SAME tone the pill already carries, deliberately: the pill is read one
-   * card at a time and the stripe is read down a whole grid at once. Material
-   * BOM's queue is sorted by `BOM_STATUS_RANK` ("what needs doing, first") and
-   * nothing on screen showed it — a sort you cannot see is a sort nobody
-   * benefits from.
-   *
-   * Omit it and the card keeps its ordinary border, so no existing caller
-   * changes.
+   * The row's status tone. NO LONGER DRAWN (2026-10-23): the 3px stripe it
+   * coloured went when every card took the Sample Costing glow card, whose
+   * only colour is the party's — the pill / mark says the state. Kept so the
+   * callers that pass it compile; remove it with them.
    */
   tone?: (r: Row) => StatusTone | null | undefined;
   /**
@@ -313,11 +304,13 @@ export function MobileCardList<Row>({
    * the View / Reports / Delete buttons. A TAP ON THE CARD OPENS THE RECORD —
    * `onEdit`, straight into the editor, exactly as before the redesign.
    *
-   * NOTHING ELSE OPENS, AND NOTHING HAPPENS ON HOVER. The same day this layout
+   * NOTHING ELSE OPENS. The same day this layout
    * went in it carried a details drawer on hover, then on click, then a
    * slide-over; the operator had all three removed ("antha card a touch panna
    * intha mari visible aaganum" — a touch opens the BOM itself). The card has
-   * no state, no overlay, no tooltip and no hover lift.
+   * no state, no overlay and no tooltip. It DOES lift and deepen its glow on
+   * hover since 2026-10-23 — every card wears the Sample Costing glow card
+   * (`GLOW_CARD`, user: "ellam card um intha mari … global aa").
    *
    * AND IT WAS REMOVED A SECOND TIME. Fabric BOM re-hung a right-edge detail
    * drawer on the tap on 2026-09-21 (`BomQueue`'s `onPreview`, since deleted)
@@ -325,17 +318,19 @@ export function MobileCardList<Row>({
    * visible aana pothum", the editor itself is enough. Two removals of the
    * same thing is the rule: `onEdit` on a queue card opens the BOM, full stop.
    *
-   * `badge` is ignored here: the stripe is this layout's status mark.
+   * `badge` is ignored here: the pill / mark is this layout's status, and the
+   * colour is the party's (`hue`).
    */
   queue?: boolean;
+  /** A ticked card (Grouping ▸ Ungrouped) — ringed in the theme colour. */
+  selected?: (r: Row) => boolean;
   /**
-   * A `queue` card's left-edge colour as a class (`border-l-red-700`),
-   * overriding the one `tone` picks. For a caller whose states need an exact
-   * shade rather than the skin's tone — the BOM queue's dark-red Pending.
-   * Return undefined to fall back to `tone`. Static literals only (Tailwind
-   * scans source text).
+   * THE NAME THE CARD'S COLOUR COMES FROM (`buyerTint`) — the party the row
+   * belongs to, so one buyer wears one hue on every card. Omitted, it is the
+   * subtitle's text up to its first " · " (every queue's "CUSTOMER · PO"),
+   * else the title's. Decoration only: the pill / mark carries the state.
    */
-  accent?: (r: Row) => string | undefined;
+  hue?: (r: Row) => string | null | undefined;
   /**
    * A `queue` card's Reports / Send as ICONS, no word (user 2026-10-15,
    * Sample ▸ Costing, screenshot 3542: "report, revise, delete icon in single
@@ -343,6 +338,10 @@ export function MobileCardList<Row>({
    * footer onto two lines. Opt-in, so every other queue keeps its words; the
    * name moves to `aria-label` and `title`, since an icon with neither says
    * nothing (which is why the 2026-09-18 card took titles away AND added words).
+   *
+   * @deprecated Since 2026-10-23 every card draws its actions as duotone icon
+   * tiles (`components/ui/card-action.tsx`), so this changes nothing. Kept so
+   * the call sites that pass it still compile.
    */
   iconActions?: boolean;
 }) {
@@ -365,76 +364,30 @@ export function MobileCardList<Row>({
    *  no title tooltips on these cards). An icon-only button with its `title=`
    *  taken away says nothing to a sighted user, so the word goes beside the
    *  icon instead; every other caller keeps the compact icon and its tooltip. */
-  const named = queue && !iconActions;
+  /* EVERY CARD'S ACTIONS ARE THE DUOTONE TILES (user 2026-10-23, screenshot
+     2026-10-21 152304: "ellam place layum card kku globle aa intha mari icon venum").
+     The Sample Costing card's row — each action in its own colour, the name in
+     the tooltip — for View · Reports · Send · Delete here, and through
+     `CardActionContext` for every `RowIconAction` a screen passes in
+     `extraActions`. This supersedes the queue card's words beside the icons
+     (2026-09-18), so `iconActions` no longer changes anything. */
+  const send = duoFor(SendIcon);
   const actions = (r: Row) => (
-    <>
+    <CardActionContext.Provider value>
       {!extraActionsAfterReports && extraActions?.(r)}
-      {onView && (
-        <Button
-          variant="ghost"
-          size="sm"
-          aria-label={named ? undefined : "View"}
-          title={named ? undefined : "View"}
-          onClick={() => onView(r)}
-        >
-          <Eye className="h-4 w-4" />
-          {named && "View"}
-        </Button>
-      )}
+      {onView && <CardAction label="View" tone="teal" icon={DUO.eye} onClick={() => onView(r)} />}
       {onReports && (canReportsRow?.(r) ?? true) && (
-        <Button
-          variant="ghost"
-          size="sm"
-          aria-label={named ? undefined : "Reports"}
-          title={named ? undefined : "Reports"}
-          onClick={() => onReports(r)}
-          className="shrink-0 whitespace-nowrap"
-        >
-          <FileText className="h-4 w-4" />
-          {named && "Reports"}
-        </Button>
+        <CardAction label="Reports" tone="violet" icon={DUO.doc} onClick={() => onReports(r)} />
       )}
       {extraActionsAfterReports && extraActions?.(r)}
       {onSend && (canSendRow?.(r) ?? true) && (
-        <Button
-          variant="ghost"
-          size="sm"
-          aria-label={named ? undefined : sendLabel}
-          title={named ? undefined : sendLabel}
-          disabled={isPending}
-          onClick={() => onSend(r)}
-          className="shrink-0 whitespace-nowrap text-primary"
-        >
-          <SendIcon className="h-4 w-4" />
-          {named && sendLabel}
-        </Button>
+        <CardAction label={sendLabel} tone={send.tone} icon={send.glyph} disabled={isPending} onClick={() => onSend(r)} />
       )}
-      {showDelete && (canDeleteRow?.(r) ?? true) && (() => {
-        const blocked = deleteDisabledReason?.(r);
-        return blocked ? (
-          /* THE BIN ICON, NOT THE WORD (user 2026-10-15, screenshot 3539: the
-             greyed "Delete" ran off a sixth-of-the-pane card beside Reports and
-             Raise Revise). A greyed action needs its REASON, which the tooltip
-             carries on hover and press — not its name. */
-          <Tooltip label={blocked} touch>
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-disabled="true"
-              aria-label={`Delete — ${blocked}`}
-              className="h-8 w-8 shrink-0 cursor-not-allowed px-0 text-muted-foreground opacity-50"
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          </Tooltip>
-        ) : (
-          <DeleteConfirmButton
-            isPending={isPending}
-            onConfirm={() => onDelete!(r)}
-          />
-        );
-      })()}
-    </>
+      {showDelete && (canDeleteRow?.(r) ?? true) && (
+        /* A locked row keeps its bin, faded, with the reason (AGENTS "Row actions"). */
+        <CardDeleteAction isPending={isPending} reason={deleteDisabledReason?.(r)} onConfirm={() => onDelete!(r)} />
+      )}
+    </CardActionContext.Provider>
   );
 
   /** Does this row have a button to put in the footer? `actions(r)` is always a
@@ -448,18 +401,19 @@ export function MobileCardList<Row>({
     (!!onSend && (canSendRow?.(r) ?? true)) ||
     (showDelete && (canDeleteRow?.(r) ?? true));
 
+  const hueOf = (r: Row) => hue?.(r) ?? (nodeText(subtitle?.(r)).split(" · ")[0].trim() || nodeText(title(r)).trim());
+
   const list = (
     <div className={grid ? cn("grid gap-3", TRACK[columns]) : "space-y-2.5"}>
       {rows.map((r) => {
-        const rowTone = tone?.(r);
         const rowHint = hint?.(r);
         const rowBadge = badge?.(r);
         if (grid && queue) {
           return (
             <QueueCard
               key={getKey(r)}
-              tone={rowTone}
-              accent={accent?.(r)}
+              hue={hueOf(r)}
+              selected={selected?.(r) ?? false}
               title={title(r)}
               subtitle={subtitle?.(r)}
               pill={pill?.(r)}
@@ -471,61 +425,27 @@ export function MobileCardList<Row>({
           );
         }
         return (
-        <Card
+        <div
           key={getKey(r)}
-          /* THE APP'S SURFACE PRIMITIVE, not a hand-rolled copy of it. This was
-             `rounded-xl border border-border bg-surface` — `Card`'s class string
-             with the ground taken out — so every card in every list sat as a
-             white rectangle on a #f6f7f9 canvas while `--smoke`, `--elev` and
-             `--sheen` sat declared and unused. `globals.css` calls that trio
-             "the cue that reads as a physical panel rather than a bordered
-             rectangle", which is exactly the complaint. Composing the primitive
-             also picks up its `data-card` print guard, which drops the wash and
-             the shadow on paper. */
-          interactive={grid && !!onEdit}
+          /* THE GLOW CARD (`GLOW_CARD`, user 2026-10-23: every card the Sample
+             Costing card) — the party's hue as a soft shadow and a tinted edge,
+             lifting on hover. It replaced `Card` and the tone stripe: the pill
+             says the state, the colour says whose row it is. */
+          style={glowVars(hueOf(r)) as CSSProperties}
           className={cn(
-            // `min-w-0`: a grid track's default `min-width: auto` lets one long
-            // unbroken value push its column WIDER rather than truncate, which
-            // at six across drags the whole row out of shape. The dashboard's
-            // own 6-up grid carries the same guard on its wrapper.
-            "min-w-0",
+            GLOW_CARD,
             // EQUAL HEIGHTS, GRID ONLY. Cards along a row carry different amounts
             // of meta, so without this the shortest card's footer floats up and
-            // the delete buttons do not line up. Guarded on `grid` so the
-            // single-column stack every other caller renders is unchanged.
-            // `@container/card` is what the two densities below query.
-            grid && "@container/card flex h-full flex-col",
-            /* A CARD NEVER GROWS PAST 40rem. It only ever binds at one or two
-               rows, where `auto-fit` would otherwise hand a single order the
-               whole 1560px pane and call it a card. */
+            // the delete buttons do not line up. `@container/card` is what the
+            // two densities below query. (`min-w-0` is in GLOW_CARD: a grid
+            // track's `min-width: auto` lets one long value widen its column.)
+            grid && "@container/card h-full",
+            /* A CARD NEVER GROWS PAST 40rem — `auto-fit` would otherwise hand a
+               single order the whole 1560px pane and call it a card. */
             grid && "max-w-[40rem]",
-            // `relative` IS `badge`'s ONLY, so the six other callers — none of
-            // which pass it — never pay for a positioning context they don't
-            // use. The Card primitive itself sets no `overflow`, which is what
-            // lets the badge poke past the top edge instead of being clipped.
+            // `relative` IS `badge`'s ONLY: the badge pokes above the top edge.
             rowBadge && "relative overflow-visible",
-            /* A DEEPER REST SHADOW, LIKE THE DASHBOARD'S KPI TILES (client
-               2026-09-04: "look tto planed ... can add shadow effect how we
-               used in dhashboard like for this card too").
-               `Card` already carries `shadow-elev` at rest and lifts to
-               `shadow-elev-hi` on hover via `interactive` — the SAME pair the
-               dashboard's own cards use, since both compose this primitive.
-               The skin's resting `--elev` is a deliberately quiet shadow
-               (0.05/0.20 alpha, tuned for a full-width KPI tile with air
-               around it), and at a sixth of that width, sitting flush beside
-               five siblings, it reads as flat rather than lifted. Rather than
-               darken `--elev` for every `data-card` in the skin, this one
-               caller takes the HOVER tier as its resting state — the same
-               shadow value the dashboard's cards already use, just always on
-               instead of only on interaction. */
-            rowBadge && "shadow-elev-hi",
-            // The stripe. `border-l-*` is a different tailwind-merge group from
-            // the `border`/`border-border` Card sets, so both survive the cn().
-            // SUPPRESSED WHEN A BADGE IS PRESENT — see `badge`'s own note: the
-            // two are the same claim ("this is what state the row is in") made
-            // in two places, and the badge makes it more visibly than a 3px edge.
-            !rowBadge && rowTone && "border-l-[3px]",
-            !rowBadge && rowTone && TONE_EDGE[rowTone],
+            selected?.(r) && "ring-2 ring-primary",
           )}
         >
           {rowBadge && (
@@ -570,7 +490,7 @@ export function MobileCardList<Row>({
             onClick={onEdit ? () => onEdit(r) : undefined}
             disabled={!onEdit}
             className={cn(
-              "block w-full text-left enabled:active:bg-surface-muted disabled:cursor-default",
+              "block w-full rounded-t-2xl text-left enabled:active:bg-surface-muted disabled:cursor-default",
               /**
                * A BADGED CARD RUNS ROOMIER ALL ROUND, not just on top (client
                * 2026-09-04: "move again more bottom the card conte with
@@ -662,13 +582,9 @@ export function MobileCardList<Row>({
               className={cn(
                 "flex items-center gap-2 px-3 py-1.5",
                 // NO RULE ABOVE THE FOOTER ON A BADGED CARD (client 2026-09-04:
-                // "in card inside i can [see a] line, remove it"). The badge
-                // and its own shadow already say "this is a separate block"
-                // more than a hairline does, and a border on top of that read
-                // as one divider too many. Every other `MobileCardList` caller
-                // keeps the line — it is what tells the footer apart from the
-                // button above it when there is no badge doing that job.
-                !rowBadge && "border-t border-border",
+                // "in card inside i can [see a] line, remove it"). Every other
+                // card keeps the line, in the party's hue.
+                !rowBadge && GLOW_RULE,
               )}
             >
               {/* THE INSTRUCTION, AND ONLY WHERE IT FITS. `@min-[20rem]/card:`
@@ -698,7 +614,7 @@ export function MobileCardList<Row>({
               {actions(r)}
             </div>
           )}
-        </Card>
+        </div>
         );
       })}
     </div>
@@ -710,20 +626,8 @@ export function MobileCardList<Row>({
   return columns === 6 ? <div className="@container/cards">{list}</div> : list;
 }
 
-/** The stripe colour per tone — static literals, never `border-l-` + tone. */
-const TONE_EDGE: Record<StatusTone, string> = {
-  success: "border-l-success",
-  warning: "border-l-warning",
-  danger: "border-l-danger",
-  info: "border-l-info",
-  // Neutral makes no claim, so it takes the record separator's grey rather than
-  // a hue — visible as an edge, silent as a signal.
-  neutral: "border-l-border-strong",
-};
-
 /**
- * THE BADGE'S TWO LAYERS — static literals for the same reason `TONE_EDGE` is
- * one, and the same shapes `StatusPill` already draws (`bg-*-soft` behind,
+ * THE BADGE'S TWO LAYERS — static literals (Tailwind scans source text), and the same shapes `StatusPill` already draws (`bg-*-soft` behind,
  * `bg-*` on the mark itself), so a badge and its row's own pill are always the
  * same colour by construction rather than by two people picking the same hex.
  */
@@ -795,7 +699,12 @@ function StatStrip({ stats }: { stats?: CardStat[] }) {
 /**
  * A `queue` card — see the `queue` prop for the why; this is the how.
  *
- * TWO SIBLINGS INSIDE ONE `Card`: the body is the tap-to-open button, and the
+ * THE SAMPLE COSTING CARD'S SHAPE (user 2026-10-23, "ellam card um intha mari"):
+ * the number in a chip with the state mark at the right, then the party's
+ * initials beside its name, the figures, and the actions on a hairline floor.
+ * White, and the only colour is the party's (`glowVars`).
+ *
+ * TWO SIBLINGS INSIDE ONE CARD: the body is the tap-to-open button, and the
  * strip below it holds the buttons. Never one inside the other — a Delete
  * inside the open-button is the button-in-button markup `MobileCardList` was
  * written to avoid.
@@ -805,12 +714,10 @@ function StatStrip({ stats }: { stats?: CardStat[] }) {
  * figures (`mt-auto`, on the body's floor) would sit one strip lower than a
  * saved neighbour's and the row would stop lining up. `min-h-10` holds the
  * strip at a button's height whatever it contains.
- *
- * No `interactive` on the `Card`: it does not lift or change on hover.
  */
 function QueueCard({
-  tone,
-  accent,
+  hue,
+  selected,
   title,
   subtitle,
   pill,
@@ -819,8 +726,8 @@ function QueueCard({
   actions,
   onEdit,
 }: {
-  tone: StatusTone | null | undefined;
-  accent?: string;
+  hue: string;
+  selected: boolean;
   title: ReactNode;
   subtitle?: ReactNode;
   pill?: ReactNode;
@@ -829,46 +736,47 @@ function QueueCard({
   actions: ReactNode;
   onEdit?: () => void;
 }) {
-  const edge = accent ?? (tone ? TONE_EDGE[tone] : "border-l-border-strong");
   return (
-    <Card className={cn("flex h-full min-w-0 max-w-[40rem] flex-col border-l-[3px]", edge)}>
+    <div
+      style={glowVars(hue) as CSSProperties}
+      className={cn(GLOW_CARD, "h-full max-w-[40rem]", selected && "ring-2 ring-primary")}
+    >
       <button
         type="button"
         onClick={onEdit}
         disabled={!onEdit}
-        /* `p-4` ON EVERY CARD, not a step up at a container width: the same
-           inset on every card is what lines their contents up down a column
-           of the grid (operator, 2026-09-18). `flex-col` so the figures sit on
-           the body's floor and stay level across a row whose customer lines
-           differ. */
-        className="flex w-full flex-1 flex-col p-4 text-left enabled:active:bg-surface-muted disabled:cursor-default"
+        /* The same inset on every card is what lines their contents up down a
+           column of the grid (operator, 2026-09-18). `flex-col` so the figures
+           sit on the body's floor and stay level across a row. */
+        className="flex w-full flex-1 flex-col gap-2 rounded-t-2xl px-3 pb-2 pt-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
       >
-        {/* THE HEADER: id left, pill right, and they cannot meet. The id is the
-            one that gives ground — `min-w-0 flex-1` lets it shrink and
-            ellipsis — while the pill is `shrink-0`, since a status cut to
-            "Recalc…" says nothing. `items-start` keeps both on the first line's
-            top edge when the pill is the taller of the two. */}
-        <div className="flex w-full items-start justify-between gap-2">
+        {/* THE HEADER: the number in its chip left, the mark right, and they
+            cannot meet — the chip gives ground, the mark is `shrink-0`. */}
+        <div className="flex w-full items-center justify-between gap-2">
           {/* truncate-reveal: exempt -- no hover bubbles on a queue card (operator, 2026-09-18); an id fits at the 15rem card floor, and a tap opens the record */}
-          <span className="block min-w-0 flex-1 truncate text-[13px] font-semibold leading-5 text-foreground">
+          <span className="block min-w-0 truncate rounded-md border border-border bg-surface px-1.5 py-px font-mono text-xs font-medium text-foreground">
             {title}
           </span>
-          {pill && <span className="shrink-0 leading-5">{pill}</span>}
+          {pill && <span className="flex shrink-0">{pill}</span>}
         </div>
-        {/* THE CUSTOMER (AND PO), ITS OWN LINE UNDER THE ID, `truncate` for a
-            long name. */}
+        {/* THE PARTY, behind its initials in the card's own hue. */}
         {subtitle && (
-          // truncate-reveal: exempt -- no hover bubbles on a queue card (operator, 2026-09-18); a tap opens the record, whose header prints the customer in full
-          <span className="mt-1 block w-full min-w-0 truncate text-xs leading-4 text-muted-foreground">
-            {subtitle}
-          </span>
+          <div className="flex w-full min-w-0 items-center gap-2.5">
+            <span aria-hidden="true" className={GLOW_AVATAR}>
+              {buyerInitials(hue)}
+            </span>
+            {/* truncate-reveal: exempt -- no hover bubbles on a queue card (operator, 2026-09-18); a tap opens the record, whose header prints the customer in full */}
+            <span className="block min-w-0 flex-1 truncate text-sm font-semibold leading-tight text-foreground">
+              {subtitle}
+            </span>
+          </div>
         )}
         <LabelledStats stats={stats} />
       </button>
       {(note || actions) && (
         /* `flex-wrap`: past what one line holds, the actions drop to a second
            line INSIDE the card rather than running off its edge (2026-10-15). */
-        <div className="flex min-h-10 flex-wrap items-center justify-end gap-1 border-t border-border py-1 pl-4 pr-2">
+        <div className={cn("mx-3 flex min-h-10 flex-wrap items-center justify-end gap-1 py-1", GLOW_RULE)}>
           {/* truncate-reveal: exempt -- no hover bubbles on a queue card (operator, 2026-09-18); a date and a creator's name, the Created pair every listing carries */}
           <span className="block min-w-0 flex-1 truncate text-[11px] leading-tight text-muted-foreground">
             {note}
@@ -876,8 +784,17 @@ function QueueCard({
           {actions}
         </div>
       )}
-    </Card>
+    </div>
   );
+}
+
+/** A node's visible text — the name a card's hue is keyed on. */
+function nodeText(n: ReactNode): string {
+  if (n == null || typeof n === "boolean") return "";
+  if (typeof n === "string" || typeof n === "number") return String(n);
+  if (Array.isArray(n)) return n.map(nodeText).join("");
+  if (isValidElement<{ children?: ReactNode }>(n)) return nodeText(n.props.children);
+  return "";
 }
 
 /**
@@ -918,7 +835,7 @@ function LabelledStats({ stats }: { stats?: CardStat[] }) {
     // grid row even where one card's header is taller than its neighbour's.
     <dl
       className={cn(
-        "mt-auto grid w-full gap-x-3 pt-3",
+        "mt-auto grid w-full gap-x-3 pt-1",
         STAT_COLS[stats.length] ?? "auto-cols-fr grid-flow-col",
       )}
     >
