@@ -66,6 +66,44 @@ function endpointOf(pathname: string) {
   return last.replace(/\.[a-z0-9]+$/i, "").toLowerCase();
 }
 
+/**
+ * THE TIME WE WANT THE DEVICE TO HOLD, IN ZKTECO'S PACKED FORM.
+ *
+ * ZKTeco encodes a date and time as ONE integer, and the device expects it in
+ * its own LOCAL time — so these are IST parts, not UTC ones:
+ *
+ *   ((Y-2000)*12*31 + (M-1)*31 + (D-1)) * 86400 + H*3600 + Mi*60 + S
+ *
+ * The month/day arithmetic is deliberately wrong as a calendar — every month
+ * is 31 days long — because that is the encoding the firmware decodes. Do not
+ * "fix" it into real date maths.
+ */
+function zkNow() {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+  const n = (t: string) => Number(parts.find((p) => p.type === t)!.value);
+  const hour = n("hour") === 24 ? 0 : n("hour");
+  const days =
+    (n("year") - 2000) * 12 * 31 + (n("month") - 1) * 31 + (n("day") - 1);
+  return days * 86400 + hour * 3600 + n("minute") * 60 + n("second");
+}
+
+/** Re-sent hourly: often enough that drift never shows, rarely enough that a
+ *  heartbeat stays a heartbeat. */
+const TIME_SYNC_EVERY_MS = 60 * 60 * 1000;
+
+function timeSyncDue(last: string | null) {
+  return last === null || Date.now() - Date.parse(last) > TIME_SYNC_EVERY_MS;
+}
+
 function text(body: string, status = 200) {
   return new Response(body, {
     status,
@@ -124,6 +162,8 @@ type DeviceState = {
   enabled: boolean;
   /** Punches older than this are acknowledged but not stored (0735). */
   acceptFrom: string | null;
+  /** When we last told this device the time (0736). */
+  timeSyncedAt: string | null;
 };
 
 async function touchDevice(
@@ -137,7 +177,7 @@ async function touchDevice(
       { serial_no: sn, last_seen: new Date().toISOString(), last_ip: ip },
       { onConflict: "serial_no" },
     )
-    .select("direction, last_attlog_stamp, enabled, accept_from")
+    .select("direction, last_attlog_stamp, enabled, accept_from, time_synced_at")
     .maybeSingle();
 
   if (error) console.error("[iclock] device touch failed", error);
@@ -161,6 +201,7 @@ async function touchDevice(
      */
     enabled: data?.enabled === true,
     acceptFrom: (data?.accept_from as string | null) ?? null,
+    timeSyncedAt: (data?.time_synced_at as string | null) ?? null,
   };
 }
 
@@ -231,7 +272,42 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // Heartbeat: nothing queued for the device to do.
+  /**
+   * THE HEARTBEAT IS THE ONE PLACE WE EVER SPEAK TO THE DEVICE.
+   *
+   * It asks "anything for me?" every ~30 seconds and the answer has always
+   * been a bare OK. It now carries a clock, and ONLY a clock — no user
+   * changes, no log deletion, nothing that could alter what the device holds.
+   *
+   * We send it because the device takes its time from us whether we intend it
+   * or not: every HTTP response carries a GMT `Date:` header, this reader had
+   * never spoken to a server before, and it moved to exactly UTC the day it
+   * started reporting here. Having caused that, the honest fix is to send the
+   * right time rather than leave the device guessing (0736).
+   *
+   * Hourly, not every beat. The write is recorded BEFORE the command goes out:
+   * if the update fails we skip this round rather than send on every heartbeat
+   * forever, because a device being told the time twice a second is a device
+   * nobody can read a log for.
+   */
+  if (timeSyncDue(device.timeSyncedAt)) {
+    const supabase = createAdminClient();
+    const { error } = await supabase
+      .from("biometric_devices")
+      .update({ time_synced_at: new Date().toISOString() })
+      .eq("serial_no", sn);
+
+    if (error) {
+      console.error("[iclock] time-sync bookkeeping failed", error);
+    } else {
+      console.log(`[iclock] ${sn}: setting device clock to IST`);
+      // C:<id>:SET OPTION <name>=<value> -- the device replies on /devicecmd,
+      // which we acknowledge and ignore.
+      return text(`C:${Date.now() % 100000}:SET OPTION DateTime=${zkNow()}`);
+    }
+  }
+
+  // Nothing queued for the device to do.
   return text("OK");
 }
 
