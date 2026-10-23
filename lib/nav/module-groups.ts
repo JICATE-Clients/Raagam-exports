@@ -1080,6 +1080,8 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         description: "Indents, RFQs and purchase orders",
         children: [
           { href: "/purchase/orders", label: "Purchase Orders", description: "Create from budget, submit and approve" },
+          // doc/purchase/puchase.md (2026-10-23): RE numbers in, requirement lines out, the manager types the rate.
+          { href: "/purchase/requirement-po", label: "PO from Requirement", description: "Pick RE numbers; what they still need lists itself; type the rate" },
           { href: "/purchase/rfq", label: "RFQ", description: "Request quotes from vendors and award" },
           { href: "/purchase/indents", label: "Indents", description: "Department indents and their lines" },
           // Was a sibling of Indents in the old flat list even though it is a
