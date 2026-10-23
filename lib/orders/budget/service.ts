@@ -833,6 +833,9 @@ export async function pullCostLines(
       .from("material_bom_amendment_requirements")
       .select(
         "item_id, required_qty, consumption_uom_id, slice_label, " +
+          /* THE TRIM COLOUR (2026-10-23) — named by its column: the row has two
+             FKs to config_lookups (item_color_id, size_id). See the push below. */
+          "item_color:config_lookups!item_color_id(name), " +
           /* The LINE the requirement was computed for, by its own FK column
              (named, per AGENTS.md) — FOC and supply type live there. */
           "line:material_bom_amendment_items!item_line_id(is_foc, supply_type, estimated_rate), " +
@@ -888,6 +891,7 @@ export async function pullCostLines(
     required_qty: number | null;
     consumption_uom_id: string | null;
     slice_label: string;
+    item_color: { name: string | null } | null;
     line: { is_foc: boolean | null; supply_type: string | null; estimated_rate: number | null } | null;
     amendment_id: string;
     bom: { garment_order_id: string | null; is_draft: boolean } | null;
@@ -1125,7 +1129,18 @@ export async function pullCostLines(
     });
   }
 
-  for (const r of (materialRes.data ?? []) as unknown as MaterialReq[]) {
+  /* Which (order, item, slice) carries MORE THAN ONE trim colour — see the push
+     below. Counted first so only a colliding slice is renamed. */
+  const materialRows = (materialRes.data ?? []) as unknown as MaterialReq[];
+  const sliceKey = (r: MaterialReq) =>
+    `${r.bom?.garment_order_id ?? ""}|${r.item_id ?? ""}|${r.slice_label.trim().toUpperCase()}`;
+  const sliceColours = new Map<string, Set<string>>();
+  for (const r of materialRows) {
+    const k = sliceKey(r);
+    sliceColours.set(k, (sliceColours.get(k) ?? new Set()).add(r.item_color?.name?.trim().toUpperCase() ?? ""));
+  }
+
+  for (const r of materialRows) {
     if (!r.bom || r.bom.is_draft || !r.bom.garment_order_id) continue;
     if (!wanted.has(r.bom.garment_order_id)) continue;
     if (r.required_qty == null) {
@@ -1133,11 +1148,25 @@ export async function pullCostLines(
       continue;
     }
     if (r.item_id) itemIds.add(r.item_id);
+    /* ONE THREAD IN TWO TRIM COLOURS IS TWO LINES (2026-10-23, budget 5: "The
+       BOMs have changed since this budget was filled (1 line)" on every Send).
+       A `trim_colour` grain stores WHITE and BLACK sewing thread as two
+       "Whole order" slices, and the material key is item + description — so
+       both keyed alike, the budget held one of them, the other colour's cost
+       was missing, and `submitBudget` saw the other quantity as a change no
+       refresh could settle. The colour is appended ONLY where it is needed to
+       tell two rows apart — a slice holding more than one colour — so every
+       single-colour line keeps the key it was saved under. */
+    const colour = r.item_color?.name?.trim() ?? "";
+    const description =
+      colour && (sliceColours.get(sliceKey(r))?.size ?? 0) > 1
+        ? `${r.slice_label} · ${colour}`
+        : r.slice_label;
     lines.push({
       source: "material",
       garment_order_id: r.bom.garment_order_id,
       item_id: r.item_id,
-      description: r.slice_label,
+      description,
       qty: Number(r.required_qty),
       uom_id: r.consumption_uom_id,
       /* THE LINE'S ESTIMATED RATE WHERE THE MERCHANDISER GAVE ONE (0588) — the
