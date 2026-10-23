@@ -7,7 +7,12 @@ import { withCreatedColumns } from "@/components/ui/created-columns";
 import { Stat } from "@/components/ui/stat";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
-import type { DeviceRow, PunchRow } from "@/lib/hr/punch-service";
+import type {
+  DeviceRow,
+  PunchRow,
+  PunchIdentity,
+} from "@/lib/hr/punch-service";
+import DeviceSheet from "./device-sheet";
 
 /**
  * WATCHING PUNCHES ARRIVE. The one screen that answers "is the device working?"
@@ -57,6 +62,35 @@ function clockGap(punch: string, received: string) {
   return { text: `${Math.round(secs / 3600)}h`, tone: "danger" as const };
 }
 
+/**
+ * IS THIS DEVICE'S CLOCK WRONG? — and the hard part is telling drift apart
+ * from a backlog, because both produce big clock gaps.
+ *
+ * The discriminator is the SMALLEST gap, not the average. A device whose clock
+ * is wrong offsets EVERY punch by roughly the same amount, so even its newest
+ * punch arrives late. A device uploading history after an outage has huge gaps
+ * on the old lines and a small one on whatever it recorded most recently — so
+ * one small gap is enough to say the clock is fine.
+ *
+ * Three punches minimum: a single reading is a round-trip, not a pattern.
+ */
+const CLOCK_WARN_SECONDS = 10 * 60;
+
+function clockHealth(rows: PunchRow[]) {
+  if (rows.length < 3) return null;
+  const gaps = rows.map(
+    (p) => (new Date(p.received_at).getTime() - new Date(p.punch_time).getTime()) / 1000,
+  );
+  const smallest = Math.min(...gaps.map(Math.abs));
+  if (smallest <= CLOCK_WARN_SECONDS) return null;
+  // Sign of the typical gap: received later than claimed = the clock is behind.
+  const mid = [...gaps].sort((a, b) => a - b)[Math.floor(gaps.length / 2)];
+  return {
+    minutes: Math.round(smallest / 60),
+    behind: mid > 0,
+  };
+}
+
 const DIRECTION: Record<
   PunchRow["direction"],
   { label: string; tone: "success" | "info" | "neutral" }
@@ -69,6 +103,9 @@ const DIRECTION: Record<
 interface Props {
   devices: DeviceRow[];
   punches: PunchRow[];
+  /** device id -> person, for DISPLAY only. No attendance is derived from it. */
+  identities: Record<string, PunchIdentity>;
+  locations: { id: string; name: string }[];
   todayCount: number;
   /** Start of today in IST, from the server. */
   todayFromIso: string;
@@ -79,6 +116,8 @@ interface Props {
 export default function LiveClient({
   devices: initialDevices,
   punches: initialPunches,
+  identities,
+  locations,
   todayCount: initialTodayCount,
   todayFromIso,
   serverNowIso,
@@ -105,6 +144,7 @@ export default function LiveClient({
    * would paint every device offline.
    */
   const [now, setNow] = useState(() => Date.parse(serverNowIso));
+  const [setupSerial, setSetupSerial] = useState<string | null>(null);
 
   useEffect(() => {
     const tick = setInterval(() => setNow(Date.now()), 15_000);
@@ -155,6 +195,17 @@ export default function LiveClient({
   ).length;
 
   const unassigned = devices.filter((d) => !d.location_id).length;
+  const pending = devices.filter((d) => !d.enabled).length;
+
+  /** Devices whose clock looks wrong, judged from today's own punches. */
+  const clockSuspect = useMemo(() => {
+    const out: { serial: string; label: string; minutes: number; behind: boolean }[] = [];
+    for (const d of devices) {
+      const h = clockHealth(punches.filter((p) => p.device_sn === d.serial_no));
+      if (h) out.push({ serial: d.serial_no, label: d.name || d.serial_no, ...h });
+    }
+    return out;
+  }, [devices, punches]);
 
   const deviceLabel = useMemo(() => {
     const m: Record<string, string> = {};
@@ -166,6 +217,33 @@ export default function LiveClient({
     {
       header: "Time",
       cell: (p) => <span className="tabular-nums">{istTime(p.punch_time)}</span>,
+    },
+    {
+      /**
+       * DISPLAY ONLY (pilot, 2026-10-23). Matched on the id enrolled on the
+       * reader; nothing here is written anywhere or used to compute hours.
+       * An unmatched id is named as such rather than blanked — a blank cell
+       * reads as "nobody punched" instead of "nobody is mapped to this id".
+       */
+      header: "Person",
+      cell: (p) => {
+        const who = identities[p.user_id];
+        if (!who)
+          return (
+            <span className="text-muted-foreground">Unknown ID {p.user_id}</span>
+          );
+        return (
+          <span className="flex items-center gap-1.5">
+            <Truncated>{who.name}</Truncated>
+            {who.kind === "staff" ? (
+              <span className="text-xs text-muted-foreground">staff</span>
+            ) : null}
+            {who.conflict ? (
+              <StatusPill tone="danger">Duplicate ID</StatusPill>
+            ) : null}
+          </span>
+        );
+      },
     },
     {
       header: "Device",
@@ -220,10 +298,14 @@ export default function LiveClient({
           hint={punches[0] ? deviceLabel[punches[0].device_sn] : "Nothing yet"}
         />
         <Stat
-          label="Awaiting setup"
-          value={unassigned}
-          tone={unassigned ? "warning" : "neutral"}
-          hint="Devices with no unit"
+          label="Awaiting approval"
+          value={pending}
+          tone={pending ? "warning" : "neutral"}
+          hint={
+            unassigned
+              ? `${unassigned} also with no unit`
+              : "New devices arrive pending"
+          }
         />
       </div>
 
@@ -244,10 +326,25 @@ export default function LiveClient({
             const isOnline =
               !!d.last_seen && now - Date.parse(d.last_seen) < ONLINE_WINDOW_MS;
             return (
-              <StatusPill key={d.serial_no} tone={isOnline ? "success" : "danger"}>
-                {isOnline ? "Online" : "Offline"} · {d.name || d.serial_no}
+              <button
+                key={d.serial_no}
+                type="button"
+                onClick={() => setSetupSerial(d.serial_no)}
+                title="Set up this device"
+                className="rounded-control focus-visible:outline-2 focus-visible:outline-ring"
+              >
+              <StatusPill
+                tone={!d.enabled ? "warning" : isOnline ? "success" : "danger"}
+              >
+                {!d.enabled
+                  ? "Pending approval"
+                  : isOnline
+                    ? "Online"
+                    : "Offline"}{" "}
+                · {d.name || d.serial_no}
                 {d.direction !== "both" ? ` · ${DIRECTION[d.direction].label}` : ""}
               </StatusPill>
+              </button>
             );
           })}
         </div>
@@ -262,6 +359,27 @@ export default function LiveClient({
         without a per-file opt-out that cannot tell a listing that is exempt
         from one that forgot.
       */}
+      {/*
+        A WRONG DEVICE CLOCK IS THE FAILURE THAT LOOKS LIKE SUCCESS. Attendance
+        is always derived from `punch_time`, the device's own clock — never from
+        when we received it — so a reader running 40 minutes slow produces
+        plausible, wrong hours and plausible, wrong wages. Nothing else on any
+        screen says so, which is why this sits above the feed rather than in it.
+      */}
+      {clockSuspect.length > 0 ? (
+        <div className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
+          {clockSuspect.map((c) => (
+            <p key={c.serial}>
+              <span className="font-medium">{c.label}</span>: clock looks about{" "}
+              <span className="tabular-nums">{c.minutes} min</span>{" "}
+              {c.behind ? "behind" : "ahead"}. Every punch from it is being
+              recorded at the wrong time — set the device&apos;s date and time to
+              IST.
+            </p>
+          ))}
+        </div>
+      ) : null}
+
       <DataTable
         columns={withCreatedColumns(columns, punches)}
         rows={punches}
@@ -269,6 +387,14 @@ export default function LiveClient({
         empty="No punches today yet."
         dense
       />
+
+      {setupSerial ? (
+        <DeviceSheet
+          device={devices.find((d) => d.serial_no === setupSerial)!}
+          locations={locations}
+          onClose={() => setSetupSerial(null)}
+        />
+      ) : null}
     </div>
   );
 }
