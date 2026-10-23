@@ -95,6 +95,10 @@ type DeviceState = {
   direction: "in" | "out" | "both";
   /** The ATTLOG watermark we last accepted. '0' = send everything. */
   lastStamp: string;
+  /** Approved by an admin to record punches (0735). A new device is false. */
+  enabled: boolean;
+  /** Punches older than this are acknowledged but not stored (0735). */
+  acceptFrom: string | null;
 };
 
 async function touchDevice(
@@ -108,7 +112,7 @@ async function touchDevice(
       { serial_no: sn, last_seen: new Date().toISOString(), last_ip: ip },
       { onConflict: "serial_no" },
     )
-    .select("direction, last_attlog_stamp")
+    .select("direction, last_attlog_stamp, enabled, accept_from")
     .maybeSingle();
 
   if (error) console.error("[iclock] device touch failed", error);
@@ -122,6 +126,16 @@ async function touchDevice(
   return {
     direction: (data?.direction as DeviceState["direction"]) ?? "both",
     lastStamp: data?.last_attlog_stamp ?? "0",
+    /**
+     * A FAILED READ IS NOT AN APPROVAL. If the row could not be read we do not
+     * know whether this reader was approved, and the safe answer to "may it
+     * write attendance?" is no — it is refused, keeps its punches, and offers
+     * them again. This is the opposite direction from `lastStamp` above, and
+     * for the same reason: in each case the cautious guess is the one that
+     * cannot lose a punch.
+     */
+    enabled: data?.enabled === true,
+    acceptFrom: (data?.accept_from as string | null) ?? null,
   };
 }
 
@@ -213,6 +227,19 @@ export async function POST(req: NextRequest) {
   const device = await touchDevice(sn, req.headers.get("x-device-ip"));
 
   if (url.pathname.endsWith("/cdata") && table === "ATTLOG") {
+    /**
+     * A READER NOBODY APPROVED DOES NOT WRITE ATTENDANCE (0735). Refused with
+     * a non-200 rather than acknowledged-and-dropped, so the device KEEPS the
+     * punches and offers them again the moment an admin approves it: a block
+     * that turns out to be a mistake costs nothing. Its handshake and
+     * heartbeat above are still answered, which is what makes it appear on the
+     * Live screen to be approved in the first place.
+     */
+    if (!device.enabled) {
+      console.warn(`[iclock] punches refused — device ${sn} is not approved`);
+      return text("Device not approved", 403);
+    }
+
     const { direction } = device;
 
     // USER_ID \t YYYY-MM-DD HH:MM:SS \t STATUS \t VERIFY \t WORKCODE \t … \t …
@@ -243,9 +270,33 @@ export async function POST(req: NextRequest) {
           /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+/.test(r.punch_time),
       );
 
-    if (rows.length > 0) {
+    /**
+     * THE FIRST HANDSHAKE WITH A REAL DEVICE ASKS FOR ITS WHOLE HISTORY, and a
+     * reader that has been on the wall for two years holds two years of it —
+     * months of attendance nobody reconciled, against shift rules that did not
+     * exist, for people who may have left, arriving indistinguishable from
+     * today's punches. `accept_from` (0735) is where this device's history
+     * starts; by default the moment it registered.
+     *
+     * The old lines are still ACKNOWLEDGED: dropped here, counted, and the
+     * watermark advances below, so the device stops offering them. Refusing
+     * them instead would have it re-send the same history forever.
+     */
+    const acceptFrom = device.acceptFrom ? Date.parse(device.acceptFrom) : null;
+    const fresh =
+      acceptFrom === null
+        ? rows
+        : rows.filter((r) => Date.parse(r.punch_time) >= acceptFrom);
+    const skipped = rows.length - fresh.length;
+    if (skipped > 0) {
+      console.log(
+        `[iclock] ${sn}: ${skipped} punch(es) older than accept_from acknowledged, not stored`,
+      );
+    }
+
+    if (fresh.length > 0) {
       const supabase = createAdminClient();
-      const { error } = await supabase.from("punches").upsert(rows, {
+      const { error } = await supabase.from("punches").upsert(fresh, {
         onConflict: "device_sn,user_id,punch_time",
         ignoreDuplicates: true,
       });

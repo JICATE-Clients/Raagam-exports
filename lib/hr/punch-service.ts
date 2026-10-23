@@ -22,6 +22,8 @@ export interface DeviceRow {
   last_seen: string | null;
   last_ip: string | null;
   last_attlog_stamp: string;
+  enabled: boolean;
+  accept_from: string;
 }
 
 export interface PunchRow {
@@ -40,7 +42,7 @@ export async function listDevices(): Promise<DeviceRow[]> {
   const { data, error } = await supabase
     .from("biometric_devices")
     .select(
-      "serial_no, name, location_id, direction, purpose, is_active, last_seen, last_ip, last_attlog_stamp",
+      "serial_no, name, location_id, direction, purpose, is_active, last_seen, last_ip, last_attlog_stamp, enabled, accept_from",
     )
     .order("last_seen", { ascending: false, nullsFirst: false });
 
@@ -118,4 +120,66 @@ export async function countPunchesToday(fromIso: string): Promise<number> {
     return 0;
   }
   return count ?? 0;
+}
+
+
+/**
+ * WHO IS DEVICE ID 1001? — display only, for the pilot.
+ *
+ * A punch carries the id enrolled ON THE READER. `workers.biometric_id` has
+ * existed since 0013 and `staff.biometric_id` was added by 0735, so both kinds
+ * of person can be named. NOTHING here derives attendance: no row is written
+ * to `worker_attendance`, no hours are computed, and the name is a label on a
+ * feed the admin is watching.
+ *
+ * A COLLISION IS REPORTED, NOT RESOLVED. Neither column is unique — the ids
+ * are assigned by whoever enrols people on the reader — so two people can end
+ * up on one id. That is an enrolment mistake, and the honest thing is to show
+ * it: silently taking the first match would put one person's name against the
+ * other's punches, which is exactly the kind of wrong that reaches a payslip
+ * once attendance IS derived from this.
+ */
+export interface PunchIdentity {
+  name: string;
+  kind: "worker" | "staff";
+  /** True when more than one person claims this device id. */
+  conflict: boolean;
+}
+
+export async function getPunchIdentities(): Promise<
+  Record<string, PunchIdentity>
+> {
+  const supabase = await createClient();
+
+  const [workers, staff] = await Promise.all([
+    supabase
+      .from("workers")
+      .select("name, biometric_id")
+      .not("biometric_id", "is", null),
+    supabase
+      .from("staff")
+      .select("name, biometric_id")
+      .not("biometric_id", "is", null),
+  ]);
+
+  if (workers.error) console.error("[punches] worker ids failed", workers.error);
+  if (staff.error) console.error("[punches] staff ids failed", staff.error);
+
+  const map: Record<string, PunchIdentity> = {};
+  const add = (
+    rows: { name: string; biometric_id: string | null }[] | null,
+    kind: PunchIdentity["kind"],
+  ) => {
+    for (const r of rows ?? []) {
+      const id = String(r.biometric_id ?? "").trim();
+      if (!id) continue;
+      // A second claim on the same id marks it, and keeps the first name so
+      // the screen can still say WHO it collided with.
+      if (map[id]) map[id].conflict = true;
+      else map[id] = { name: r.name, kind, conflict: false };
+    }
+  };
+  add(workers.data, "worker");
+  add(staff.data, "staff");
+  return map;
 }

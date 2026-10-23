@@ -127,3 +127,6 @@ __pycache__/
 /FabricBomEntryRegister_*.pdf
 /FabricRequirement_*.pdf
 /*.csv
+
+# Rotated secrets handed to the operator by hand — never committed
+*.local.txt
