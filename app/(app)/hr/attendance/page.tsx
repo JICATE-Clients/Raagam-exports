@@ -107,12 +107,14 @@ export default async function AttendancePage({ searchParams }: Props) {
     }).format(new Date(serverNowIso));
     const todayFromIso = `${todayIst}T00:00:00+05:30`;
 
-    const [devices, punches, todayCount, identities] = await Promise.all([
-      listDevices(),
-      listPunchesToday(todayFromIso),
-      countPunchesToday(todayFromIso),
-      getPunchIdentities(),
-    ]);
+    const [devices, punches, todayCount, identities, deviceLocations] =
+      await Promise.all([
+        listDevices(),
+        listPunchesToday(todayFromIso),
+        countPunchesToday(todayFromIso),
+        getPunchIdentities(),
+        getLocations(),
+      ]);
 
     return (
       <div className="space-y-4">
@@ -125,6 +127,7 @@ export default async function AttendancePage({ searchParams }: Props) {
           devices={devices}
           punches={punches}
           identities={identities}
+          locations={deviceLocations}
           todayCount={todayCount}
           todayFromIso={todayFromIso}
           serverNowIso={serverNowIso}

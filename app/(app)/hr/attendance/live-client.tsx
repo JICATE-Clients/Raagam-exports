@@ -12,6 +12,7 @@ import type {
   PunchRow,
   PunchIdentity,
 } from "@/lib/hr/punch-service";
+import DeviceSheet from "./device-sheet";
 
 /**
  * WATCHING PUNCHES ARRIVE. The one screen that answers "is the device working?"
@@ -104,6 +105,7 @@ interface Props {
   punches: PunchRow[];
   /** device id -> person, for DISPLAY only. No attendance is derived from it. */
   identities: Record<string, PunchIdentity>;
+  locations: { id: string; name: string }[];
   todayCount: number;
   /** Start of today in IST, from the server. */
   todayFromIso: string;
@@ -115,6 +117,7 @@ export default function LiveClient({
   devices: initialDevices,
   punches: initialPunches,
   identities,
+  locations,
   todayCount: initialTodayCount,
   todayFromIso,
   serverNowIso,
@@ -141,6 +144,7 @@ export default function LiveClient({
    * would paint every device offline.
    */
   const [now, setNow] = useState(() => Date.parse(serverNowIso));
+  const [setupSerial, setSetupSerial] = useState<string | null>(null);
 
   useEffect(() => {
     const tick = setInterval(() => setNow(Date.now()), 15_000);
@@ -322,8 +326,14 @@ export default function LiveClient({
             const isOnline =
               !!d.last_seen && now - Date.parse(d.last_seen) < ONLINE_WINDOW_MS;
             return (
-              <StatusPill
+              <button
                 key={d.serial_no}
+                type="button"
+                onClick={() => setSetupSerial(d.serial_no)}
+                title="Set up this device"
+                className="rounded-control focus-visible:outline-2 focus-visible:outline-ring"
+              >
+              <StatusPill
                 tone={!d.enabled ? "warning" : isOnline ? "success" : "danger"}
               >
                 {!d.enabled
@@ -334,6 +344,7 @@ export default function LiveClient({
                 · {d.name || d.serial_no}
                 {d.direction !== "both" ? ` · ${DIRECTION[d.direction].label}` : ""}
               </StatusPill>
+              </button>
             );
           })}
         </div>
@@ -376,6 +387,14 @@ export default function LiveClient({
         empty="No punches today yet."
         dense
       />
+
+      {setupSerial ? (
+        <DeviceSheet
+          device={devices.find((d) => d.serial_no === setupSerial)!}
+          locations={locations}
+          onClose={() => setSetupSerial(null)}
+        />
+      ) : null}
     </div>
   );
 }

@@ -33,7 +33,60 @@ alter table public.biometric_devices
 comment on column public.biometric_devices.accept_from is
   'Punches older than this are acknowledged but NOT stored. Defaults to the '
   'moment the device first dialled in, because a new device''s stored history '
-  'is months of unreconciled attendance. Set it back to import that history.';
+  'is months of unreconciled attendance. Move it back WITH a stamp reset to '
+  'import that history -- see refetch_device_history() below.';
+
+
+-- 1b. MOVING `accept_from` BACK IS NOT ENOUGH ON ITS OWN -----------------
+--
+-- This is the trap, and it is the reason this function exists rather than the
+-- admin screen just writing the column. `accept_from` decides what we KEEP;
+-- the watermark (`last_attlog_stamp`, 0734) decides what the device OFFERS.
+-- Once the watermark is high the device has been told "I have everything up to
+-- here" and will never mention those punches again -- so widening the window
+-- alone changes nothing at all, silently, and looks exactly like a device with
+-- no history to give.
+--
+-- Re-fetching is therefore ONE operation on BOTH columns, and it is here, in
+-- the database, so the pair cannot be written apart. The reset is to '0'
+-- ("send me everything you hold"); `accept_from` then throws away what is
+-- older than the date asked for, and the unique key on
+-- (device_sn, user_id, punch_time) drops anything already stored.
+--
+-- IT TAKES EFFECT AT THE DEVICE'S NEXT HANDSHAKE, not instantly: the stamp is
+-- read when the device asks for its settings, which happens on boot and on
+-- reconnect, not on every 30-second heartbeat. Restarting the reader is the
+-- way to make it happen now.
+create or replace function public.refetch_device_history(
+  p_serial text,
+  p_from   timestamptz
+)
+returns void
+language plpgsql
+security invoker          -- the caller's own RLS decides; no privilege granted
+set search_path = ''
+as $f$
+begin
+  update public.biometric_devices
+     set accept_from       = p_from,
+         last_attlog_stamp = '0',
+         updated_at        = now()
+   where serial_no = p_serial;
+
+  if not found then
+    raise exception 'no such device: %', p_serial;
+  end if;
+end;
+$f$;
+
+comment on function public.refetch_device_history(text, timestamptz) is
+  'Ask a device to re-send its stored punches from p_from: widens accept_from '
+  'AND resets the ATTLOG watermark to 0, which must happen together or nothing '
+  'is re-sent. Takes effect at the device''s next handshake (restart it). '
+  'SECURITY INVOKER -- RLS on biometric_devices still applies.';
+
+revoke all on function public.refetch_device_history(text, timestamptz)
+  from public, anon;
 
 
 -- 2. APPROVE OR BLOCK A DEVICE FROM THE ERP -----------------------------
