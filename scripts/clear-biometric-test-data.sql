@@ -16,11 +16,11 @@ begin;
 -- What is about to go, so the numbers can be read BEFORE committing.
 select 'punches to delete' as what, count(*) as rows
   from public.punches
- where device_sn in ('TESTSN001', 'TESTSN002')
+ where device_sn in ('TESTSN001', 'TESTSN002', 'TESTSN003')
 union all
 select 'devices to delete', count(*)
   from public.biometric_devices
- where serial_no in ('TESTSN001', 'TESTSN002')
+ where serial_no in ('TESTSN001', 'TESTSN002', 'TESTSN003')
 union all
 -- THE SAFETY CHECK. If this is not zero, there are punches from a device
 -- that is NOT in the test list — i.e. real data exists. Read it before
@@ -28,13 +28,13 @@ union all
 -- presence means this script is being run later than intended.
 select 'punches from OTHER devices (must review)', count(*)
   from public.punches
- where device_sn not in ('TESTSN001', 'TESTSN002');
+ where device_sn not in ('TESTSN001', 'TESTSN002', 'TESTSN003');
 
 delete from public.punches
- where device_sn in ('TESTSN001', 'TESTSN002');
+ where device_sn in ('TESTSN001', 'TESTSN002', 'TESTSN003');
 
 delete from public.biometric_devices
- where serial_no in ('TESTSN001', 'TESTSN002');
+ where serial_no in ('TESTSN001', 'TESTSN002', 'TESTSN003');
 
 -- Change to `rollback;` first to see the counts without deleting anything.
 commit;
