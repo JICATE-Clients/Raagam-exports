@@ -1232,7 +1232,22 @@ export function BudgetScreen({
               continue;
             }
             const u = updates.get(x.key);
-            out.push(u ? { ...rowOf(x.key, u), ...operatorFacts(x), from_bom: true } : x);
+            if (!u) {
+              out.push(x);
+              continue;
+            }
+            /* A RATE IS PER UNIT, SO A NEW UNIT VOIDS IT (2026-10-23: thread moved
+               from MTR to CONE when material lines began pulling the purchase
+               unit — ₹0.50/MTR carried onto 433 cones would cost ₹216 and
+               nobody would look). The blank holds Save until it is priced again,
+               and the "last ₹" hint offers the per-cone figure. */
+            const unitMoved = (x.uom_id || null) !== (u.uom_id ?? null);
+            out.push({
+              ...rowOf(x.key, u),
+              ...operatorFacts(x),
+              ...(unitMoved ? { rate: "" } : {}),
+              from_bom: true,
+            });
           }
           for (const [k, rows] of refits) if (!placed.has(k)) out.push(...rows);
           return reseeded([...out, ...added]);
