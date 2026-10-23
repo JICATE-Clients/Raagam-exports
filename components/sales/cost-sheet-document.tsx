@@ -3185,7 +3185,9 @@ function Sheet({ model, s, edit: editIn, view, cur, show, onSize, letterhead = t
      field tab the edge declines and the save ladder runs. */
   const panelRef = useRef<HTMLDivElement>(null);
   const landingRef = useRef<"first" | "last" | null>(null);
-  const fieldTabs = tabDefs.flatMap((t, i) => (t.id === "cs-op-revisions" || t.id === "cs-op-charts" ? [] : [i]));
+  // By INDEX: a tab def has no id (those are onePage's jump ids), so the two
+  // fieldless tabs are named by the indices declared beside `tabDefs`.
+  const fieldTabs = tabDefs.flatMap((_, i) => (i === historyTab || i === chartsTab ? [] : [i]));
   const tabNavRef = useRef({ tab, fieldTabs, setTab });
   useEffect(() => {
     tabNavRef.current = { tab, fieldTabs, setTab };
