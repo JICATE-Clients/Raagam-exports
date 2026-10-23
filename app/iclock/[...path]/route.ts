@@ -38,8 +38,15 @@ import { createAdminClient } from "@/lib/supabase/server";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-/** The uFace 302 sends IST with no offset. */
-const DEVICE_TZ = "+05:30";
+/**
+ * The zone a device's clock is keeping, when we have not been told otherwise.
+ *
+ * It was a CONSTANT until 0737 — every reader was assumed to be in IST,
+ * because the factory is. Then this one adopted UTC from the server and would
+ * not be argued out of it, so the zone became a property of the DEVICE rather
+ * than of the installation (see 0737 for the whole story).
+ */
+const DEFAULT_CLOCK_OFFSET = "+05:30";
 
 /**
  * WHICH ADMS ENDPOINT THIS IS, WITH ANY FILE EXTENSION STRIPPED.
@@ -164,6 +171,8 @@ type DeviceState = {
   acceptFrom: string | null;
   /** When we last told this device the time (0736). */
   timeSyncedAt: string | null;
+  /** The zone this device's clock is actually keeping (0737). */
+  clockOffset: string;
 };
 
 async function touchDevice(
@@ -177,7 +186,7 @@ async function touchDevice(
       { serial_no: sn, last_seen: new Date().toISOString(), last_ip: ip },
       { onConflict: "serial_no" },
     )
-    .select("direction, last_attlog_stamp, enabled, accept_from, time_synced_at")
+    .select("direction, last_attlog_stamp, enabled, accept_from, time_synced_at, clock_offset")
     .maybeSingle();
 
   if (error) console.error("[iclock] device touch failed", error);
@@ -202,6 +211,7 @@ async function touchDevice(
     enabled: data?.enabled === true,
     acceptFrom: (data?.accept_from as string | null) ?? null,
     timeSyncedAt: (data?.time_synced_at as string | null) ?? null,
+    clockOffset: (data?.clock_offset as string | null) || DEFAULT_CLOCK_OFFSET,
   };
 }
 
@@ -353,7 +363,7 @@ export async function POST(req: NextRequest) {
         return {
           device_sn: sn,
           user_id: userId.trim(),
-          punch_time: `${time.trim().replace(" ", "T")}${DEVICE_TZ}`,
+          punch_time: `${time.trim().replace(" ", "T")}${device.clockOffset}`,
           direction,
           status: Number(status) || 0,
           verify_mode: Number(verify) || 0,
