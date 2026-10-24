@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Check, ChevronRight, Lock } from "lucide-react";
+import { ArrowRight, Boxes, CalendarDays, Check, ChevronRight, Lock, X } from "lucide-react";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
@@ -59,6 +59,15 @@ type RowState = { qty: string; rate: string; date: string };
  * ("ORDER / QTY" on two lines), so both are set here through `headerClassName`.
  */
 const GRID_HEAD = "whitespace-nowrap bg-[var(--table-head-bg)]";
+/**
+ * A CELL YOU TYPE IN, NOT A BOX IN A CELL (user 2026-10-24, screenshot 3707: "that
+ * separate cell border for the rate, qty, delivery date — as table"). The grid's own
+ * gridlines are the only frame: the input drops its border, corners and ground, and
+ * the cell it is in shows focus by an inset ring and a white fill — a sheet, not a
+ * form laid in a table. Hover tints the cell so it still reads as editable.
+ */
+const CELL_INPUT =
+  "h-8 rounded-none border-0 bg-transparent shadow-none hover:bg-[#f2f7fb] focus:bg-white focus-visible:ring-2 focus-visible:ring-inset";
 type GridRow = RequirementLine & { key: string; row: RowState; /** the chosen vendor supplies this line's class */ supplied: boolean };
 
 const CURRENCIES = ["USD", "EUR", "GBP"] as const;
@@ -77,7 +86,9 @@ export function RequirementPoForm({
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
 
+  const [classId, setClassId] = useState("");
   const [orderIds, setOrderIds] = useState<string[]>([]);
+  const [categoryId, setCategoryId] = useState("");
   const [vendorPick, setVendorPick] = useState("");
   const [poType, setPoType] = useState<"local" | "import">("local");
   const [currency, setCurrency] = useState<string>("USD");
@@ -88,25 +99,44 @@ export function RequirementPoForm({
   const [rows, setRows] = useState<Record<string, RowState>>({});
   const [flags, setFlags] = useState<Record<string, BudgetFlag>>({});
   const [dirty, setDirty] = useState(false);
-  /* ONE RE OPEN AT A TIME (user 2026-10-23, screenshot 3694: "like fabric and process
-     for every single fabric — RE number 1 filled then automatically open RE number 2,
-     close it"). The app's fold rule, `useAccordion`; the auto-advance is below. */
-  const fold = useAccordion(null);
+  /* RE LIST LEFT, ITEMS RIGHT (user 2026-10-24, after screenshot 3703: "old screen
+     details … only list RE numbers as rail … details under RE number left side, right
+     side item"). The header card stays exactly as it was; under it, the chosen REs are
+     a list on the left — each RE number with its buyer, delivery and progress beneath
+     it — and the picked RE's lines fill the right. NOT `MasterFullScreen`: a first cut
+     put the header in the rail too, and the operator wanted only the REs there.
+     One RE shown at a time (the fold rule); "items" = the All Items view. */
+  const [activeKey, setActiveKey] = useState("");
   /* ITEM-WISE (client via user 2026-10-23: "multi order, multiple item — we are missing
      the multiple item concept"). The same item needed by several orders is ONE line to
-     the vendor. `viewPick` is the operator's choice; until they make one, two or more
-     orders open item-wise and a single order order-wise. One item's breakup open at a
-     time — the app's fold rule again. */
-  const [viewPick, setViewPick] = useState<"order" | "item" | null>(null);
+     the vendor — the All Items rail row, offered once two orders are chosen. One item's
+     breakup open at a time — the app's fold rule. */
   const itemFold = useAccordion(null);
   const advancedRef = useRef<Record<string, boolean>>({});
 
   useUnsavedGuard(dirty || isPending);
 
   // ---------- options ----------
+  /*
+   * THE HEADER READS ITEM CLASS · RE NO · CATEGORY · VENDOR (user 2026-10-24,
+   * screenshot 3702), each narrowing the next — the app's cascading rule:
+   * the class offers only the REs with something of that class left to buy, the
+   * category only what those REs' items carry under it (the item master's own
+   * category, 0748), and the vendor only that class's bought-item vendors.
+   * Category is optional: blank = every category of the class.
+   */
+  const classOptions: ComboboxOption[] = useMemo(() => {
+    const byClass = new Map<string, string>();
+    for (const l of lines) if (l.item_class_id) byClass.set(l.item_class_id, l.item_class ?? "—");
+    return [...byClass.entries()]
+      .sort((a, b) => a[1].localeCompare(b[1]))
+      .map(([value, label]) => ({ value, label }));
+  }, [lines]);
+  const classLines = useMemo(() => lines.filter((l) => l.item_class_id === classId), [lines, classId]);
+
   const reOptions = useMemo(() => {
     const byOrder = new Map<string, { re: string; customer: string; n: number }>();
-    for (const l of lines) {
+    for (const l of classLines) {
       const o = byOrder.get(l.source_id) ?? { re: l.source_no, customer: l.customer ?? "", n: 0 };
       o.n++;
       byOrder.set(l.source_id, o);
@@ -117,22 +147,34 @@ export function RequirementPoForm({
       // two picks must fit one 288px box — "HO/RE/26-27/0003 (4)". The buyer is
       // the RE's, and the RE number is what the manager picks by.
       .map(([id, o]) => ({ id, label: `${o.re} (${o.n})` }));
-  }, [lines]);
+  }, [classLines]);
 
   const chosen = new Set(orderIds);
-  const inOrders = lines.filter((l) => chosen.has(l.source_id));
+  const inClassOrders = classLines.filter((l) => chosen.has(l.source_id));
+  // FROM THE CHOSEN ORDERS ONLY (user 2026-10-24): the categories their requirement lines
+  // carry under this class — empty, and the field disabled, until an order is picked.
+  const categoryOptions: ComboboxOption[] = (() => {
+    const byCat = new Map<string, string>();
+    for (const l of inClassOrders)
+      if (l.category_id) byCat.set(l.category_id, l.category ?? "—");
+    return [...byCat.entries()].sort((a, b) => a[1].localeCompare(b[1])).map(([value, label]) => ({ value, label }));
+  })();
+  const inOrders = categoryId ? inClassOrders.filter((l) => l.category_id === categoryId) : inClassOrders;
   /*
    * ITEM CLASS IS THE LINE'S, NOT THE PO'S (user 2026-10-23: "class is indicating in
    * top which is the requirement item class — it should come under the table").
-   * The header no longer asks for it. The VENDOR decides what this PO carries:
+   * REVERSED 2026-10-24 (screenshot 3702): the header asks for it again, FIRST, and
+   * scopes every line to it — so the greying below now only ever sees one class.
+   * What follows is the 10-23 shape, kept because it still reads correctly then.
+   * The VENDOR decides what this PO carries:
    * the list is every bought-item vendor who supplies ANY class in the chosen
    * orders (spec point 2 — still filtered by "Is Bought Item Vendor" + class), and
    * once one is picked, the lines in a class that vendor does not supply stay on
    * screen, greyed, not ordered — their balance waits for another vendor's PO.
    */
-  const classNames = new Map(
-    inOrders.filter((l) => l.item_class_id).map((l) => [l.item_class_id as string, l.item_class ?? "—"] as const),
-  );
+  // The header's Item Class (2026-10-24) now scopes every line, so this is that one class —
+  // the per-class machinery below stays, and keeps the save's per-class check honest.
+  const classNames = new Map(classOptions.filter((o) => o.value === classId).map((o) => [o.value, o.label] as const));
   const vendorClasses = new Map<string, { vendor: ClassVendor; classIds: Set<string> }>();
   for (const classId of classNames.keys()) {
     for (const v of vendorsByClass[classId] ?? []) {
@@ -192,14 +234,19 @@ export function RequirementPoForm({
   const goesToMd = above + unbudgeted > 0;
   const cur = poType === "import" ? currency : "₹";
 
-  // ---------- one fold per RE ----------
+  // ---------- one rail row per RE ----------
   const groups = [...new Set(gridRows.map((r) => r.source_id))].map((id) => {
     const rs = gridRows.filter((r) => r.source_id === id);
     const act = rs.filter((r) => r.supplied && num(r.row.qty) > 0);
     const priced = act.filter((r) => num(r.row.rate) > 0).length;
+    // The rail's count: rates still to type. Before a vendor is chosen nothing is
+    // "supplied" yet, so count every line being ordered — the number must not read 0
+    // on an RE nobody has priced.
+    const toPrice = rs.filter((r) => (!vendorId || r.supplied) && num(r.row.qty) > 0 && num(r.row.rate) <= 0);
     return {
       id,
       re: rs[0].source_no,
+      toPrice,
       customer: rs[0].customer ?? "",
       delivery: rs[0].delivery_date,
       rows: rs,
@@ -213,46 +260,53 @@ export function RequirementPoForm({
       unbudgeted: act.filter((r) => num(r.row.rate) > 0 && flags[r.key] && !flags[r.key].hasBudget).length,
     };
   });
-  const groupIdsSig = groups.map((g) => g.id).join("|");
   const completeSig = groups.map((g) => `${g.id}:${g.done}`).join("|");
-  const openGroup = groups.find((g) => g.id === fold.openKey);
-  const openSig = openGroup ? openGroup.rows.map((r) => `${r.row.qty}/${r.row.rate}`).join("|") : "";
+  /* What the right side shows: the operator's pick while it still exists, else the
+     first RE still to price — derived, so a new set of REs never needs an effect. */
+  const showItems = orderIds.length >= 2;
+  const selKey =
+    groups.some((g) => g.id === activeKey) || (activeKey === "items" && showItems)
+      ? activeKey
+      : ((groups.find((g) => !g.done) ?? groups[0])?.id ?? "");
+  const activeGroup = groups.find((g) => g.id === selKey);
+  const activeSig = activeGroup ? activeGroup.rows.map((r) => `${r.row.qty}/${r.row.rate}`).join("|") : "";
+  /** The id a line's rate box carries — where `openRe` lands the cursor. */
+  const rateId = (key: string) => `rpo-rate-${key}`;
 
-  /* A NEW SET OF REs (or class) OPENS THE FIRST ONE STILL TO PRICE. Keyed on the ids
-     only, so shutting a fold by hand is not undone by the next render. */
-  useEffect(() => {
-    if (groups.length === 0) return;
-    if (!groups.some((g) => g.id === fold.openKey)) fold.setOpenKey((groups.find((g) => !g.done) ?? groups[0]).id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupIdsSig]);
+  /** Show an RE on the right and put the cursor on its first blank rate — two frames:
+   *  one for React to commit the new grid, one for layout (the GRN form's landing). */
+  function openRe(g: (typeof groups)[number]) {
+    setActiveKey(g.id);
+    const first = g.toPrice[0] ?? g.rows[0];
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        const el = document.getElementById(rateId(first.key));
+        if (el) focusField(el);
+      }),
+    );
+  }
 
-  /* RE FILLED → NEXT RE. When the open RE BECOMES complete, wait for typing to stop
-     (900 ms, restarted by every keystroke in it), then fold it and open the next RE
-     still to price, cursor on its first rate. Only the incomplete → complete step
-     advances — editing a finished RE never throws the operator out of it. */
+  /* RE FILLED → NEXT RE (user 2026-10-23, screenshot 3694: "RE number 1 filled then
+     automatically open RE number 2"). Kept through the move to the RE list: when the RE
+     on screen BECOMES complete, wait for typing to stop (900 ms, restarted by every
+     keystroke in it), then show the next RE still to price, cursor on its
+     first blank rate. Only the incomplete → complete step advances — editing a finished
+     RE never throws the operator out of it. */
   useEffect(() => {
     for (const g of groups) if (!g.done) advancedRef.current[g.id] = false;
-    const g = openGroup;
+    const g = activeGroup;
     if (!g || !g.done || advancedRef.current[g.id]) return;
     const t = setTimeout(() => {
       advancedRef.current[g.id] = true;
       const i = groups.findIndex((x) => x.id === g.id);
       const next = [...groups.slice(i + 1), ...groups.slice(0, i)].find((x) => !x.done);
-      if (!next) return; // the last one: stay open, the totals and Submit are right below
-      fold.setOpenKey(next.id);
-      /* THE CURSOR LANDS ON ITS FIRST RATE once the opened fold has rendered its grid —
-         two frames: one for React to commit, one for layout. A focus move, not a key
-         handler (the GRN form's landing, same reason). */
-      requestAnimationFrame(() =>
-        requestAnimationFrame(() => {
-          const el = document.querySelector<HTMLElement>(`[data-rpo-group="${next.id}"] [data-rpo-rate]`);
-          if (el) focusField(el);
-        }),
-      );
+      if (!next) return; // the last one: stay, the totals and Submit are in the footer
+      openRe(next);
     }, 900);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [completeSig, openSig]);
+  }, [completeSig, activeSig, selKey]);
+
 
 
   // ---------- the hidden budget check: asked per priced line, 400 ms after typing stops ----------
@@ -337,13 +391,77 @@ export function RequirementPoForm({
     });
   }
 
+  /** A line's delivery: the PO's date unless changed. Until it is, the cell is a calendar
+   *  button rather than the date again — every line repeating the Terms' "Deliver by" was
+   *  the same fact N times (user 2026-10-24, canvas V6). A button, so Tab — fields only —
+   *  passes over it; Enter or a click opens the date there and lands in it. */
+  const deliveryCell = (id: string, own: string, label: string, disabled: boolean, set: (v: string) => void) =>
+    own ? (
+      <div className="flex items-center">
+        <Input
+          id={id}
+          type="date"
+          max="9999-12-31"
+          aria-label={`Promised delivery, ${label}`}
+          className={cn(CELL_INPUT, "min-w-0 flex-1")}
+          disabled={disabled}
+          value={own}
+          onChange={(e) => set(e.target.value)}
+        />
+        {/* Back to the PO's date — the calendar button returns. */}
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => set("")}
+          aria-label={`Use the PO date for ${label}`}
+          title="Use the PO date"
+          className="shrink-0 px-1 text-muted-foreground hover:text-danger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <X aria-hidden className="size-3.5" />
+        </button>
+      </div>
+    ) : (
+      <button
+        type="button"
+        disabled={disabled}
+        title={`Same as the PO (${fmtDate(dateAll)}) — click to change`}
+        aria-label={`Change delivery for ${label}, now the PO date`}
+        onClick={() => {
+          set(dateAll);
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => {
+              const el = document.getElementById(id);
+              if (el) focusField(el);
+            }),
+          );
+        }}
+        className="flex h-8 w-full items-center justify-center text-muted-foreground hover:bg-[#f2f7fb] hover:text-[#037bb8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:opacity-50"
+      >
+        <CalendarDays aria-hidden className="size-4" />
+      </button>
+    );
+
+  /** One line, the item then its slice · colour in grey — not two stacked lines (V6). */
+  const itemCell = (name: string, spec: string) => (
+    <div className="flex min-w-0 items-baseline gap-1.5">
+      <Truncated className="min-w-0 shrink text-sm font-medium">{name}</Truncated>
+      {spec ? <Truncated className="min-w-0 shrink-[2] text-xs text-muted-foreground">{spec}</Truncated> : null}
+    </div>
+  );
+  /** THE ONE COLUMN TO TYPE IN is tinted (V6) — the cells around it are read, this is filled. */
+  const RATE_COL = "bg-[#fffaeb]";
+
   // ---------- grid ----------
   /*
-   * 288 + 72 + 112 + 88 + 144 + 112 + 112 = 928, + 40 chrome (the `#`;
-   * no ✕ — `hideRemove`, the rows are the requirement's own) = 968 <= 1155
-   * -> tableFrom="5xl".
+   * A TIGHT TABLE (user 2026-10-24, screenshot 3704: "the items as tighten table").
+   * Beside the RE list, `tableFrom="5xl"` (a table only from a 1024px container)
+   * dropped the lines to stacked cards, one field per line (screenshot 3704). Now 200 + 72 + 88 + 88 + 144 + 112 + 112 = 816, + 40 chrome (the `#`;
+   * no ✕ — `hideRemove`) = 856, and the grid takes ChildGrid's DEFAULT switch (a
+   * table from a 512px pane, cards below it on a phone) — there is no `tableFrom`
+   * tier under 1024. Item drops name → party (the full name is on hover) and
+   * Order Qty is headed "Qty" so it fits `hug`.
    *
-   * NO RE COLUMN: each RE is its own fold now, and its header names it.
+   * NO RE COLUMN: the RE list on the left names the RE on screen.
    *
    * NO BALANCE COLUMN (user 2026-10-23, screenshot 3692): Order Qty already starts
    * AT the balance and cannot go past it, so a second column of the same number
@@ -359,21 +477,15 @@ export function RequirementPoForm({
   const poLineColumns: ChildGridColumn<GridRow>[] = [
     {
       header: "Item",
+      // `name`, not `party`: one line now carries the item AND its slice · colour.
       width: FIELD_WIDTH_CSS.name,
-      cell: (r) => (
-        <div className="min-w-0">
-          <Truncated className="text-sm font-medium">{r.item_name}</Truncated>
-          <Truncated className="text-xs text-muted-foreground">
-            {lineDescription({ item_name: "", slice_label: r.slice_label, colour: r.colour }).replace(/^ · /, "")}
-          </Truncated>
-        </div>
-      ),
+      cell: (r) => itemCell(r.item_name, lineDescription({ item_name: "", slice_label: r.slice_label, colour: r.colour }).replace(/^ · /, "")),
     },
     { header: "UOM", width: FIELD_WIDTH_CSS.num, cell: (r) => <span className="text-sm">{r.uom_code ?? ""}</span> },
     {
-      header: "Order Qty",
-      // `range`, not `hug`: "ORDER QTY" is wider than 88px on one line.
-      width: FIELD_WIDTH_CSS.range,
+      // "Qty", not "Order Qty": the longer label is wider than `hug` on one line.
+      header: "Qty",
+      width: FIELD_WIDTH_CSS.hug,
       cell: (r) => (
         <Input
           type="number"
@@ -382,7 +494,7 @@ export function RequirementPoForm({
           inputMode="decimal"
           aria-label={`Order qty, ${lineDescription(r)}, at most ${r.balance_qty}`}
           title={`At most ${fmtNumber(r.balance_qty)} ${r.uom_code ?? ""}: ${fmtNumber(r.required_qty)} on the requirement sheet${r.ordered_qty > 0 ? `, less ${fmtNumber(r.ordered_qty)} already on other POs` : ""}`}
-          className="h-8 text-right tabular-nums"
+          className={cn(CELL_INPUT, "text-right tabular-nums")}
           value={r.row.qty}
           onChange={(e) => {
             const typed = num(e.target.value);
@@ -395,14 +507,15 @@ export function RequirementPoForm({
     {
       header: `Rate ${cur}`,
       width: FIELD_WIDTH_CSS.hug,
+      className: RATE_COL,
       cell: (r) => (
         <Input
           type="number"
           min={0}
           inputMode="decimal"
-          data-rpo-rate
+          id={rateId(r.key)}
           aria-label={`Rate per ${r.uom_code ?? "unit"}, ${lineDescription(r)}`}
-          className="h-8 text-right tabular-nums"
+          className={cn(CELL_INPUT, "text-right tabular-nums")}
           value={r.row.rate}
           onChange={(e) => setRow(r, { rate: e.target.value })}
         />
@@ -411,16 +524,7 @@ export function RequirementPoForm({
     {
       header: "Delivery",
       width: FIELD_WIDTH_CSS.code,
-      cell: (r) => (
-        <Input
-          type="date"
-          max="9999-12-31"
-          aria-label={`Promised delivery, ${lineDescription(r)}`}
-          className="h-8"
-          value={r.row.date || dateAll}
-          onChange={(e) => setRow(r, { date: e.target.value })}
-        />
-      ),
+      cell: (r) => deliveryCell(`rpo-date-${r.key}`, r.row.date, lineDescription(r), false, (v) => setRow(r, { date: v })),
     },
     {
       header: "Amount",
@@ -442,14 +546,13 @@ export function RequirementPoForm({
         const f = flags[r.key];
         if (!f || num(r.row.rate) <= 0) return null;
         if (f.above) return <span title="Above Approved Budget"><StatusPill tone="danger">Above budget</StatusPill></span>;
-        if (!f.hasBudget) return <span title="No approved budget for this RE"><StatusPill tone="warning">No budget</StatusPill></span>;
+        // "No budget" is the ORDER's, not the line's — it is said once, on the RE's card.
         return null;
       },
     },
   ];
 
   // ---------- item-wise: one row per item across the chosen orders ----------
-  const view: "order" | "item" = viewPick ?? (orderIds.length >= 2 ? "item" : "order");
   type ItemGroup = {
     key: string;
     item_name: string;
@@ -501,20 +604,15 @@ export function RequirementPoForm({
   const openItem = itemGroups.find((g) => g.key === itemFold.openKey) ?? null;
 
   /*
-   * 288 + 72 + 88 + 112 + 88 + 144 + 112 + 112 = 1016, + 40 chrome = 1056 <= 1155
-   * -> tableFrom="5xl". The rate and delivery typed here go to every order line
+   * 200 + 72 + 88 + 88 + 88 + 144 + 112 + 112 = 904, + 40 chrome = 944, on the same
+   * default switch as the order grid (see its note). The rate and delivery typed here go to every order line
    * under the item; the breakup below edits one order at a time.
    */
   const itemColumns: ChildGridColumn<ItemGroup>[] = [
     {
       header: "Item",
-      width: FIELD_WIDTH_CSS.name,
-      cell: (g) => (
-        <div className="min-w-0">
-          <Truncated className="text-sm font-medium">{g.item_name}</Truncated>
-          {g.spec ? <Truncated className="text-xs text-muted-foreground">{g.spec}</Truncated> : null}
-        </div>
-      ),
+      width: FIELD_WIDTH_CSS.party,
+      cell: (g) => itemCell(g.item_name, g.spec),
     },
     { header: "UOM", width: FIELD_WIDTH_CSS.num, cell: (g) => <span className="text-sm">{g.uom_code ?? ""}</span> },
     {
@@ -534,21 +632,21 @@ export function RequirementPoForm({
     },
     {
       header: "Total Qty",
-      width: FIELD_WIDTH_CSS.range,
+      width: FIELD_WIDTH_CSS.hug,
       align: "right",
       cell: (g) => <span className="text-sm font-medium tabular-nums">{g.qty > 0 ? fmtNumber(g.qty) : ""}</span>,
     },
     {
       header: `Rate ${cur}`,
       width: FIELD_WIDTH_CSS.hug,
+      className: RATE_COL,
       cell: (g) => (
         <Input
           type="number"
           min={0}
           inputMode="decimal"
-          data-rpo-rate
           aria-label={`Rate per ${g.uom_code ?? "unit"}, ${g.item_name} ${g.spec}, for all ${g.orders} orders`}
-          className="h-8 text-right tabular-nums"
+          className={cn(CELL_INPUT, "text-right tabular-nums")}
           // MIXED: the orders were priced apart in the breakup — typing here sets them all again.
           placeholder={g.mixedRate ? "mixed" : undefined}
           disabled={!g.supplied}
@@ -560,17 +658,14 @@ export function RequirementPoForm({
     {
       header: "Delivery",
       width: FIELD_WIDTH_CSS.code,
-      cell: (g) => (
-        <Input
-          type="date"
-          max="9999-12-31"
-          aria-label={`Promised delivery, ${g.item_name} ${g.spec}`}
-          className="h-8"
-          disabled={!g.supplied}
-          value={g.date}
-          onChange={(e) => setMembers(g.members, { date: e.target.value })}
-        />
-      ),
+      cell: (g) =>
+        deliveryCell(
+          `rpo-idate-${g.key}`,
+          g.members.some((m) => m.row.date) ? g.date : "",
+          `${g.item_name} ${g.spec}`,
+          !g.supplied,
+          (v) => setMembers(g.members, { date: v }),
+        ),
     },
     {
       header: "Amount",
@@ -589,7 +684,6 @@ export function RequirementPoForm({
               <StatusPill tone="danger">Above · {g.above}/{g.orders}</StatusPill>
             </span>
           );
-        if (g.unbudgeted > 0) return <span title="No approved budget for one or more of its orders"><StatusPill tone="warning">No budget</StatusPill></span>;
         return null;
       },
     },
@@ -607,13 +701,13 @@ export function RequirementPoForm({
         </div>
       ),
     },
-    ...poLineColumns.filter((c) => ["Order Qty", "Delivery", "Amount", "Budget"].includes(c.header)),
+    ...poLineColumns.filter((c) => ["Qty", "Delivery", "Amount", "Budget"].includes(c.header)),
   ];
 
-  const canSave = !isPending && orderIds.length > 0 && !!vendorId && active.length > 0 && (poType === "local" || num(exRate) > 0);
+  const canSave = !isPending && !!classId && orderIds.length > 0 && !!vendorId && active.length > 0 && (poType === "local" || num(exRate) > 0);
   const canSubmit = canSave && unpriced === 0;
   const hint =
-    orderIds.length === 0
+    !classId || orderIds.length === 0
       ? "" // nothing chosen yet: the empty form says it (user 2026-10-23: no sentence here)
       : !vendorId
         ? vendorList.length === 0
@@ -621,50 +715,139 @@ export function RequirementPoForm({
           : "Choose the vendor — its classes are the lines this PO carries."
         : active.length === 0
           ? "Every line has quantity 0 — there is nothing to order."
-          : unpriced > 0
-            ? `${unpriced} rate(s) to type.`
+          : poType === "import" && num(exRate) <= 0
+            ? "Type the exchange rate."
+            : unpriced > 0
+            ? // The count is the red number on each RE — the bar says only why Submit waits.
+              "Submit opens once every rate is typed."
             : goesToMd
               ? `Above Approved Budget on ${above} line(s)${unbudgeted ? `, no approved budget on ${unbudgeted}` : ""} — Submit saves the PO and sends it to the MD; printing stays locked.`
               : "Every rate is within budget — Submit approves the PO by rule.";
 
+  /* THE BUDGET WARNING, IN THE RE'S LIST ENTRY. Only the two states that are news —
+     Above budget, No budget. "0 of 3 priced" and "Priced" were the red count and the
+     green tick said again, so they went with the pane's heading (below). */
+  const budgetWarning = (g: (typeof groups)[number]) =>
+    // Above budget is per LINE (the Budget column); no approved budget is the ORDER's.
+    g.unbudgeted > 0 ? (
+      <span title="No approved budget for this RE — its PO goes to the MD">
+        <StatusPill tone="warning">No approved budget</StatusPill>
+      </span>
+    ) : null;
+  const hintTone =
+    unpriced > 0 || !vendorId ? "text-[#8a5800]" : goesToMd ? "text-danger" : "text-[#14803f]";
+
+  const itemsToPrice = itemGroups.filter((g) => g.supplied && g.qty > 0 && !g.rate && !g.mixedRate).length;
+
+  /* THE RIGHT SIDE IS THE TABLE AND NOTHING ABOVE IT (user 2026-10-24, screenshot
+     3707: "remove this duplicated from item table above"). The RE number is the
+     selected entry on the left, the class is the header's Item Class (one class per
+     PO since 2026-10-24, so no per-class headings either), and the priced count is
+     the red number beside the RE. */
+  const rePane = (g: (typeof groups)[number]) => (
+    // default-row: exempt -- the rows are the RE's requirement lines, derived; nothing is added here
+    <ChildGrid<GridRow>
+      columns={poLineColumns}
+      rows={g.rows}
+      flatRows
+      hideAdd
+      hideRemove
+      keepOne={false}
+      onAdd={() => false}
+      onRemove={() => {}}
+      frameless
+      headerClassName={GRID_HEAD}
+    />
+  );
+
+  /** One entry of the left list: the number, and its details UNDER it (user 2026-10-24). */
+  const listButton = (key: string, selected: boolean, onClick: () => void, body: ReactNode, count: number, done: boolean) => (
+    <button
+      key={key}
+      type="button"
+      aria-current={selected || undefined}
+      onClick={onClick}
+      className={cn(
+        "block w-full border-l-[3px] px-2.5 py-2 text-left transition-colors",
+        selected
+          ? "border-l-[#037bb8] bg-white"
+          : "border-l-transparent hover:bg-[#eef4f9]",
+      )}
+    >
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">{body}</div>
+        {/* Rates still to type, red; a green tick once every line being ordered is priced. */}
+        {count > 0 ? (
+          <span
+            aria-label={`${count} rate${count === 1 ? "" : "s"} to type`}
+            className="mt-0.5 shrink-0 rounded-full bg-danger-soft px-1.5 text-[11px] font-semibold tabular-nums text-danger"
+          >
+            {count}
+          </span>
+        ) : done ? (
+          <Check aria-label="Priced" className="mt-0.5 size-4 shrink-0 text-[#3f7d17]" />
+        ) : null}
+      </div>
+    </button>
+  );
+
   return (
-    <div data-focus-scope className="space-y-5">
-      {/* ONE ROW (user 2026-10-23, screenshots 3691 / 3692): RE No, Item Class and Vendor
-          176 each, Type, Delivery Date, GST and Payment Terms 144 each = 1104 + 6 × 12 gap
-          = 1176px nominal. The first cut (1312px) still wrapped Payment Terms: at this
-          app's type scale a step renders ~25% wider than its nominal px, so the row is
-          sized one step down per field, not against the nominal sum. Import adds Currency
-          + Exchange Rate, which wrap — the one case that needs them.
-          ONE CAP FOR BOTH CARDS AND THE BUTTON ROW, so their edges line up. */}
-      <Card className="max-w-[84rem]">
+    <div data-focus-scope className="space-y-3">
+      {/* ONE CAP FOR THE CARD AND THE BUTTON ROW, so their edges line up. 88rem, not the
+          10-23 84rem: the RE list takes 224px off the left, and the item-wise grid
+          (1056px) must still fit beside it on a wide screen; narrower, ChildGrid stacks. */}
+      <Card className="max-w-[88rem]">
         <CardHeader>
-          <CardTitle>Purchase Order</CardTitle>
+          <div className="flex items-center gap-2">
+            <CardTitle>Purchase Order</CardTitle>
+            {/* PO NO (0745): the next number in this unit, given for real on Save under a
+                lock — a chip beside the title, not a read-only field in the row (V6). */}
+            {nextPoNo ? (
+              <span title="Given when the PO is saved" className="rounded-md border border-[#dde4eb] px-2 py-0.5 font-mono text-xs tabular-nums text-muted-foreground">
+                {nextPoNo}
+              </span>
+            ) : null}
+          </div>
           <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
             <Lock className="size-3.5" aria-hidden />
             Print opens after approval
           </span>
         </CardHeader>
         <CardBody className="space-y-3">
+          {/* ONE ROW, IMPORT INCLUDED (user 2026-10-24: "make this into single row", then
+              screenshot 3712 — Import wrapped GST and Payment Terms — answered "keep GST,
+              make all boxes smaller"). Item Class 112 · RE No 144 · Category 88 · Vendor 144
+              · Type 112 · [Import: currency + rate 144] · Delivery Date 144 · GST 112 ·
+              Payment Terms 112 = 1112 nominal (the currency box inside its 144 is 80: at 68 the
+              select's chevron room left "U…" for USD, screenshot 3713) + 8 × 12 gap. MEASURED, not assumed: a step
+              renders ×1.236 here and a gap 16px, so 1112 × 1.236 + 8 × 16 = 1502px against
+              the ~1540px the card offers at 1920 — Category at `hug` is the margin. Long
+              values truncate and show whole on hover. */}
           <FieldRow>
-            {/* PO NO (user 2026-10-23, screenshot 3699): read-only, the house series
-                HO/PO/26-27/0001 (0745). Given on Save by the database under a lock —
-                what shows here is the next number in this unit, so a PO saved by someone
-                else in between moves it on by one. */}
-            <Field label="PO No" w="code" htmlFor="rpo-no">
-              <Input
-                id="rpo-no"
-                readOnly
-                value={nextPoNo ? `${nextPoNo}` : ""}
-                title="Given when the PO is saved"
-                className="font-mono tabular-nums"
+            <Field label="Item Class" required w="range" htmlFor="rpo-class">
+              <Combobox
+                id="rpo-class"
+                required
+                options={classOptions}
+                value={classId}
+                openOnFocus={false}
+                onChange={(v) => {
+                  setDirty(true);
+                  setClassId(v);
+                  // A new class keeps only the REs that still have something of it to buy,
+                  // and its own categories — a category is never carried across classes.
+                  setOrderIds((prev) => prev.filter((id) => lines.some((l) => l.source_id === id && l.item_class_id === v)));
+                  setCategoryId("");
+                }}
               />
             </Field>
-            <Field w="term">
+            <Field w="code">
               <MultiSelect
                 label="RE / SWO / IWO No"
                 required
                 options={reOptions}
                 values={orderIds}
+                disabled={!classId}
                 // The picks read IN the trigger, so ticking a third RE never grows
                 // the row and pushes Item Class / Vendor down (screenshot 3691).
                 hideChips
@@ -678,10 +861,28 @@ export function RequirementPoForm({
                 onChange={(next) => {
                   setDirty(true);
                   setOrderIds(next);
+                  // Keep the category while the new set of REs still carries it; drop it only when it falls out.
+                  if (categoryId && !classLines.some((l) => next.includes(l.source_id) && l.category_id === categoryId))
+                    setCategoryId("");
                 }}
               />
             </Field>
-            <Field label="Vendor" required w="party" htmlFor="rpo-vendor">
+            <Field label="Category" w="hug" htmlFor="rpo-category">
+              <Combobox
+                id="rpo-category"
+                options={categoryOptions}
+                value={categoryId}
+                placeholder="All categories"
+                clearable
+                openOnFocus={false}
+                disabled={!classId || categoryOptions.length === 0}
+                onChange={(v) => {
+                  setDirty(true);
+                  setCategoryId(v);
+                }}
+              />
+            </Field>
+            <Field label="Vendor" required w="code" htmlFor="rpo-vendor">
               <Combobox
                 id="rpo-vendor"
                 options={vendorOptions}
@@ -694,7 +895,7 @@ export function RequirementPoForm({
                 }}
               />
             </Field>
-            <Field label="Type" w="code">
+            <Field label="Type" w="range">
               <ToggleGroup
                 label="PO type"
                 value={poType}
@@ -709,31 +910,36 @@ export function RequirementPoForm({
               />
             </Field>
             {poType === "import" ? (
-              <>
-                <Field label="Currency" required w="hug" htmlFor="rpo-ccy">
-                  <Select id="rpo-ccy" value={currency} onChange={(e) => setCurrency(e.target.value)}>
-                    {CURRENCIES.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-                <Field label="Exchange Rate" required w="hug" htmlFor="rpo-fx">
+              /* ONE FIELD, NOT TWO (user 2026-10-24, screenshot 3711): Currency and Exchange
+                 Rate were two boxes — the row broke and "Exchange Rate" wrapped its label onto
+                 two lines at `hug`. They are one fact, "1 USD = ₹ x", so they share a box. */
+              <Field label={`${currency} → ₹ rate`} required w="code" htmlFor="rpo-fx">
+                <div className="flex gap-1">
+                  <div className="w-[5rem] shrink-0">
+                    <Select id="rpo-ccy" aria-label="Currency" value={currency} onChange={(e) => setCurrency(e.target.value)}>
+                      {CURRENCIES.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
                   <Input
                     id="rpo-fx"
                     type="number"
                     min={0}
                     inputMode="decimal"
-                    className="text-right tabular-nums"
+                    aria-label={`Rupees for 1 ${currency}`}
+                    title={`Rupees for 1 ${currency}`}
+                    className="min-w-0 flex-1 text-right tabular-nums"
                     value={exRate}
                     onChange={(e) => {
                       setDirty(true);
                       setExRate(e.target.value);
                     }}
                   />
-                </Field>
-              </>
+                </div>
+              </Field>
             ) : null}
             {/* No hint line under it: a second line made this one field taller than its
                 row (screenshot 3691). That it fills every line is said in the grid's header. */}
@@ -751,7 +957,7 @@ export function RequirementPoForm({
                 }}
               />
             </Field>
-            <Field label="GST" required w="code" htmlFor="rpo-gst">
+            <Field label="GST" required w="range" htmlFor="rpo-gst">
               <Select id="rpo-gst" value={gst} onChange={(e) => setGst(e.target.value)}>
                 {GST_SLABS.map((g) => (
                   <option key={g.id} value={g.id}>
@@ -760,7 +966,7 @@ export function RequirementPoForm({
                 ))}
               </Select>
             </Field>
-            <Field label="Payment Terms" w="code" htmlFor="rpo-terms">
+            <Field label="Payment Terms" w="range" htmlFor="rpo-terms">
               <Input
                 id="rpo-terms"
                 value={paymentTerms}
@@ -771,180 +977,97 @@ export function RequirementPoForm({
               />
             </Field>
           </FieldRow>
-          {/* ONE SURFACE (user 2026-10-23: "can merge this also into single page … why
-              separated section"). The header fields and the RE bands are one document,
-              so they share one card; a hairline is the only thing between them. */}
+          {/* Only once an order is chosen: empty, the rule and its padding were a blank
+              band under the fields (screenshot 3710). */}
+          {orderIds.length === 0 ? null : (
           <div className="space-y-3 border-t border-[#dde4eb] pt-3">
-          {gridRows.length === 0 ? (
-            orderIds.length === 0 ? null : (
-              <p className="text-sm text-muted-foreground">Nothing left to buy on the chosen orders.</p>
-            )
-          ) : (
-            <>
-              {/* THE COSTING ▸ FABRIC PROCESSING SHAPE (user 2026-10-23, screenshot 3695; canvas V5):
-                  one band per RE — a grey row with caret, RE number, a muted second line,
-                  priced count, green amount and the budget chip — and the open band shows
-                  a white card with a blue group label over the lines. Same grid as the
-                  band header row, so the columns line up down the whole list. */}
-              <div className="flex flex-wrap items-center gap-3">
-                <ToggleGroup
-                  label="Lines"
-                  value={view}
-                  onChange={(v) => setViewPick(v)}
-                  options={[
-                    { value: "order", label: "Order-wise" },
-                    { value: "item", label: "Item-wise" },
-                  ]}
-                />
-              </div>
-              {view === "order" ? (
-              <div className="-mx-1 border-y border-[#dde4eb]">
-                {groups.map((g, gi) => {
-                  const open = fold.isOpen(g.id);
-                  return (
-                    <div key={g.id} data-rpo-group={g.id} {...fold.focusProps(g.id)}>
-                      {/* ONE LINE (user 2026-10-23): caret · RE · buyer · delivery on the left,
-                          amount and budget chip on the right — no column-header row above the
-                          bands and no second muted line, so a folded RE is a single row. */}
-                      <div
-                        className={cn(
-                          "flex min-h-10 items-center gap-3 bg-[#f5f7f9] px-3 py-1.5 hover:bg-[#eef4f9]",
-                          gi > 0 && "border-t-2 border-[#c8dce9]",
-                        )}
-                      >
-                        <button
-                          type="button"
-                          aria-expanded={open}
-                          onClick={() => fold.toggle(g.id)}
-                          className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                        >
-                          <ChevronRight
-                            aria-hidden
-                            className={cn("size-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-90")}
-                          />
-                          <span className="shrink-0 font-mono text-sm font-bold tabular-nums">{g.re}</span>
-                          <span className="truncate text-[12.5px] text-muted-foreground">
-                            {[g.customer, g.delivery ? `delivery ${fmtDate(g.delivery)}` : ""].filter(Boolean).join(" · ")}
-                          </span>
-                        </button>
-                        <span className="w-28 shrink-0 text-right font-mono text-[13.5px] font-bold tabular-nums text-[#3f7d17]">
-                          {g.subtotal > 0 ? `${cur} ${fmtFixed(g.subtotal, 2)}` : ""}
-                        </span>
-                        <span className="flex w-36 shrink-0 justify-end">
-                          {g.above > 0 ? (
-                            <StatusPill tone="danger">Above budget · {g.above}</StatusPill>
-                          ) : g.unbudgeted > 0 ? (
-                            <StatusPill tone="warning">No budget</StatusPill>
-                          ) : g.done && g.active > 0 ? (
-                            <StatusPill tone="success">
-                              <Check aria-hidden className="size-3.5" /> Priced
-                            </StatusPill>
-                          ) : (
-                            <StatusPill tone="neutral">
-                              {g.priced} of {g.active} priced
-                            </StatusPill>
-                          )}
-                        </span>
-                      </div>
-                      {open ? (
-                        /* ONE BORDER (user 2026-10-23, screenshot 3697): the list's own frame is
-                           the only one — no grey panel, no white card, and the grid `frameless`.
-                           Three nested frames read as three boxes for one table. */
-                        <div className="border-t border-[#dde4eb] bg-white px-3 py-2">
-                          {/* ONE SUB-GRID PER ITEM CLASS, a small heading over each — the class is the
-                              line's (it left the header, 2026-10-23). */}
-                          {[...new Set(g.rows.map((r) => r.item_class ?? "—"))].map((cls, ci) => {
-                            const clsRows = g.rows.filter((r) => (r.item_class ?? "—") === cls);
-                            const off = !!vendorId && !clsRows[0].supplied;
-                            return (
-                              <div key={cls} className={cn(ci > 0 && "mt-2")}>
-                                <div
-                                  className={cn(
-                                    "mb-1 flex flex-wrap items-baseline gap-2 text-[10.5px] font-bold uppercase tracking-[0.07em]",
-                                    off ? "text-muted-foreground" : "text-[#037bb8]",
-                                  )}
-                                >
-                                  {cls} · {clsRows.length}
-                                  {off ? (
-                                    <span className="font-medium normal-case tracking-normal">
-                                      {`— ${vendorName} does not supply this class; it stays for another vendor's PO`}
-                                    </span>
-                                  ) : null}
-                                </div>
-                                <div className={cn(off && "pointer-events-none opacity-50")} aria-disabled={off || undefined}>
-                                  {/* default-row: exempt -- the rows are the RE's requirement lines, derived; nothing is added here */}
-                                  <ChildGrid<GridRow>
-                                    columns={poLineColumns}
-                                    rows={clsRows}
-                                    tableFrom="5xl"
-                                    flatRows
-                                    hideAdd
-                                    hideRemove
-                                    keepOne={false}
-                                    onAdd={() => false}
-                                    onRemove={() => {}}
-                                    frameless
-                                    headerClassName={GRID_HEAD}
-                                  />
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-              ) : (
-                <div className="space-y-3">
-                  {[...new Set(itemGroups.map((g) => g.item_class ?? "—"))].map((cls, ci) => {
-                    const clsItems = itemGroups.filter((g) => (g.item_class ?? "—") === cls);
-                    const off = !!vendorId && !clsItems[0].supplied;
-                    const open = openItem && (openItem.item_class ?? "—") === cls ? openItem : null;
-                    return (
-                      <div key={cls}>
-                        <div
-                          className={cn(
-                            "mb-1 flex flex-wrap items-baseline gap-2 text-[10.5px] font-bold uppercase tracking-[0.07em]",
-                            off ? "text-muted-foreground" : "text-[#037bb8]",
-                          )}
-                        >
-                          {cls} · {clsItems.length}
-                          {off ? (
-                            <span className="font-medium normal-case tracking-normal">
-                              {`— ${vendorName} does not supply this class; it stays for another vendor's PO`}
-                            </span>
+            {gridRows.length === 0 ? (
+              (
+                <p className="text-sm text-muted-foreground">
+                  {categoryId ? "Nothing of this category left to buy on the chosen orders." : "Nothing left to buy on the chosen orders."}
+                </p>
+              )
+            ) : (
+              <>
+                <div className="overflow-hidden rounded-lg border border-[#dde4eb] md:grid md:grid-cols-[14rem_minmax(0,1fr)]">
+                  {/* THE RE LIST. Buttons, so Tab — which lands on fields only — passes
+                      over it; the mouse picks an RE, and pricing one moves to the next. */}
+                  <nav
+                    aria-label="RE / SWO / IWO numbers"
+                    className="divide-y divide-[#dde4eb] border-b border-[#dde4eb] bg-[#f5f7f9] md:border-r md:border-b-0"
+                  >
+                    {groups.map((g) =>
+                      listButton(
+                        g.id,
+                        g.id === selKey,
+                        () => setActiveKey(g.id),
+                        <>
+                          <Truncated className="font-mono text-[13px] font-bold tabular-nums">{g.re}</Truncated>
+                          {g.customer ? <Truncated className="text-xs font-semibold">{g.customer}</Truncated> : null}
+                          {/* "Ships", not "Delivery": this is the ORDER's date to the buyer, and the
+                              table's Delivery is the vendor's to us — unlabelled, the two read as one
+                              date shown twice (user 2026-10-24). */}
+                          {g.delivery ? (
+                            <div className="text-xs text-muted-foreground" title="When this order ships to the buyer — the material must arrive before it">
+                              Ships {fmtDate(g.delivery)}
+                            </div>
                           ) : null}
-                        </div>
-                        <div className={cn(off && "pointer-events-none opacity-50")} aria-disabled={off || undefined}>
-                          {/* default-row: exempt -- one row per item across the chosen orders, derived; nothing is added here */}
-                          <ChildGrid<ItemGroup>
-                            columns={itemColumns}
-                            rows={clsItems}
-                            tableFrom="5xl"
-                            flatRows
-                            hideAdd
-                            hideRemove
-                            keepOne={false}
-                            onAdd={() => false}
-                            onRemove={() => {}}
-                            frameless
-                            headerClassName={GRID_HEAD}
-                            hideHeader={ci > 0}
-                          />
-                        </div>
-                        {open ? (
-                          <div className="mt-1 border-l-2 border-[#037bb8] pl-3">
+                          {g.subtotal > 0 ? (
+                            <div className="font-mono text-xs font-semibold tabular-nums text-[#3f7d17]">
+                              {cur} {fmtFixed(g.subtotal, 2)}
+                            </div>
+                          ) : null}
+                          {budgetWarning(g) ? <div className="mt-1">{budgetWarning(g)}</div> : null}
+                        </>,
+                        g.toPrice.length,
+                        g.done,
+                      ),
+                    )}
+                    {/* ITEM-WISE: the same purchase across every chosen order is ONE line to
+                        the vendor — offered once two orders are chosen. */}
+                    {showItems
+                      ? listButton(
+                          "items",
+                          selKey === "items",
+                          () => setActiveKey("items"),
+                          <>
+                            <div className="inline-flex items-center gap-1.5 text-[13px] font-bold">
+                              <Boxes aria-hidden className="size-3.5 text-muted-foreground" />
+                              All items together
+                            </div>
+                            <div className="text-xs text-muted-foreground">One line per item, one rate</div>
+                          </>,
+                          itemsToPrice,
+                          groups.length > 0 && groups.every((g) => g.done),
+                        )
+                      : null}
+                  </nav>
+                  <div className="min-w-0 bg-white p-2">
+                    {selKey === "items" ? (
+                      <div className="space-y-2">
+                        {/* default-row: exempt -- one row per item across the chosen orders, derived; nothing is added here */}
+                        <ChildGrid<ItemGroup>
+                          columns={itemColumns}
+                          rows={itemGroups}
+                          flatRows
+                          hideAdd
+                          hideRemove
+                          keepOne={false}
+                          onAdd={() => false}
+                          onRemove={() => {}}
+                          frameless
+                          headerClassName={GRID_HEAD}
+                        />
+                        {openItem ? (
+                          <div className="border-l-2 border-[#037bb8] pl-3">
                             <div className="mb-1 text-[11.5px] font-semibold text-muted-foreground">
-                              {open.item_name}
-                              {open.spec ? ` · ${open.spec}` : ""} — {open.orders} order{open.orders === 1 ? "" : "s"}
+                              {openItem.item_name}
+                              {openItem.spec ? ` · ${openItem.spec}` : ""} — {openItem.orders} order{openItem.orders === 1 ? "" : "s"}
                             </div>
                             {/* default-row: exempt -- the item's order lines, derived; nothing is added here */}
                             <ChildGrid<GridRow>
                               columns={breakupColumns}
-                              rows={open.members}
-                              tableFrom="5xl"
+                              rows={openItem.members}
                               flatRows
                               hideAdd
                               hideRemove
@@ -957,25 +1080,51 @@ export function RequirementPoForm({
                           </div>
                         ) : null}
                       </div>
-                    );
-                  })}
+                    ) : activeGroup ? (
+                      rePane(activeGroup)
+                    ) : null}
+                  </div>
                 </div>
-              )}
-              <div className="flex flex-wrap justify-end gap-x-6 gap-y-1 text-sm tabular-nums">
-                <span className="text-muted-foreground">Taxable {cur} {fmtFixed(totals.taxable, 2)}</span>
-                <span className="text-muted-foreground">{slab.kind === "igst" ? "IGST" : "CGST + SGST"} {cur} {fmtFixed(totals.gst, 2)}</span>
-                <span className="font-semibold">Total {cur} {fmtFixed(totals.total, 2)}</span>
-              </div>
-            </>
-          )}
+              </>
+            )}
           </div>
+          )}
         </CardBody>
       </Card>
 
-      <div className="flex max-w-[84rem] flex-wrap items-center justify-end gap-2" data-focus-region="footer">
-        <span className="mr-auto text-sm text-muted-foreground">
-          {hint}
-        </span>
+      {/* THE BOTTOM BAR (V6): the total, why Submit waits, a way to the next blank rate,
+          and the buttons — kept in view while the lines scroll.
+          ON THE BOTTOM EDGE, NOT ABOVE IT (user 2026-10-24, screenshot 3713: "floating").
+          A sticky box stops at its scroll container's PADDING edge, and `<main>` has
+          `md:pb-6` — so `bottom-0` hung 24px up with lines scrolling through the gap.
+          `md:-bottom-6` cancels exactly that padding. Phone keeps `bottom-0`: there the
+          padding is the bottom tab bar's room, and the bar must sit above it. */}
+      <div
+        className="sticky bottom-0 z-10 flex max-w-[88rem] flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-[#dde4eb] bg-white px-4 py-2 shadow-[0_-4px_12px_rgba(15,27,38,0.08)] md:-bottom-6 md:rounded-b-none md:border-b-0"
+        data-focus-region="footer"
+      >
+        <div className="flex flex-col leading-tight tabular-nums">
+          <span className="text-xs text-muted-foreground">
+            Taxable {cur} {fmtFixed(totals.taxable, 2)} · {slab.kind === "igst" ? "IGST" : "CGST + SGST"} {cur} {fmtFixed(totals.gst, 2)}
+          </span>
+          <span className="text-base font-bold">
+            Total {cur} {fmtFixed(totals.total, 2)}
+          </span>
+        </div>
+        <span className={cn("min-w-0 flex-1 text-[13px] font-semibold", hintTone)}>{hint}</span>
+        {unpriced > 0 && groups.some((g) => g.toPrice.length > 0) ? (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              const g = groups.find((x) => x.toPrice.length > 0);
+              if (g) openRe(g);
+            }}
+          >
+            Go to next blank rate
+            <ArrowRight aria-hidden className="size-4" />
+          </Button>
+        ) : null}
         <Button type="button" variant="ghost" onClick={() => router.push("/purchase/orders")}>
           Cancel
         </Button>

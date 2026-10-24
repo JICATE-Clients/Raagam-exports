@@ -31,6 +31,9 @@ export type RequirementLine = {
   item_name: string;
   item_class_id: string | null;
   item_class: string | null;
+  /** The item master's category (0748) — the PO header's Category narrows to it. */
+  category_id: string | null;
+  category: string | null;
   slice_label: string;
   colour: string | null;
   /** item | slice | colour, upper-cased — what a PO line remembers it by. */
