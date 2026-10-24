@@ -4,6 +4,8 @@ import { sweepSla } from "@/lib/approvals/sla";
 import { sweepWorkFlow } from "@/lib/orders/work-flow/sweep";
 import { sweepOrderRisk } from "@/lib/orders/progress/sweep";
 import { sweepApprovalLinks } from "@/lib/ta/approval-links-sweep";
+import { drainOutbox } from "@/lib/resolve/outbox";
+import { sweepResolveEscalation } from "@/lib/resolve/escalation";
 import type { JobKey } from "./registry";
 
 /**
@@ -38,4 +40,6 @@ export const JOB_SWEEPS: Record<JobKey, () => Promise<{ error?: string } & Recor
   "order-risk": sweepOrderRisk,
   "approval-links": sweepApprovalLinks,
   housekeeping: purgeOldNotifications,
+  "resolve-escalation": sweepResolveEscalation,
+  "resolve-outbox": () => drainOutbox({ limit: 200 }),
 };

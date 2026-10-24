@@ -26,6 +26,10 @@ export const MODULES = [
      not a denial. The shim (0500) maps the engine's dotted keys onto this pair
      with an explicit CASE, so a key it does not know DENIES. */
   "approvals",
+  /* Resolve Hub (broken-item tickets). Five keys, mapped from the spec's
+     view/work/triage/analytics/admin in lib/resolve/permissions.ts (`RH`) —
+     the only place that mapping is spelled. */
+  "resolve",
   /* Communication Hub (0737). Governs CHANNEL administration only — creating,
      managing and moderating channels. Direct messages and groups need no
      permission: like the approvals queue, every active login has them, and
@@ -64,6 +68,7 @@ export const MODULE_LABELS: Record<Module, string> = {
   integration: "System Integration",
   reports: "Reports & Analytics",
   approvals: "Approvals",
+  resolve: "Resolve Hub",
   communication: "Communication Hub",
 };
 
@@ -85,6 +90,7 @@ export const ACTIVE_MODULES: Module[] = [
   "masters",
   "system_admin",
   "approvals",
+  "resolve",
   "communication",
 ];
 

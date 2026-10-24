@@ -21,6 +21,19 @@ import {
   UserMinus,
   Wallet,
   Gavel,
+  TriangleAlert,
+  ClipboardList,
+  Wrench,
+  ListOrdered,
+  ListChecks,
+  Users,
+  Hammer,
+  QrCode,
+  Route,
+  MessageSquareWarning,
+  MessagesSquare,
+  ScanSearch,
+  ShieldAlert,
 } from "lucide-react";
 import type { HubMark } from "@/components/masters/hub-icons";
 
@@ -98,6 +111,23 @@ export const GROUP_HUB_ICONS: Readonly<Record<string, HubMark>> = {
   // Compliance & Setup
   "/hr/statutory": { icon: FileCheck, tone: "danger" },
   "/hr/settings": { icon: Settings, tone: "primary" },
+
+  // Resolve Hub — Reporting · Work · Administration
+  "/resolve/report": { icon: TriangleAlert, tone: "danger" },
+  "/resolve/my-reports": { icon: ClipboardList, tone: "info" },
+  "/resolve/my-work": { icon: Wrench, tone: "primary" },
+  "/resolve/triage": { icon: ListOrdered, tone: "warning" },
+  "/resolve/jobs": { icon: ListChecks, tone: "info" },
+  "/resolve/workload": { icon: Users, tone: "accent" },
+  "/resolve/setup/trades": { icon: Hammer, tone: "primary" },
+  "/resolve/setup/places": { icon: QrCode, tone: "info" },
+  "/resolve/setup/teams": { icon: Users, tone: "accent" },
+  "/resolve/setup/routing": { icon: Route, tone: "warning" },
+  "/resolve/my-complaints": { icon: MessageSquareWarning, tone: "warning" },
+  "/resolve/track": { icon: ScanSearch, tone: "accent" },
+  "/resolve/complaints": { icon: MessagesSquare, tone: "warning" },
+  "/resolve/setup/complaint-categories": { icon: ShieldAlert, tone: "danger" },
+  "/resolve/setup/unit-settings": { icon: Settings, tone: "primary" },
 };
 
 /** The mark for an href, or `undefined` so the card keeps its own defaults. */
