@@ -24,7 +24,7 @@ export default async function RequirementPoPage() {
     <div className="space-y-4">
       <PageHeader
         title="PO from Requirement"
-        description="Choose the RE numbers; what their requirement sheets still need lists itself. Type the rate."
+        description="Choose the item class and RE numbers; each RE opens from the left with what it still needs. Type the rate."
       />
       <RequirementPoForm lines={lines} vendorsByClass={vendorsByClass} nextPoNo={nextPoNo} />
     </div>

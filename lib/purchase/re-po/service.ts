@@ -36,6 +36,8 @@ export async function getRequirementLines(sourceIds?: readonly string[]): Promis
     item_name: String(r.item_name ?? ""),
     item_class_id: (r.item_class_id as string | null) ?? null,
     item_class: (r.item_class as string | null) ?? null,
+    category_id: (r.category_id as string | null) ?? null,
+    category: (r.category as string | null) ?? null,
     slice_label: String(r.slice_label ?? ""),
     colour: (r.colour as string | null) ?? null,
     req_key: String(r.req_key),
