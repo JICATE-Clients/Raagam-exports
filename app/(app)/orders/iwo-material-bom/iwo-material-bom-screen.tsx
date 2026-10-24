@@ -432,7 +432,13 @@ export function IwoMaterialBomScreen({
     swo: sharedPrefix(listed.map((t) => t.swo?.code ?? t.code)),
     smp: sharedPrefix(listed.flatMap((t) => t.swo?.smp_nos ?? [])),
     year: sharedValue(listed.map((t) => t.deli_date?.slice(0, 4))),
+    /** The approval every card in the tab shares — then the tab says it, not each card. */
+    state: listed.length > 1 ? sharedValue(listed.map((t) => planStateWord(t))) : null,
   };
+  /** A saved plan's approval word ("Approved · Rev 2"); null while it has none or is a Draft. */
+  function planStateWord(t: IwoMaterialBomTask) {
+    return !t.bom || t.bom.is_draft ? null : planApprovalLabel(t.bom.approval_status, t.bom.revision_no);
+  }
   const stripPrefix = (v: string | null | undefined, prefix: string) => (v && prefix && v.startsWith(prefix) ? v.slice(prefix.length) : v);
   const picked = form.iwo_id ? (taskById.get(form.iwo_id) ?? null) : null;
   const materialById = useMemo(() => new Map(data.materials.map((m) => [m.id, m])), [data.materials]);
@@ -1717,12 +1723,15 @@ export function IwoMaterialBomScreen({
             table={{ title: "SWO No", subtitle: "SMP No" }}
             /* THE COSTING CARD (user 2026-10-23: "accessories plan la irukka cards um
                costing la irukka mari venum") — `GlowRecordCard`, the body Costing's
-               card is drawn from: the SWO number in its chip, the SMP numbers beside
-               the initials, the plan's state as the sub-line (said once, in words —
-               no corner mark), the figures with no label row, and the actions as
-               one spread row of duotone tiles. A greyed tile says why. */
+               card is drawn from: the SWO number in its chip, the BUYER beside its
+               initials and the SMP numbers under it (user 2026-10-23, screenshot
+               150625 — Costing's own order), the plan's approval after them once
+               it is past Draft (the tab already says Pending / Draft), the figures
+               with no label row, and the actions as one spread row of duotone
+               tiles. A greyed tile says why. */
             renderCard={(t) => {
-              const stateWord = !t.bom ? "Not started" : t.bom.is_draft ? "Draft" : planApprovalLabel(t.bom.approval_status, t.bom.revision_no);
+              const stateWord = cardShared.state ? null : planStateWord(t);
+              const smps = (t.swo?.smp_nos ?? []).map((n) => stripPrefix(n, cardShared.smp)).join(" · ");
               const deli = t.deli_date ? (cardShared.year ? fmtDate(t.deli_date).slice(0, 5) : fmtDate(t.deli_date)) : "—";
               const deleteWhy = !t.bom
                 ? "Not planned yet — nothing to delete"
@@ -1734,12 +1743,12 @@ export function IwoMaterialBomScreen({
               return (
                 <GlowRecordCard
                   code={stripPrefix(t.swo?.code ?? t.code, cardShared.swo) ?? "—"}
-                  title={(t.swo?.smp_nos ?? []).map((n) => stripPrefix(n, cardShared.smp)).join(" · ") || "—"}
-                  hue={t.swo?.code ?? t.code}
-                  sub={stateWord}
+                  title={t.swo?.buyer ?? null}
+                  sub={[smps, stateWord].filter(Boolean).join(" · ") || "—"}
                   start={!t.bom && perms.canCreate ? "Start plan" : undefined}
                   figures={[
-                    ...(t.bom ? [{ label: "Trims", value: `${t.bom.iwo_material_bom_items.length} trims` }] : []),
+                    { label: "Trims", value: t.bom ? String(t.bom.iwo_material_bom_items.length) : "—" },
+                    { label: "Samples", value: String(t.swo?.smp_nos.length ?? 0) },
                     { label: "Delivery date", value: deli },
                   ]}
                   onOpen={t.bom || perms.canCreate ? () => openTask(t) : undefined}

@@ -26,6 +26,11 @@ export const MODULES = [
      not a denial. The shim (0500) maps the engine's dotted keys onto this pair
      with an explicit CASE, so a key it does not know DENIES. */
   "approvals",
+  /* Communication Hub (0737). Governs CHANNEL administration only — creating,
+     managing and moderating channels. Direct messages and groups need no
+     permission: like the approvals queue, every active login has them, and
+     what each person reads is decided by membership in the database. */
+  "communication",
 ] as const;
 export type Module = (typeof MODULES)[number];
 
@@ -59,6 +64,7 @@ export const MODULE_LABELS: Record<Module, string> = {
   integration: "System Integration",
   reports: "Reports & Analytics",
   approvals: "Approvals",
+  communication: "Communication Hub",
 };
 
 /** Modules actually shipped in this build pass (drive the nav). */
@@ -79,6 +85,7 @@ export const ACTIVE_MODULES: Module[] = [
   "masters",
   "system_admin",
   "approvals",
+  "communication",
 ];
 
 /**

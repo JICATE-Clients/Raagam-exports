@@ -185,6 +185,9 @@ import {
   type FabricPlanRevision,
 } from "@/lib/orders/iwo-fabric-bom/approval-actions";
 import { SampleCards, type SampleCardState } from "@/components/sales/sample-queue";
+import { GlowRecordCard, sharedPrefix, sharedValue } from "@/app/(app)/sales/sample-costing/costing-card";
+import { CardAction, CardDeleteAction, DUO } from "@/components/ui/card-action";
+import { GLOW_RULE } from "@/lib/ui/buyer-glow";
 import {
   addPlanDia,
   addPlanRow,
@@ -684,6 +687,22 @@ export function IwoFabricBomScreen({
   const viewMode = useViewMode("iwo-fabric-bom", quick.value === "updated" ? "list" : "cards");
   const qm = quick.matches;
   const listed = useMemo(() => base.filter(qm), [base, qm]);
+  /* THE COSTING CARD'S "EACH WORD ONCE" (user 2026-10-23, screenshot 150625:
+     fabric plan cards like Costing's): the SWO / SMP series prefix and the
+     delivery year every card in the pile shares are left off the card. A plain
+     pass — cheap, no memo. */
+  const cardShared = {
+    swo: sharedPrefix(listed.map((t) => t.swo?.code ?? t.code)),
+    smp: sharedPrefix(listed.flatMap((t) => (t.swo?.samples ?? []).map((x) => x.smp_no ?? x.sample_no))),
+    year: sharedValue(listed.map((t) => t.deli_date?.slice(0, 4))),
+    /** The approval every card in the tab shares — then the tab says it, not each card. */
+    state: listed.length > 1 ? sharedValue(listed.map((t) => planStateWord(t))) : null,
+  };
+  /** A saved plan's approval word ("Approved · Rev 2"); null while it has none or is a Draft. */
+  function planStateWord(t: IwoFabricBomTask) {
+    return !t.bom || t.bom.is_draft ? null : fabricPlanApprovalLabel(t.bom.approval_status, t.bom.revision_no);
+  }
+  const stripPrefix = (v: string | null | undefined, prefix: string) => (v && prefix && v.startsWith(prefix) ? v.slice(prefix.length) : v);
   const picked = form.iwo_id ? (taskById.get(form.iwo_id) ?? null) : null;
   /** THE SWO THIS WORK ORDER WAS RAISED FOR (0707; client spec "Grouping &
    *  SWO", 2026-10-12) — null on a production IWO. Its number stands where
@@ -3582,7 +3601,72 @@ export function IwoFabricBomScreen({
             // Updated is done work — a table, as Orders draws it; Pending and
             // Draft stay cards (user 2026-10-13).
             table={{ title: "SWO No", subtitle: "SMP No" }}
-        view={viewMode.view}
+            /* THE COSTING CARD (user 2026-10-23, screenshot 150625: "intha mari
+               … fabric plan layum") — `GlowRecordCard`, as Sample ▸ Accessories
+               Plan draws it: the SWO number in its chip, the buyer beside its
+               initials, the SMP numbers under it with the plan's approval once it
+               is past Draft, the figures with no label row (fabric kg first, the
+               plan's Req Wt once it has one, else what the SWO batched), and the
+               actions as one spread row of duotone tiles. A greyed tile says why. */
+            renderCard={(t) => {
+              const stateWord = cardShared.state ? null : planStateWord(t);
+              const samples = t.swo?.samples ?? [];
+              const smps = samples.map((x) => stripPrefix(x.smp_no ?? x.sample_no, cardShared.smp)).filter(Boolean).join(" · ");
+              const planned = (t.bom?.iwo_fabric_bom_lines ?? []).reduce((a, l) => a + (Number(l.req_kgs) || 0), 0);
+              const batched = samples.reduce((a, x) => a + x.kg, 0);
+              const kg = (planned > 0 ? planned : batched).toLocaleString("en-IN", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+              const deli = t.deli_date ? (cardShared.year ? fmtDate(t.deli_date).slice(0, 5) : fmtDate(t.deli_date)) : "—";
+              const deleteWhy = !t.bom
+                ? "Not planned yet — nothing to delete"
+                : t.bom.approval_status === "submitted"
+                  ? "With the approver — it cannot be deleted"
+                  : t.bom.approval_status === "approved"
+                    ? "Approved — it cannot be deleted"
+                    : null;
+              return (
+                <GlowRecordCard
+                  code={stripPrefix(t.swo?.code ?? t.code, cardShared.swo) ?? "—"}
+                  title={t.swo?.buyer ?? null}
+                  sub={[smps, stateWord].filter(Boolean).join(" · ") || "—"}
+                  start={!t.bom && perms.canCreate ? "Start plan" : undefined}
+                  figures={[
+                    { label: "Fabric kg", value: kg },
+                    { label: "Samples", value: String(samples.length) },
+                    { label: "Delivery date", value: deli },
+                  ]}
+                  onOpen={t.bom || perms.canCreate ? () => openTask(t) : undefined}
+                  footer={
+                    <div className={cn("mx-3 flex min-h-10 items-center justify-between gap-1 py-1", GLOW_RULE)}>
+                      <CardAction
+                        label="Reports"
+                        tone="violet"
+                        icon={DUO.doc}
+                        reason={!t.bom || t.bom.is_draft ? "Nothing to report on yet — save the plan first" : null}
+                        onClick={() => t.bom && router.push(planReportHref("fabric", t.bom.id))}
+                      />
+                      <CardAction
+                        label="Send for approval"
+                        tone="primary"
+                        icon={DUO.send}
+                        reason={
+                          canSendPlan(t)
+                            ? null
+                            : !t.bom || t.bom.is_draft
+                              ? "Save the plan first"
+                              : !perms.canEdit
+                                ? "Needs the edit permission"
+                                : "Already with the approver, or approved"
+                        }
+                        disabled={isPending}
+                        onClick={() => sendPlan(t)}
+                      />
+                      {perms.canDelete ? <CardDeleteAction reason={deleteWhy} isPending={isPending} onConfirm={() => del(t)} /> : null}
+                    </div>
+                  }
+                />
+              );
+            }}
+            view={viewMode.view}
             empty={
               !tasks.length
                 ? "No sample work orders For Yarn or Fabric at this unit yet — + New Fabric Plan raises one."
