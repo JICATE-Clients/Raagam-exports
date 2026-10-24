@@ -14,6 +14,7 @@ import {
   CheckCheck,
   Database,
   Shield,
+  LifeBuoy,
   type LucideIcon,
 } from "lucide-react";
 import type { Module } from "@/lib/auth/types";
@@ -179,6 +180,13 @@ export const NAV: NavItem[] = [
     module: "approvals",
     icon: CheckCheck,
     children: [{ href: "/approvals/flows", label: "Approval Flows" }],
+  },
+  {
+    href: "/resolve",
+    label: "Resolve Hub",
+    module: "resolve",
+    icon: LifeBuoy,
+    children: moduleNavChildren("/resolve"),
   },
   {
     href: "/masters",

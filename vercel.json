@@ -21,6 +21,14 @@
     {
       "path": "/api/cron/housekeeping",
       "schedule": "30 21 * * *"
+    },
+    {
+      "path": "/api/cron/resolve-escalation",
+      "schedule": "30 2 * * *"
+    },
+    {
+      "path": "/api/cron/resolve-outbox",
+      "schedule": "*/5 * * * *"
     }
   ]
 }
