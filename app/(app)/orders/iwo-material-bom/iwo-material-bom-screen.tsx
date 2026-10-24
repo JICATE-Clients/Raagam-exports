@@ -57,6 +57,9 @@ import { loadSwoCostingTrims, type SwoSampleTrims } from "@/lib/orders/iwo-mater
 import { createdMeta, hasCreatedInfo, withCreatedColumns } from "@/components/ui/created-columns";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { SampleCards, type SampleCardState } from "@/components/sales/sample-queue";
+import { GlowRecordCard, sharedPrefix, sharedValue } from "@/app/(app)/sales/sample-costing/costing-card";
+import { CardAction, CardDeleteAction, DUO } from "@/components/ui/card-action";
+import { GLOW_RULE } from "@/lib/ui/buyer-glow";
 import { QUICK_WORDS_4, useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
 import {
   createdByFacet,
@@ -422,6 +425,21 @@ export function IwoMaterialBomScreen({
   const viewMode = useViewMode("iwo-material-bom", quick.value === "updated" ? "list" : "cards");
   const qm = quick.matches;
   const listed = useMemo(() => base.filter(qm), [base, qm]);
+  /* THE COSTING CARD'S "EACH WORD ONCE" (user 2026-10-23: accessories cards like
+     Costing's): the SWO / SMP series prefix and the delivery year every card in
+     the pile shares are left off the card. A plain pass — cheap, no memo. */
+  const cardShared = {
+    swo: sharedPrefix(listed.map((t) => t.swo?.code ?? t.code)),
+    smp: sharedPrefix(listed.flatMap((t) => t.swo?.smp_nos ?? [])),
+    year: sharedValue(listed.map((t) => t.deli_date?.slice(0, 4))),
+    /** The approval every card in the tab shares — then the tab says it, not each card. */
+    state: listed.length > 1 ? sharedValue(listed.map((t) => planStateWord(t))) : null,
+  };
+  /** A saved plan's approval word ("Approved · Rev 2"); null while it has none or is a Draft. */
+  function planStateWord(t: IwoMaterialBomTask) {
+    return !t.bom || t.bom.is_draft ? null : planApprovalLabel(t.bom.approval_status, t.bom.revision_no);
+  }
+  const stripPrefix = (v: string | null | undefined, prefix: string) => (v && prefix && v.startsWith(prefix) ? v.slice(prefix.length) : v);
   const picked = form.iwo_id ? (taskById.get(form.iwo_id) ?? null) : null;
   const materialById = useMemo(() => new Map(data.materials.map((m) => [m.id, m])), [data.materials]);
   const uomById = useMemo(() => new Map(data.uoms.map((u) => [u.id, u])), [data.uoms]);
@@ -1703,6 +1721,68 @@ export function IwoMaterialBomScreen({
             // Updated is done work — a table, as Orders draws it; Pending and
             // Draft stay cards (user 2026-10-13).
             table={{ title: "SWO No", subtitle: "SMP No" }}
+            /* THE COSTING CARD (user 2026-10-23: "accessories plan la irukka cards um
+               costing la irukka mari venum") — `GlowRecordCard`, the body Costing's
+               card is drawn from: the SWO number in its chip, the BUYER beside its
+               initials and the SMP numbers under it (user 2026-10-23, screenshot
+               150625 — Costing's own order), the plan's approval after them once
+               it is past Draft (the tab already says Pending / Draft), the figures
+               with no label row, and the actions as one spread row of duotone
+               tiles. A greyed tile says why. */
+            renderCard={(t) => {
+              const stateWord = cardShared.state ? null : planStateWord(t);
+              const smps = (t.swo?.smp_nos ?? []).map((n) => stripPrefix(n, cardShared.smp)).join(" · ");
+              const deli = t.deli_date ? (cardShared.year ? fmtDate(t.deli_date).slice(0, 5) : fmtDate(t.deli_date)) : "—";
+              const deleteWhy = !t.bom
+                ? "Not planned yet — nothing to delete"
+                : t.bom.approval_status === "submitted"
+                  ? "With the approver — it cannot be deleted"
+                  : t.bom.approval_status === "approved"
+                    ? "Approved — it cannot be deleted"
+                    : null;
+              return (
+                <GlowRecordCard
+                  code={stripPrefix(t.swo?.code ?? t.code, cardShared.swo) ?? "—"}
+                  title={t.swo?.buyer ?? null}
+                  sub={[smps, stateWord].filter(Boolean).join(" · ") || "—"}
+                  start={!t.bom && perms.canCreate ? "Start plan" : undefined}
+                  figures={[
+                    { label: "Trims", value: t.bom ? String(t.bom.iwo_material_bom_items.length) : "—" },
+                    { label: "Samples", value: String(t.swo?.smp_nos.length ?? 0) },
+                    { label: "Delivery date", value: deli },
+                  ]}
+                  onOpen={t.bom || perms.canCreate ? () => openTask(t) : undefined}
+                  footer={
+                    <div className={cn("mx-3 flex min-h-10 items-center justify-between gap-1 py-1", GLOW_RULE)}>
+                      <CardAction
+                        label="Reports"
+                        tone="violet"
+                        icon={DUO.doc}
+                        reason={!t.bom || t.bom.is_draft ? "Nothing to report on yet — save the plan first" : null}
+                        onClick={() => t.bom && router.push(planReportHref("accessories", t.bom.id))}
+                      />
+                      <CardAction
+                        label="Send for approval"
+                        tone="primary"
+                        icon={DUO.send}
+                        reason={
+                          canSendPlan(t)
+                            ? null
+                            : !t.bom || t.bom.is_draft
+                              ? "Save the plan first"
+                              : !perms.canEdit
+                                ? "Needs the edit permission"
+                                : "Already with the approver, or approved"
+                        }
+                        disabled={isPending}
+                        onClick={() => sendPlan(t)}
+                      />
+                      {perms.canDelete ? <CardDeleteAction reason={deleteWhy} isPending={isPending} onConfirm={() => del(t)} /> : null}
+                    </div>
+                  }
+                />
+              );
+            }}
         view={viewMode.view}
             empty={
               !tasks.length

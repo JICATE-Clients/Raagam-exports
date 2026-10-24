@@ -30,6 +30,11 @@ export const MODULES = [
      view/work/triage/analytics/admin in lib/resolve/permissions.ts (`RH`) —
      the only place that mapping is spelled. */
   "resolve",
+  /* Communication Hub (0737). Governs CHANNEL administration only — creating,
+     managing and moderating channels. Direct messages and groups need no
+     permission: like the approvals queue, every active login has them, and
+     what each person reads is decided by membership in the database. */
+  "communication",
 ] as const;
 export type Module = (typeof MODULES)[number];
 
@@ -64,6 +69,7 @@ export const MODULE_LABELS: Record<Module, string> = {
   reports: "Reports & Analytics",
   approvals: "Approvals",
   resolve: "Resolve Hub",
+  communication: "Communication Hub",
 };
 
 /** Modules actually shipped in this build pass (drive the nav). */
@@ -85,6 +91,7 @@ export const ACTIVE_MODULES: Module[] = [
   "system_admin",
   "approvals",
   "resolve",
+  "communication",
 ];
 
 /**

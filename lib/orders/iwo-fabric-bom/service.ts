@@ -76,7 +76,9 @@ export type IwoSwoSample = {
    *  fills an empty Structure when there is exactly one. */
   structure_ids: string[];
 };
-export type IwoSwo = { id: string; code: string; samples: IwoSwoSample[] };
+/** `buyer` — the buyer(s) its samples were entered for, for the card queue
+ *  (2026-10-23); distinct names joined when an SWO batches two buyers. */
+export type IwoSwo = { id: string; code: string; samples: IwoSwoSample[]; buyer: string | null };
 
 /** `sampleOnly` — Sample ▸ Fabric Plan lists only the work orders the
  *  Sample module raised (0704); the Orders route lists every one, samples
@@ -171,7 +173,7 @@ async function swosOf(s: Db, iwoIds: string[]): Promise<Map<string, IwoSwo>> {
     .select(
       "id, group_code, iwo_id, " +
         "items:sample_group_items(style_id, fabric_structure_id, calculated_weight_kg, created_at, " +
-        "style:styles!style_id(sample_no, name), opp:opportunities!sample_entry_id(code))",
+        "style:styles!style_id(sample_no, name), opp:opportunities!sample_entry_id(code, customer:customers!customer_id(name)))",
     )
     .in("iwo_id", iwoIds);
   if (error) throw new Error(`IWO Fabric Plan: could not read the SWOs: ${error.message}`);
@@ -188,15 +190,18 @@ async function swosOf(s: Db, iwoIds: string[]): Promise<Map<string, IwoSwo>> {
           calculated_weight_kg: number | string | null;
           created_at: string;
           style: One<{ sample_no: string | null; name: string | null }>;
-          opp: One<{ code: string | null }>;
+          opp: One<{ code: string | null; customer: One<{ name: string | null }> }>;
         }[]
       | null;
   };
   for (const g of (data ?? []) as unknown as Row[]) {
     // A style batched in two fabrics is two items of one SWO — one SMP pick.
     const seen = new Map<string, IwoSwoSample>();
+    const buyers = new Set<string>();
     for (const it of [...(g.items ?? [])].sort((a, b) => a.created_at.localeCompare(b.created_at))) {
       const kg = Number(it.calculated_weight_kg ?? 0) || 0;
+      const buyer = one(one(it.opp)?.customer ?? null)?.name;
+      if (buyer) buyers.add(buyer);
       const held = seen.get(it.style_id);
       if (held) {
         held.kg = Math.round((held.kg + kg) * 1000) / 1000;
@@ -213,7 +218,7 @@ async function swosOf(s: Db, iwoIds: string[]): Promise<Map<string, IwoSwo>> {
         structure_ids: it.fabric_structure_id ? [it.fabric_structure_id] : [],
       });
     }
-    out.set(g.iwo_id, { id: g.id, code: g.group_code, samples: [...seen.values()] });
+    out.set(g.iwo_id, { id: g.id, code: g.group_code, samples: [...seen.values()], buyer: buyers.size ? [...buyers].join(" · ") : null });
   }
   return out;
 }

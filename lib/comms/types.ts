@@ -1,0 +1,382 @@
+import { z } from "zod";
+
+// ============================================================================
+// Communication Hub — shared vocabulary (0737, doc/slack.md/slack).
+//
+// Direct messages, groups and channels between ERP LOGINS (`profiles.id`).
+// Every write is a SECURITY DEFINER RPC that takes the actor from the session;
+// nothing in this file names a sender, and nothing a browser sends could.
+//
+// Pure: no server import, so the screens, the server actions and
+// scripts/check-comms.mts all read the same rules.
+// ============================================================================
+
+export const CONVERSATION_KINDS = ["direct", "group", "channel"] as const;
+export type ConversationKind = (typeof CONVERSATION_KINDS)[number];
+
+export const VISIBILITIES = ["public", "private"] as const;
+export type Visibility = (typeof VISIBILITIES)[number];
+
+export const MEMBER_ROLES = ["owner", "admin", "member"] as const;
+export type MemberRole = (typeof MEMBER_ROLES)[number];
+
+/** The private bucket 0737 creates. Never `order-community-files` (0458's). */
+export const COMM_BUCKET = "comm-files";
+
+/** Mirrors `chk_comm_msg_body_len` and the send RPC. */
+export const MESSAGE_MAX = 8000;
+/** Mirrors the bucket's `file_size_limit` and `comm_attachments.size_bytes`. */
+export const ATTACHMENT_MAX_BYTES = 20 * 1024 * 1024;
+export const ATTACHMENTS_PER_MESSAGE = 10;
+export const MESSAGE_PAGE = 40;
+
+/**
+ * The bucket's allowlist — the SAME list as `comm_allowed_mime()` and the
+ * bucket row in 0737. scripts/check-comms.mts reads the migration and fails if
+ * the three ever disagree: a type the browser accepts and the bucket refuses is
+ * an upload that dies after the operator picked the file.
+ */
+export const ALLOWED_MIME = [
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+  "application/pdf",
+  "text/plain",
+  "text/csv",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+] as const;
+
+// ---------------------------------------------------------------------------
+// Rows, as the services hand them to a screen
+// ---------------------------------------------------------------------------
+
+export interface ConversationSummary {
+  id: string;
+  kind: ConversationKind;
+  name: string | null;
+  topic: string | null;
+  visibility: Visibility;
+  department_id: string | null;
+  department_name: string | null;
+  is_archived: boolean;
+  last_message_at: string | null;
+  created_at: string;
+  my_role: MemberRole;
+  muted: boolean;
+  last_read_at: string | null;
+  unread_count: number;
+  mention_count: number;
+  /** Direct only: the other person. */
+  other_user_id: string | null;
+  member_count: number;
+  /** What the list prints: channel name, group name, or the other person. */
+  title: string;
+}
+
+/** A channel the caller may see in the browser, joined or not. */
+export interface ChannelListing {
+  id: string;
+  name: string;
+  topic: string | null;
+  visibility: Visibility;
+  department_name: string | null;
+  is_archived: boolean;
+  is_member: boolean;
+}
+
+export interface CommMember {
+  user_id: string;
+  role: MemberRole;
+  joined_at: string;
+  removed_at: string | null;
+  /** Through `creator_names()`, never an embed — `profiles_read_own` (0001). */
+  full_name: string | null;
+}
+
+export interface ConversationDetail {
+  id: string;
+  kind: ConversationKind;
+  name: string | null;
+  topic: string | null;
+  visibility: Visibility;
+  department_id: string | null;
+  department_name: string | null;
+  is_archived: boolean;
+  created_at: string;
+  title: string;
+  members: CommMember[];
+  /** The caller's own row; null when reading a public channel unjoined. */
+  me: { role: MemberRole; muted: boolean; last_read_at: string | null; active: boolean } | null;
+  /** Server-resolved: may rename, archive, add and remove (comm_can_manage). */
+  can_manage: boolean;
+}
+
+export interface CommAttachment {
+  id: string;
+  file_name: string;
+  /** Key within the PRIVATE comm-files bucket. Never a URL. */
+  storage_path: string;
+  mime_type: string;
+  size_bytes: number;
+}
+
+export interface CommReaction {
+  emoji: string;
+  count: number;
+  mine: boolean;
+}
+
+export interface CommMessage {
+  id: string;
+  conversation_id: string;
+  author_id: string | null;
+  author_name: string | null;
+  kind: "message" | "system";
+  body: string | null;
+  parent_id: string | null;
+  reply_count: number;
+  last_reply_at: string | null;
+  edited_at: string | null;
+  deleted_at: string | null;
+  created_at: string;
+  pinned: boolean;
+  saved: boolean;
+  attachments: CommAttachment[];
+  reactions: CommReaction[];
+}
+
+export interface MessagePage {
+  /** Oldest first — a conversation is read downwards. */
+  messages: CommMessage[];
+  /** Pass back as `before` to load the page above; null at the start. */
+  next_cursor: string | null;
+}
+
+export interface DirectoryPerson {
+  id: string;
+  full_name: string;
+  employee_code: string | null;
+  designation: string | null;
+  department: string | null;
+}
+
+export interface MessageHit {
+  message: CommMessage;
+  conversation_title: string;
+}
+
+/** What `sendMessage` answers. `created: false` = a retry of a send that already landed. */
+export type SendResult =
+  | { ok: true; id: string; created_at: string; created: boolean }
+  | { ok: false; error: string };
+
+// ---------------------------------------------------------------------------
+// Inputs
+// ---------------------------------------------------------------------------
+//
+// ## caps-input: exempt -- a chat message is prose, not a stored value
+//
+// AGENTS.md makes CAPITALS the default and withdrew the `<Textarea>`
+// exemption, so this is said rather than assumed. It is the same carve-out
+// lib/orders/community/types.ts already records for the order channel: a
+// message is read by a person and matched by nothing — no picker resolves it,
+// no duplicate check compares it, no import writes it.
+//
+// FLAGGED, NOT DECIDED (open question in the phase-1 plan): capitals is the
+// client's standing rule and this is a new surface. If they want it, the change
+// is a transform on `body` here AND dropping `uppercase={false}` on the
+// composer — both halves, or typed text and loaded text disagree.
+
+const uuid = z.string().uuid();
+
+export const attachmentInput = z.object({
+  storage_path: z.string().min(1).max(200),
+  file_name: z.string().trim().min(1).max(255),
+  mime_type: z.string().min(1).max(120),
+  size_bytes: z.number().int().positive().max(ATTACHMENT_MAX_BYTES),
+});
+export type AttachmentInput = z.infer<typeof attachmentInput>;
+
+export const sendMessageInput = z.object({
+  conversation_id: uuid,
+  /** Minted ONCE per typed message by the browser; a retry resends it. */
+  client_id: uuid,
+  body: z.string().max(MESSAGE_MAX).nullable().default(null),
+  parent_id: uuid.nullable().default(null),
+  attachments: z.array(attachmentInput).max(ATTACHMENTS_PER_MESSAGE).default([]),
+});
+export type SendMessageInput = z.input<typeof sendMessageInput>;
+
+export const editMessageInput = z.object({
+  message_id: uuid,
+  body: z.string().max(MESSAGE_MAX),
+});
+
+export const createGroupInput = z.object({
+  name: z.string().trim().max(80).nullable().default(null),
+  member_ids: z.array(uuid).min(1).max(99),
+});
+export type CreateGroupInput = z.input<typeof createGroupInput>;
+
+export const createChannelInput = z.object({
+  name: z.string().trim().min(1, "A channel needs a name.").max(80),
+  visibility: z.enum(VISIBILITIES),
+  topic: z.string().trim().max(250).nullable().default(null),
+  department_id: uuid.nullable().default(null),
+  member_ids: z.array(uuid).max(500).default([]),
+});
+export type CreateChannelInput = z.input<typeof createChannelInput>;
+
+export const updateConversationInput = z.object({
+  conversation_id: uuid,
+  name: z.string().trim().max(80).nullable().default(null),
+  topic: z.string().trim().max(250).nullable().default(null),
+  archived: z.boolean().nullable().default(null),
+});
+export type UpdateConversationInput = z.input<typeof updateConversationInput>;
+
+export const memberIdsInput = z.object({
+  conversation_id: uuid,
+  user_ids: z.array(uuid).min(1).max(500),
+});
+
+export const memberRoleInput = z.object({
+  conversation_id: uuid,
+  user_id: uuid,
+  role: z.enum(MEMBER_ROLES),
+});
+
+/** Mirrors the reaction CHECK: 1–32 characters, no whitespace. */
+export const reactionInput = z.object({
+  message_id: uuid,
+  emoji: z.string().min(1).max(32).regex(/^\S+$/u),
+});
+
+// ---------------------------------------------------------------------------
+// Mentions: `<@profile-uuid>` in the body
+// ---------------------------------------------------------------------------
+//
+// The id, not the name, is stored, so a renamed colleague's old mentions still
+// resolve. The SERVER decides who was really mentioned (comm_parse_mentions:
+// active members only) — this parser is for RENDERING, never for notifying.
+
+const MENTION_RE =
+  /<@([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})>/gi;
+
+export function mentionToken(profileId: string): string {
+  return `<@${profileId}>`;
+}
+
+/** Distinct ids named by `<@uuid>` tokens, in order of first appearance. */
+export function mentionIds(body: string | null | undefined): string[] {
+  const out: string[] = [];
+  for (const m of (body ?? "").matchAll(MENTION_RE)) {
+    const id = m[1].toLowerCase();
+    if (!out.includes(id)) out.push(id);
+  }
+  return out;
+}
+
+/** A body split into text and mention pieces, for a renderer to map over. */
+export type BodyPiece = { text: string } | { mention: string };
+export function bodyPieces(body: string | null | undefined): BodyPiece[] {
+  const src = body ?? "";
+  const out: BodyPiece[] = [];
+  let at = 0;
+  for (const m of src.matchAll(MENTION_RE)) {
+    const i = m.index ?? 0;
+    if (i > at) out.push({ text: src.slice(at, i) });
+    out.push({ mention: m[1].toLowerCase() });
+    at = i + m[0].length;
+  }
+  if (at < src.length) out.push({ text: src.slice(at) });
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Attachments
+// ---------------------------------------------------------------------------
+
+/**
+ * The storage key for a new upload. THE FIRST FOLDER IS THE CONVERSATION — the
+ * bucket's insert policy reads it to decide whether the uploader is a member,
+ * and the send RPC refuses a key outside it. The file name is NOT in the key
+ * (it is stored on the row): a name can hold characters a key cannot, and a key
+ * that leaks a document's title into a URL is a key that says too much.
+ */
+export function attachmentPath(conversationId: string, fileName: string, id: string): string {
+  const dot = fileName.lastIndexOf(".");
+  const raw = dot > 0 ? fileName.slice(dot + 1).toLowerCase() : "";
+  const ext = /^[a-z0-9]{1,8}$/.test(raw) ? raw : "bin";
+  return `${conversationId}/${id}.${ext}`;
+}
+
+/** The sentence to show for a file that cannot be sent, or null when it can. */
+export function attachmentProblem(file: { name: string; type: string; size: number }): string | null {
+  if (!(ALLOWED_MIME as readonly string[]).includes((file.type || "").toLowerCase())) {
+    return `${file.name}: that file type cannot be shared here.`;
+  }
+  if (file.size < 1) return `${file.name} is empty.`;
+  if (file.size > ATTACHMENT_MAX_BYTES) return `${file.name} is over 20 MB.`;
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// History cursor: (created_at, id) of the oldest message on the page
+// ---------------------------------------------------------------------------
+
+export function encodeCursor(createdAt: string, id: string): string {
+  return `${createdAt}|${id}`;
+}
+
+const TS_RE = /^\d{4}-\d{2}-\d{2}[T ][\d:.]+(Z|[+-]\d{2}(:?\d{2})?)?$/;
+const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Null for anything that is not exactly what encodeCursor wrote — a cursor is
+ *  interpolated into a PostgREST filter, so it is validated, never trusted. */
+export function decodeCursor(cursor: string | null | undefined): { created_at: string; id: string } | null {
+  if (!cursor) return null;
+  const bar = cursor.lastIndexOf("|");
+  if (bar < 0) return null;
+  const created_at = cursor.slice(0, bar);
+  const id = cursor.slice(bar + 1);
+  return TS_RE.test(created_at) && ID_RE.test(id) ? { created_at, id } : null;
+}
+
+// ---------------------------------------------------------------------------
+// Titles and errors
+// ---------------------------------------------------------------------------
+
+export function conversationTitle(
+  c: { kind: ConversationKind; name: string | null },
+  names: (string | null | undefined)[],
+): string {
+  if (c.kind === "channel") return `#${c.name ?? "channel"}`;
+  if (c.name && c.name.trim()) return c.name.trim();
+  const known = names.filter((n): n is string => !!n && !!n.trim());
+  if (c.kind === "direct") return known[0] ?? "Direct message";
+  if (known.length === 0) return "Group";
+  return known.length <= 3 ? known.join(", ") : `${known.slice(0, 3).join(", ")} +${known.length - 3}`;
+}
+
+/**
+ * The sentence to show for a failed RPC. 0737 raises its refusals as readable
+ * sentences under four codes, so those pass through; anything else (a network
+ * fault, an unexpected constraint) gets the caller's fallback, never a driver
+ * message with a table name in it.
+ */
+const SPOKEN_CODES = new Set(["42501", "22023", "55000", "23505"]);
+export function commErrorText(
+  error: { code?: string | null; message?: string | null } | null | undefined,
+  fallback: string,
+): string {
+  if (error?.code && SPOKEN_CODES.has(error.code) && error.message?.trim()) {
+    return error.message.trim();
+  }
+  return fallback;
+}

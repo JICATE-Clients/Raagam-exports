@@ -38,8 +38,78 @@ import { createAdminClient } from "@/lib/supabase/server";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-/** The uFace 302 sends IST with no offset. */
-const DEVICE_TZ = "+05:30";
+/**
+ * The zone a device's clock is keeping, when we have not been told otherwise.
+ *
+ * It was a CONSTANT until 0737 — every reader was assumed to be in IST,
+ * because the factory is. Then this one adopted UTC from the server and would
+ * not be argued out of it, so the zone became a property of the DEVICE rather
+ * than of the installation (see 0737 for the whole story).
+ */
+const DEFAULT_CLOCK_OFFSET = "+05:30";
+
+/**
+ * WHICH ADMS ENDPOINT THIS IS, WITH ANY FILE EXTENSION STRIPPED.
+ *
+ * THE FIRMWARE DECIDES THE SPELLING, AND THIS ONE USES `.aspx`. The eSSL
+ * uFace 302 (Push Service 2.0.32S) posts to `/iclock/cdata.aspx` and
+ * `/iclock/getrequest.aspx` — the older ZKTeco convention, from when the
+ * reference server really was an ASP.NET page. Newer firmware drops the
+ * extension entirely.
+ *
+ * Matching on `pathname.endsWith("/cdata")` therefore missed every real
+ * punch, and missed it in the worst possible way: the request fell through to
+ * the catch-all, answered `200 OK`, and the device moved on believing it had
+ * delivered. Punches were refused nowhere and stored nowhere — the exact
+ * shape of failure this file's own comments warn about, "answering OK on a
+ * failure throws the punch away silently", arriving through the routing
+ * rather than the error handling (2026-10-23, live against the real device).
+ *
+ * So the endpoint is read as the last path SEGMENT with any extension
+ * removed, and never by matching the whole path.
+ */
+function endpointOf(pathname: string) {
+  const last = pathname.split("/").filter(Boolean).pop() ?? "";
+  return last.replace(/\.[a-z0-9]+$/i, "").toLowerCase();
+}
+
+/**
+ * THE TIME WE WANT THE DEVICE TO HOLD, IN ZKTECO'S PACKED FORM.
+ *
+ * ZKTeco encodes a date and time as ONE integer, and the device expects it in
+ * its own LOCAL time — so these are IST parts, not UTC ones:
+ *
+ *   ((Y-2000)*12*31 + (M-1)*31 + (D-1)) * 86400 + H*3600 + Mi*60 + S
+ *
+ * The month/day arithmetic is deliberately wrong as a calendar — every month
+ * is 31 days long — because that is the encoding the firmware decodes. Do not
+ * "fix" it into real date maths.
+ */
+function zkNow() {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+  const n = (t: string) => Number(parts.find((p) => p.type === t)!.value);
+  const hour = n("hour") === 24 ? 0 : n("hour");
+  const days =
+    (n("year") - 2000) * 12 * 31 + (n("month") - 1) * 31 + (n("day") - 1);
+  return days * 86400 + hour * 3600 + n("minute") * 60 + n("second");
+}
+
+/** Re-sent hourly: often enough that drift never shows, rarely enough that a
+ *  heartbeat stays a heartbeat. */
+const TIME_SYNC_EVERY_MS = 60 * 60 * 1000;
+
+function timeSyncDue(last: string | null) {
+  return last === null || Date.now() - Date.parse(last) > TIME_SYNC_EVERY_MS;
+}
 
 function text(body: string, status = 200) {
   return new Response(body, {
@@ -95,6 +165,14 @@ type DeviceState = {
   direction: "in" | "out" | "both";
   /** The ATTLOG watermark we last accepted. '0' = send everything. */
   lastStamp: string;
+  /** Approved by an admin to record punches (0735). A new device is false. */
+  enabled: boolean;
+  /** Punches older than this are acknowledged but not stored (0735). */
+  acceptFrom: string | null;
+  /** When we last told this device the time (0736). */
+  timeSyncedAt: string | null;
+  /** The zone this device's clock is actually keeping (0737). */
+  clockOffset: string;
 };
 
 async function touchDevice(
@@ -108,7 +186,7 @@ async function touchDevice(
       { serial_no: sn, last_seen: new Date().toISOString(), last_ip: ip },
       { onConflict: "serial_no" },
     )
-    .select("direction, last_attlog_stamp")
+    .select("direction, last_attlog_stamp, enabled, accept_from, time_synced_at, clock_offset")
     .maybeSingle();
 
   if (error) console.error("[iclock] device touch failed", error);
@@ -122,6 +200,18 @@ async function touchDevice(
   return {
     direction: (data?.direction as DeviceState["direction"]) ?? "both",
     lastStamp: data?.last_attlog_stamp ?? "0",
+    /**
+     * A FAILED READ IS NOT AN APPROVAL. If the row could not be read we do not
+     * know whether this reader was approved, and the safe answer to "may it
+     * write attendance?" is no — it is refused, keeps its punches, and offers
+     * them again. This is the opposite direction from `lastStamp` above, and
+     * for the same reason: in each case the cautious guess is the one that
+     * cannot lose a punch.
+     */
+    enabled: data?.enabled === true,
+    acceptFrom: (data?.accept_from as string | null) ?? null,
+    timeSyncedAt: (data?.time_synced_at as string | null) ?? null,
+    clockOffset: (data?.clock_offset as string | null) || DEFAULT_CLOCK_OFFSET,
   };
 }
 
@@ -155,7 +245,7 @@ export async function GET(req: NextRequest) {
 
   const device = await touchDevice(sn, req.headers.get("x-device-ip"));
 
-  if (url.pathname.endsWith("/cdata")) {
+  if (endpointOf(url.pathname) === "cdata") {
     /**
      * `Realtime=1` is what makes this live — without it the device batches and
      * uploads on a timer. `Delay=30` is the heartbeat, and it is what the
@@ -192,7 +282,42 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // Heartbeat: nothing queued for the device to do.
+  /**
+   * THE HEARTBEAT IS THE ONE PLACE WE EVER SPEAK TO THE DEVICE.
+   *
+   * It asks "anything for me?" every ~30 seconds and the answer has always
+   * been a bare OK. It now carries a clock, and ONLY a clock — no user
+   * changes, no log deletion, nothing that could alter what the device holds.
+   *
+   * We send it because the device takes its time from us whether we intend it
+   * or not: every HTTP response carries a GMT `Date:` header, this reader had
+   * never spoken to a server before, and it moved to exactly UTC the day it
+   * started reporting here. Having caused that, the honest fix is to send the
+   * right time rather than leave the device guessing (0736).
+   *
+   * Hourly, not every beat. The write is recorded BEFORE the command goes out:
+   * if the update fails we skip this round rather than send on every heartbeat
+   * forever, because a device being told the time twice a second is a device
+   * nobody can read a log for.
+   */
+  if (timeSyncDue(device.timeSyncedAt)) {
+    const supabase = createAdminClient();
+    const { error } = await supabase
+      .from("biometric_devices")
+      .update({ time_synced_at: new Date().toISOString() })
+      .eq("serial_no", sn);
+
+    if (error) {
+      console.error("[iclock] time-sync bookkeeping failed", error);
+    } else {
+      console.log(`[iclock] ${sn}: setting device clock to IST`);
+      // C:<id>:SET OPTION <name>=<value> -- the device replies on /devicecmd,
+      // which we acknowledge and ignore.
+      return text(`C:${Date.now() % 100000}:SET OPTION DateTime=${zkNow()}`);
+    }
+  }
+
+  // Nothing queued for the device to do.
   return text("OK");
 }
 
@@ -212,7 +337,20 @@ export async function POST(req: NextRequest) {
 
   const device = await touchDevice(sn, req.headers.get("x-device-ip"));
 
-  if (url.pathname.endsWith("/cdata") && table === "ATTLOG") {
+  if (endpointOf(url.pathname) === "cdata" && table === "ATTLOG") {
+    /**
+     * A READER NOBODY APPROVED DOES NOT WRITE ATTENDANCE (0735). Refused with
+     * a non-200 rather than acknowledged-and-dropped, so the device KEEPS the
+     * punches and offers them again the moment an admin approves it: a block
+     * that turns out to be a mistake costs nothing. Its handshake and
+     * heartbeat above are still answered, which is what makes it appear on the
+     * Live screen to be approved in the first place.
+     */
+    if (!device.enabled) {
+      console.warn(`[iclock] punches refused — device ${sn} is not approved`);
+      return text("Device not approved", 403);
+    }
+
     const { direction } = device;
 
     // USER_ID \t YYYY-MM-DD HH:MM:SS \t STATUS \t VERIFY \t WORKCODE \t … \t …
@@ -225,7 +363,7 @@ export async function POST(req: NextRequest) {
         return {
           device_sn: sn,
           user_id: userId.trim(),
-          punch_time: `${time.trim().replace(" ", "T")}${DEVICE_TZ}`,
+          punch_time: `${time.trim().replace(" ", "T")}${device.clockOffset}`,
           direction,
           status: Number(status) || 0,
           verify_mode: Number(verify) || 0,
@@ -243,9 +381,33 @@ export async function POST(req: NextRequest) {
           /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+/.test(r.punch_time),
       );
 
-    if (rows.length > 0) {
+    /**
+     * THE FIRST HANDSHAKE WITH A REAL DEVICE ASKS FOR ITS WHOLE HISTORY, and a
+     * reader that has been on the wall for two years holds two years of it —
+     * months of attendance nobody reconciled, against shift rules that did not
+     * exist, for people who may have left, arriving indistinguishable from
+     * today's punches. `accept_from` (0735) is where this device's history
+     * starts; by default the moment it registered.
+     *
+     * The old lines are still ACKNOWLEDGED: dropped here, counted, and the
+     * watermark advances below, so the device stops offering them. Refusing
+     * them instead would have it re-send the same history forever.
+     */
+    const acceptFrom = device.acceptFrom ? Date.parse(device.acceptFrom) : null;
+    const fresh =
+      acceptFrom === null
+        ? rows
+        : rows.filter((r) => Date.parse(r.punch_time) >= acceptFrom);
+    const skipped = rows.length - fresh.length;
+    if (skipped > 0) {
+      console.log(
+        `[iclock] ${sn}: ${skipped} punch(es) older than accept_from acknowledged, not stored`,
+      );
+    }
+
+    if (fresh.length > 0) {
       const supabase = createAdminClient();
-      const { error } = await supabase.from("punches").upsert(rows, {
+      const { error } = await supabase.from("punches").upsert(fresh, {
         onConflict: "device_sn,user_id,punch_time",
         ignoreDuplicates: true,
       });

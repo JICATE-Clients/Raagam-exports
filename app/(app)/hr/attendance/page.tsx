@@ -14,6 +14,7 @@ import {
   listDevices,
   listPunchesToday,
   countPunchesToday,
+  getPunchIdentities,
 } from "@/lib/hr/punch-service";
 import AttendanceClient from "./attendance-client";
 import MusterClient from "./muster-client";
@@ -106,11 +107,14 @@ export default async function AttendancePage({ searchParams }: Props) {
     }).format(new Date(serverNowIso));
     const todayFromIso = `${todayIst}T00:00:00+05:30`;
 
-    const [devices, punches, todayCount] = await Promise.all([
-      listDevices(),
-      listPunchesToday(todayFromIso),
-      countPunchesToday(todayFromIso),
-    ]);
+    const [devices, punches, todayCount, identities, deviceLocations] =
+      await Promise.all([
+        listDevices(),
+        listPunchesToday(todayFromIso),
+        countPunchesToday(todayFromIso),
+        getPunchIdentities(),
+        getLocations(),
+      ]);
 
     return (
       <div className="space-y-4">
@@ -122,6 +126,8 @@ export default async function AttendancePage({ searchParams }: Props) {
         <LiveClient
           devices={devices}
           punches={punches}
+          identities={identities}
+          locations={deviceLocations}
           todayCount={todayCount}
           todayFromIso={todayFromIso}
           serverNowIso={serverNowIso}
