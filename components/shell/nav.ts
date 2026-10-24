@@ -12,6 +12,7 @@ import {
   BarChart3,
   LineChart,
   CheckCheck,
+  MessagesSquare,
   Database,
   Shield,
   type LucideIcon,
@@ -181,6 +182,23 @@ export const NAV: NavItem[] = [
     children: [{ href: "/approvals/flows", label: "Approval Flows" }],
   },
   {
+    /* COMMUNICATION HUB (0737, doc/slack.md/slack §4). The root IS a screen —
+       Messages — like /approvals, so its children are the hub's other views
+       and genuinely live beneath it. Gated by `communication:view`, which 0737
+       grants to every role that existed when it ran. Notifications and My
+       Approvals join this list in their own phases, and only once their routes
+       exist (check:nav refuses a row with no page). */
+    href: "/comms",
+    label: "Messages",
+    module: "communication",
+    icon: MessagesSquare,
+    children: [
+      { href: "/comms/channels", label: "Channels" },
+      { href: "/comms/saved", label: "Saved" },
+      { href: "/comms/search", label: "Search" },
+    ],
+  },
+  {
     href: "/masters",
     label: "Master Data",
     module: "masters",
@@ -216,6 +234,9 @@ export const NAV: NavItem[] = [
  * Kept as a flat map (not nested in NAV) so it's trivial to extend per section.
  */
 export const SECTION_ACTIONS: Record<string, string[]> = {
+  // The hub's ＋ opens New message (`useCreateIntent` in comms-shell.tsx, which
+  // sits in the layout, so every /comms route answers it).
+  "/comms": ["New Message"],
   // The ＋ quick action opens a new Sample Entry via `?new=1` (`useCreateIntent`
   // in sample-entry-screen.tsx). It replaced "New Opportunity" on 2026-10-06:
   // the opportunity quick-add and its `/sales` pipeline now redirect here.

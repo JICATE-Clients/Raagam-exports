@@ -207,20 +207,10 @@ function Act({ label, action, tone, icon }: { label: string; action: CardAction;
   return <CardActionTile label={label} tone={tone} icon={icon} reason={action.reason} onClick={action.onClick} />;
 }
 
-/** The series prefix ("CST/26-27/") every value shares, up to its last "/" — or "". */
-export function sharedPrefix(values: (string | null | undefined)[]): string {
-  const vs = values.filter((v): v is string => !!v);
-  if (vs.length === 0) return "";
-  const cut = (v: string) => v.slice(0, v.lastIndexOf("/") + 1);
-  const p = cut(vs[0]);
-  return p && vs.every((v) => cut(v) === p) ? p : "";
-}
-
-/** The one value every entry shares, or null when they differ (or there are none). */
-export function sharedValue(values: (string | null | undefined)[]): string | null {
-  const vs = values.filter((v): v is string => !!v);
-  return vs.length > 0 && vs.every((v) => v === vs[0]) ? vs[0] : null;
-}
+// Moved to `lib/ui/shared-words.ts` (2026-10-23) so the Orders queues can read
+// them without importing a route file; re-exported so no importer changed.
+export { sharedPrefix, sharedValue } from "@/lib/ui/shared-words";
+import { sharedPrefix, sharedValue } from "@/lib/ui/shared-words";
 
 /** Everything a pile of cards shares, worked out once for the legend and the strip. */
 export type CostingCardShared = { costing: string; sample: string; currency: string | null; year: string | null };

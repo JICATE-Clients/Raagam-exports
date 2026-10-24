@@ -1,0 +1,253 @@
+Feature: ERP Communication Hub — Slack-Inspired Collaboration Module1. Objective
+Implement a production-ready Communication Hub inside the existing ERP application.
+The module should provide Slack-inspired employee messaging, channels, persistent notifications, and an integrated approval inbox.
+This is an enhancement to an existing enterprise ERP, not a new application.
+2. Mandatory rules before making changes
+First inspect the existing repository, architecture, database schema, Supabase configuration, authentication flow, employee model, authorization helpers, approval workflows, navigation, shared UI components, and design system.
+Before coding:
+Identify the existing employee/user identity source and how authenticated user IDs map to employee records.
+Identify the existing approval engine and its supported server-side actions.
+Identify existing notifications, activity logs, audit tables, event handlers, and reusable messaging components, if any.
+Identify the current Next.js routing structure, server/client component conventions, Supabase client utilities, Zod patterns, and database migration workflow.
+Identify existing shared DataTable, status badge, dialog, dropdown, form, toast, and responsive layout components.
+Check for overlapping functionality and reuse it instead of creating duplicates.
+Do not assume table names, user ID formats, route names, or database relationships before inspecting the code.
+Create a concise implementation plan based on the actual repository. Then implement the feature in manageable phases.
+Do not replace existing authentication, create duplicate employee records, bypass existing ERP permissions, or introduce a parallel approval engine.
+3. Technical constraints
+Use the technologies already established in the repository, including where applicable:
+Next.js and React
+TypeScript
+Supabase PostgreSQL
+Supabase Auth and Realtime
+Supabase Storage
+Existing ERP authentication and authorization
+Existing Zod validation patterns
+Existing Tailwind CSS and shared UI components
+Existing lucide-react icon library
+Follow the repository's installed package versions and established conventions. Do not upgrade dependencies or change framework architecture without a demonstrated need.
+4. Module navigation
+Add a Communication Hub entry to the existing ERP navigation and permission-aware routing system.
+Provide these views:
+Messages
+Channels
+Notifications
+My Approvals
+Saved Messages
+Search
+Use the existing application shell, responsive layout, breadcrumbs, page headers, typography, spacing, theme tokens, dialogs, and notification components.
+Use the existing ERP color system, including the established peacock color #087F8C, semantic status colors, and neutral surfaces. Do not introduce an unrelated visual design system.
+5. Phase 1 — Core messagingDirect messages
+Search and select existing ERP employees.
+Create or retrieve the correct one-to-one conversation.
+Prevent duplicate direct conversations where the current design requires uniqueness.
+Send and receive text messages.
+Display sender, timestamp, message content, and delivery/loading/error states.
+Load message history with cursor-based pagination.
+Support optimistic UI updates with rollback or retry on failure.
+Persist unread/read state per user.
+Group conversations
+Create group conversations.
+Add and remove participants according to appropriate permissions.
+Display participant details from existing employee records.
+Enforce membership checks on the server and database.
+Handle removed participants without exposing future messages to them.
+Channels
+Support public and private channels with explicitly defined access rules.
+Support department and project channels.
+Reuse existing department and project relationships when available.
+Allow authorized users to create channels and manage membership.
+Implement channel membership, message history, unread counts, and live updates.
+Ensure private channel messages cannot be read by non-members.
+Message interaction
+Reply to a message using a thread.
+Mention employees using an explicit supported mention format.
+Display reactions and unread indicators.
+Add edit and delete functionality with clearly defined ownership and authorization rules.
+Support saved messages and pinned messages where appropriate.
+Provide empty, loading, failure, and retry states.
+6. Phase 2 — Notifications
+Implement persistent, per-user notifications for relevant events:
+Direct messages
+Group and channel mentions
+Assigned approval tasks
+Approval decisions
+Relevant ERP workflow updates
+Other explicitly configured events
+Requirements:
+Store notifications in PostgreSQL.
+Track read/unread state and creation time.
+Support marking one notification or all notifications as read.
+Provide navigation to the linked conversation or ERP record.
+Deduplicate notifications using stable event identifiers.
+Use Supabase Realtime for timely updates without treating Realtime as the permanent data store.
+Provide reconnect and refresh recovery.
+Avoid sending notifications to unauthorized recipients.
+Respect user notification preferences where supported.
+Integrate with existing notification infrastructure rather than creating duplicate notifications if a suitable system already exists.
+7. Phase 2 — ERP approval inbox
+Implement a My Approvals interface that displays actionable approval tasks from the existing ERP workflow system.
+Display, as available:
+Approval item and document reference
+Module and document type
+Requester
+Submission time
+Current workflow status
+Pending approver or approval stage
+A link to open the source ERP record
+Supported actions such as Approve or Reject
+Critical rules:
+The existing ERP workflow remains the authoritative source of approval state.
+Do not create an independent approval engine.
+Do not treat a notification or chat message as an authorization to approve.
+Invoke existing approval services or server-side actions.
+Revalidate the authenticated actor, record permissions, current workflow state, and required business rules on every action.
+Require a reason when the existing workflow requires one.
+Prevent duplicate or stale decisions and handle concurrent approvals safely.
+Record decisions through the existing audit and workflow mechanisms.
+Refresh the inbox from the authoritative workflow state.
+Never report success before the server confirms the operation.
+If the existing approval system cannot support an operation, document the missing integration point rather than implementing a misleading substitute.
+8. Phase 3 — ERP record linking
+Allow users to link authorized ERP records in messages and conversations.
+Potential record types include:
+Purchase requisitions and purchase orders
+Vendor quotations and quotation comparisons
+Inventory transactions
+HR records
+Finance records
+Other existing ERP modules
+Reuse existing route and record identifiers. Validate the entity type, target record, and user's access before resolving or opening a link.
+Display a compact record preview containing only fields the current user is authorized to see.
+A link to a record must not grant access to that record. Recheck permissions when opening it.
+Avoid copying sensitive ERP document contents into unrestricted chat messages or notification payloads.
+9. Database and migrations
+Inspect the existing database before deciding what to create.
+Reuse existing tables where suitable. Introduce only necessary new tables and migrations.
+Evaluate the need for:
+Channels
+Channel membership
+Conversations
+Conversation membership
+Messages and thread relationships
+Attachments
+Reactions
+Persistent notifications
+Saved messages
+ERP entity links
+Approval inbox projection, only if needed
+Reliable event delivery and deduplication
+Audit integration, using existing audit infrastructure where possible
+Use foreign keys, appropriate uniqueness constraints, indexes, timestamps, and explicit status constraints.
+Use the established migration and deployment workflow. Do not modify production data or apply destructive schema changes without authorization.
+10. Security requirements
+Implement authorization at the server and database levels.
+Reuse the existing ERP authentication system.
+Derive the current actor from the trusted authenticated session.
+Never trust a browser-provided sender ID, role, department, or approval permission.
+Apply Row Level Security to applicable tables.
+Verify conversation/channel membership for every relevant read and write.
+Protect attachments using private storage and controlled access.
+Validate uploaded file type and size.
+Do not expose service-role credentials or privileged secrets to the browser.
+Restrict administrative operations to authorized roles.
+Prevent unauthorized access through guessed IDs, manipulated requests, direct URLs, and Realtime subscriptions.
+Keep audit information accurate and protected.
+Ensure notification recipients are authorized to know about the underlying event.
+Follow the existing tenant/institution isolation model if the ERP supports multiple institutions.
+Review RLS policies for both intended access and unauthorized access. Do not rely solely on hiding UI elements.
+11. UI and usability
+Build a polished, responsive interface that feels native to the existing ERP.
+Desktop layout:
+Left sidebar for messages, channels, and navigation
+Conversation/channel list
+Main message panel
+Optional contextual details panel when useful
+Mobile layout:
+Responsive conversation list and message panel
+Accessible navigation between views
+Usable message composer and dialogs
+Include:
+Employee search
+Message composer
+Thread replies
+Mentions
+Unread badges
+Notification indicators
+Search and filtering
+Loading skeletons
+Empty states
+Error messages and retry controls
+Keyboard navigation and visible focus
+Appropriate accessible labels
+Use existing shared components and lucide-react icons. Do not build unnecessary duplicate UI primitives or use decorative controls without working behavior.
+12. Performance and reliability
+Use cursor-based pagination for message history.
+Add appropriate database indexes after examining actual query patterns.
+Avoid loading entire conversation histories into memory.
+Avoid one database query per message for employee information.
+Subscribe only to the relevant authorized Realtime streams.
+Clean up subscriptions when components unmount or conversations change.
+Handle reconnects and duplicate events.
+Use reliable persistence and retry-safe event processing for important notifications.
+Prevent duplicate sends caused by retries where feasible.
+Keep unread counts consistent with persisted state.
+Avoid expensive global subscriptions for every employee.
+13. Testing requirements
+Add tests following the existing repository conventions.
+Cover:
+Conversation creation and duplicate prevention
+Message creation, retrieval, edits, and deletion
+Thread replies and reactions
+Membership checks
+Public and private channel access
+Unread and read-state behavior
+Notification persistence and deduplication
+ERP entity-link authorization
+Approval authorization and stale workflow state
+Concurrent or repeated approval actions
+Attachment access restrictions
+RLS isolation between authorized and unauthorized users
+Realtime reconnect and duplicate-event handling
+Run the available database tests, unit tests, integration tests, type checks, lint checks, and relevant build checks.
+Add or update browser-level tests for the primary employee messaging and approval flows when the project supports them.
+Do not claim browser verification if the application was not actually exercised in a browser.
+14. Implementation sequence
+Work in this order:
+Repository assessment and implementation plan.
+Existing schema and workflow mapping.
+Database migrations and security policies.
+Messaging data-access and server-side validation.
+Core chat UI and Realtime integration.
+Notifications and unread/read state.
+Approval inbox using existing workflow services.
+ERP record links and contextual previews.
+Automated tests, security review, and UI polish.
+Final verification and implementation report.
+Keep each phase coherent and testable. Do not rewrite unrelated ERP modules.
+If a required schema, permission rule, or workflow contract is unclear, investigate the repository and document the uncertainty. Do not silently invent business rules.
+15. Completion criteria
+The feature is ready for review when:
+Authorized ERP employees can exchange messages in real time.
+Direct conversations, groups, and channels persist across refreshes.
+Private content is inaccessible to unauthorized users.
+Unread counts and notifications reflect persisted state.
+The approval inbox uses real ERP workflow records and actions.
+Approval decisions are permission-checked, auditable, and concurrency-safe.
+ERP record links preserve existing access controls.
+The interface follows the existing ERP design system.
+Migrations, tests, type checks, lint, and build checks have been run as applicable.
+Known failures and untested areas are explicitly documented.
+16. Final report
+At completion, provide:
+Existing architecture and reusable components discovered.
+New and modified files.
+Database migrations and RLS policies added.
+Messaging and notification flows implemented.
+Existing approval services integrated.
+Tests and commands executed, including actual results.
+Security considerations and outstanding risks.
+Features that remain incomplete.
+Required deployment steps and environment configuration.
+A prioritized list of recommended next steps.
+Begin by inspecting the repository and mapping the existing authentication, database, permission, and approval architecture. Then proceed with the implementation in the sequence above.

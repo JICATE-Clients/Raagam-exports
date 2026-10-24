@@ -16,7 +16,7 @@ import { SidebarItem } from "./SidebarItem";
  * vanishing, so a new NAV entry is still reachable before anyone files it.
  */
 const RAIL_BANDS: { label?: string; hrefs: string[] }[] = [
-  { hrefs: ["/", "/analytics", "/reports", "/approvals"] },
+  { hrefs: ["/", "/analytics", "/reports", "/approvals", "/comms"] },
   { label: "Commercial", hrefs: ["/sales", "/orders"] },
   { label: "Operations", hrefs: ["/planning", "/purchase", "/stores", "/production", "/logistics"] },
   { label: "People & Accounts", hrefs: ["/hr", "/finance"] },

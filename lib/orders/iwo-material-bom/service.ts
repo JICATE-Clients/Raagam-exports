@@ -43,7 +43,7 @@ export type IwoMaterialBomTask = {
    *  `sample_product_groups.accessories_iwo_id`) — what Sample ▸ Accessories
    *  Plan shows in place of the I.WO No. Null on a production work order. */
   /** Sample plans: the SWO and its SMP numbers (the card queue's sub-line). */
-  swo: { id: string; code: string; smp_nos: string[] } | null;
+  swo: { id: string; code: string; smp_nos: string[]; buyer: string | null } | null;
 };
 
 /** `sampleOnly` — Sample ▸ Accessories Plan lists only the work orders the
@@ -104,17 +104,21 @@ export async function listIwoMaterialBomTasks(opts: { sampleOnly?: boolean } = {
 async function accessoriesSwosOf(
   s: Awaited<ReturnType<typeof createClient>>,
   iwoIds: string[],
-): Promise<Map<string, { id: string; code: string; smp_nos: string[] }>> {
-  const out = new Map<string, { id: string; code: string; smp_nos: string[] }>();
+): Promise<Map<string, NonNullable<IwoMaterialBomTask["swo"]>>> {
+  const out = new Map<string, NonNullable<IwoMaterialBomTask["swo"]>>();
   if (!iwoIds.length) return out;
   const { data, error } = await s
     .from("sample_product_groups")
     // The SMP numbers ride along for the card queue (2026-10-12) — the same
-    // embed the Fabric Plan's `swosOf` reads.
-    .select("id, group_code, accessories_iwo_id, items:sample_group_items(created_at, opp:opportunities!sample_entry_id(code))")
+    // embed the Fabric Plan's `swosOf` reads. The buyer too (2026-10-23) — the
+    // card names it beside its initials, as Costing's card does.
+    .select(
+      "id, group_code, accessories_iwo_id, " +
+        "items:sample_group_items(created_at, opp:opportunities!sample_entry_id(code, customer:customers!customer_id(name)))",
+    )
     .in("accessories_iwo_id", iwoIds);
   if (error) throw new Error(`IWO Accessories Plan: could not read the SWOs: ${error.message}`);
-  type Opp = { code: string | null };
+  type Opp = { code: string | null; customer: { name: string | null } | { name: string | null }[] | null };
   type Row = {
     id: string;
     group_code: string;
@@ -130,9 +134,22 @@ async function accessoriesSwosOf(
           .filter(Boolean),
       ),
     ];
-    out.set(g.accessories_iwo_id, { id: g.id, code: g.group_code, smp_nos });
+    out.set(g.accessories_iwo_id, { id: g.id, code: g.group_code, smp_nos, buyer: swoBuyer(g.items ?? []) });
   }
   return out;
+}
+
+/** The buyer(s) an SWO's samples were entered for — one name, or the distinct
+ *  names joined when an SWO batches samples of two buyers. */
+type One<T> = T | T[] | null;
+const one = <T,>(v: One<T>): T | null => (Array.isArray(v) ? (v[0] ?? null) : v);
+function swoBuyer(items: { opp: One<{ customer: One<{ name: string | null }> }> }[]): string | null {
+  const names = new Set<string>();
+  for (const it of items) {
+    const name = one(one(it.opp)?.customer ?? null)?.name;
+    if (name) names.add(name);
+  }
+  return names.size ? [...names].join(" · ") : null;
 }
 
 /**

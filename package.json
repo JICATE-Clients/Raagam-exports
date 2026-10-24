@@ -49,6 +49,7 @@
     "check:amendment-scope": "npx --yes tsx scripts/check-amendment-scope.mts",
     "check:approval-breakdown": "npx --yes tsx scripts/check-approval-breakdown.mts",
     "check:amendment-modules": "npx --yes tsx scripts/check-amendment-modules.mts",
+    "check:comms": "npx --yes tsx scripts/check-comms.mts",
     "check:permission-overrides": "npx --yes tsx scripts/check-permission-overrides.mts",
     "check:screen-catalog": "npx --yes tsx scripts/check-screen-catalog.mts",
     "check:sample-costing": "npx --yes tsx scripts/check-sample-costing.mts",
