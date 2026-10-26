@@ -1,6 +1,10 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
-import type { ClassVendor, RequirementLine } from "./types";
+import { withCreators } from "@/lib/created-by";
+import { isInactive, type Deactivatable } from "@/lib/masters/inactive";
+import { creatorName } from "@/components/ui/created-columns";
+import type { DraftHold } from "./filters";
+import { lineKeyOf, type ClassVendor, type RaisedPo, type RequirementLine } from "./types";
 
 /*
  * Reads for the PO-from-requirement screen. Both go through the SECURITY DEFINER
@@ -74,6 +78,140 @@ export async function getVendorsForClass(itemClassId: string): Promise<ClassVend
     on_time_pct: v.on_time_pct == null ? null : Number(v.on_time_pct),
     received_lines: num(v.received_lines),
   }));
+}
+
+/**
+ * WHICH LINES HAVE AN APPROVED BUDGET — the Budget filter (2026-10-26). The same
+ * `po_budget_check` the rate check uses, asked with NO rate: it answers
+ * has_budget and never the figure, so spec point 7 (the budget rate stays hidden)
+ * holds. An IWO / SWO line has no order budget and comes back false, as it does
+ * when its PO is submitted.
+ */
+export async function getBudgetedLineKeys(lines: readonly RequirementLine[]): Promise<string[]> {
+  const re = lines.filter((l) => l.garment_order_id);
+  if (re.length === 0) return [];
+  const s = await createClient();
+  const { data, error } = await s.rpc("po_budget_check", {
+    p_lines: re.map((l) => ({
+      key: lineKeyOf(l),
+      garment_order_id: l.garment_order_id,
+      item_id: l.item_id,
+      uom_id: l.uom_id,
+      slice_label: l.slice_label,
+      colour: l.colour,
+      rate: null,
+    })),
+  });
+  if (error) throw new Error(`Could not read which orders have an approved budget: ${error.message}`);
+  return ((data ?? []) as { key: string; has_budget: boolean }[]).filter((r) => r.has_budget).map((r) => r.key);
+}
+
+/**
+ * DRAFT POs HOLDING A BALANCE (2026-10-26). A draft counts as ordered (0748's
+ * `ord`), so an order a colleague drafted and forgot shows less left to buy with
+ * nothing on screen saying why — the list names the draft instead. Two plain
+ * reads, no embed: `po_line_items` → `purchase_orders` is not on the ambiguous
+ * list today, and a select that never embeds cannot become ambiguous later.
+ */
+export async function getDraftHolds(): Promise<DraftHold[]> {
+  const s = await createClient();
+  const { data: pos, error } = await s.from("purchase_orders").select("id, code, created_by").eq("status", "draft");
+  if (error) throw new Error(`Could not read the draft POs: ${error.message}`);
+  const drafts = await withCreators((pos ?? []) as { id: string; code: string | null; created_by: string | null }[]);
+  if (drafts.length === 0) return [];
+  const { data: ls, error: lErr } = await s
+    .from("po_line_items")
+    .select("purchase_order_id, garment_order_id, iwo_id, req_key")
+    .in("purchase_order_id", drafts.map((d) => d.id))
+    .not("req_key", "is", null);
+  if (lErr) throw new Error(`Could not read the draft PO lines: ${lErr.message}`);
+  const byId = new Map(drafts.map((d) => [d.id, d]));
+  return ((ls ?? []) as { purchase_order_id: string; garment_order_id: string | null; iwo_id: string | null; req_key: string }[])
+    .filter((l) => l.garment_order_id ?? l.iwo_id)
+    .map((l) => {
+      const d = byId.get(l.purchase_order_id);
+      return {
+        source_id: (l.garment_order_id ?? l.iwo_id) as string,
+        req_key: l.req_key,
+        code: d?.code ?? "Draft PO",
+        by: creatorName(d),
+      };
+    });
+}
+
+/**
+ * THE POs RAISED ON THIS SCREEN — Raise PO's Updated and Draft lists (user
+ * 2026-10-26: "make it like the order module, pending · updated · draft"). A PO
+ * belongs here when any of its lines carries a `req_key` (only
+ * `savePoFromRequirement` writes one); a PO made on Purchase Orders has none.
+ * Plain reads, no embed — the same reason as `getDraftHolds` above, and
+ * `purchase_orders` → vendors IS on the ambiguous list.
+ */
+export async function listRaisedPos(): Promise<RaisedPo[]> {
+  const s = await createClient();
+  const { data: ls, error: lErr } = await s
+    .from("po_line_items")
+    .select("purchase_order_id, garment_order_id, iwo_id")
+    .not("req_key", "is", null);
+  if (lErr) throw new Error(`Could not read the raised PO lines: ${lErr.message}`);
+  const sourcesOf = new Map<string, Set<string>>();
+  for (const l of (ls ?? []) as { purchase_order_id: string; garment_order_id: string | null; iwo_id: string | null }[]) {
+    const set = sourcesOf.get(l.purchase_order_id) ?? new Set<string>();
+    const src = l.garment_order_id ?? l.iwo_id;
+    if (src) set.add(src);
+    sourcesOf.set(l.purchase_order_id, set);
+  }
+  if (sourcesOf.size === 0) return [];
+
+  const { data: pos, error } = await s
+    .from("purchase_orders")
+    .select("id, code, status, order_date, total_amount, master_vendor_id, created_at, created_by")
+    .in("id", [...sourcesOf.keys()])
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(`Could not read the raised POs: ${error.message}`);
+  const rows = (pos ?? []) as Omit<RaisedPo, "vendor" | "source_nos" | "customers">[];
+
+  const vendorIds = [...new Set(rows.map((r) => r.master_vendor_id).filter((v): v is string => !!v))];
+  const allSources = [...new Set([...sourcesOf.values()].flatMap((x) => [...x]))];
+  const [vendors, reqLines] = await Promise.all([
+    vendorIds.length
+      ? s.from("master_vendors").select("id, name").in("id", vendorIds)
+      : Promise.resolve({ data: [], error: null }),
+    // Balance or not: a fully ordered RE has left the open list but still names its PO.
+    getRequirementLines(allSources),
+  ]);
+  if (vendors.error) throw new Error(`Could not read the vendors: ${vendors.error.message}`);
+  const vendorName = new Map(((vendors.data ?? []) as { id: string; name: string }[]).map((v) => [v.id, v.name]));
+  const sourceInfo = new Map(reqLines.map((l) => [l.source_id, { no: l.source_no, customer: l.customer }]));
+
+  return withCreators(
+    rows.map((r) => {
+      const src = [...(sourcesOf.get(r.id) ?? [])].map((id) => sourceInfo.get(id)).filter((x) => !!x);
+      return {
+        ...r,
+        total_amount: num(r.total_amount),
+        vendor: r.master_vendor_id ? (vendorName.get(r.master_vendor_id) ?? null) : null,
+        source_nos: [...new Set(src.map((x) => x.no))].sort(),
+        customers: [...new Set(src.map((x) => x.customer).filter((c): c is string => !!c))],
+      };
+    }),
+  );
+}
+
+/**
+ * EVERY ITEM CLASS, not only the ones with something to buy (user 2026-10-26: "item
+ * class should list all"). The screen counts each against the requirement lines and
+ * greys a class at 0 — visible, so the operator sees the class exists and that it has
+ * nothing pending, but not pickable into an empty PO. A switched-off class is left
+ * out, as everywhere (AGENTS.md, Disabled rows).
+ */
+export async function getItemClasses(): Promise<{ id: string; name: string }[]> {
+  const s = await createClient();
+  const { data, error } = await s.from("config_lookups").select("*").eq("kind", "item_class").order("name");
+  if (error) throw new Error(`Could not read the item classes: ${error.message}`);
+  return ((data ?? []) as ({ id: string; name: string | null } & Deactivatable)[])
+    .filter((c) => !isInactive(c))
+    .map((c) => ({ id: c.id, name: c.name ?? "—" }));
 }
 
 /** The vendors of every class in `classIds`, keyed by class — one round, not one per class. */

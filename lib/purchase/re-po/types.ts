@@ -116,6 +116,15 @@ export const rePoLineInput = z.object({
   delivery_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Delivery date is required"),
 });
 
+/** A free-text commercial term: trimmed, capitals, blank → null. */
+const rePoText = z
+  .string()
+  .trim()
+  .max(200)
+  .toUpperCase()
+  .nullable()
+  .transform((v) => v || null);
+
 export const rePoInput = z
   .object({
     source_ids: z.array(z.string().uuid()).min(1, "Choose at least one RE / SWO / IWO"),
@@ -125,6 +134,23 @@ export const rePoInput = z
     exchange_rate: z.number().positive().nullable(),
     gst: z.string(),
     payment_terms: z.string().trim().max(200).nullable(),
+    /* The Commercial section (user 2026-10-26: before the MD, not after). Optional so
+       a caller that predates it still saves; text is stored in capitals (AGENTS CAPITALS). */
+    commercial: z
+      .object({
+        pay_mode: rePoText,
+        ship_mode: rePoText,
+        ship_type: rePoText,
+        place_of_delivery: rePoText,
+        invoice_send_to: rePoText,
+        vat_against: rePoText,
+        duty_against: rePoText,
+        freight_type: z.enum(["itemwise", "consolidated"]).nullable(),
+      })
+      .optional(),
+    charges: z
+      .array(z.object({ kind: z.enum(["add", "less"]), label: z.string().trim().min(1).max(120).toUpperCase(), amount: z.number().positive() }))
+      .default([]),
     lines: z.array(rePoLineInput).min(1, "There is nothing to order"),
   })
   .superRefine((v, ctx) => {
@@ -137,3 +163,19 @@ export type RePoLineInput = z.infer<typeof rePoLineInput>;
 
 /** What the hidden budget check tells the screen — never the budget figure. */
 export type BudgetFlag = { key: string; hasBudget: boolean; above: boolean };
+
+/** A PO raised on Raise PO — a row of its Updated / Draft lists (`listRaisedPos`). */
+export type RaisedPo = {
+  id: string;
+  code: string | null;
+  status: string;
+  order_date: string | null;
+  total_amount: number;
+  master_vendor_id: string | null;
+  vendor: string | null;
+  /** RE / SWO / IWO numbers its lines were ordered against. */
+  source_nos: string[];
+  customers: string[];
+  created_at: string | null;
+  created_by: string | null;
+};
