@@ -4,6 +4,25 @@
 This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
 <!-- END:nextjs-agent-rules -->
 
+# ONE Supabase project only (STANDING — CRITICAL)
+
+**This repo works against the Raagam Roja Supabase project and NO OTHER**
+(user 2026-10-26: "we should only work on this raagam roja supabase project
+only, this is very important").
+
+- **Project ref: `xcidbfgujrxginrgvbjw`** — `https://xcidbfgujrxginrgvbjw.supabase.co`,
+  the same ref as `NEXT_PUBLIC_SUPABASE_URL` and the `supabase` server in `.mcp.json`.
+- **Every Supabase MCP call names this ref and nothing else** — SQL, migrations,
+  logs, advisors, edge functions, branches, type generation. The Supabase account
+  can see other projects; listing them is allowed, reading or writing them is not.
+- **Never create, pause, restore, delete or modify any other project**, and never
+  create a new project or organisation, even if a tool offers it.
+- **If a tool, error or doc points at a different ref, STOP and ask the user** —
+  never "fix" it by switching projects, and never change the ref in `.mcp.json`
+  or `.env*`.
+- A database write (migration, `execute_sql` that changes data, branch merge)
+  still needs the user's go-ahead first, even on this project.
+
 # Project conventions
 
 ## Hooks above every early return (STANDING)
