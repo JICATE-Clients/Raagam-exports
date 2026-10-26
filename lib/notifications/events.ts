@@ -473,7 +473,7 @@ export const EVENT_MODULE_LABEL: Record<NotificationEventDef["module"], string> 
   orders: "Orders",
   cad: "CAD",
   ta: "T&A",
-  comms: "Messages",
+  comms: "Huddle",
   admin: "Administration",
   resolve: "Resolve Hub",
 };

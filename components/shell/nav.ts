@@ -196,7 +196,7 @@ export const NAV: NavItem[] = [
        grants to every role that existed when it ran. Notifications joined in
        phase 4 (0746) and My Approvals in phase 5 (the existing inbox, reused). */
     href: "/comms",
-    label: "Messages",
+    label: "Chats",
     module: "communication",
     icon: MessagesSquare,
     /* ONE "COLLABORATION" CAPTION HOLDING THE HUB'S FOUR VIEWS (user 2026-10-26:
@@ -208,9 +208,9 @@ export const NAV: NavItem[] = [
     children: [
       {
         href: "/comms/community",
-        label: "Collaboration",
+        label: "Huddle",
         children: [
-          { href: "/comms", label: "Messages" },
+          { href: "/comms", label: "Chats" },
           { href: "/comms/channels", label: "Channels" },
           { href: "/comms/search", label: "Search" },
           { href: "/comms/saved", label: "Saved" },
