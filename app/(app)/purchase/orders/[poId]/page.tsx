@@ -12,6 +12,8 @@ import type { StatusTone } from "@/components/ui/status-pill";
 import { PO_STATUS_LABELS } from "@/lib/purchase/types";
 import type { PoStatus } from "@/lib/purchase/types";
 import { PoDetail } from "./po-detail";
+import { PoReview } from "./po-review";
+import { getRequirementLines } from "@/lib/purchase/re-po/service";
 import { statusTone } from "@/lib/ui/status-tone";
 
 const PO_STATUS_TONE_OVERRIDES = {
@@ -42,6 +44,17 @@ export default async function PoDetailPage({
 
   if (!po) notFound();
 
+  /* RAISED ON RAISE PO (its lines carry a req_key) → the one-screen review with
+     Approve · Revise · Reject (user 2026-10-26). Every other PO keeps the tabs. */
+  const poLines = po.lines as unknown as { req_key?: string | null; garment_order_id?: string | null; iwo_id?: string | null }[];
+  const raised = poLines.some((l) => l.req_key);
+  let sourceNos: Record<string, string> = {};
+  if (raised) {
+    const ids = [...new Set(poLines.map((l) => l.garment_order_id ?? l.iwo_id).filter((v): v is string => !!v))];
+    const req = ids.length ? await getRequirementLines(ids) : [];
+    sourceNos = Object.fromEntries(req.map((l) => [l.source_id, l.source_no]));
+  }
+
   return (
     <div className="space-y-4">
       <PageHeader
@@ -54,6 +67,9 @@ export default async function PoDetailPage({
         }
       />
 
+      {raised ? (
+        <PoReview po={po} uoms={uoms} sourceNos={sourceNos} canEdit={canEdit} canApprove={canApprove} />
+      ) : (
       <PoDetail
         po={po}
         items={items}
@@ -62,6 +78,7 @@ export default async function PoDetailPage({
         canDelete={canDelete}
         canApprove={canApprove}
       />
+      )}
     </div>
   );
 }
