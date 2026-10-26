@@ -148,12 +148,22 @@ export function CadLifecycleScreen({
       header: "RE No",
       cell: (r) => <span className="font-mono text-xs font-medium">{r.re_no ?? r.order_code ?? "—"}</span>,
     },
-    { header: "Customer", cell: (r) => <Truncated>{r.customer_name ?? ""}</Truncated> },
+    // CAPPED, ONE LINE (user 2026-10-26, CAD Queue: "compacted pannu scroll
+    // bar vendam"). Cells never wrap, so the longest customer / style / maker
+    // set the table's width and pushed the row icons behind a sideways
+    // scrollbar on a 1080p screen. A longer value ends in "…" and shows whole
+    // on hover (`Truncated`) — the access-control Description column's shape.
+    {
+      header: "Customer",
+      className: "max-w-[9rem]",
+      cell: (r) => <Truncated className="block max-w-[9rem]">{r.customer_name ?? ""}</Truncated>,
+    },
     {
       header: "Style",
+      className: "max-w-[8rem]",
       cell: (r) => (
-        <div className="min-w-0 leading-tight">
-          <Truncated className="text-sm font-medium">{r.style_ref_no}</Truncated>
+        <div className="min-w-0 max-w-[8rem] leading-tight">
+          <Truncated className="block text-sm font-medium">{r.style_ref_no}</Truncated>
           {!r.on_order ? (
             <span className="text-xs text-warning">No longer on the order</span>
           ) : r.layout_type ? (
@@ -164,11 +174,12 @@ export function CadLifecycleScreen({
     },
     {
       header: "Pattern Maker",
+      className: "max-w-[8rem]",
       cell: (r) => {
         const v = latestVersion(r.versions);
         return v ? (
-          <div className="min-w-0 leading-tight">
-            <Truncated className="text-sm">{v.pattern_maker_name ?? "Not assigned"}</Truncated>
+          <div className="min-w-0 max-w-[8rem] leading-tight">
+            <Truncated className="block text-sm">{v.pattern_maker_name ?? "Not assigned"}</Truncated>
             <span className="text-xs text-muted-foreground">{cadTypeLabel(v.cad_type)}</span>
           </div>
         ) : (
@@ -242,6 +253,9 @@ export function CadLifecycleScreen({
           onEdit: canEdit ? (r) => cad.startStep(r, null) : undefined,
         }}
         isPending={cad.isPending}
+        // Tight gutters, same type — the queue fits a 1080p pane with no
+        // sideways scrollbar (user 2026-10-26).
+        dense="spacing"
       />
       {cad.sheets}
     </div>

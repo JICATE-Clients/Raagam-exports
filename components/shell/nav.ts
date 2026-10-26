@@ -193,17 +193,34 @@ export const NAV: NavItem[] = [
     /* COMMUNICATION HUB (0737, doc/slack.md/slack §4). The root IS a screen —
        Messages — like /approvals, so its children are the hub's other views
        and genuinely live beneath it. Gated by `communication:view`, which 0737
-       grants to every role that existed when it ran. Notifications and My
-       Approvals join this list in their own phases, and only once their routes
-       exist (check:nav refuses a row with no page). */
+       grants to every role that existed when it ran. Notifications joined in
+       phase 4 (0746) and My Approvals in phase 5 (the existing inbox, reused). */
     href: "/comms",
     label: "Messages",
     module: "communication",
     icon: MessagesSquare,
+    /* ONE "COLLABORATION" CAPTION HOLDING THE HUB'S FOUR VIEWS (user 2026-10-26:
+       "community kulla message channel search saved ithalam venum" — and no
+       Order / Sample under it). A group, so ContextSidebar draws it as one
+       captioned block; Messages is listed in it because the menu hides the
+       module's own root row, which would otherwise leave the conversation list
+       reachable only from the rail. */
     children: [
-      { href: "/comms/channels", label: "Channels" },
-      { href: "/comms/saved", label: "Saved" },
-      { href: "/comms/search", label: "Search" },
+      {
+        href: "/comms/community",
+        label: "Collaboration",
+        children: [
+          { href: "/comms", label: "Messages" },
+          { href: "/comms/channels", label: "Channels" },
+          { href: "/comms/search", label: "Search" },
+          { href: "/comms/saved", label: "Saved" },
+          // Every alert this person has — the bell shows only the latest (0746).
+          { href: "/comms/notifications", label: "Notifications" },
+          // The EXISTING approval inbox, rendered inside the hub (phase 5) —
+          // /approvals stays where it is for everyone who uses it there.
+          { href: "/comms/approvals", label: "My Approvals" },
+        ],
+      },
     ],
   },
   {

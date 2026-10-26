@@ -20,7 +20,7 @@
 
 export type NotificationEventDef = {
   /** Groups the catalog on the admin screen. */
-  module: "approvals" | "orders" | "cad" | "ta" | "admin" | "resolve";
+  module: "approvals" | "orders" | "cad" | "ta" | "comms" | "admin" | "resolve";
   label: string;
   /**
    * Who the CODE sends it to, in the operator's words. The admin can ADD
@@ -315,6 +315,29 @@ export const NOTIFICATION_EVENTS = {
     fallbackToAdmins: false,
   },
 
+  // ---- Messages (Communication Hub, 0737 / 0746) ------------------------------
+  // Raised by lib/comms/notify.ts, keyed on the message id (dedupe_key), so a
+  // retried send or a re-mentioning edit can never alert anyone twice.
+  "comms.direct_message": {
+    module: "comms",
+    label: "New direct or group message",
+    audience:
+      "The other people in a direct message or group, unless they muted it — one unread alert per conversation, not one per message",
+    staticAudience: null,
+    mandatory: false,
+    push: true,
+    fallbackToAdmins: false,
+  },
+  "comms.mention": {
+    module: "comms",
+    label: "Mentioned in a message",
+    audience: "The person @mentioned, if they are an active member of that conversation (even when they muted it)",
+    staticAudience: null,
+    mandatory: false,
+    push: true,
+    fallbackToAdmins: false,
+  },
+
   // ---- Administration -------------------------------------------------------
   "admin.test": {
     module: "admin",
@@ -349,6 +372,7 @@ export const EVENT_MODULE_LABEL: Record<NotificationEventDef["module"], string> 
   orders: "Orders",
   cad: "CAD",
   ta: "T&A",
+  comms: "Messages",
   admin: "Administration",
   resolve: "Resolve Hub",
 };

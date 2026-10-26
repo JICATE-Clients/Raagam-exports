@@ -32,6 +32,14 @@ export type NotifyOptions = {
    * can only veto, never force it on against the setting.
    */
   fallbackToAdmins?: boolean;
+  /**
+   * A STABLE ID FOR THIS EVENT (0746) — e.g. a message id. Each row is written
+   * with `dedupe_key = "<event>:<dedupeKey>"`, and `unique (user_id,
+   * dedupe_key)` means the same event reaches the same person once, however
+   * often this runs. Push goes only to the people whose row was NEW. Omit it
+   * and nothing changes: NULL keys never collide.
+   */
+  dedupeKey?: string;
   /** Where the alert came from, for the dispatch log. Sweeps pass "cron". */
   source?: "action" | "cron" | "admin";
   /** Who raised it, when a person did (a broadcast, a test). */
@@ -250,27 +258,46 @@ export async function notify(
     if (recipients.length === 0) return linkId;
 
     // 1) In-app rows (service role bypasses RLS for the fan-out insert).
-    const { error: rowErr } = await admin.from("notifications").insert(
-      recipients.map((user_id) => ({
-        user_id,
-        title,
-        body: body ?? null,
-        href: href ?? null,
-        type,
-        event_key: event,
-        dispatch_id: linkId,
-      })),
-    );
-    if (rowErr && linkId) {
-      await admin.from("notification_dispatches").update({ error: rowErr.message, recipient_count: 0 }).eq("id", linkId);
+    const rows = recipients.map((user_id) => ({
+      user_id,
+      title,
+      body: body ?? null,
+      href: href ?? null,
+      type,
+      event_key: event,
+      dispatch_id: linkId,
+      // Only sent when the caller passed a key, so a database without 0746's
+      // column still takes every un-keyed alert exactly as before.
+      ...(options.dedupeKey ? { dedupe_key: `${event}:${options.dedupeKey}` } : {}),
+    }));
+    let delivered = recipients;
+    let rowErr: { message: string } | null = null;
+    if (options.dedupeKey) {
+      // ignore-duplicates + select returns ONLY the rows actually inserted:
+      // anyone already told about this event is skipped, and is not pushed.
+      const { data, error } = await admin
+        .from("notifications")
+        .upsert(rows, { onConflict: "user_id,dedupe_key", ignoreDuplicates: true })
+        .select("user_id");
+      rowErr = error;
+      delivered = error ? [] : ((data ?? []) as { user_id: string }[]).map((r) => r.user_id);
+    } else {
+      ({ error: rowErr } = await admin.from("notifications").insert(rows));
     }
+    if (linkId && (rowErr || delivered.length !== recipients.length)) {
+      await admin
+        .from("notification_dispatches")
+        .update(rowErr ? { error: rowErr.message, recipient_count: 0 } : { recipient_count: delivered.length })
+        .eq("id", linkId);
+    }
+    if (delivered.length === 0) return linkId;
 
     // 2) Web push to each recipient's devices (best-effort).
     if (!policy.push || !configureVapid()) return linkId;
     const { data: subs } = await admin
       .from("push_subscriptions")
       .select("id, endpoint, p256dh, auth")
-      .in("user_id", recipients);
+      .in("user_id", delivered);
     if (!subs?.length) return linkId;
 
     const message = JSON.stringify({ title, body: body ?? "", url: href ?? "/" });

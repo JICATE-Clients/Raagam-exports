@@ -102,8 +102,13 @@ export function DataTable<T>({
    * AGENTS.md's "header row" section names as the bug `--check
    * text-size-noop` exists to catch, one property along. Opt-in: the default
    * density is unchanged for every other listing.
+   *
+   * `dense="spacing"` takes the padding and NOT the type (user 2026-10-26,
+   * CAD Queue: "compacted pannu … scroll bar vendam"): the width a listing
+   * needs comes from its gutters, and "compact" here means spacing — the
+   * text stays `text-sm` and controls keep their size.
    */
-  dense?: boolean;
+  dense?: boolean | "spacing";
   /**
    * HIGH-DENSITY ENTERPRISE LIST (Garment Orders, 2026-09-21). Keeps the
    * default `px-3 py-2` rhythm but drops the body to `text-xs`, the header to
@@ -140,7 +145,8 @@ export function DataTable<T>({
   const align = { left: "text-left", right: "text-right", center: "text-center" };
   /* One padding token for th and td both, so the header can never sit on a
      different rhythm from the rows beneath it. */
-  const pad = dense ? "px-2 py-1" : "px-3 py-2";
+  const smallType = dense === true;
+  const pad = smallType ? "px-2 py-1" : dense ? "px-2 py-2" : "px-3 py-2";
   /* THE HEADER BREATHES (user 2026-10-16, screenshot 3564: the header "look
      too sticked" — its words sat on the card's top edge). The same SIDE
      padding as the cells, so a column label still starts where its values
@@ -183,7 +189,7 @@ export function DataTable<T>({
   /* `hidden md:table`, with the stacked cards below taking over — see the
      note above that block. Desktop is unchanged: `md:table` restores the
      element's own default display. */
-  const tableClassName = cn("hidden w-full md:table", dense || tight ? "text-xs" : "text-sm");
+  const tableClassName = cn("hidden w-full md:table", smallType || tight ? "text-xs" : "text-sm");
 
   const head = (
     <thead>
@@ -479,7 +485,7 @@ export function DataTable<T>({
       cards={cards}
       emptyRow={emptyRow}
       emptyCard={emptyCard}
-      density={dense || tight ? "compact" : undefined}
+      density={smallType || tight ? "compact" : undefined}
     />
   );
 }

@@ -516,7 +516,13 @@ module except Master Data). Three statements:
 **MASTER DATA KEEPS ITS ⋮.** `MasterListShell` defaults `actions.menuAs` to
 `"dropdown"` (its Block/Unblock item), and its collapsed `TableRowActionsMenu`
 variant (client 2026-09-11) is a separate renderer. A NON-master screen that
-borrows the shell passes `menuAs: "icons"` (CAD Lifecycle does). Not yet
+borrows the shell passes `menuAs: "icons"` (CAD Lifecycle does).
+
+**ONE NON-MASTER EXCEPTION: Internal Work Orders** (user 2026-10-26, "apply D",
+after six loose icons per row). Its row is the next step (Issue / Mark
+complete) as an icon, the pencil, and a ⋯ holding Open BOM, Open Budget,
+Cancel and Delete — `menuAs="dropdown"` + `deleteInMenu`, which keeps Delete
+confirmed in the row. A chosen exception for that list, not a new default. Not yet
 enforced by a script — a new `canDelete={r.status === "draft"}` is the shape
 to catch in review.
 

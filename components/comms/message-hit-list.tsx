@@ -73,7 +73,7 @@ export function MessageHitList({
                     <p className="text-sm italic text-muted-foreground">This message was deleted.</p>
                   ) : (
                     // truncate-reveal: exempt -- a preview row; the whole message is one click away in its conversation
-                    <MessageBody body={m.body ?? (m.attachments.length ? `📎 ${m.attachments.map((a) => a.file_name).join(", ")}` : "")} names={names} meId={meId} className="line-clamp-3" />
+                    <MessageBody body={m.body ?? (m.attachments.length ? `📎 ${m.attachments.map((a) => a.file_name).join(", ")}` : "")} names={names} meId={meId} className="line-clamp-3" recordLinks={false} />
                   )}
                 </Link>
                 {savedList && (

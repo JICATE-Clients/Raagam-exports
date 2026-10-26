@@ -1,15 +1,20 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { StatusMark } from "@/components/ui/status-mark";
-import { CalendarRange, Check, ClipboardCheck, Clock3, Pencil, Send, Users, X } from "lucide-react";
+import { CalendarRange, ClipboardCheck, Users } from "lucide-react";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { FilterBar } from "@/components/ui/filter-bar";
+import { ViewToggle, useViewMode } from "@/components/ui/view-toggle";
 import { flagFacet, urgencyFacet, useFacetFilter, type FacetGroup } from "@/components/ui/filter-drawer";
 import { StatusPill } from "@/components/ui/status-pill";
-import { Truncated } from "@/components/ui/truncated";
-import { MobileCardList, type CardStat } from "@/components/masters/mobile-card-list";
 import { DaysOut, QUICK_WORDS_4, useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
+import { GlowRecordCard } from "@/app/(app)/sales/sample-costing/costing-card";
+import { CardAction, CardDeleteAction, DUO } from "@/components/ui/card-action";
+import { PaginationBar } from "@/components/ui/pagination";
+import { usePagination } from "@/lib/use-pagination";
+import { GLOW_RULE } from "@/lib/ui/buyer-glow";
+import { sharedPrefix, sharedValue } from "@/lib/ui/shared-words";
+import { cn } from "@/lib/utils";
 import { FigureCell, OrderQueueTable } from "@/components/orders/order-queue-table";
 import type { StatusTone } from "@/lib/ui/tone";
 import {
@@ -34,7 +39,8 @@ import {
  *
  * THE SAME DRAWING AS `BomQueue` (`components/orders/bom-queue.tsx`): the
  * `FilterBar` with a counted Status facet, the summary on its right, six cards
- * across (`MobileCardList columns={6}`), the tone badge, and `DaysOut` beside
+ * across — since 2026-10-26 the Costing glow card (`GlowRecordCard`), not
+ * `MobileCardList` — and, on the Updated table, `DaysOut` beside
  * the delivery date. Not `BomQueue` itself, which is built on the BOM statuses
  * (Pending / Draft / Updated / Recalculate); a budget has its own vocabulary.
  *
@@ -98,21 +104,6 @@ const statusText = (s: QueueStatus) => (s === "none" ? "Not budgeted" : budgetSt
  *  with the approver is `info` here, so it doesn't read as another pending job. */
 const statusTone = (s: QueueStatus): StatusTone =>
   s === "none" ? "warning" : s === "submitted" ? "info" : budgetStatusTone(s);
-
-function statusIcon(s: QueueStatus) {
-  switch (s) {
-    case "none":
-      return <Clock3 className="h-4 w-4" />;
-    case "draft":
-      return <Pencil className="h-4 w-4" />;
-    case "submitted":
-      return <Send className="h-4 w-4" />;
-    case "approved":
-      return <Check className="h-4 w-4" />;
-    default:
-      return <X className="h-4 w-4" />;
-  }
-}
 
 /**
  * THE QUEUE'S FILTERS PANEL — the grouped drawer every Orders child draws
@@ -260,6 +251,10 @@ export function BudgetQueue({
   const quickMatches = quick.matches;
 
   const filtered = useMemo(() => base.filter(quickMatches), [base, quickMatches]);
+  /* CARD VIEW / LIST VIEW (user 2026-10-26, screenshot 100646: "budgeting
+     screen kum intha mari venum") — the switch every costing and plan queue
+     carries. Until the operator picks, the tab decides as before. */
+  const viewMode = useViewMode("order-budgets", quick.value === "updated" ? "list" : "cards");
 
   const summary = useMemo(() => {
     const open = ready.filter((o) => statusOf(o) === "none").length;
@@ -276,32 +271,95 @@ export function BudgetQueue({
       : head;
   }, [ready, waiting]);
 
-  const stats = (o: BudgetableOrder): CardStat[] => [
-    {
-      /* NO UNIT AND NO `lead` — the BOM cards' shape. Six cards across leave
-         each figure ~70px, and "5,000 PCS" at the lead size was cut to
-         "5,00…" (screenshot 2964). The unit is on the budget's own header. */
-      label: "Order Qty",
-      value: o.qty != null ? fmtNumber(o.qty) : (o.sales_refusal ?? "—"),
-    },
-    {
-      // Pieces MADE (order + excess + rejection + approval), what CMT and the
-      // garment processes are priced on.
-      label: "Cut Qty",
-      value: o.cut_qty != null ? fmtNumber(o.cut_qty) : (o.cut_refusal ?? "—"),
-    },
-    {
-      label: "Delivery",
-      value: o.delivery_date ? (
-        <>
-          {fmtDate(o.delivery_date)}
-          <DaysOut iso={o.delivery_date} />
-        </>
-      ) : (
-        "—"
-      ),
-    },
-  ];
+  const pg = usePagination(filtered);
+  /* EACH WORD ONCE, as on the costing cards: the RE series and the delivery
+     year every card on the page shares are left off the card. */
+  const shared = useMemo(
+    () => ({
+      re: sharedPrefix(filtered.map((o) => o.re_no ?? o.order_code)),
+      year: sharedValue(filtered.map((o) => o.delivery_date?.slice(0, 4))),
+    }),
+    [filtered],
+  );
+
+  /** Why this card cannot be budgeted / approved yet — said on the card,
+   *  before anyone opens it. */
+  const warningOf = (o: BudgetableOrder): string | null =>
+    o.bom_refusal ?? (o.sales_value == null ? (o.sales_refusal ?? "No sales value yet") : null);
+
+  /**
+   * THE COSTING CARD (user 2026-10-26, screenshot 095211: "budgeting screen
+   * also … intha card aa costing la irukka card screen mari venum") —
+   * `GlowRecordCard`, as the IWO plans draw it: the RE number in its chip, the
+   * customer beside its initials, the PO and the budget it is in under it, the
+   * three figures with no label row, and the actions as one row of duotone
+   * tiles. The state is the tab's, so the card does not repeat it.
+   */
+  const card = (o: BudgetableOrder) => {
+    const s = statusOf(o);
+    const reNo = o.re_no ?? o.order_code;
+    const code = reNo && shared.re && reNo.startsWith(shared.re) ? reNo.slice(shared.re.length) : reNo;
+    const budgetLine = o.in_budget?.code
+      ? `${o.in_budget.code}${o.in_budget.in_revision && o.in_budget.status === "submitted" ? " · revision with the MD" : ""}`
+      : null;
+    const warning = warningOf(o);
+    const deletable = !!o.in_budget && (canDeleteRow ? canDeleteRow(o) : true);
+    return (
+      <GlowRecordCard
+        key={o.id}
+        code={code ?? "—"}
+        title={o.customer_name}
+        sub={[o.po_no, budgetLine].filter(Boolean).join(" · ") || "—"}
+        start={s === "none" ? "Start budget" : undefined}
+        figures={[
+          { label: "Order Qty", value: o.qty != null ? fmtNumber(o.qty) : (o.sales_refusal ?? "—") },
+          { label: "Cut Qty", value: o.cut_qty != null ? fmtNumber(o.cut_qty) : (o.cut_refusal ?? "—") },
+          {
+            label: "Delivery",
+            value: o.delivery_date ? (shared.year ? fmtDate(o.delivery_date).slice(0, 5) : fmtDate(o.delivery_date)) : "—",
+          },
+        ]}
+        onOpen={() => onOpen(o)}
+        footer={
+          <div className={cn("mx-3 flex min-h-10 items-center justify-between gap-1 py-1", GLOW_RULE)}>
+            <CardAction
+              label={s === "none" ? "Start budget" : "Open budget"}
+              tone="primary"
+              icon={DUO.editRing}
+              disabled={isPending}
+              onClick={() => onOpen(o)}
+            />
+            {warning ? (
+              <CardAction
+                label={warning}
+                tone="warning"
+                icon={DUO.alert}
+                onClick={() => onOpen(o)}
+              />
+            ) : null}
+            {canDelete ? (
+              <CardDeleteAction
+                label="Delete"
+                reason={
+                  deletable
+                    ? null
+                    : !o.in_budget
+                      ? "Not budgeted — nothing to delete"
+                      : `${statusText(s)} — it cannot be deleted`
+                }
+                isPending={isPending}
+                onConfirm={() => onDelete?.(o)}
+              />
+            ) : null}
+          </div>
+        }
+      />
+    );
+  };
+  const emptyText =
+    waiting > 0
+      ? `No order is ready to budget yet — ${waiting} ${waiting === 1 ? "is" : "are"} waiting on a saved Fabric Plan and Accessories Plan.`
+      : "No confirmed garment orders yet. A budget is built on an order's saved Fabric Plan and Accessories Plan.";
 
   return (
     <>
@@ -314,12 +372,14 @@ export function BudgetQueue({
         onReset={facets.activeCount ? facets.reset : undefined}
         panel={facets.panel}
         right={`${summary} · ${filtered.length} of ${ready.length}`}
+        trailing={<ViewToggle value={viewMode.view} onChange={viewMode.setView} />}
       />
 
       {/* UPDATED IS A TABLE IN THE ORDER ENTRY LISTING'S LAYOUT, CARRYING THIS
           QUEUE'S OWN DETAILS (user, 2026-09-24, screenshot 3045) — the same
-          switch as the BOM queues. Pending and Draft keep the cards. */}
-      {quick.value === "updated" ? (
+          switch as the BOM queues. Since 2026-10-26 the View toggle picks it,
+          on any tab. */}
+      {viewMode.view === "list" ? (
         <OrderQueueTable<BudgetableOrder>
           rows={filtered}
           heading={(o) => ({ reNo: o.re_no ?? o.order_code, customer: o.customer_name, poNo: o.po_no })}
@@ -365,54 +425,31 @@ export function BudgetQueue({
           isPending={isPending}
           empty={
             ready.length > 0
-              ? "No budgeted orders match the search or filters."
+              ? "No orders match the search or filters."
               : "No confirmed garment orders yet. A budget is built on an order's saved Fabric Plan and Accessories Plan."
           }
         />
       ) : (
-      <MobileCardList<BudgetableOrder>
-        columns={6}
-        rows={filtered}
-        getKey={(o) => o.id}
-        title={(o) => <span className="font-mono">{o.re_no ?? o.order_code ?? "—"}</span>}
-        subtitle={(o) => (
-          <Truncated>
-            {o.customer_name ?? "—"}
-            {o.po_no ? <span className="font-mono"> · {o.po_no}</span> : null}
-          </Truncated>
-        )}
-        // An ICON on the card, the word in its tooltip — the tab already says it (components/ui/status-mark.tsx).
-        pill={(o) => <StatusMark word={statusText(statusOf(o))} tone={statusTone(statusOf(o))} />}
-        stats={stats}
-        /* THE BUDGET IT IS IN, by its number, or why it cannot be valued yet.
-           A budget cannot be approved on an order with no sales value, so that
-           sentence belongs on the card before anyone opens it. */
-        hint={(o) =>
-          o.bom_refusal ? (
-            <span className="text-danger">{o.bom_refusal}</span>
-          ) : o.sales_value == null ? (
-            <span className="text-danger">{o.sales_refusal ?? "No sales value yet"}</span>
-          ) : o.in_budget?.code ? (
-            <span className="text-muted-foreground">
-              Budget {o.in_budget.code}
-              {/* Why a submitted budget is under Pending — see `budgetWord`. */}
-              {o.in_budget.in_revision && o.in_budget.status === "submitted" ? " · revision with the MD" : ""}
-            </span>
-          ) : null
-        }
-        tone={(o) => statusTone(statusOf(o))}
-        badge={(o) => ({ tone: statusTone(statusOf(o)), icon: statusIcon(statusOf(o)) })}
-        onEdit={onOpen}
-        canDelete={canDelete}
-        canDeleteRow={canDeleteRow}
-        onDelete={onDelete}
-        isPending={isPending}
-        empty={
-          waiting > 0
-            ? `No order is ready to budget yet — ${waiting} ${waiting === 1 ? "is" : "are"} waiting on a saved Fabric Plan and Accessories Plan.`
-            : "No confirmed garment orders yet. A budget is built on an order's saved Fabric Plan and Accessories Plan."
-        }
-      />
+        <div className="flex flex-col gap-3">
+          {filtered.length === 0 ? (
+            <div className="rounded-lg border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">
+              {ready.length > 0 ? "No orders match the search or filters." : emptyText}
+            </div>
+          ) : (
+            /* `pb-3`: room for the glow under the last row of cards. */
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-3 pb-3">{pg.paged.map(card)}</div>
+          )}
+          {pg.pageCount > 1 && (
+            <PaginationBar
+              page={pg.page}
+              pageCount={pg.pageCount}
+              total={pg.total}
+              pageSize={pg.pageSize}
+              onPageChange={pg.setPage}
+              onPageSizeChange={pg.setPageSize}
+            />
+          )}
+        </div>
       )}
     </>
   );
