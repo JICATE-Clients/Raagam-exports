@@ -13,6 +13,9 @@ import { ToggleGroup } from "@/components/ui/segmented";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
 import { useToast } from "@/components/ui/toast";
+import { LiveBadge } from "@/components/resolve/live/live-badge";
+import { useLiveRefresh } from "@/components/resolve/live/use-live-refresh";
+import { useCurrentLocationId } from "@/lib/auth/location-context";
 import { fmtDateTime } from "@/lib/format";
 import { assignComplaint, startComplaint } from "@/lib/resolve/actions";
 import { ticketStatusTone } from "@/lib/resolve/sla";
@@ -92,6 +95,8 @@ export function ComplaintsScreen({ lists, people }: { lists: Record<ComplaintTab
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
+  const locationId = useCurrentLocationId();
+  const live = useLiveRefresh(locationId ? { locationId } : null);
   const [tab, setTab] = useState<ComplaintTab>(lists.mine.length || !lists.committee.length ? "mine" : "committee");
   const [query, setQuery] = useState("");
   const [assigning, setAssigning] = useState<TicketListRow | null>(null);
@@ -134,13 +139,16 @@ export function ComplaintsScreen({ lists, people }: { lists: Record<ComplaintTab
 
   return (
     <div className="space-y-3">
-      <ToggleGroup
-        label="Complaints"
-        role="tablist"
-        value={tab}
-        onChange={setTab}
-        options={TABS.map((t) => ({ ...t, count: lists[t.value].length }))}
-      />
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <ToggleGroup
+          label="Complaints"
+          role="tablist"
+          value={tab}
+          onChange={setTab}
+          options={TABS.map((t) => ({ ...t, count: lists[t.value].length }))}
+        />
+        <LiveBadge status={live} />
+      </div>
       <FilterBar search={query} onSearch={setQuery} searchPlaceholder="Search ref, subject or category…" />
       <DataTable
         columns={withCreatedColumns(complaintColumns(actionsFor), rows)}

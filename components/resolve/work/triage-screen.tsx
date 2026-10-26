@@ -13,6 +13,9 @@ import { ToggleGroup } from "@/components/ui/segmented";
 import { SelectionBar } from "@/components/ui/selection-bar";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useToast } from "@/components/ui/toast";
+import { LiveBadge } from "@/components/resolve/live/live-badge";
+import { useLiveRefresh } from "@/components/resolve/live/use-live-refresh";
+import { useCurrentLocationId } from "@/lib/auth/location-context";
 import { assignTickets } from "@/lib/resolve/actions";
 import type { TriageRow } from "@/lib/resolve/types";
 import { AssignSheet, type Person } from "./assign-sheet";
@@ -60,6 +63,8 @@ export function TriageScreen({ lists, people }: { lists: Record<TriageTab, Triag
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
+  const locationId = useCurrentLocationId();
+  const live = useLiveRefresh(locationId ? { locationId } : null);
   const [tab, setTab] = useState<TriageTab>("decide");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
@@ -129,13 +134,16 @@ export function TriageScreen({ lists, people }: { lists: Record<TriageTab, Triag
 
   return (
     <div className="space-y-3">
-      <ToggleGroup
-        label="Triage queue"
-        role="tablist"
-        value={tab}
-        onChange={changeTab}
-        options={TABS.map((t) => ({ ...t, count: lists[t.value].length }))}
-      />
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <ToggleGroup
+          label="Triage queue"
+          role="tablist"
+          value={tab}
+          onChange={changeTab}
+          options={TABS.map((t) => ({ ...t, count: lists[t.value].length }))}
+        />
+        <LiveBadge status={live} />
+      </div>
       <FilterBar search={query} onSearch={setQuery} searchPlaceholder="Search ref, problem, place, trade or assignee…" />
       <SelectionBar count={selected.size} onClear={() => setSelected(new Set())}>
         <Button size="sm" onClick={() => setAssigning([...selected])}>

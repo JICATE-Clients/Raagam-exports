@@ -13,8 +13,17 @@ import { Truncated } from "@/components/ui/truncated";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 import { useCreatedDateFilter } from "@/lib/masters/use-created-date-filter";
 import { fmtDate } from "@/lib/format";
-import { dueWords, ticketStatusTone } from "@/lib/resolve/sla";
-import { BROKEN_STATUSES, STATUS_LABEL, type TicketListRow } from "@/lib/resolve/types";
+import { dueWords, kindStatusTone } from "@/lib/resolve/sla";
+import { RQ_STATUS_LABEL } from "@/lib/resolve/assist-types";
+import { BROKEN_STATUSES, STATUS_LABEL, type RequirementStatus, type TicketListRow } from "@/lib/resolve/types";
+
+/** A Buy request (0751) reads its own words — "open" is Pending, "fulfilled" is Given. */
+function statusWord(r: TicketListRow): string {
+  if (r.kind === "requirement") return RQ_STATUS_LABEL[r.status as RequirementStatus] ?? r.status;
+  return STATUS_LABEL[r.status] ?? r.status;
+}
+/** The requirement-only words, offered in the Status filter once a request is listed. */
+const RQ_ONLY: RequirementStatus[] = ["approved", "rejected", "fulfilled"];
 
 export function MyReportsClient({ rows, nowIso }: { rows: TicketListRow[]; nowIso: string }) {
   const [search, setSearch] = useState("");
@@ -49,6 +58,7 @@ export function MyReportsClient({ rows, nowIso }: { rows: TicketListRow[]; nowIs
       cell: (r) => (
         <span className="inline-flex max-w-full items-center gap-1.5">
           {r.is_dangerous ? <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-danger" aria-label="Dangerous" /> : null}
+          {r.kind === "requirement" ? <StatusPill tone="info">Request</StatusPill> : null}
           <Truncated>{r.title}</Truncated>
         </span>
       ),
@@ -71,7 +81,7 @@ export function MyReportsClient({ rows, nowIso }: { rows: TicketListRow[]; nowIs
     { header: "Owner", cell: (r) => r.owner_name ?? "—" },
     {
       header: "Status",
-      cell: (r) => <StatusPill tone={ticketStatusTone(r.status)}>{STATUS_LABEL[r.status] ?? r.status}</StatusPill>,
+      cell: (r) => <StatusPill tone={kindStatusTone(r.kind, r.status)}>{statusWord(r)}</StatusPill>,
     },
   ];
 
@@ -111,6 +121,13 @@ export function MyReportsClient({ rows, nowIso }: { rows: TicketListRow[]; nowIs
                 {STATUS_LABEL[s]}
               </option>
             ))}
+            {rows.some((r) => r.kind === "requirement")
+              ? RQ_ONLY.map((s) => (
+                  <option key={s} value={s}>
+                    {RQ_STATUS_LABEL[s]}
+                  </option>
+                ))
+              : null}
           </Select>
         </Field>
       </FilterBar>

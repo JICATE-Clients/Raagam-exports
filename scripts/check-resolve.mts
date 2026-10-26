@@ -10,12 +10,28 @@
  *   4. Alerts — every resolve.* event in the registry has wording, and none
  *      without one; the permission map spells real, distinct actions.
  *   5. Schemas — CAPITALS applied in the schema, coordinates rounded.
+ *   8. Service Desk — impact → priority, the two SLA clocks, SD / KB refs,
+ *      and the wording of every desk alert.
  *
  * The RLS / transition half is scripts/resolve-smoke-test.sql (DB lane).
  */
 import { inspectJpeg, stripJpegMetadata, MAX_PHOTO_BYTES } from "../lib/resolve/jpeg";
 import { csvField, toCsv } from "../lib/resolve/csv";
-import { daysLate, dueWords, isLate, spanWords, ticketStatusTone } from "../lib/resolve/sla";
+import {
+  clockWords,
+  daysLate,
+  dueWords,
+  isLate,
+  minutesLeft,
+  resolutionState,
+  responseState,
+  SD_AT_RISK_SHARE,
+  slaClockTone,
+  spanWords,
+  requirementStatusTone,
+  ticketStatusTone,
+} from "../lib/resolve/sla";
+import { DEFAULT_SERVICE_SLA, IMPACTS, isServiceRef, KB_REF, priorityForImpact, SERVICE_REF } from "../lib/resolve/desk-types";
 import { RESOLVE_MESSAGES, hidesSubject, isResolveEvent, istDateTime, resolveHref } from "../lib/resolve/messages";
 import { hashTrackingToken, isTrackingToken, pickTracked, trackWith, withdrawWith, type TrackRpc } from "../lib/resolve/token";
 import { randomBytes, createHash } from "node:crypto";
@@ -127,6 +143,12 @@ eq("tone withdrawn", ticketStatusTone("withdrawn"), "neutral");
 eq("tone blocked", ticketStatusTone("blocked"), "danger");
 eq("tone in_progress", ticketStatusTone("in_progress"), "info");
 eq("tone open", ticketStatusTone("open"), "neutral");
+// requirements (0751): Pending waits on Stores (override); the rest are the shared table's
+eq("rq tone open = Pending (override)", requirementStatusTone("open"), "warning");
+eq("rq tone approved", requirementStatusTone("approved"), "success");
+eq("rq tone fulfilled", requirementStatusTone("fulfilled"), "success");
+eq("rq tone rejected", requirementStatusTone("rejected"), "danger");
+eq("rq tone withdrawn", requirementStatusTone("withdrawn"), "neutral");
 
 // ── 4. alerts + permissions ─────────────────────────────────────────────────
 const registryResolve = Object.entries(NOTIFICATION_EVENTS)
@@ -134,7 +156,7 @@ const registryResolve = Object.entries(NOTIFICATION_EVENTS)
   .map(([k]) => k)
   .sort();
 eq("every resolve event has wording, and only those", Object.keys(RESOLVE_MESSAGES).sort(), registryResolve);
-eq("thirteen resolve events (plan §8 + §10.6)", registryResolve.length, 13);
+eq("twenty-three resolve events (plan §8 + §10.6 + service desk §4 + assist rq_update)", registryResolve.length, 23);
 const empty = { ref_no: null, title: null, place_name: null, note: null, meta: {} };
 for (const [k, build] of Object.entries(RESOLVE_MESSAGES)) {
   const m = build(empty);
@@ -259,8 +281,136 @@ eq("hidesSubject: complaint unknown", hidesSubject({ kind: "complaint", is_sensi
 eq("IST deadline", istDateTime("2026-10-23T18:45:00Z"), "24/10/2026, 12:15 am");
 eq("href complaint", resolveHref("resolve.complaint_new", "t1"), "/resolve/tickets/t1");
 
+// ── 8. Service Desk: priority, the two clocks, refs, alerts (service-desk-plan) ──
+eq("impact: cannot work → high", priorityForImpact("cannot_work", "low"), "high");
+eq("impact: degraded → medium", priorityForImpact("degraded", "low"), "medium");
+eq("impact: request → low", priorityForImpact("request", "low"), "low");
+eq("impact: category floor wins (request, medium)", priorityForImpact("request", "medium"), "medium");
+eq("impact: category floor wins (degraded, high)", priorityForImpact("degraded", "high"), "high");
+eq("impact: higher ask wins over floor", priorityForImpact("cannot_work", "medium"), "high");
+for (const i of IMPACTS) {
+  for (const f of ["high", "medium", "low"] as const) {
+    eq(`impact ${i}/${f}: never urgent`, priorityForImpact(i, f) === ("urgent" as string), false);
+  }
+}
+eq("SLA seed: four rows urgent → low", DEFAULT_SERVICE_SLA.map((r) => r.priority), ["urgent", "high", "medium", "low"]);
+eq("SLA seed: minutes", DEFAULT_SERVICE_SLA.map((r) => [r.response_minutes, r.resolution_minutes]), [[10, 30], [20, 60], [30, 120], [60, 240]]);
+
+const T0 = Date.parse("2026-10-26T04:30:00Z");
+const at = (min: number) => new Date(T0 + min * 60_000).toISOString();
+eq("response: pending inside the window", responseState(null, at(10), T0), "pending");
+eq("response: breached past the window", responseState(null, at(-1), T0), "breached");
+eq("response: met on time", responseState(at(-5), at(10), T0), "met");
+eq("response: met exactly at due", responseState(at(10), at(10), T0), "met");
+eq("response: late answer stays breached", responseState(at(11), at(10), T0), "breached");
+eq("response: no due date → pending", responseState(null, null, T0), "pending");
+eq("response: withdrawn unanswered → met (as SQL)", responseState(null, at(-30), T0, "withdrawn"), "met");
+eq("response: cancelled unanswered → met (as SQL)", responseState(null, at(-30), T0, "cancelled"), "met");
+eq("response: open unanswered past due → breached", responseState(null, at(-30), T0, "open"), "breached");
+
+eq("resolution: on track with plenty left", resolutionState("in_progress", at(100), 120, T0), "on_track");
+eq("resolution: at risk at 80 % used (24 of 120 left)", resolutionState("in_progress", at(24), 120, T0), "at_risk");
+eq("resolution: on track just before 80 %", resolutionState("in_progress", at(25), 120, T0), "on_track");
+eq("resolution: breached past due", resolutionState("assigned", at(-1), 120, T0), "breached");
+eq("resolution: on hold is paused, even past due", resolutionState("on_hold", at(-100), 120, T0), "paused");
+for (const st of ["resolved", "closed", "cancelled", "withdrawn"]) {
+  eq(`resolution: ${st} is done`, resolutionState(st, at(-100), 120, T0), "done");
+  eq(`minutesLeft: ${st} → null`, minutesLeft(st, at(30), T0), null);
+}
+eq("resolution: no due date → on track", resolutionState("open", null, 120, T0), "on_track");
+eq("SD_AT_RISK_SHARE", SD_AT_RISK_SHARE, 0.8);
+eq("minutesLeft: 30 ahead", minutesLeft("in_progress", at(30), T0), 30);
+eq("minutesLeft: floors a part minute", minutesLeft("in_progress", new Date(T0 + 90_000).toISOString(), T0), 1);
+eq("minutesLeft: negative when over", minutesLeft("in_progress", at(-45), T0), -45);
+eq("minutesLeft: on hold → null", minutesLeft("on_hold", at(30), T0), null);
+eq("minutesLeft: no due → null", minutesLeft("open", null, T0), null);
+eq("clockWords: left", clockWords("on_track", 45), "45 mins left");
+eq("clockWords: over", clockWords("breached", -120), "2 hours over");
+eq("clockWords: zero reads 1 min left", clockWords("at_risk", 0), "1 min left");
+eq("clockWords: paused", clockWords("paused", 10), "Paused");
+eq("clockWords: done", clockWords("done", 10), "");
+eq("tone: breached danger", slaClockTone("breached"), "danger");
+eq("tone: at risk warning", slaClockTone("at_risk"), "warning");
+eq("tone: met success", slaClockTone("met"), "success");
+eq("tone: paused neutral", slaClockTone("paused"), "neutral");
+
+eq("SERVICE_REF ok", SERVICE_REF.test("SD-2026-000123"), true);
+for (const bad of ["SD-26-000123", "SD-2026-12345", "sd-2026-000123", "RH-2026-000123", "SD-2026-0001234", " SD-2026-000123"]) {
+  eq(`SERVICE_REF refuses ${JSON.stringify(bad)}`, SERVICE_REF.test(bad), false);
+}
+eq("isServiceRef non-string", isServiceRef(123), false);
+eq("KB_REF ok", KB_REF.test("KB-000123"), true);
+for (const bad of ["KB-00123", "KB-2026-000123", "kb-000123", "KB-0001234"]) {
+  eq(`KB_REF refuses ${JSON.stringify(bad)}`, KB_REF.test(bad), false);
+}
+
+const sd = {
+  ref_no: "SD-2026-000123", title: "PRINTER NOT WORKING", place_name: null, note: null,
+  meta: {}, kind: "service", response_due_at: "2026-10-26T04:40:00Z", due_at: "2026-10-26T06:30:00Z",
+};
+const SD_KEYS = Object.keys(NOTIFICATION_EVENTS).filter((k) => k.startsWith("resolve.sd_"));
+eq("every resolve.sd_* has wording", SD_KEYS.filter((k) => !isResolveEvent(k)), []);
+const SD_ACTIONS: [string, string, Record<string, unknown>][] = [
+  ["resolve.sd_new", "created", {}],
+  ["resolve.sd_new", "reclassified", { rerouted: true }],
+  ["resolve.assigned", "claimed", {}],
+  ["resolve.assigned", "assigned", {}],
+  ["resolve.sd_update", "held", {}],
+  ["resolve.sd_update", "resumed", {}],
+  ["resolve.sd_update", "cancelled", {}],
+  ["resolve.sd_reply", "replied", { by_staff: true }],
+  ["resolve.sd_resolved", "resolved", {}],
+  ["resolve.closed", "confirmed", {}],
+  ["resolve.closed", "auto_closed", { days: 3 }],
+  ["resolve.sd_reopened", "reopened", {}],
+  ["resolve.sd_urgent", "overridden", { kind: "financial_risk" }],
+  ["resolve.sd_warning", "sla_warning", { clock: "resolution", minutes_left: 20 }],
+  ["resolve.sd_breach", "sla_breached", { clock: "response" }],
+  ["resolve.sd_breach", "sla_breached", { clock: "resolution" }],
+  ["resolve.sd_stale", "stale", { level: "remind", days: 3 }],
+  ["resolve.sd_stale", "stale", { level: "escalate", days: 4 }],
+  ["resolve.rated", "rated", { stars: 5 }],
+];
+for (const [k, action, meta] of SD_ACTIONS) {
+  const m = RESOLVE_MESSAGES[k as keyof typeof RESOLVE_MESSAGES]({ ...sd, action, meta, note: "WAITING FOR TONER" });
+  eq(`${k}/${action}: ref first`, (m.title + m.body).includes("SD-2026-000123"), true);
+  eq(`${k}/${action}: title in the body`, m.body.includes("PRINTER NOT WORKING"), true);
+  eq(`${k}/${action}: no undefined/null text`, /undefined|null|NaN/.test(m.title + m.body), false);
+  eq(`${k}/${action}: href is the ticket`, resolveHref(k as keyof typeof RESOLVE_MESSAGES, "t9"), "/resolve/tickets/t9");
+}
+eq("sd_new carries both deadlines", RESOLVE_MESSAGES["resolve.sd_new"]({ ...sd, action: "created" }).body,
+  "SD-2026-000123 · PRINTER NOT WORKING. Respond by 26/10/2026, 10:10 am. Resolve by 26/10/2026, 12:00 pm.");
+eq("sd_breach response wording", RESOLVE_MESSAGES["resolve.sd_breach"]({ ...sd, meta: { clock: "response" } }).title,
+  "IT request SD-2026-000123 was not answered in time");
+eq("sd_warning minutes", RESOLVE_MESSAGES["resolve.sd_warning"]({ ...sd, meta: { minutes_left: 20 } }).title,
+  "IT request SD-2026-000123 is due in 20 min");
+eq("sd_update held carries the reason", RESOLVE_MESSAGES["resolve.sd_update"]({ ...sd, action: "held", note: "WAITING FOR TONER" }).body,
+  "SD-2026-000123 · PRINTER NOT WORKING. WAITING FOR TONER");
+eq("sd_stale escalate is danger", RESOLVE_MESSAGES["resolve.sd_stale"]({ ...sd, meta: { level: "escalate", days: 4 } }).type, "danger");
+eq("broken wording untouched by the service branch", RESOLVE_MESSAGES["resolve.assigned"]({ ...sd, kind: "broken" }).title, "A job was assigned");
+eq("sd wording hides a would-be complaint's subject",
+  RESOLVE_MESSAGES["resolve.sd_new"]({ ...sd, kind: "complaint", is_sensitive: null }).body.includes("PRINTER"), false);
+
+// ── requirements (Raagam Assist, 0751) ──────────────────────────────────────
+const rq = { ref_no: "REQ-2026-000123", title: "MACHINE OIL", place_name: null, note: null, meta: {}, kind: "requirement" };
+eq("rq routed body", RESOLVE_MESSAGES["resolve.ticket_routed"]({ ...rq, rq_qty: 5, rq_needed_by: "week" }).body,
+  "REQ-2026-000123: MACHINE OIL ×5, needed this week");
+eq("rq routed from the created meta", RESOLVE_MESSAGES["resolve.ticket_routed"]({ ...rq, meta: { qty: 2, needed_by: "today" } }).body,
+  "REQ-2026-000123: MACHINE OIL ×2, needed today");
+eq("rq routed title", RESOLVE_MESSAGES["resolve.ticket_routed"](rq).title, "New request REQ-2026-000123");
+eq("rq approved", RESOLVE_MESSAGES["resolve.rq_update"]({ ...rq, action: "approved", rq_qty: 5 }).title, "Your request REQ-2026-000123 was approved");
+eq("rq rejected carries the reason", RESOLVE_MESSAGES["resolve.rq_update"]({ ...rq, action: "rejected", rq_qty: 5, note: "STOCK AVAILABLE" }).body,
+  "REQ-2026-000123: MACHINE OIL ×5. Reason: STOCK AVAILABLE");
+eq("rq rejected is a warning", RESOLVE_MESSAGES["resolve.rq_update"]({ ...rq, action: "rejected" }).type, "warning");
+eq("rq given", RESOLVE_MESSAGES["resolve.rq_update"]({ ...rq, action: "fulfilled" }).title, "Your request REQ-2026-000123 was given");
+for (const action of ["approved", "rejected", "fulfilled"]) {
+  const m = RESOLVE_MESSAGES["resolve.rq_update"]({ ...rq, action });
+  eq(`rq ${action}: no undefined/null text`, /undefined|null|NaN/.test(m.title + m.body), false);
+}
+eq("broken routed untouched by the rq branch", RESOLVE_MESSAGES["resolve.ticket_routed"](ctx).title, "A problem was reported to you");
+
 if (failures) {
   console.log(`\ncheck:resolve — FAILED: ${failures} of ${failures + passes} assertions`);
   process.exit(1);
 }
-console.log(`check:resolve — ok: ${passes} assertions (jpeg strip, csv, sla, tones, alerts, schemas).`);
+console.log(`check:resolve — ok: ${passes} assertions (jpeg strip, csv, sla, tones, alerts, schemas, service desk).`);

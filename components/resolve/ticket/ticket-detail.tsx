@@ -18,7 +18,7 @@ const CLOSURE: Record<string, string> = {
   owner_confirmed: "Closed on the owner's confirmation",
 };
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+export function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="space-y-2 border-t border-border pt-4">
       <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h2>
@@ -27,7 +27,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function Pair({ label, children }: { label: string; children: React.ReactNode }) {
+export function Pair({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="min-w-0">
       <dt className="text-xs text-muted-foreground">{label}</dt>
@@ -89,7 +89,7 @@ function ComplaintFacts({ t, isStaff, nowMs }: { t: TicketListRow; isStaff: bool
   );
 }
 
-function Photos({ photos, label }: { photos: TicketPhoto[]; label: string }) {
+export function Photos({ photos, label }: { photos: TicketPhoto[]; label: string }) {
   if (photos.length === 0) return null;
   return (
     <div className="space-y-1.5">

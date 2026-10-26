@@ -10,6 +10,9 @@ import { RowActions, type RowMenuItem } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { ToggleGroup } from "@/components/ui/segmented";
 import { useToast } from "@/components/ui/toast";
+import { LiveBadge } from "@/components/resolve/live/live-badge";
+import { useLiveRefresh } from "@/components/resolve/live/use-live-refresh";
+import { useCurrentLocationId } from "@/lib/auth/location-context";
 import { blockTicket, claimTicket, startTicket, unblockTicket } from "@/lib/resolve/actions";
 import type { TicketListRow } from "@/lib/resolve/types";
 import { ReasonSheet } from "./reason-sheet";
@@ -50,6 +53,8 @@ export function MyWorkScreen({ lists }: { lists: Record<MyWorkTab, TicketListRow
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
+  const locationId = useCurrentLocationId();
+  const live = useLiveRefresh(locationId ? { locationId } : null);
   const [tab, setTab] = useState<MyWorkTab>(lists.assigned.length || !lists.to_claim.length ? "assigned" : "to_claim");
   const [query, setQuery] = useState("");
   const [blocking, setBlocking] = useState<TicketListRow | null>(null);
@@ -110,13 +115,16 @@ export function MyWorkScreen({ lists }: { lists: Record<MyWorkTab, TicketListRow
 
   return (
     <div className="space-y-3">
-      <ToggleGroup
-        label="My work"
-        role="tablist"
-        value={tab}
-        onChange={setTab}
-        options={TABS.map((t) => ({ ...t, count: lists[t.value].length }))}
-      />
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <ToggleGroup
+          label="My work"
+          role="tablist"
+          value={tab}
+          onChange={setTab}
+          options={TABS.map((t) => ({ ...t, count: lists[t.value].length }))}
+        />
+        <LiveBadge status={live} />
+      </div>
       <FilterBar search={query} onSearch={setQuery} searchPlaceholder="Search ref, problem, place or trade…" />
       <DataTable
         columns={withCreatedColumns(workColumns, rows)}

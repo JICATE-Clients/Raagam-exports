@@ -89,6 +89,14 @@ export const JOBS = {
     everyMinutes: 5,
     runNowNote: "Waiting alerts are sent now. Nothing already sent is sent again.",
   },
+  "resolve-desk": {
+    label: "Service Desk clocks",
+    does: "Flags IT requests past their response or resolution time, warns the technician near the deadline, chases requests with no activity, and closes resolved requests nobody confirmed.",
+    schedule: "*/5 * * * *",
+    when: "Every 5 minutes",
+    everyMinutes: 5,
+    runNowNote: "Requests past a deadline are flagged and their people told now, exactly as the 5-minute run would. Nothing is flagged twice.",
+  },
 } as const satisfies Record<string, JobDef>;
 
 export type JobKey = keyof typeof JOBS;

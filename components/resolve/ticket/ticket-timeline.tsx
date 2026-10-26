@@ -1,11 +1,14 @@
 import {
   Ban,
+  BookOpen,
   Check,
   CircleAlert,
+  CirclePause,
   CirclePlay,
   CircleSlash,
   Hand,
   MessageSquare,
+  PackageCheck,
   Pencil,
   Repeat,
   ShieldCheck,
@@ -15,6 +18,8 @@ import {
   UserCheck,
   UserPlus,
   Wrench,
+  Zap,
+  Clock,
   type LucideIcon,
 } from "lucide-react";
 import { fmtDateTime } from "@/lib/format";
@@ -48,6 +53,22 @@ const ACTION: Record<string, { verb: string; icon: LucideIcon }> = {
   rated: { verb: "Rated", icon: Star },
   escalated: { verb: "Escalated", icon: TriangleAlert },
   resolved: { verb: "Resolved", icon: Check },
+  // service desk (service-desk-plan §3) — system rows (sweep) carry no actor
+  held: { verb: "Put on hold", icon: CirclePause },
+  resumed: { verb: "Work resumed", icon: CirclePlay },
+  confirmed: { verb: "Confirmed fixed by the requester", icon: Check },
+  auto_closed: { verb: "Closed — nobody confirmed or reopened it", icon: Check },
+  reopened: { verb: "Reopened — not fixed", icon: TriangleAlert },
+  overridden: { verb: "Made urgent", icon: Zap },
+  replied: { verb: "Replied", icon: MessageSquare },
+  sla_warning: { verb: "Close to its deadline", icon: Clock },
+  sla_breached: { verb: "Missed its SLA", icon: TriangleAlert },
+  stale: { verb: "No activity — reminder sent", icon: Clock },
+  kb_written: { verb: "Knowledge-base article written", icon: BookOpen },
+  // requirements (0751)
+  approved: { verb: "Approved", icon: Check },
+  rejected: { verb: "Rejected", icon: Ban },
+  fulfilled: { verb: "Given", icon: PackageCheck },
 };
 
 function wordsFor(action: string) {
@@ -60,14 +81,27 @@ function wordsFor(action: string) {
  * boundary as `ApprovalTimeline` (operator rule 4a: a 2px rule between records,
  * never a box each).
  */
-export function TicketTimeline({ rows }: { rows: TicketActivity[] }) {
+export function TicketTimeline({
+  rows,
+  statusLabels = STATUS_LABEL,
+  createdVerb,
+}: {
+  rows: TicketActivity[];
+  /** A service ticket's words for a status (`open` reads "New"). */
+  statusLabels?: Partial<Record<TicketStatus, string>>;
+  /** The first row's word when "Reported" is wrong for the kind — a Buy request is "Requested". */
+  createdVerb?: string;
+}) {
   if (rows.length === 0) {
     return <p className="text-sm text-muted-foreground">Nothing has happened yet.</p>;
   }
   return (
     <ol>
       {rows.map((r, i) => {
-        const { verb, icon: Icon } = wordsFor(r.action);
+        const words = wordsFor(r.action);
+        const verb = r.action === "created" && createdVerb ? createdVerb : words.verb;
+        const Icon = words.icon;
+        const label = r.to_status ? statusLabels[r.to_status as TicketStatus] : undefined;
         const to = r.to_status as TicketStatus | null;
         return (
           <li key={r.id} className={i > 0 ? "flex gap-3 border-t-2 border-border-strong py-3" : "flex gap-3 py-3"}>
@@ -77,8 +111,8 @@ export function TicketTimeline({ rows }: { rows: TicketActivity[] }) {
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                 <span className="text-sm font-medium text-foreground">{verb}</span>
-                {to && r.from_status !== to && STATUS_LABEL[to] ? (
-                  <StatusPill tone={ticketStatusTone(to)}>{STATUS_LABEL[to]}</StatusPill>
+                {to && r.from_status !== to && label ? (
+                  <StatusPill tone={ticketStatusTone(to)}>{label}</StatusPill>
                 ) : null}
               </div>
               <p className="text-xs text-muted-foreground">

@@ -77,13 +77,16 @@ export async function drainOutbox(
     place_id: string | null;
     category_id: string | null;
     response_due_at: string | null;
+    due_at: string | null;
+    rq_qty: number | null;
+    rq_needed_by: string | null;
   };
   const ticketIds = [...new Set(rows.map((r) => r.ticket_id).filter((v): v is string => !!v))];
   const info = new Map<string, TicketInfo & { place_name: string | null; is_sensitive: boolean | null }>();
   if (ticketIds.length) {
     const { data: t, error: tErr } = await admin
       .from("rh_tickets")
-      .select("id, kind, place_id, category_id, response_due_at")
+      .select("id, kind, place_id, category_id, response_due_at, due_at, rq_qty, rq_needed_by")
       .in("id", ticketIds);
     const list = tErr ? [] : ((t ?? []) as TicketInfo[]);
     const placeIds = [...new Set(list.map((x) => x.place_id).filter((v): v is string => !!v))];
@@ -144,6 +147,10 @@ export async function drainOutbox(
             ? false
             : null,
         response_due_at: t?.response_due_at ?? null,
+        due_at: t?.due_at ?? null,
+        action: row.action,
+        rq_qty: t?.rq_qty != null ? Number(t.rq_qty) : null,
+        rq_needed_by: t?.rq_needed_by ?? null,
       });
       const dispatch = await notify(
         key,

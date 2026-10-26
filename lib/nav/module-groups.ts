@@ -1381,6 +1381,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         children: [
           { href: "/resolve/report", label: "Report a Problem", description: "Something is broken — say where and what" },
           { href: "/resolve/my-reports", label: "My Reports", description: "Everything you reported or joined, and where it stands" },
+          { href: "/resolve/report/service", label: "IT Help Request", description: "Ask the IT service desk for help or something new" },
           { href: "/resolve/my-complaints", label: "My Complaints", description: "Complaints you raised under your own name, and their answers" },
           // Redirects to the PUBLIC /p/track (no login — an anonymous complaint
           // is followed by its token alone). The row is an in-module hop because
@@ -1399,6 +1400,22 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           { href: "/resolve/jobs", label: "All Jobs", description: "Every job in this unit, with filters and CSV export" },
           { href: "/resolve/workload", label: "Workload", description: "Open, blocked and overdue jobs per team and person" },
           { href: "/resolve/complaints", label: "Complaints", description: "Complaints you handle or sit on the committee for" },
+          { href: "/resolve/requirements", label: "Requirements", description: "Things people asked Stores for — approve, reject and give" },
+        ],
+      },
+      // Stage 3 — the IT Service Desk (doc/resolve/service-desk-plan.md §6).
+      // The hub is `desk-hub`, not `desk`: `/resolve/desk` is the queue itself.
+      {
+        kind: "group",
+        slug: "desk-hub",
+        label: "Service Desk",
+        description: "IT help requests — the desk queue, live dashboard, calls and knowledge base",
+        children: [
+          { href: "/resolve/desk", label: "Desk Queue", description: "Unassigned, mine, team and breaching IT requests, FIFO inside priority" },
+          { href: "/resolve/desk/dashboard", label: "Desk Dashboard", description: "Live counts, technician allocation, trend and escalations" },
+          { href: "/resolve/desk/log", label: "Log a Call", description: "Raise a request for a caller on the phone, email, chat or WhatsApp" },
+          { href: "/resolve/kb", label: "Knowledge Base", description: "Fixes written from resolved requests, searchable" },
+          { href: "/resolve/desk/performance", label: "Performance", description: "Response, resolution, SLA met and CSAT per technician" },
         ],
       },
       { kind: "link", href: "/resolve/analytics", label: "Analytics" },
@@ -1413,6 +1430,9 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           { href: "/resolve/setup/teams", label: "Teams", description: "Trade teams, their lead and members" },
           { href: "/resolve/setup/routing", label: "Routing", description: "Send a trade or place to a named owner" },
           { href: "/resolve/setup/complaint-categories", label: "Complaint Categories", description: "Who handles each kind of complaint, and who may see the sensitive ones" },
+          { href: "/resolve/setup/service-categories", label: "Service Categories", description: "IT request categories, their type, team and default priority" },
+          { href: "/resolve/setup/service-sla", label: "Service SLA", description: "Response and resolution minutes per priority" },
+          { href: "/resolve/setup/problem-catalog", label: "Problem Catalog", description: "The problems Raagam Assist offers in each lane, and where each one goes" },
           { href: "/resolve/setup/unit-settings", label: "Unit Settings", description: "Heads, SLA days, escalation and triage weights" },
         ],
       },

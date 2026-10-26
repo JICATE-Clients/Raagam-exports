@@ -315,6 +315,107 @@ export const NOTIFICATION_EVENTS = {
     fallbackToAdmins: false,
   },
 
+  // Service Desk (doc/resolve/service-desk-plan.md §4). Same outbox, same
+  // rule: the actor is never a recipient. `resolve.assigned`, `.closed` and
+  // `.rated` are reused for the desk's assign, close and CSAT.
+  "resolve.sd_new": {
+    module: "resolve",
+    label: "New IT request",
+    audience: "The person the request was routed to, and its team",
+    staticAudience: null,
+    // The response clock is minutes, not days — an alert that must arrive.
+    mandatory: true,
+    push: true,
+    fallbackToAdmins: true,
+  },
+  "resolve.sd_reply": {
+    module: "resolve",
+    label: "Reply on an IT request",
+    audience: "The other side of the conversation — the requester, or the technician on it",
+    staticAudience: null,
+    mandatory: false,
+    push: true,
+    fallbackToAdmins: false,
+  },
+  "resolve.sd_update": {
+    module: "resolve",
+    label: "Your IT request is on hold",
+    audience: "Whoever raised the request",
+    staticAudience: null,
+    mandatory: false,
+    push: true,
+    fallbackToAdmins: false,
+  },
+  "resolve.sd_resolved": {
+    module: "resolve",
+    label: "Your IT request was resolved",
+    audience: "Whoever raised the request — to confirm it, or reopen it",
+    staticAudience: null,
+    mandatory: false,
+    push: true,
+    fallbackToAdmins: false,
+  },
+  "resolve.sd_reopened": {
+    module: "resolve",
+    label: "IT request reopened",
+    audience: "The technician on it, else its owner",
+    staticAudience: null,
+    mandatory: false,
+    push: true,
+    fallbackToAdmins: false,
+  },
+  "resolve.sd_urgent": {
+    module: "resolve",
+    label: "IT request made urgent",
+    audience: "The technician on it, its owner and its team",
+    staticAudience: null,
+    // An override exists to jump the queue; one nobody hears about does not.
+    mandatory: true,
+    push: true,
+    fallbackToAdmins: true,
+  },
+  "resolve.sd_breach": {
+    module: "resolve",
+    label: "IT request missed its SLA",
+    audience: "The technician on it or its owner, and the desk manager",
+    staticAudience: null,
+    mandatory: true,
+    push: true,
+    fallbackToAdmins: true,
+  },
+  "resolve.sd_warning": {
+    module: "resolve",
+    label: "IT request close to its deadline",
+    audience: "The technician on it, else its owner",
+    staticAudience: null,
+    mandatory: false,
+    push: true,
+    fallbackToAdmins: false,
+  },
+  "resolve.sd_stale": {
+    module: "resolve",
+    label: "IT request with no activity",
+    audience: "The technician on it (else its owner, else its team); after more days, the desk manager",
+    staticAudience: null,
+    mandatory: false,
+    push: true,
+    // As seeded by 0749: the sweep already names its recipients (the desk
+    // manager, else the unit head), and an empty list means nobody to chase.
+    fallbackToAdmins: false,
+  },
+  // Raagam Assist requirements (0751) — `rh_rq_outbox`: a decision on a Buy
+  // request goes to the person who asked. The new request itself reaches
+  // Stores as `resolve.ticket_routed`.
+  "resolve.rq_update": {
+    module: "resolve",
+    label: "Your request was approved, rejected or given",
+    audience: "The person who asked for it",
+    staticAudience: null,
+    mandatory: false,
+    push: true,
+    fallbackToAdmins: false,
+  },
+
   // ---- Administration -------------------------------------------------------
   "admin.test": {
     module: "admin",

@@ -12,6 +12,9 @@ import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { Stat } from "@/components/ui/stat";
 import { useToast } from "@/components/ui/toast";
+import { LiveBadge } from "@/components/resolve/live/live-badge";
+import { useLiveRefresh } from "@/components/resolve/live/use-live-refresh";
+import { useCurrentLocationId } from "@/lib/auth/location-context";
 import { assignTickets, exportJobsCsv } from "@/lib/resolve/actions";
 import { BROKEN_STATUSES, STATUS_LABEL, type BrokenStatus, type TicketListRow } from "@/lib/resolve/types";
 import { AssignSheet, type Person } from "./assign-sheet";
@@ -51,6 +54,8 @@ export function JobsScreen({
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
+  const locationId = useCurrentLocationId();
+  const live = useLiveRefresh(locationId ? { locationId } : null);
   const [query, setQuery] = useState("");
   const [assigning, setAssigning] = useState<TicketListRow | null>(null);
 
@@ -156,6 +161,9 @@ export function JobsScreen({
 
   return (
     <div className="space-y-3">
+      <div className="flex justify-end">
+        <LiveBadge status={live} />
+      </div>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Stat label="Open" value={counts.open} hint="Still owed — open, in progress, blocked or awaiting a check" />
         <Stat label="Late" value={counts.late} tone={counts.late ? "danger" : "neutral"} hint="Past due while open or in progress" />

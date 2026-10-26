@@ -217,6 +217,14 @@ export const unitSettingsSchema = z.object({
   // complaints (plan §10.1, 0745)
   superior_handler_id: uuidOrNull,
   complaint_response_hours: z.coerce.number().int().min(1, "Response time must be at least 1 hour").max(2160).optional(),
+  // Raagam Assist (0751). Absent keeps the column as it is; blank clears it.
+  requirement_owner_id: uuidOrNull.optional(),
+  emergency_contact: z
+    .string()
+    .trim()
+    .max(120, "Keep the emergency contact under 120 characters")
+    .nullish()
+    .transform((v) => (v === undefined ? undefined : v ? v.toUpperCase() : null)),
 });
 export type UnitSettingsInput = z.input<typeof unitSettingsSchema>;
 

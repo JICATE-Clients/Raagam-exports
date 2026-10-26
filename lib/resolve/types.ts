@@ -2,7 +2,7 @@
 // doc/resolve/resolve-hub-plan.md; this file is its TypeScript half, so a
 // column renamed there is renamed here in the same change.
 
-export const TICKET_KINDS = ["broken", "complaint", "requirement"] as const;
+export const TICKET_KINDS = ["broken", "complaint", "requirement", "service"] as const;
 export type TicketKind = (typeof TICKET_KINDS)[number];
 
 export const BROKEN_STATUSES = [
@@ -36,8 +36,31 @@ export const COMPLAINT_STATUSES = [
 ] as const;
 export type ComplaintStatus = (typeof COMPLAINT_STATUSES)[number];
 
+/** Service Desk statuses (doc/resolve/service-desk-plan.md §1.1). `open` is
+ *  shown as "New" on a service ticket — SERVICE_STATUS_LABEL, never STATUS_LABEL. */
+export const SERVICE_STATUSES = [
+  "open",
+  "assigned",
+  "in_progress",
+  "on_hold",
+  "resolved",
+  "closed",
+  "cancelled",
+  "withdrawn",
+] as const;
+export type ServiceStatus = (typeof SERVICE_STATUSES)[number];
+
+/** Service statuses that still owe the desk work. Resolved is not one: it
+ *  waits on the requester to confirm or reopen. */
+export const ACTIVE_SERVICE_STATUSES: readonly ServiceStatus[] = ["open", "assigned", "in_progress", "on_hold"];
+
+/** Requirement (Buy) statuses (0751). `open` reads "Pending" — RQ_STATUS_LABEL
+ *  in assist-types.ts, never STATUS_LABEL's "Open". */
+export const REQUIREMENT_STATUSES = ["open", "approved", "rejected", "fulfilled", "withdrawn"] as const;
+export type RequirementStatus = (typeof REQUIREMENT_STATUSES)[number];
+
 /** Any ticket's status — a row's `kind` says which list it comes from. */
-export type TicketStatus = BrokenStatus | ComplaintStatus;
+export type TicketStatus = BrokenStatus | ComplaintStatus | ServiceStatus | RequirementStatus;
 
 /** Complaint statuses that still owe a response or a resolution. */
 export const ACTIVE_COMPLAINT_STATUSES: readonly ComplaintStatus[] = [
@@ -59,6 +82,10 @@ export const STATUS_LABEL: Record<TicketStatus, string> = {
   assigned: "Assigned",
   escalated: "Escalated",
   resolved: "Resolved",
+  on_hold: "On Hold",
+  approved: "Approved",
+  rejected: "Rejected",
+  fulfilled: "Given",
 };
 
 export const COMPLAINT_STATUS_LABEL: Record<ComplaintStatus, string> = {
@@ -70,10 +97,30 @@ export const COMPLAINT_STATUS_LABEL: Record<ComplaintStatus, string> = {
   withdrawn: "Withdrawn",
 };
 
+export const SERVICE_STATUS_LABEL: Record<ServiceStatus, string> = {
+  open: "New",
+  assigned: "Assigned",
+  in_progress: "In Progress",
+  on_hold: "On Hold",
+  resolved: "Resolved",
+  closed: "Closed",
+  cancelled: "Cancelled",
+  withdrawn: "Withdrawn",
+};
+
 export type Severity = "critical" | "high" | "medium" | "low";
 export type Priority = "urgent" | "high" | "medium" | "low";
 export type TicketSource = "form" | "qr" | "ai";
-export type ClosureKind = "auto_photo" | "spot_checked" | "owner_confirmed";
+/** Where a service ticket came in (`form` = the portal). Kept apart from
+ *  TicketSource so Broken's per-source maps stay exhaustive; phone / email /
+ *  chat / WhatsApp are recorded words only — no provider exists in this app. */
+export type ServiceSource = "form" | "phone" | "email" | "chat" | "whatsapp";
+export type ClosureKind =
+  | "auto_photo"
+  | "spot_checked"
+  | "owner_confirmed"
+  | "requester_confirmed"
+  | "auto_timeout";
 export type PlaceKind = "building" | "floor" | "room" | "area" | "machine" | "asset";
 export type NoteVisibility = "internal" | "reporter";
 
@@ -102,6 +149,25 @@ export const TICKET_ACTIONS = [
   "c_start",
   "c_resolve",
   "c_withdraw",
+  // service desk (service-desk-plan §3)
+  "sd_claim",
+  "sd_assign",
+  "sd_start",
+  "sd_hold",
+  "sd_resume",
+  "sd_resolve",
+  "sd_confirm",
+  "sd_reopen",
+  "sd_override",
+  "sd_reclassify",
+  "sd_cancel",
+  "sd_withdraw",
+  "kb_draft",
+  // requirements (0751)
+  "rq_approve",
+  "rq_reject",
+  "rq_fulfil",
+  "rq_withdraw",
 ] as const;
 export type TicketAction = (typeof TICKET_ACTIONS)[number];
 
@@ -120,7 +186,7 @@ export type Ticket = {
   severity: Severity;
   priority: Priority;
   is_routine: boolean;
-  source: TicketSource;
+  source: TicketSource | ServiceSource;
   gps_lat: number | null;
   gps_lng: number | null;
   owner_id: string | null;
@@ -143,6 +209,36 @@ export type Ticket = {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  // complaint + service clocks (0745); optional because a Broken row's
+  // callers never read them
+  response_due_at?: string | null;
+  first_response_at?: string | null;
+  resolved_at?: string | null;
+  withdrawn_at?: string | null;
+  // service desk (service-desk-plan §2) — null on every other kind
+  ticket_type?: "incident" | "service" | "change" | null;
+  impact?: "cannot_work" | "degraded" | "request" | null;
+  sd_category_id?: string | null;
+  root_cause?: string | null;
+  kb_article_id?: string | null;
+  override_kind?: "financial_risk" | "executive_directive" | null;
+  override_note?: string | null;
+  overridden_at?: string | null;
+  overridden_by?: string | null;
+  /** This ticket was put on hold for that (urgent) one. */
+  preempted_by?: string | null;
+  last_activity_at?: string | null;
+  stale_reminded_at?: string | null;
+  stale_escalated_at?: string | null;
+  sla_warned_at?: string | null;
+  response_breached_at?: string | null;
+  resolution_breached_at?: string | null;
+  // Raagam Assist (0751) — the catalog problem; the rq_* fields only on a requirement
+  catalog_item_id?: string | null;
+  rq_qty?: number | null;
+  rq_needed_by?: "today" | "week" | "month" | null;
+  rq_reason?: "ran_out" | "broken" | "new_joiner" | "new_work" | "other" | null;
+  rq_decided_note?: string | null;
 };
 
 /** A ticket as listings show it: names resolved, never a bare uuid. */
@@ -323,6 +419,10 @@ export type UnitSettings = {
   /** The independent handler for "about my superior" complaints (plan §10.4). */
   superior_handler_id: string | null;
   complaint_response_hours: number;
+  /** Raagam Assist (0751): who a Buy requirement goes to (else the Unit Head). */
+  requirement_owner_id: string | null;
+  /** Said by the chat before a gas / fire / shock item: who to call NOW. */
+  emergency_contact: string | null;
 };
 
 export type TriageRow = TicketListRow & {

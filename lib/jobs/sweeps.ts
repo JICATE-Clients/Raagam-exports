@@ -6,6 +6,7 @@ import { sweepOrderRisk } from "@/lib/orders/progress/sweep";
 import { sweepApprovalLinks } from "@/lib/ta/approval-links-sweep";
 import { drainOutbox } from "@/lib/resolve/outbox";
 import { sweepResolveEscalation } from "@/lib/resolve/escalation";
+import { sweepResolveDesk } from "@/lib/resolve/desk-sweep";
 import type { JobKey } from "./registry";
 
 /**
@@ -42,4 +43,5 @@ export const JOB_SWEEPS: Record<JobKey, () => Promise<{ error?: string } & Recor
   housekeeping: purgeOldNotifications,
   "resolve-escalation": sweepResolveEscalation,
   "resolve-outbox": () => drainOutbox({ limit: 200 }),
+  "resolve-desk": sweepResolveDesk,
 };

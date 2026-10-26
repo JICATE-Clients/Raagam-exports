@@ -47,16 +47,16 @@ import {
 
 export const PHOTO_BUCKET = "resolve-photos";
 const SIGNED_URL_TTL = 60 * 60; // 1 hour
-const JOB_ROW_CAP = 2000;
+export const JOB_ROW_CAP = 2000;
 
-type Sb = Awaited<ReturnType<typeof createClient>>;
+export type Sb = Awaited<ReturnType<typeof createClient>>;
 
-function must<T>(res: { data: T | null; error: { message: string } | null }, what: string): T {
+export function must<T>(res: { data: T | null; error: { message: string } | null }, what: string): T {
   if (res.error) throw new Error(`${what}: ${res.error.message}`);
   return res.data as T;
 }
 
-function uniq(ids: (string | null | undefined)[]): string[] {
+export function uniq(ids: (string | null | undefined)[]): string[] {
   return [...new Set(ids.filter((v): v is string => !!v))];
 }
 
@@ -70,7 +70,7 @@ async function peopleNames(s: Sb, ids: (string | null | undefined)[]): Promise<M
   return new Map((rows ?? []).filter((r) => r.full_name).map((r) => [r.id, r.full_name as string]));
 }
 
-async function idNames(s: Sb, table: string, ids: (string | null | undefined)[]): Promise<Map<string, string>> {
+export async function idNames(s: Sb, table: string, ids: (string | null | undefined)[]): Promise<Map<string, string>> {
   const list = uniq(ids);
   if (!list.length) return new Map();
   const rows = must(await s.from(table).select("id, name").in("id", list), `Reading ${table}`) as
@@ -81,7 +81,7 @@ async function idNames(s: Sb, table: string, ids: (string | null | undefined)[])
 
 /** A ticket row as selected — the complaint columns exist on every row (0745),
  *  null / false on a Broken ticket. */
-type RawTicket = Ticket & {
+export type RawTicket = Ticket & {
   joiners?: number | null;
   category_id?: string | null;
   is_anonymous?: boolean | null;
@@ -105,7 +105,7 @@ export const ANONYMOUS = "Anonymous";
 /** Resolve every name a listing shows, and the server's word on lateness.
  *  An anonymous complaint's reporter is NEVER looked up — `reporter_id` is
  *  NULL by construction (0745), and this does not even ask. */
-async function hydrate<T extends RawTicket>(s: Sb, rows: T[]): Promise<(T & TicketListRow)[]> {
+export async function hydrate<T extends RawTicket>(s: Sb, rows: T[]): Promise<(T & TicketListRow)[]> {
   if (!rows.length) return [];
   const ids = rows.map((r) => r.id);
   const needJoiners = rows.some((r) => r.kind === "broken" && typeof r.joiners !== "number");
@@ -158,7 +158,7 @@ async function hydrate<T extends RawTicket>(s: Sb, rows: T[]): Promise<(T & Tick
   });
 }
 
-async function me(): Promise<string> {
+export async function me(): Promise<string> {
   const u = await getAppUser();
   if (!u) throw new Error("Sign in to continue");
   return u.id;
@@ -205,7 +205,7 @@ export async function getPlaceByToken(token: string): Promise<PlaceByToken | nul
   return row && row.place_id ? row : null;
 }
 
-const TICKET_COLS = "*";
+export const TICKET_COLS = "*";
 
 /** Tickets I reported or joined, any unit. LISTED IN ENTRY ORDER — 1, 2, 3. */
 export async function listMyReports(): Promise<TicketListRow[]> {
@@ -216,7 +216,9 @@ export async function listMyReports(): Promise<TicketListRow[]> {
     "Reading the problems you joined",
   ) ?? []) as { ticket_id: string }[];
   const ids = joined.map((j) => j.ticket_id);
-  let q = s.from("rh_tickets").select(TICKET_COLS).eq("kind", "broken");
+  // Broken reports and Buy requests (0751) — a requirement is joined by nobody,
+  // so it only ever arrives through reporter_id.
+  let q = s.from("rh_tickets").select(TICKET_COLS).in("kind", ["broken", "requirement"]);
   q = ids.length ? q.or(`reporter_id.eq.${uid},id.in.(${ids.join(",")})`) : q.eq("reporter_id", uid);
   const rows = (must(await q.order("created_at", { ascending: true }), "Reading your reports") ?? []) as Ticket[];
   return withCreators(await hydrate(s, rows));
@@ -263,6 +265,43 @@ export async function listMyWork(tab: MyWorkTab): Promise<TicketListRow[]> {
       : q.order("is_dangerous", { ascending: false }).order("due_at", { ascending: true, nullsFirst: false });
   const rows = (must(await q, "Reading your work") ?? []) as Ticket[];
   return hydrate(s, rows);
+}
+
+// ---- requirements (Raagam Assist, 0751) ---------------------------------------
+
+export type RequirementTab = "pending" | "approved" | "done";
+
+/**
+ * The Stores queue: every Buy request in the CURRENT unit that RLS shows this
+ * person, split into Pending (open), Approved (waiting to be given) and Done
+ * (rejected / given / withdrawn in the last 30 days). A QUEUE, so it keeps
+ * its own order — soonest needed first; Done newest first.
+ */
+export async function listRequirements(): Promise<Record<RequirementTab, TicketListRow[]>> {
+  const s = await createClient();
+  const loc = await getCurrentLocationId();
+  const empty = { pending: [], approved: [], done: [] };
+  if (!loc) return empty;
+  const since = new Date(Date.now() - 30 * 86_400_000).toISOString();
+  const rows = (must(
+    await s
+      .from("rh_tickets")
+      .select(TICKET_COLS)
+      .eq("kind", "requirement")
+      .eq("location_id", loc)
+      .or(`status.in.(open,approved),updated_at.gte.${since}`)
+      .order("due_at", { ascending: true, nullsFirst: false }),
+    "Reading requirements",
+  ) ?? []) as Ticket[];
+  const all = await withCreators(await hydrate(s, rows));
+  const done = all
+    .filter((r) => r.status !== "open" && r.status !== "approved")
+    .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+  return {
+    pending: all.filter((r) => r.status === "open"),
+    approved: all.filter((r) => r.status === "approved"),
+    done,
+  };
 }
 
 /** One ticket, everything the detail page shows. Null when RLS hides it. */
@@ -557,6 +596,8 @@ export async function getUnitSettings(): Promise<UnitSettings> {
     triage_weights: { ...DEFAULT_TRIAGE_WEIGHTS, ...(row?.triage_weights ?? {}) },
     superior_handler_id: row?.superior_handler_id ?? null,
     complaint_response_hours: row?.complaint_response_hours ?? 72,
+    requirement_owner_id: row?.requirement_owner_id ?? null,
+    emergency_contact: row?.emergency_contact ?? null,
   };
 }
 
