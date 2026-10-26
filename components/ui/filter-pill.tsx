@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useRef, useState, type KeyboardEvent } from "react";
-import { ChevronDown, X } from "lucide-react";
+import { Check, ChevronDown, X } from "lucide-react";
 import { useRequiredHold } from "@/components/ui/field";
 import { Truncated } from "@/components/ui/truncated";
 import { cn } from "@/lib/utils";
@@ -29,6 +29,12 @@ import { cn } from "@/lib/utils";
  * not navigate away behind it. The ✕ is `tabIndex={-1}`, off the Tab path like
  * every other ✕ (AGENTS.md, Tab lands on fields).
  *
+ * **`multiple`** (user 2026-10-26: "Multi-Select … for all primary filter fields")
+ * — `value` is a list. Picking TICKS and the list stays open for the next tick;
+ * "Any" clears every tick; the pill reads "RE +1". Enter / Space tick the
+ * highlighted row the same way, Escape or Tab close. A required multi pill holds
+ * the cursor until at least one is ticked.
+ *
  * Not a modal: the list is an absolutely placed panel, it registers nothing with
  * `lib/reload-guard.ts`, and a click anywhere outside closes it.
  */
@@ -55,29 +61,19 @@ export type FilterPillOption = {
 const SET_BLUE = { box: "border-[#037bb8] bg-[#e8f3fb]", text: "text-[#035c8c]" };
 const SET_RED = { box: "border-[#d92d20] bg-[#fdecea]", text: "text-[#b42318]" };
 const NEEDED = { box: "border-[#d9a400] bg-[#fff7e0]", text: "text-[#8a5800]" };
+/**
+ * THE RESTING PILL IS A CONTROL, SO IT IS DRAWN AS ONE (user 2026-10-26, screenshot
+ * 3729: "the normal state filter look un visible"). The default hairline on a white
+ * pill over the #fafbfc filter band was ~1.2:1 — the pill was only findable by its
+ * words. #8090a1 is ≥ 3:1 against both grounds (WCAG 1.4.11, a control's edge), the
+ * label steps up from muted grey to slate, and a 1px shadow lifts it off the band.
+ */
+const IDLE = { box: "border-[#8090a1] bg-surface shadow-[0_1px_1px_rgba(16,24,40,0.06)]", text: "text-[#475467]" };
 
-export function FilterPill({
-  id,
-  label,
-  options,
-  value,
-  onChange,
-  required = false,
-  anyLabel = "Any",
-  anyCount,
-  placeholder = "Choose",
-  note,
-  emptyText = "Nothing to choose",
-  disabled = false,
-  tone,
-  wide = false,
-  zeroPickable = false,
-}: {
+type FilterPillCommon = {
   id?: string;
   label: string;
   options: FilterPillOption[];
-  value: string;
-  onChange: (value: string) => void;
   required?: boolean;
   anyLabel?: string;
   /** The count beside "Any" — every row the other filters leave. */
@@ -92,33 +88,65 @@ export function FilterPill({
   wide?: boolean;
   /** A 0 count still picks — the count is information, not a gate (Raise PO's Item Class, 2026-10-26). */
   zeroPickable?: boolean;
-}) {
+};
+export type FilterPillProps =
+  | (FilterPillCommon & { multiple?: false; value: string; onChange: (value: string) => void })
+  | (FilterPillCommon & { multiple: true; value: string[]; onChange: (value: string[]) => void });
+
+export function FilterPill(props: FilterPillProps) {
+  const {
+    id,
+    label,
+    options,
+    required = false,
+    anyLabel = "Any",
+    anyCount,
+    placeholder = "Choose",
+    note,
+    emptyText = "Nothing to choose",
+    disabled = false,
+    tone,
+    wide = false,
+    zeroPickable = false,
+  } = props;
+  const multiple = props.multiple === true;
+  /** What is chosen, as a list whichever shape the caller holds. */
+  const picked: string[] = props.multiple ? props.value : props.value ? [props.value] : [];
+  const clear = () => (props.multiple ? props.onChange([]) : props.onChange(""));
   const autoId = useId();
   const triggerId = id ?? `fp-${autoId}`;
   const listId = `${triggerId}-list`;
   const [open, setOpen] = useState(false);
   const [hi, setHi] = useState(0);
   const wrapRef = useRef<HTMLDivElement>(null);
-  const hold = useRequiredHold(required && !value, { required, label });
+  const hold = useRequiredHold(required && picked.length === 0, { required, label });
 
   // The list: "Any" first on an optional pill, then the options.
   const items: (FilterPillOption & { any?: boolean })[] = required
     ? options
     : [{ value: "", label: anyLabel, count: anyCount, any: true }, ...options];
-  const enabled = (i: number) => items[i] && (zeroPickable || !(items[i].count === 0 && items[i].value !== value));
-  const current = options.find((o) => o.value === value);
-  const set = !!current;
+  const isOn = (o: FilterPillOption & { any?: boolean }) => (o.any ? picked.length === 0 : picked.includes(o.value));
+  const enabled = (i: number) => items[i] && (zeroPickable || !(items[i].count === 0 && !isOn(items[i])));
+  const chosen = options.filter((o) => picked.includes(o.value));
+  const set = chosen.length > 0;
 
   function openList() {
     if (disabled) return;
-    const at = Math.max(0, items.findIndex((o) => o.value === value));
+    const at = Math.max(0, items.findIndex((o) => isOn(o)));
     setHi(enabled(at) ? at : items.findIndex((_, i) => enabled(i)));
     setOpen(true);
   }
   function pick(i: number) {
     if (!enabled(i)) return;
-    onChange(items[i].value);
-    setOpen(false);
+    const o = items[i];
+    if (!props.multiple) {
+      props.onChange(o.value);
+      setOpen(false);
+      return;
+    }
+    // A tick, not a choice: the list stays open for the next one. "Any" clears them all.
+    if (o.any) props.onChange([]);
+    else props.onChange(picked.includes(o.value) ? picked.filter((v) => v !== o.value) : [...picked, o.value]);
   }
   function step(dir: 1 | -1) {
     for (let i = hi + dir; i >= 0 && i < items.length; i += dir) {
@@ -149,7 +177,8 @@ export function FilterPill({
     }
   }
 
-  const shown = current?.label ?? (required ? placeholder : anyLabel);
+  const shown =
+    chosen.length === 0 ? (required ? placeholder : anyLabel) : chosen.length === 1 ? chosen[0].label : `${chosen[0].label} +${chosen.length - 1}`;
   return (
     <div
       ref={wrapRef}
@@ -166,9 +195,9 @@ export function FilterPill({
         aria-expanded={open}
         aria-controls={listId}
         aria-activedescendant={open ? `${listId}-${hi}` : undefined}
-        aria-label={`${label}: ${shown}`}
+        aria-label={`${label}: ${chosen.length > 1 ? chosen.map((o) => o.label).join(", ") : shown}`}
         data-field-trigger
-        data-field-empty={value ? "false" : "true"}
+        data-field-empty={set ? "false" : "true"}
         {...hold}
         disabled={disabled}
         onClick={() => (open ? setOpen(false) : openList())}
@@ -176,14 +205,18 @@ export function FilterPill({
         className={cn(
           // 32px, the dense-bar height (One button shape): a whole filter set fits ONE row (user 2026-10-26).
           // 12px and 8px sides (screenshot 3719): ten pills on one row, Progress no longer wrapping alone.
-          "inline-flex h-8 max-w-[13rem] items-center gap-1 rounded-control border bg-surface pl-2 text-xs whitespace-nowrap transition-colors",
+          // 11rem, not 13 (screenshot 3730): with Orders added, Progress wrapped alone again. Only a long
+          // Item Class / Vendor ever reaches the cap, and its full name still shows on hover (Truncated).
+          "inline-flex h-8 max-w-[11rem] items-center gap-1 rounded-control border bg-surface pl-2 text-xs whitespace-nowrap transition-colors",
           "hover:border-[#037bb8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
           set && !required ? "pr-6" : "pr-1.5",
           required && !set && NEEDED.box,
           !required && set && (tone === "danger" ? SET_RED.box : SET_BLUE.box),
+          // A required pill once chosen rests like any other — set, but nothing more to do.
+          ((!required && !set) || (required && set)) && IDLE.box,
         )}
       >
-        <span className={cn("text-muted-foreground", !required && set && (tone === "danger" ? SET_RED.text : SET_BLUE.text))}>
+        <span className={cn(IDLE.text, !required && set && (tone === "danger" ? SET_RED.text : SET_BLUE.text))}>
           {label}
           {required ? <span aria-hidden className="text-danger">*</span> : null}
         </span>
@@ -197,14 +230,14 @@ export function FilterPill({
         >
           {shown}
         </Truncated>
-        {set && !required ? null : <ChevronDown aria-hidden className="size-3 shrink-0 text-muted-foreground" />}
+        {set && !required ? null : <ChevronDown aria-hidden className={cn("size-3 shrink-0", IDLE.text)} />}
       </button>
       {set && !required ? (
         <button
           type="button"
           tabIndex={-1}
           aria-label={`Clear ${label}`}
-          onClick={() => onChange("")}
+          onClick={clear}
           className={cn(
             "absolute top-1/2 right-1 grid size-4.5 -translate-y-1/2 place-items-center rounded hover:bg-surface",
             tone === "danger" ? SET_RED.text : SET_BLUE.text,
@@ -218,6 +251,7 @@ export function FilterPill({
           id={listId}
           role="listbox"
           aria-label={label}
+          aria-multiselectable={multiple || undefined}
           className={cn(
             "absolute top-[calc(100%+6px)] left-0 z-30 max-h-80 overflow-auto rounded-lg border bg-surface p-1.5 shadow-lg",
             wide ? "w-80" : "w-60",
@@ -227,7 +261,7 @@ export function FilterPill({
           {note ? <div className="px-2 pb-2 text-xs text-muted-foreground">{note}</div> : null}
           {items.length === 0 ? <div className="px-2 py-2 text-sm text-muted-foreground">{emptyText}</div> : null}
           {items.map((o, i) => {
-            const on = o.value === value;
+            const on = isOn(o);
             const off = !enabled(i);
             return (
               <div
@@ -248,10 +282,24 @@ export function FilterPill({
                   off && "cursor-default text-muted-foreground/60",
                 )}
               >
-                <span
-                  aria-hidden
-                  className={cn("size-3.5 rounded-full border-[1.5px] border-muted-foreground", on && "border-4 border-[#037bb8]", off && "opacity-50")}
-                />
+                {multiple ? (
+                  // A tick box, not a radio dot: several can be on at once.
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "grid size-3.5 place-items-center rounded-[3px] border-[1.5px] border-muted-foreground",
+                      on && "border-[#037bb8] bg-[#037bb8] text-white",
+                      off && "opacity-50",
+                    )}
+                  >
+                    {on ? <Check className="size-2.5" strokeWidth={3.5} /> : null}
+                  </span>
+                ) : (
+                  <span
+                    aria-hidden
+                    className={cn("size-3.5 rounded-full border-[1.5px] border-muted-foreground", on && "border-4 border-[#037bb8]", off && "opacity-50")}
+                  />
+                )}
                 <span className="flex min-w-0 flex-col">
                   {/* touch={false}: an option commits on mousedown, so a long-press would reveal AND pick. */}
                   <Truncated touch={false}>{o.label}</Truncated>

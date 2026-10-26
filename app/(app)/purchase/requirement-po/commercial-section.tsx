@@ -167,7 +167,7 @@ export function CommercialSection({
    * "A…" (screenshot 2026-10-26 104334). 432px clears it with nothing to scroll.
    */
   return (
-    <div className="flex flex-col gap-4 border-t border-[#dde4eb] px-4 py-3 lg:flex-row lg:items-start">
+    <div className="flex flex-col gap-4 px-4 py-3 lg:flex-row lg:items-start">
       <section aria-label="Commercial terms" className="min-w-0 flex-1">
         <h3 className="mb-1.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">Commercial</h3>
         <div className="flex flex-wrap items-end gap-x-3 gap-y-2">

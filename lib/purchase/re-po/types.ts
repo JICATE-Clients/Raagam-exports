@@ -74,6 +74,17 @@ export function lineDescription(l: Pick<RequirementLine, "item_name" | "slice_la
 }
 
 /**
+ * A LINE'S NOTE RIDES ON ITS DESCRIPTION (user 2026-10-26: "Main Label (Process: Cut &
+ * Seal)"). `po_line_items.description` is what the PO print, the GRN, QC and the store
+ * logs already read, so the note is appended there once, at save, and reaches all of
+ * them; the note alone is also kept in `po_line_items.note` (0755).
+ */
+export function withNote(description: string, note: string | null | undefined): string {
+  const n = note?.trim();
+  return n ? `${description} (${n})` : description;
+}
+
+/**
  * GST slabs (spec point 4: "selects applicable GST tax structures"). CGST + SGST
  * for a vendor in the same state, IGST for one outside it. Labels kept SHORT — the
  * header is one row (2026-10-23) and the GST box is 176px; the split (6 + 6) is
@@ -90,6 +101,14 @@ export const GST_SLABS = [
 export type GstSlabId = (typeof GST_SLABS)[number]["id"];
 export const gstSlab = (id: string) => GST_SLABS.find((g) => g.id === id) ?? GST_SLABS[1];
 
+/**
+ * A LINE'S OWN GST % (user 2026-10-26, 0756). One PO carries thread at 5 %, labels at
+ * 12 %, polybags at 18 % — so the slab is chosen per line. CGST+SGST vs IGST is NOT: it
+ * is the vendor's state, the same for every line, and stays on the header slab above,
+ * whose % is the default a line follows until it is changed.
+ */
+export const LINE_GST_PCTS = [0, 5, 12, 18] as const;
+
 /** Spec point 6: never above the balance, never below nothing. */
 export function capQty(typed: number, balance: number): number {
   if (!Number.isFinite(typed) || typed < 0) return 0;
@@ -98,13 +117,18 @@ export function capQty(typed: number, balance: number): number {
 
 const money = (n: number) => Math.round(n * 100) / 100;
 
-/** Taxable, GST and total for the PO, in the PO's own currency. */
+/** GST on one line — its own slab, else the PO's default (0756). */
+export function lineGst(l: { qty: number; rate: number; gstPct?: number | null }, defaultPct: number): number {
+  return l.qty > 0 && l.rate > 0 ? money((l.qty * l.rate * (l.gstPct ?? defaultPct)) / 100) : 0;
+}
+
+/** Taxable, GST and total for the PO, in the PO's own currency — GST summed line by line. */
 export function poTotals(
-  lines: readonly { qty: number; rate: number }[],
-  gstPct: number,
+  lines: readonly { qty: number; rate: number; gstPct?: number | null }[],
+  defaultPct: number,
 ): { taxable: number; gst: number; total: number } {
   const taxable = money(lines.reduce((a, l) => a + (l.qty > 0 && l.rate > 0 ? l.qty * l.rate : 0), 0));
-  const gst = money((taxable * gstPct) / 100);
+  const gst = money(lines.reduce((a, l) => a + lineGst(l, defaultPct), 0));
   return { taxable, gst, total: money(taxable + gst) };
 }
 
@@ -114,6 +138,21 @@ export const rePoLineInput = z.object({
   qty: z.number().min(0),
   rate: z.number().min(0).nullable(),
   delivery_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Delivery date is required"),
+  /** This line's GST % (0756); null / absent = the PO's default slab. */
+  gst_pct: z
+    .number()
+    .refine((n) => (LINE_GST_PCTS as readonly number[]).includes(n), "GST must be 0, 5, 12 or 18 %")
+    .nullish()
+    .transform((v) => v ?? null),
+  /** The item-level instruction to the vendor (0755) — capitals, blank → null. Optional, so
+      a caller that predates it still saves. */
+  note: z
+    .string()
+    .trim()
+    .max(200, "A note is at most 200 characters")
+    .toUpperCase()
+    .nullish()
+    .transform((v) => v || null),
 });
 
 /** A free-text commercial term: trimmed, capitals, blank → null. */
