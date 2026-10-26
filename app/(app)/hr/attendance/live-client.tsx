@@ -154,6 +154,39 @@ export default function LiveClient({
   useEffect(() => {
     const tick = setInterval(() => setNow(Date.now()), 15_000);
 
+    /**
+     * REALTIME IS THE FAST PATH, NOT THE ONLY ONE. A channel that drops
+     * quietly — a laptop asleep, a tab in the background, Wi-Fi blinking —
+     * stops delivering `last_seen` while the clock above keeps ticking, so a
+     * healthy device read OFFLINE after two minutes and stayed that way until
+     * the page was reloaded (reported 2026-10-26 as "offline until restarted").
+     *
+     * So the device list is also re-read every 30 s and whenever the tab comes
+     * back. Straight from the browser through the viewer's session (RLS, same
+     * as `listDevices`), not a server round trip; skipped while the tab is
+     * hidden, so a forgotten tab costs nothing. Columns match `listDevices`.
+     */
+    const refreshDevices = async () => {
+      if (document.hidden) return;
+      const { data, error } = await supabase
+        .from("biometric_devices")
+        .select(
+          "serial_no, name, location_id, direction, purpose, is_active, last_seen, last_ip, last_attlog_stamp, enabled, accept_from",
+        )
+        .order("last_seen", { ascending: false, nullsFirst: false });
+      if (error) {
+        console.error("[live] device refresh failed", error);
+        return;
+      }
+      setDevices((data ?? []) as DeviceRow[]);
+      setNow(Date.now());
+    };
+    const poll = setInterval(() => void refreshDevices(), 30_000);
+    const onVisible = () => {
+      if (!document.hidden) void refreshDevices();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
     const channel = supabase
       .channel(`hr-punches:${instance}`)
       .on(
@@ -191,6 +224,8 @@ export default function LiveClient({
 
     return () => {
       clearInterval(tick);
+      clearInterval(poll);
+      document.removeEventListener("visibilitychange", onVisible);
       void supabase.removeChannel(channel);
     };
   }, [supabase, instance, todayFromIso]);
