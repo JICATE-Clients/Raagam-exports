@@ -3,7 +3,7 @@ import { listNotificationsPage } from "@/lib/notifications/service";
 import { NotificationsList } from "@/components/comms/notifications-list";
 
 /**
- * Messages ▸ Notifications — every alert this person has, not only the bell's
+ * Huddle ▸ Notifications — every alert this person has, not only the bell's
  * latest 30: approvals waiting and decided, mentions, direct messages, order
  * and T&A alerts. One table for all of them (0040); this page only reads it.
  */

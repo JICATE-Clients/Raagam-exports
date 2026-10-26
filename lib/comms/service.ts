@@ -1,6 +1,8 @@
 import "server-only";
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { getAppUser } from "@/lib/auth/server";
+import { isInactive } from "@/lib/masters/inactive";
 import {
   MESSAGE_PAGE,
   conversationTitle,
@@ -146,8 +148,13 @@ type MyConversationRow = Omit<ConversationSummary, "department_name" | "title" |
   my_role: MemberRole;
 };
 
-/** The caller's conversations, newest activity first, with unread counts. */
-export async function listMyConversations(kind?: ConversationKind): Promise<ConversationSummary[]> {
+/**
+ * The caller's conversations, newest activity first, with unread counts.
+ * Per-request `cache()`: the hub layout and Chats both ask for it on /comms.
+ */
+export const listMyConversations = cache(async function listMyConversations(
+  kind?: ConversationKind,
+): Promise<ConversationSummary[]> {
   const s = await createClient();
   const me = await myId();
   const { data, error } = await s.rpc("comm_my_conversations", { p_kind: kind ?? null });
@@ -163,7 +170,7 @@ export async function listMyConversations(kind?: ConversationKind): Promise<Conv
     department_name: r.department_id ? depts.get(r.department_id) ?? null : null,
     title: titles.get(r.id) ?? conversationTitle(r, []),
   }));
-}
+});
 
 /** Total unread across the caller's unmuted conversations — the nav badge. */
 export async function getUnreadTotal(): Promise<number> {
@@ -466,16 +473,20 @@ export async function searchMessages(query: string, limit = 50): Promise<Message
 }
 
 /**
- * Departments a channel may be linked to. Blocked ones are left out — a
+ * Departments a channel may be linked to. Switched-off ones are left out — a
  * switched-off master row is not offered for selection (AGENTS.md "Disabled
  * rows"); a channel already linked to one still shows its name.
+ *
+ * The flag is `inactive` (0299 renamed 0259's `blocked`), read through
+ * `isInactive()` so the spelling is never guessed again — the live end-to-end
+ * run caught this file and 0737 both reading `blocked` (fixed by 0749).
  */
 export async function listDepartments(): Promise<{ id: string; name: string }[]> {
   const s = await createClient();
-  const { data, error } = await s.from("departments").select("id, name, blocked").order("name");
+  const { data, error } = await s.from("departments").select("id, name, inactive").order("name");
   if (error) fail("departments", error);
-  return ((data ?? []) as { id: string; name: string; blocked: boolean }[])
-    .filter((d) => !d.blocked)
+  return ((data ?? []) as { id: string; name: string; inactive: boolean | null }[])
+    .filter((d) => !isInactive(d))
     .map(({ id, name }) => ({ id, name }));
 }
 

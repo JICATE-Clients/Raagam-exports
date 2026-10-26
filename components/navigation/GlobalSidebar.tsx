@@ -22,7 +22,7 @@ const RAIL_BANDS: { label?: string; hrefs: string[] }[] = [
   { label: "People & Accounts", hrefs: ["/hr", "/finance"] },
   // Its own captioned band, not among the overview screens (user 2026-10-26:
   // "message module kku oru name vachi heading … dashboard kulla vendam").
-  { label: "Collaboration", hrefs: ["/comms"] },
+  { label: "Huddle", hrefs: ["/comms"] },
   { label: "System", hrefs: ["/masters", "/integration", "/admin"] },
 ];
 
@@ -206,7 +206,7 @@ export function GlobalSidebar({ wide = false }: { wide?: boolean }) {
             bar is gone. `py-1` (was `p-1.5`) is part of the same budget. */}
         <nav className="scrollbar-none flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden px-1.5 py-1">
           {bands.map((band, bi) => (
-            <div key={band.label ?? bi} className="space-y-0.5">
+            <div key={band.label ?? bi} className="space-y-px">
               {/* One fixed height either way (`h-[18px]`, was `h-5`): open it
                   is the caption, closed it is a short divider. Same height in
                   both states, so no icon moves when the panel opens (09-16). */}
@@ -265,8 +265,11 @@ export function GlobalSidebar({ wide = false }: { wide?: boolean }) {
                       // mock-up) — the same row as the context sidebar. This REVERSES the
                       // 28px above on purpose; on a short window the rail scrolls
                       // instead of fitting.
+                      // 32px again (user 2026-10-26, "side la compact aa venum"):
+                      // the Huddle band pushed Chats below the fold at 36px.
+                      // Spacing only — the 14px text and 10px curve stay.
                       className={cn(
-                        "h-9 rounded-[10px] text-[14px]",
+                        "h-8 rounded-[10px] text-[14px]",
                         !isActive && "text-foreground",
                         expanded && "w-full gap-3",
                       )}
