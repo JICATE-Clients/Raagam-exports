@@ -160,14 +160,17 @@ export function GlobalSidebar({ wide = false }: { wide?: boolean }) {
           // no edge of its own. OPEN, IT IS THE SIDEBAR GROWN WIDER, not a card
           // hanging from the logo (screenshot 3177): full height (`top-0`),
           // carrying the logo in exactly the place the brand row shows it, no
-          // top border, SQUARE corners (user 2026-10-01, screenshot 3180) — a straight right edge and the lift. As
-          // wide as rail + module menu (236px) where the menu is showing, so
-          // it covers that menu completely.
+          // top border, SQUARE corners (user 2026-10-01, screenshot 3180) — a straight right edge and the lift.
+          // AS WIDE AS ITS LONGEST NAME since 2026-10-26 (user, screenshots
+          // 154318 / 160539: "side la white space … remove pannu", then
+          // "innum kammi pannu", then "intha extra space aa remove pannu").
+          // 236px, then 192px, then 176px each still left empty panel beside
+          // the names, so the width is now the content's (`w-max`);
+          // `interpolate-size` keeps the open animation where the browser
+          // supports animating to a keyword width. The module menu's far edge
+          // shows past it.
           expanded
-            ? cn(
-                "top-0 border-r border-border bg-surface shadow-elev-hi",
-                wide ? "w-[236px]" : "w-48",
-              )
+            ? "top-0 w-max border-r border-border bg-surface shadow-elev-hi [interpolate-size:allow-keywords]"
             : "top-14 w-13 bg-canvas",
         )}
       >
@@ -176,6 +179,8 @@ export function GlobalSidebar({ wide = false }: { wide?: boolean }) {
           // image — so nothing moves as the panel opens over it (components/
           // shell/sidebar.tsx draws the original). Open width = that row's
           // width, so centring here lands on exactly the same spot.
+          // Centred on the panel's own (content) width: a fixed 236px row here
+          // would set the `w-max` panel's width back to 236px.
           <div className={cn("flex h-14 shrink-0 items-center justify-center", !wide && "w-13")}>
             {wide ? (
               <Image
@@ -271,7 +276,7 @@ export function GlobalSidebar({ wide = false }: { wide?: boolean }) {
                       className={cn(
                         "h-8 rounded-[10px] text-[14px]",
                         !isActive && "text-foreground",
-                        expanded && "w-full gap-3",
+                        expanded && "w-full gap-2.5",
                       )}
                       onClick={(e) => {
                         e.preventDefault();
