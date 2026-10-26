@@ -1,10 +1,19 @@
 import { requirePermission } from "@/lib/auth/server";
 import { PageHeader } from "@/components/ui/page-header";
-import { getRequirementLines, getVendorsByClass, peekPoNumber } from "@/lib/purchase/re-po/service";
-import { RequirementPoForm } from "./requirement-po-form";
+import {
+  getBudgetedLineKeys,
+  getDraftHolds,
+  getItemClasses,
+  getRequirementLines,
+  getVendorsByClass,
+  listRaisedPos,
+  peekPoNumber,
+} from "@/lib/purchase/re-po/service";
+import { RaisePoScreen } from "./raise-po-screen";
 
 /**
- * PURCHASE ▸ PROCUREMENT ▸ PO FROM REQUIREMENT (doc/purchase/puchase.md).
+ * PURCHASE ▸ PROCUREMENT ▸ RAISE PO (doc/purchase/puchase.md; was "PO from
+ * Requirement" until the user renamed it 2026-10-26).
  *
  * Every requirement line with something left to buy, and the bought-item vendors
  * of every class among them, load once — both are small (one row per RE · item ·
@@ -14,19 +23,30 @@ import { RequirementPoForm } from "./requirement-po-form";
  */
 export default async function RequirementPoPage() {
   await requirePermission("materials_purchase", "create");
-  const [all, nextPoNo] = await Promise.all([getRequirementLines(), peekPoNumber()]);
+  // Every item class (the pill lists them all, 2026-10-26) does not wait on the lines.
+  const [all, nextPoNo, itemClasses] = await Promise.all([getRequirementLines(), peekPoNumber(), getItemClasses()]);
   const lines = all.filter((l) => l.balance_qty > 0);
-  const vendorsByClass = await getVendorsByClass(
-    lines.map((l) => l.item_class_id).filter((v): v is string => !!v),
-  );
+  // One round for the three: the vendors, which lines have an approved budget (the
+  // Budget filter — asked with no rate, so no figure reaches the page), and the draft
+  // POs already holding a balance.
+  const [vendorsByClass, budgetedKeys, draftHolds, raised] = await Promise.all([
+    getVendorsByClass(lines.map((l) => l.item_class_id).filter((v): v is string => !!v)),
+    getBudgetedLineKeys(lines),
+    getDraftHolds(),
+    // The Updated / Draft lists (user 2026-10-26: Save stays on Raise PO).
+    listRaisedPos(),
+  ]);
 
   return (
     <div className="space-y-4">
       <PageHeader
-        title="PO from Requirement"
-        description="Choose the RE numbers; what their requirement sheets still need lists itself. Type the rate."
+        title="Raise PO"
+        description="Choose the item class and vendor, narrow with the filters, tick the orders. Type the rate."
       />
-      <RequirementPoForm lines={lines} vendorsByClass={vendorsByClass} nextPoNo={nextPoNo} />
+      <RaisePoScreen
+        raised={raised}
+        form={{ lines, vendorsByClass, nextPoNo, budgetedKeys, draftHolds, itemClasses }}
+      />
     </div>
   );
 }

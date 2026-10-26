@@ -787,6 +787,42 @@ export async function rejectPo(
 
 // ---------- PO item groups (Band 0) ----------
 
+/**
+ * REJECT FOR GOOD (user 2026-10-26: the PO screen's "Approve · Reject · Revise").
+ * `rejectPo` above sends a PO back to DRAFT — that is REVISE, and keeps its name
+ * so nothing calling it changes. This one CLOSES it: status `cancelled`, the
+ * reason mandatory and kept in the notes, and its quantities stop counting as
+ * ordered, so the requirement goes back on Raise PO's Pending list.
+ */
+export async function declinePo(poId: string, reason: string): Promise<ActionResult> {
+  if (!(await can("materials_purchase", "approve"))) throw new Error("Forbidden");
+  const why = reason.trim();
+  if (!why) return { ok: false, error: "Give the reason for rejecting" };
+
+  const supabase = await createClient();
+  const { data: po } = await supabase.from("purchase_orders").select("status, notes").eq("id", poId).maybeSingle();
+  const poRow = po as { status: string; notes: string | null } | null;
+  if (!poRow || poRow.status !== "pending_approval") {
+    return { ok: false, error: "Purchase order is not pending approval" };
+  }
+
+  const { error } = await supabase
+    .from("purchase_orders")
+    .update({ status: "cancelled", notes: [poRow.notes, `Rejected: ${why}`].filter(Boolean).join("\n") })
+    .eq("id", poId);
+  if (error) return { ok: false, error: error.message };
+
+  await writeAudit({
+    action: "purchase_order.declined",
+    entityType: "purchase_order",
+    entityId: poId,
+    metadata: { reason: why },
+  });
+
+  revalidatePurchase(`/purchase/orders/${poId}`, "/purchase/orders", "/purchase/requirement-po");
+  return { ok: true };
+}
+
 export async function addPoItemGroup(
   data: PoItemGroupInput,
 ): Promise<{ ok: true; groupId: string } | ErrResult> {

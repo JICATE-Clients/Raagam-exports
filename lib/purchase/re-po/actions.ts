@@ -155,6 +155,9 @@ export async function savePoFromRequirement(raw: RePoInput, mode: "draft" | "sub
 
   const slab = gstSlab(input.gst);
   const totals = poTotals(lines.map((l) => ({ qty: l.qty, rate: l.rate ?? 0 })), slab.pct);
+  /* Add − Less from the Commercial section, in the PO's currency like the rates. */
+  const chargesNet = input.charges.reduce((a, c) => a + (c.kind === "less" ? -1 : 1) * c.amount, 0);
+  const grand = Math.round((totals.total + chargesNet) * 100) / 100;
   const status: "draft" | "approved" | "pending_approval" =
     mode === "draft" ? "draft" : aboveCount > 0 || unbudgeted > 0 ? "pending_approval" : "approved";
   const user = await getAppUser();
@@ -169,12 +172,13 @@ export async function savePoFromRequirement(raw: RePoInput, mode: "draft" | "sub
       currency_code: "INR",
       foreign_currency_code: input.po_type === "import" ? input.currency_code : null,
       exchange_rate: input.po_type === "import" ? input.exchange_rate : null,
-      foreign_total_amount: input.po_type === "import" ? totals.total : null,
-      total_amount: Math.round(totals.total * fx * 100) / 100,
+      foreign_total_amount: input.po_type === "import" ? grand : null,
+      total_amount: Math.round(grand * fx * 100) / 100,
       gst_pct: slab.pct,
       gst_kind: slab.kind,
       gst_amount: totals.gst,
       payment_terms: input.payment_terms,
+      ...(input.commercial ?? {}),
       expected_date: latestDelivery,
       order_date: new Date().toISOString().slice(0, 10),
       status,
@@ -210,6 +214,24 @@ export async function savePoFromRequirement(raw: RePoInput, mode: "draft" | "sub
     // No half PO: the header goes too (its lines cascade).
     await s.from("purchase_orders").delete().eq("id", poRow.id);
     return { ok: false, error: `The PO lines could not be saved: ${lineErr.message}` };
+  }
+
+  if (input.charges.length) {
+    const { error: chErr } = await s.from("po_additional_charges").insert(
+      input.charges.map((c, i) => ({
+        purchase_order_id: poRow.id,
+        charge_type: c.kind,
+        label: c.label,
+        rate: 0,
+        inr_amount: Math.round(c.amount * fx * 100) / 100,
+        fgn_amount: input.po_type === "import" ? c.amount : 0,
+        sort_order: i,
+      })),
+    );
+    if (chErr) {
+      await s.from("purchase_orders").delete().eq("id", poRow.id);
+      return { ok: false, error: `The PO charges could not be saved: ${chErr.message}` };
+    }
   }
 
   revalidatePath("/purchase/orders");
