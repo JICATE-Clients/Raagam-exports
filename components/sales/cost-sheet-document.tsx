@@ -319,10 +319,9 @@ export function CostSheetDocument({
   const shownRate = rateOf(shownCode);
   const cur: ShownCurrency = shownCode === "INR" || !shownRate ? null : { code: shownCode, sym: ccySym(shownCode), rate: shownRate };
   const ccyCodes = [...new Set([...(quotedCcy ? [quotedCcy] : []), ...Object.keys(model.quoteRates), ...masterCodes, "INR"])];
-  const pickShown = (c: string) => {
-    setShownPick(c);
+  const fetchRate = (c: string) => {
     setRateFail(null);
-    if (c === "INR" || c === quotedCcy || todayRates[c]) return;
+    if (c === "" || c === "INR" || c === quotedCcy || todayRates[c]) return;
     setRateWait(c);
     void fetchTodayRate(c)
       .then((r) => {
@@ -330,6 +329,20 @@ export function CostSheetDocument({
         else setRateFail(r.error);
       })
       .finally(() => setRateWait((w) => (w === c ? null : w)));
+  };
+  const pickShown = (c: string) => {
+    setShownPick(c);
+    fetchRate(c);
+  };
+  /* THE FOB CARD'S PICK CONVERTS THE FOB ONLY (user 2026-10-26: "if the currency is updated
+     it updating full costing instead of just update the fob value only … don't change costing
+     value currency"). It used to share `pickShown`, so choosing EUR there re-drew every figure
+     on the sheet in EUR. Now it holds its own code: the card shows the FOB in that currency at
+     today's rate, and the costing stays in rupees. */
+  const [fobPick, setFobPick] = useState("");
+  const pickFob = (c: string) => {
+    setFobPick(c);
+    fetchRate(c);
   };
   const show = {
     codes: ccyCodes,
@@ -339,6 +352,13 @@ export function CostSheetDocument({
     today: todayRates[shownCode] ?? null,
     waiting: rateWait === shownCode,
     failed: rateFail,
+    fob: {
+      code: fobPick,
+      rate: fobPick ? rateOf(fobPick) : null,
+      today: fobPick ? (todayRates[fobPick] ?? null) : null,
+      waiting: fobPick !== "" && rateWait === fobPick,
+      onPick: pickFob,
+    },
   };
 
   async function run(kind: "pdf" | "csv") {
@@ -436,6 +456,8 @@ type ShowIn = {
   today: TodayRate | null;
   waiting: boolean;
   failed: string | null;
+  /** The Quoted FOB card's own pick — converts the card's FOB only, never the sheet. "" = none. */
+  fob: { code: string; rate: number | null; today: TodayRate | null; waiting: boolean; onPick: (c: string) => void };
 };
 
 function Sheet({ model, s, edit: editIn, view, cur, show, onSize, letterhead = true, merged = false, narrowValues = false, opsRow = false, opsStack = false, trimsByTick = false, chargesTable = false, fabricFold = false, enterFlow = false, liveAmounts = false, fabricAlign = false, onePage: onePageIn = false, chartsOnly = false, tab: tabIn, onTabChange }: { model: CostSheetModel; s: SizeFigures; edit?: CostSheetEdit; view: SheetView; cur: ShownCurrency; show: ShowIn; /** The Charts tab's size rows drive the toolbar's size switch. */ onSize?: (i: number) => void; /** See `CostSheetDocument`'s `letterhead`. */ letterhead?: boolean; /** See `CostSheetDocument`'s `merged`. */ merged?: boolean; /** See `CostSheetDocument`'s `narrowValues`. */ narrowValues?: boolean; /** See `CostSheetDocument`'s `opsRow`. */ opsRow?: boolean; /** See `CostSheetDocument`'s `opsStack`. */ opsStack?: boolean; /** See `CostSheetDocument`'s `trimsByTick`. */ trimsByTick?: boolean; /** See `CostSheetDocument`'s `chargesTable`. */ chargesTable?: boolean; /** See `CostSheetDocument`'s `fabricFold`. */ fabricFold?: boolean; /** See `CostSheetDocument`'s `enterFlow`. */ enterFlow?: boolean; /** See `CostSheetDocument`'s `liveAmounts`. */ liveAmounts?: boolean; /** See `CostSheetDocument`'s `fabricAlign`. */ fabricAlign?: boolean; /** See `CostSheetDocument`'s `onePage`. */ onePage?: boolean; /** See `CostSheetDocument`'s `chartsOnly`. */ chartsOnly?: boolean; /** See `CostSheetDocument`'s `tab`. */ tab?: number; onTabChange?: (tab: number) => void }) {
@@ -488,48 +510,6 @@ function Sheet({ model, s, edit: editIn, view, cur, show, onSize, letterhead = t
   const fobShown = offeredPrice(s.quoted, s.calc);
   const fobInr = inrOf(fobShown);
 
-  // The waterfall: costs climb to Net, extras to Gross cost, margin and charges to the Price.
-  type WfRow = { label: string; value: number; tone: keyof typeof TONE_VAR | null };
-  const steps = fobSteps(s, model.exchangeRate);
-  const wf: WfRow[] = ([
-    { label: "Fabric", value: s.fabric, tone: "fabric" },
-    { label: "CMT", value: s.cmt, tone: "cmt" },
-    { label: "Embellishment & testing", value: s.process + s.testing, tone: "emb" },
-    { label: "Trims", value: s.trims, tone: "trims" },
-    { label: "Bank charges", value: s.bank, tone: "over" },
-    { label: "Net cost", value: s.net, tone: null },
-    { label: "Rejection + overhead", value: s.wastage + s.overhead, tone: "over" },
-    { label: "Extra charges", value: s.extraOverhead, tone: "over" },
-    { label: "Gross cost", value: s.grossCost, tone: null },
-    { label: `Margin ${model.terms.margin}%`, value: s.margin, tone: "margin" },
-    ...(s.discount ? [{ label: "Discount", value: -s.discount, tone: "margin" as const }] : []),
-    ...(s.priceAdj ? [{ label: "Price charges", value: s.priceAdj, tone: "margin" as const }] : []),
-    /* THE BUILD-UP ENDS ON THE HEADER'S PRICE (user 2026-10-17, screenshot 3586: the
-       header read ₹427.50 and this chart ₹441.37). `s.price` is the CALCULATED rupee price
-       — gross cost + the target margin, freight left out — while the header shows the
-       FOB (quoted, else calculated) × the rate, freight and insurance in. Both are right;
-       the chart just stopped two steps short. `fobSteps` supplies those two steps. */
-    { label: steps.fi || steps.qa ? "Calculated price" : "Price", value: s.price, tone: null },
-    ...(steps.fi ? [{ label: "Freight & insurance", value: steps.fi, tone: "over" as const }] : []),
-    ...(steps.qa ? [{ label: "Quoted vs calculated", value: steps.qa, tone: "margin" as const }] : []),
-    ...(steps.fi || steps.qa ? [{ label: `${s.quoted != null ? "Quoted" : "Calculated"} FOB`, value: steps.fob, tone: null }] : []),
-  ] as WfRow[]).filter((r) => r.tone === null || r.value !== 0);
-  let run = 0;
-  const wfRows = wf.map((r) => {
-    const total = r.tone === null;
-    let start: number;
-    if (total) {
-      start = 0;
-      run = r.value;
-    } else if (r.value >= 0) {
-      start = run;
-      run += r.value;
-    } else {
-      run += r.value;
-      start = run;
-    }
-    return { ...r, total, start, width: Math.abs(r.value) };
-  });
 
 
 
@@ -2600,15 +2580,17 @@ function Sheet({ model, s, edit: editIn, view, cur, show, onSize, letterhead = t
             ) : null}
 
             {ctBand("Terms", `Margin ${edit ? Number(edit.draft.header.margin_pct) || 0 : model.terms.margin}%`, undefined, "terms")}
-            {ctTerm(`Buyer target ${ccy || "FOB"}`, "buyer_target_price", model.targetPrice)}
             {ctTerm("Margin %", "margin_pct", model.terms.margin, undefined, amt(s.margin))}
             {ctTerm(`Exchange ₹ / ${ccy || "FOB"}`, "exchange_rate", model.exchangeRate, edit?.rateNote)}
             {ctTerm("Commission %", "commission_pct", model.commissionPct, undefined, amt((s.net * model.commissionPct) / 100))}
-            {ctTerm("LC discount %", "discount_pct", model.terms.discount, undefined, amt(s.discount, "−"))}
+            {ctTerm("LC discount %", "discount_pct", model.terms.discount, undefined, amt(s.discount, "+"))}
             {ctTerm(`Freight ${SYM} / pc`, "freight_per_pc", model.terms.freight)}
             {ctTerm(`Insurance ${SYM} / pc`, "insurance_per_pc", model.terms.insurance)}
 
             {ctBand(`Quoted price · ${ccy || "FOB"}`, "", undefined, "quote")}
+            {/* Buyer target sits with the price it is read against (user 2026-10-26: "Buyer
+                target usd field from terms table to quoted price table move it"). */}
+            {ctTerm(`Buyer target ${ccy || "FOB"}`, "buyer_target_price", model.targetPrice)}
             {model.sizes.flatMap((x, i) => {
               const sizeName = model.sizes.length > 1 ? `${x.label} · ` : "";
               const cur = i === idx && model.sizes.length > 1 ? "cur" : undefined;
@@ -2764,7 +2746,7 @@ function Sheet({ model, s, edit: editIn, view, cur, show, onSize, letterhead = t
             {pbRow("Total cost", (x) => money(x.grossCost), "sum")}
             {pbHead("Price")}
             {liveAmounts ? null : pbRow(<>{swatch("margin")}Margin {model.terms.margin}%</>, (x) => money(x.margin))}
-            {anyDisc && !liveAmounts ? pbRow("Discount", (x) => `−${money(x.discount)}`) : null}
+            {anyDisc && !liveAmounts ? pbRow("LC discount", (x) => `+${money(x.discount)}`) : null}
             {anyAdj ? pbRow("Price charges", (x) => money(otherAdj(x))) : null}
             {pbRow(`Selling price ${SYM}`, (x) => money(x.price), "sum")}
             {!narrowValues || anyFi ? pbRow("Freight & insurance", (x) => money(fiOf(x))) : null}
@@ -2889,9 +2871,13 @@ function Sheet({ model, s, edit: editIn, view, cur, show, onSize, letterhead = t
   const secCostQuote = (
     <section className="cq" aria-label="Cost and quote">
       {cqBanner}
+      {/* With `narrowValues` the Price build LEADS the row (user 2026-10-26, screenshot 3725:
+          "Price build · ₹ per piece move this into before garment process"), so the figures
+          are read first and the entry tables follow to its right. */}
       <div className={narrowValues ? "cq-split cq-narrow" : "cq-split"}>
+        {narrowValues ? cqValues : null}
         {cqWork}
-        {cqValues}
+        {narrowValues ? null : cqValues}
       </div>
     </section>
   );
@@ -2907,6 +2893,12 @@ function Sheet({ model, s, edit: editIn, view, cur, show, onSize, letterhead = t
         </span>
         <b className={fobShown == null ? "nil" : undefined}>{fobShown == null ? "—" : `${ccy} ${fx(fobShown, 2)}`.trim()}</b>
       </div>
+      {/* The buyer's target beside the quote (user 2026-10-26, screenshot 135023: "target
+          quoted also near quoted fob") — read live from the Quoted price table's entry. */}
+      <div className="cq-fob-main cq-fob-tgt">
+        <span className="cq-k">Buyer target</span>
+        <b className={target == null ? "nil" : undefined}>{target == null ? "—" : `${ccy} ${fx(target, 2)}`.trim()}</b>
+      </div>
       <div className="cq-fob-side">
         <span className={`cq-chip ${marginTone(eff)}`} title={`Floor ${FLOOR_PCT}% · target ${MARGIN_TARGET_PCT}%`}>
           Margin {eff == null ? "—" : `${eff.toFixed(1)}%`}
@@ -2919,14 +2911,13 @@ function Sheet({ model, s, edit: editIn, view, cur, show, onSize, letterhead = t
         ) : null}
       </div>
       {/* SHOW IN ANOTHER CURRENCY (user 2026-10-22): pick EUR and today's EUR rate is
-          fetched, the quote is shown in EUR at that rate — and the whole sheet with it,
-          the existing "Sheet in …" view. A view only; the costing's own currency and
-          rate are untouched. Blank goes back to rupees. */}
+          fetched and the FOB is shown in EUR at that rate. THE FOB ONLY (2026-10-26) —
+          it no longer re-draws the sheet; `show.fob` is the card's own pick. */}
       {(() => {
         const alts = show.codes.filter((c) => c !== "INR" && c !== show.quoted);
         if (!alts.length) return null;
-        const alt = show.code !== "INR" && show.code !== show.quoted ? show.code : "";
-        const altRate = alt ? (show.today?.rate ?? (cur?.code === alt ? cur.rate : null)) : null;
+        const alt = show.fob.code;
+        const altRate = alt ? show.fob.rate : null;
         const altFob = altRate && fobInr != null ? fobInr / altRate : null;
         return (
           <div className="cq-fob-alt">
@@ -2938,7 +2929,7 @@ function Sheet({ model, s, edit: editIn, view, cur, show, onSize, letterhead = t
               data-lpignore="true"
               data-form-type="other"
               value={alt}
-              onChange={(e) => show.onPick(e.target.value || "INR")}
+              onChange={(e) => show.fob.onPick(e.target.value)}
             >
               <option value="">Show in…</option>
               {alts.map((c) => (
@@ -2948,16 +2939,16 @@ function Sheet({ model, s, edit: editIn, view, cur, show, onSize, letterhead = t
               ))}
             </select>
             {alt ? (
-              show.waiting ? (
+              show.fob.waiting ? (
                 <span className="dim">fetching today&rsquo;s rate…</span>
               ) : altFob != null && altRate ? (
                 <>
                   <b className="cq-fob-altv">{`${alt} ${fx(altFob, 2)}`}</b>
                   <span
                     className="dim"
-                    title={show.today ? `${show.today.source}${show.today.date ? `, ${fmtDate(show.today.date)}` : ""}` : "The Quotes / Orders register's rate"}
+                    title={show.fob.today ? `${show.fob.today.source}${show.fob.today.date ? `, ${fmtDate(show.fob.today.date)}` : ""}` : "The Quotes / Orders register's rate"}
                   >
-                    ₹ {fx(altRate)} / {alt} {show.today ? "today" : ""}
+                    ₹ {fx(altRate)} / {alt} {show.fob.today ? "today" : ""}
                   </span>
                 </>
               ) : (
@@ -3142,7 +3133,7 @@ function Sheet({ model, s, edit: editIn, view, cur, show, onSize, letterhead = t
         </summary>
         {chartsOpen ? (
           <div className="tpanel">
-            <CostCharts model={model} s={s} idx={idx} onSize={onSize} rows={wfRows} money={money} SYM={SYM} ccy={ccy} />
+            <CostCharts model={model} s={s} idx={idx} onSize={onSize} money={money} SYM={SYM} ccy={ccy} />
           </div>
         ) : null}
       </details>
@@ -3450,7 +3441,7 @@ function Sheet({ model, s, edit: editIn, view, cur, show, onSize, letterhead = t
                 </header>
                 {chartsOnly ? (
                   <div className="tpanel op-charts">
-                    <CostCharts model={model} s={s} idx={idx} onSize={onSize} rows={wfRows} money={money} SYM={SYM} ccy={ccy} />
+                    <CostCharts model={model} s={s} idx={idx} onSize={onSize} money={money} SYM={SYM} ccy={ccy} />
                   </div>
                 ) : (
                 <div className="op-body">
@@ -3528,7 +3519,7 @@ function Sheet({ model, s, edit: editIn, view, cur, show, onSize, letterhead = t
               {/* CHARTS IS A TAB, NOT A VIEW (user 2026-10-15: "Charts is one of the tabs
                   after Revisions — remove Tabs and Charts from the top, Tabs is default"). */}
               {tab === chartsTab ? (
-                <CostCharts model={model} s={s} idx={idx} onSize={onSize} rows={wfRows} money={money} SYM={SYM} ccy={ccy} />
+                <CostCharts model={model} s={s} idx={idx} onSize={onSize} money={money} SYM={SYM} ccy={ccy} />
               ) : null}
             </div>
           </>
@@ -3623,14 +3614,11 @@ function shownParts(x: SizeFigures, rate: number | null) {
   );
 }
 
-type ChartRow = { label: string; value: number; tone: Tone | null; total: boolean; start: number; width: number };
-
 function CostCharts({
   model,
   s,
   idx,
   onSize,
-  rows,
   money,
   SYM,
   ccy,
@@ -3639,7 +3627,6 @@ function CostCharts({
   s: SizeFigures;
   idx: number;
   onSize?: (i: number) => void;
-  rows: ChartRow[];
   money: (v: number | null | undefined) => string;
   SYM: string;
   ccy: string;
@@ -3660,13 +3647,20 @@ function CostCharts({
   const pctOf = (v: number) => (v / partTotal) * 100;
   const maxShare = Math.max(1, ...parts.map((p) => pctOf(p.value)));
   const marginPart = parts.find((p) => p.tone === "margin");
-  /* A PLAIN BAR CHART, NOT A FLOATING WATERFALL (user 2026-10-17: "need proper bar chart,
-     now looks not clear, alignment in that bar"). Every bar starts at the left edge and is
-     as long as its own rupees against the longest row, so the bars share one baseline and
-     compare by length. Floating each step from the running total left small costs as
-     slivers mid-track beside totals that restarted at zero. `start` is still computed by
-     the caller and simply not drawn. */
-  const scaleMax = Math.max(1, ...rows.map((r) => r.width));
+  /* ONE BAR, THE WHOLE PRICE (user 2026-10-26: "the donut chart is showing full value of the
+     costing which looks meaningful, the bar chart showing each bit value — no meaning … client
+     also asking full value in chart, these separate bars look not fit"). The build-up is now a
+     single bar as long as the price, cut into the same six parts as the ring, with Net cost and
+     Gross cost marked where they fall on it — so it reads as the whole price, like the ring,
+     and the table under it gives each part's rupees. Replaces 2026-10-17's one bar per step. */
+  const filled = parts.reduce((t, p) => t + Math.max(p.value, 0), 0);
+  /** Nothing typed yet — every chart would be zeros, so the cards say what to fill in instead. */
+  const empty = filled < 0.005;
+  const at = (v: number) => (filled ? Math.min(Math.max((v / filled) * 100, 0), 100) : 0);
+  const marks = [
+    { label: "Net cost", value: s.net },
+    { label: "Gross cost", value: s.grossCost },
+  ].filter((m) => m.value > 0.005 && at(m.value) > 2 && at(m.value) < 98);
   const focus = active ? parts.find((p) => p.tone === active) : null;
 
   const centre = focus
@@ -3704,48 +3698,90 @@ function CostCharts({
                 {model.sizes.length > 1 ? ` · ${s.label}` : ""}
               </span>
             </div>
-            <div className={`cg-wf${active ? " hot" : ""}`}>
-              {rows.map((r, i) => {
-                const last = i === rows.length - 1;
-                const fill = r.tone ? TONE_VAR[r.tone] : last ? "var(--cs-brand)" : "#3a5068";
-                const bar = (
-                  <>
-                    <span className="l">
-                      {r.tone ? <i className="sw" style={{ background: fill }} /> : null}
-                      <span>{r.label}</span>
-                    </span>
-                    <span className="tr">
-                      <span className="b cg-gloss" style={{ left: 0, width: `${Math.max((r.width / scaleMax) * 100, 0.6)}%`, backgroundColor: fill }} />
-                    </span>
-                    <span className={`a${r.value < 0 ? " neg" : ""}`}>
-                      {r.value < 0 ? "−" : ""}
-                      {money(r.width)}
-                    </span>
-                    <span className="p">{base ? `${((r.width / base) * 100).toFixed(1)}%` : ""}</span>
-                  </>
-                );
-                return r.tone ? (
-                  // button-shape: exempt -- a waterfall bar you can point at, not a pick-one switch
-                  <button
-                    key={r.label}
-                    type="button"
-                    className={`cg-row${lift(r.tone)}`}
-                    aria-pressed={pinned === r.tone}
-                    onPointerEnter={(e) => e.pointerType === "mouse" && setHover(r.tone)}
-                    onPointerLeave={(e) => e.pointerType === "mouse" && setHover(null)}
-                    onFocus={() => setHover(r.tone)}
-                    onBlur={() => setHover(null)}
-                    onClick={() => pick(r.tone as Tone)}
-                  >
-                    {bar}
-                  </button>
-                ) : (
-                  <div key={r.label} className={`cg-row tot${last ? " final" : ""}`}>
-                    {bar}
+            {empty ? (
+              <p className="cg-empty">Enter fabric, CMT, trims and terms — the price fills in here as you type.</p>
+            ) : (
+              <>
+                <div className="cg-total">
+                  <span>{s.quoted != null ? "Quoted" : "Calculated"} price</span>
+                  <b>
+                    {SYM} {money(base)}
+                  </b>
+                </div>
+                <div className={`cg-stack${active ? " hot" : ""}`}>
+                  <div className="cg-stack-bar">
+                    {parts
+                      .filter((p) => p.value > 0.005)
+                      .map((p) => {
+                        const pct = pctOf(p.value);
+                        return (
+                          // button-shape: exempt -- a slice of the price bar you can point at, linked to the ring
+                          <button
+                            key={p.tone}
+                            type="button"
+                            className={`cg-seg cg-gloss${lift(p.tone)}`}
+                            style={{ flexGrow: p.value, backgroundColor: TONE_VAR[p.tone] }}
+                            aria-pressed={pinned === p.tone}
+                            aria-label={`${p.label}: ${SYM} ${money(p.value)}, ${pct.toFixed(1)}%`}
+                            title={`${p.label}: ${SYM} ${money(p.value)} · ${pct.toFixed(1)}%`}
+                            onPointerEnter={(e) => e.pointerType === "mouse" && setHover(p.tone)}
+                            onPointerLeave={(e) => e.pointerType === "mouse" && setHover(null)}
+                            onFocus={() => setHover(p.tone)}
+                            onBlur={() => setHover(null)}
+                            onClick={() => pick(p.tone)}
+                          >
+                            {pct >= 9 ? `${pct.toFixed(0)}%` : ""}
+                          </button>
+                        );
+                      })}
                   </div>
-                );
-              })}
-            </div>
+                  {marks.length ? (
+                    <div className="cg-marks" aria-hidden>
+                      {marks.map((m) => (
+                        <span key={m.label} className="cg-mark" style={{ left: `${at(m.value)}%` }}>
+                          <i />
+                          {m.label} {money(m.value)}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+                <table className="cg-build" aria-label="Price build-up">
+                  <tbody>
+                    {parts.map((p) => (
+                      <tr
+                        key={p.tone}
+                        className={lift(p.tone).trim() || undefined}
+                        onPointerEnter={(e) => e.pointerType === "mouse" && setHover(p.tone)}
+                        onPointerLeave={(e) => e.pointerType === "mouse" && setHover(null)}
+                      >
+                        <td>
+                          <i className="sw" style={{ background: TONE_VAR[p.tone] }} />
+                          {p.label}
+                        </td>
+                        <td className="num">{money(p.value)}</td>
+                        <td className="pct">{pctOf(p.value).toFixed(1)}%</td>
+                      </tr>
+                    ))}
+                    <tr className="sub">
+                      <td>Net cost</td>
+                      <td className="num">{money(s.net)}</td>
+                      <td className="pct">{pctOf(s.net).toFixed(1)}%</td>
+                    </tr>
+                    <tr className="sub">
+                      <td>Gross cost</td>
+                      <td className="num">{money(s.grossCost)}</td>
+                      <td className="pct">{pctOf(s.grossCost).toFixed(1)}%</td>
+                    </tr>
+                    <tr className="fin">
+                      <td>Price</td>
+                      <td className="num">{money(base)}</td>
+                      <td className="pct">100%</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </>
+            )}
           </div>
         </div>
 
@@ -3757,6 +3793,9 @@ function CostCharts({
               <h4>Where the price goes</h4>
               <span>share of the price</span>
             </div>
+            {empty ? (
+              <p className="cg-empty">No costs yet — each part&rsquo;s share shows once the costing has figures.</p>
+            ) : (
             <div className="cg-mix">
               <GlassRing
                 className="size-[8.75rem]"
@@ -3797,6 +3836,7 @@ function CostCharts({
                 })}
               </div>
             </div>
+            )}
           </div>
           {/* 7 · PRICE ACROSS REVISIONS — under the ring, unless the third stack is the short one. */}
           {revInC ? null : <RevisionTrend hist={hist} ccy={ccy} />}
@@ -4104,6 +4144,30 @@ const CSS = `
 
 /* 2 · build-up */
 .cs-sheet .cg-wf { display:grid; gap:1px; font-size:12.5px; }
+/* THE FULL-PRICE BAR (2026-10-26) — one bar as long as the price, cut into the ring's parts. */
+.cs-sheet .cg-total { display:flex; justify-content:space-between; align-items:baseline; font-size:12px; color:var(--cs-muted); }
+.cs-sheet .cg-total b { font-size:18px; font-weight:800; color:var(--cs-brand-ink); font-variant-numeric:tabular-nums; }
+.cs-sheet .cg-stack { display:grid; gap:4px; }
+.cs-sheet .cg-stack-bar { display:flex; height:34px; border-radius:9px; overflow:hidden; background:rgba(15,27,38,.045); box-shadow:inset 0 0 0 1px rgba(15,27,38,.06); }
+.cs-sheet .cg-seg { flex-basis:0; min-width:3px; border:0; padding:0; color:#fff; font-size:11px; font-weight:700; text-shadow:0 1px 2px rgba(0,0,0,.35); cursor:pointer; white-space:nowrap; overflow:hidden; transition:opacity .2s, filter .2s; }
+.cs-sheet .cg-seg + .cg-seg { box-shadow:inset 1px 0 0 rgba(255,255,255,.7); }
+.cs-sheet .cg-seg:focus-visible { outline:2px solid var(--cs-brand); outline-offset:-2px; }
+.cs-sheet .cg-stack.hot .cg-seg.dim { opacity:.35; }
+.cs-sheet .cg-stack .cg-seg.on { filter:brightness(1.08) saturate(1.1); }
+.cs-sheet .cg-marks { position:relative; height:28px; }
+.cs-sheet .cg-mark { position:absolute; top:0; transform:translateX(-50%); display:flex; flex-direction:column; align-items:center; font-size:10.5px; color:var(--cs-muted); white-space:nowrap; font-variant-numeric:tabular-nums; }
+.cs-sheet .cg-mark i { width:1px; height:8px; background:#3a5068; margin-bottom:2px; }
+.cs-sheet .cg-build { width:100%; border-collapse:collapse; font-size:12.5px; }
+.cs-sheet .cg-build td { height:24px; padding:0 6px; border-bottom:1px solid rgba(15,27,38,.06); }
+.cs-sheet .cg-build td:first-child { display:flex; align-items:center; gap:7px; }
+.cs-sheet .cg-build .sw { width:9px; height:9px; border-radius:2px; flex:none; }
+.cs-sheet .cg-build .num { text-align:right; font-weight:600; font-variant-numeric:tabular-nums; width:6.5rem; }
+.cs-sheet .cg-build .pct { text-align:right; color:var(--cs-muted); font-size:11px; font-variant-numeric:tabular-nums; width:3.5rem; }
+.cs-sheet .cg-build tr.dim { opacity:.4; }
+.cs-sheet .cg-build tr.on { background:var(--glass-strong); }
+.cs-sheet .cg-build tr.sub td { color:var(--cs-muted); font-weight:600; background:rgba(15,27,38,.025); }
+.cs-sheet .cg-build tr.fin td { font-weight:800; border-bottom:0; border-top:1px solid rgba(15,27,38,.14); }
+.cs-sheet .cg-build tr.fin .num { color:var(--cs-brand-ink); font-size:13.5px; }
 .cs-sheet .cg-row { display:grid; grid-template-columns:150px minmax(0,1fr) 64px 44px; align-items:center; gap:8px; height:24px; padding:0 6px; border-radius:7px;
   border:0; background:transparent; text-align:left; cursor:pointer; transition:background-color .15s, opacity .2s; }
 @media (max-width:560px){ .cs-sheet .cg-row { grid-template-columns:100px minmax(0,1fr) 56px; } .cs-sheet .cg-row .p { display:none; } }
@@ -4725,6 +4789,8 @@ const CSS = `
 .cs-sheet .ctabs .cq-fob { --tone:var(--cs-rule); margin-left:auto; display:flex; align-items:center; gap:14px; padding:4px 12px 5px; background:#fff; border:1px solid var(--cs-rule); border-top:3px solid var(--tone); border-radius:8px; white-space:nowrap; }
 .cs-sheet .cq-fob[data-tone="good"] { --tone:var(--cs-good); } .cs-sheet .cq-fob[data-tone="warn"] { --tone:var(--cs-warn); } .cs-sheet .cq-fob[data-tone="bad"] { --tone:var(--cs-bad); }
 .cs-sheet .cq-fob-main { display:flex; flex-direction:column; line-height:1.15; }
+.cs-sheet .cq-fob-tgt { padding-left:14px; border-left:1px solid var(--cs-rule); }
+.cs-sheet .cq-fob .cq-fob-tgt b { color:var(--cs-ink); }
 .cs-sheet .cq-fob-side { display:flex; flex-direction:column; align-items:flex-end; gap:2px; padding-left:14px; border-left:1px solid var(--cs-rule); line-height:1.15; }
 .cs-sheet .cq-k { font-size:10.5px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:var(--cs-muted); }
 .cs-sheet .cq-fob b { font-family:ui-monospace,"IBM Plex Mono",Consolas,monospace; font-size:17px; font-weight:700; color:var(--cs-brand-ink); font-variant-numeric:tabular-nums; }
@@ -4785,7 +4851,7 @@ const CSS = `
 /* Costing 4 (user 2026-10-21): the values side is a quarter of the width, so everything in
    it is set tight — smaller type, slimmer cells, a label column that wraps rather than
    pushing the sizes off the edge. Below 1100px the split stacks as before. */
-.cs-sheet .cq-split.cq-narrow { grid-template-columns:minmax(0,3fr) minmax(0,1fr); gap:14px; }
+.cs-sheet .cq-split.cq-narrow { grid-template-columns:minmax(0,1fr) minmax(0,3fr); gap:14px; }
 @media (max-width:1100px){ .cs-sheet .cq-split.cq-narrow { grid-template-columns:minmax(0,1fr); } }
 .cs-sheet .cq-narrow .cq-values { gap:8px; }
 .cs-sheet .cq-narrow .cq-pb table { font-size:11.5px; }

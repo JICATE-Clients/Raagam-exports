@@ -1,6 +1,11 @@
 "use client";
 
 /**
+ * THE ONE COSTING SCREEN (user 2026-10-26: "costing 6 is okay remove remaining pages").
+ * This was the Costing 6 test copy; it replaced the original screen, Costing 2 (ledger)
+ * and Costings 3–5, whose URLs now redirect here. The draft slot keeps the copy's name
+ * (sample-costing-copy-7) so a draft saved on Costing 6 still restores.
+ *
  * Sample ▸ Sample Costing — the list, and the cost sheet editor as a PAGE mode
  * of it. Data: doc/sample/sample-costing-specification.md (0688 · 0689 · 0690).
  * Layout: doc/sample/sample-costing-uiux-design-spec.md (2026-10-07).
@@ -62,12 +67,13 @@ import {
   GitCompare,
   Hourglass,
   Pencil,
-  RefreshCw,
   RotateCcw,
   Users,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { BackLink } from "@/components/ui/back-link";
+import { CostingCardLegend, CostingQueueCard, costingCardShared } from "./costing-card";
 import { RowIconAction } from "@/components/ui/row-actions";
 import { MoreActions } from "@/components/ui/more-actions";
 import { Input } from "@/components/ui/input";
@@ -87,11 +93,9 @@ import { CopySourceChooser, PreviewChip } from "@/components/orders/copy-source-
 import { CustomerDecisionSheet, type CustomerDecision } from "@/components/sales/customer-decision-sheet";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { PageHeader } from "@/components/ui/page-header";
-import { BackLink } from "@/components/ui/back-link";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { SampleCards, type SampleCardState } from "@/components/sales/sample-queue";
-import { CostingCardLegend, CostingQueueCard, costingCardShared } from "./costing-card";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { createdByFacet, createdDateFacet, useFacetFilter, type FacetGroup } from "@/components/ui/filter-drawer";
 import { fmtDate } from "@/lib/format";
@@ -226,7 +230,6 @@ type CostingTab = "pending" | "progress" | "rejected" | "draft" | "approved";
  *  revising on the Cost Sheet — whose inner QUOTATION tab opens first (the
  *  buyer's Quotation document itself is read-only) — update, Save, and the next
  *  Rev is written with every earlier Rev kept as history. */
-const raiseReviseHref = (id: string) => `/sales/sample-costing/${id}/reports?tab=cost-sheet&revise=1`;
 /* FABRIC PLAN'S ICONS (user 2026-10-15, screenshot 3534: "costing status need
    to ui icon like fabric plan icons"). Same glyph per word as `StatusSegment`'s
    QUICK map (components/orders/bom-queue.tsx) — Clock · Hourglass · BadgeCheck
@@ -272,17 +275,21 @@ const COSTING_FACETS: FacetGroup<CostingListRow>[] = [
   { title: "Created", icon: <Users />, facets: [createdDateFacet(), createdByFacet()] },
 ];
 
+const DEFAULT_CURRENCY = "USD";
+
 const blankHeader = (): CostingHeaderDraft => ({
   opportunity_id: null,
   style_id: null,
   costing_date: today(),
-  currency_code: null,
+  /* USD AND SEA FREIGHT ARE THE DEFAULTS (user 2026-10-22, screenshot 3660). A new
+     costing opens on them; the operator changes either like any other field. */
+  currency_code: DEFAULT_CURRENCY,
   exchange_rate: "",
   margin_pct: "",
   garment_waste_pct: "",
   overhead_pct: "",
   discount_pct: "",
-  ship_mode: "",
+  ship_mode: "sea",
   freight_per_pc: "",
   insurance_per_pc: "",
   buyer_target_price: "",
@@ -613,7 +620,7 @@ export function SampleCostingScreen({
       const from = d.pieces.find((x) => x.piece_name === p.piece_name) ?? d.pieces[i] ?? d.pieces[0];
       if (from) pieceMap.set(from.key, p.key);
       return from
-        ? seedPiece({ ...p, cmt: from.cmt, cmt_direct: from.cmt_direct, lines: copyPieceLines(from.lines), testing_cost: from.testing_cost, bank_cost: from.bank_cost })
+        ? seedPiece({ ...p, cmt: from.cmt, cmt_direct: from.cmt_direct, lines: copyPieceLines(from.lines), testing_cost: from.testing_cost, bank_cost: from.bank_cost, sample_cost: from.sample_cost })
         : p;
     });
     const firstPiece = nextPieces[0]?.key ?? "";
@@ -729,7 +736,14 @@ export function SampleCostingScreen({
     setDecision(null);
     setMeta({ code: null, version: 1, status: "draft", isDraft: false, decisionRemark: null });
     setPreview(nextCostingNo);
-    seedAndOpen({ header: blankHeader(), pieces: [blankPiece("GARMENT", null)], fabrics: [], weights: [], trims: [], quotes: {}, extras: [] });
+    // The default currency's rate comes with it: the register's, else fetched at once.
+    const r = data.quoteRates[DEFAULT_CURRENCY];
+    seedAndOpen({ header: { ...blankHeader(), exchange_rate: r ? String(r) : "" }, pieces: [blankPiece("GARMENT", null)], fabrics: [], weights: [], trims: [], quotes: {}, extras: [] });
+    // Written without setDirty: a default is not an edit, so the new sheet stays clean.
+    if (!r)
+      void fetchQuoteRate(DEFAULT_CURRENCY, today()).then((res) => {
+        if (res.ok) setHeader((h) => (h.currency_code === DEFAULT_CURRENCY && !h.exchange_rate.trim() ? { ...h, exchange_rate: String(res.rate) } : h));
+      });
   }
   /**
    * NEW SAMPLE COSTING STARTS ON A SAMPLE (user 2026-10-17, screenshot 3587: "already
@@ -760,8 +774,40 @@ export function SampleCostingScreen({
      negotiation, Rejected comes back as a new Draft. Then the new Rev opens.
      DECLARED ABOVE `openById`, which calls it: the React Compiler refuses a
      function read before its declaration (react-hooks/immutability). */
+  /* REVISE IN THE ENTRY SCREEN (user 2026-10-22: "we need the costing entry screen
+     for the revise also" — Costing 6, the newest). It used to open the Reports page's
+     one-page sheet, an older editor than the one the costing was entered in. Now the
+     saved Rev loads HERE as "Rev N (new)": every figure kept, the same tabs, tables and
+     bottom bar. Nothing is written until Save, which makes version + 1 under the same
+     Costing No and supersedes this one (`saveSampleCosting`'s parentId, 0688/0725);
+     Cancel leaves the old Rev exactly as it was. The `revisingFrom` branches below were
+     already in place — only this door was pointing elsewhere. Its own transition, not
+     `start`, so loading the Rev never reads "Saving…" (see `opening`). */
   function reviseNow(id: string) {
-    startOpening(() => router.push(raiseReviseHref(id)));
+    if (!perms.canEdit) {
+      toastError("Revise needs the edit permission.");
+      return;
+    }
+    startOpening(async () => {
+      const res = await loadSampleCosting(id);
+      if (!res.ok) {
+        toastError(res.error);
+        return;
+      }
+      const r = res.record;
+      if (!isRevisableStatus(r.status)) {
+        toastError("Only an Under Progress, Approved or Rejected costing is revised — a Draft is edited directly, a superseded Rev is history.");
+        return;
+      }
+      setEditId(r.id);
+      setRevisingFrom(r.id);
+      setRevisions(res.revisions);
+      // The NEXT Rev's number; the status and the buyer's last answer belong to the old one.
+      setMeta({ code: r.code, version: r.version + 1, status: r.status, isDraft: false, decisionRemark: null });
+      seedAndOpen({ ...r.draft, pieces: r.draft.pieces.length ? r.draft.pieces : [blankPiece("GARMENT", null)] });
+      setDecision(null);
+      setRevOf(null);
+    });
   }
 
   function openById(id: string, opts?: { revise?: boolean }) {
@@ -844,7 +890,7 @@ export function SampleCostingScreen({
    * `history.replaceState` — no navigation, no refetch, nothing to race. Next
    * keeps `useSearchParams` in step with it.
    */
-  const reviseFor = useEffectEvent((id: string) => openById(id, { revise: true }));
+  const reviseFor = useEffectEvent((id: string) => reviseNow(id));
   const handledIntent = useRef<Set<string>>(new Set());
   useEffect(() => {
     for (const [name, act] of [
@@ -866,6 +912,25 @@ export function SampleCostingScreen({
       queueMicrotask(() => act(id));
     }
   }, [params, pathname]);
+  /* THE EXCHANGE RATE FILLS ITSELF (user 2026-10-21: "Fetch rate — no need, we can automate
+     it"). Whenever the currency or the costing date changes, that date's rate is looked up
+     (register first, then the market — `fetchQuoteRate`) and remembered here. The note
+     under the rate box reads it: where the rate came from, or — on a saved costing whose
+     rate differs — the newer rate with "Use". A saved rate is never replaced behind the
+     operator: the buyer may already hold the price it makes. */
+  const [rateInfo, setRateInfo] = useState<{ code: string; date: string; rate: number; source: string; from: string | null } | null>(null);
+  useEffect(() => {
+    const code = header.currency_code;
+    const date = header.costing_date;
+    if (mode !== "edit" || !code || code === "INR") return;
+    let live = true;
+    void fetchQuoteRate(code, date || null).then((res) => {
+      if (live && res.ok) setRateInfo({ code, date, rate: res.rate, source: res.source, from: res.effectiveFrom });
+    });
+    return () => {
+      live = false;
+    };
+  }, [mode, header.currency_code, header.costing_date]);
 
   /**
    * A DRAFT IS NEVER LOST (UX plan P1.4): the app's `useFormDraft` keeps the
@@ -875,7 +940,7 @@ export function SampleCostingScreen({
    */
   const formDraft = useFormDraft({
     // "-2": the shape changed in 0693 (sizes are names, Loss % is per size) — an older saved draft is not offered back.
-    storageKey: `sample-costing-4:${revisingFrom ? `rev-${revisingFrom}` : (editId ?? "new")}`,
+    storageKey: `sample-costing-copy-7:${revisingFrom ? `rev-${revisingFrom}` : (editId ?? "new")}`,
     enabled: mode === "edit" && (isEditableStatus(meta.status) || !!revisingFrom),
     value: { header, pieces, fabrics, weights, trims, quotes, extras },
     onRestore: (v) => {
@@ -988,19 +1053,20 @@ export function SampleCostingScreen({
 
   /** `forCode` lets a currency change fetch for the code it is switching TO,
    *  before that choice has reached `header`. */
-  function fetchRate(forCode?: string) {
+  function fetchRate(forCode?: string, onDate?: string, quiet = false) {
     const code = forCode ?? header.currency_code;
     if (!code) {
       toastError("Choose the currency first.");
       return;
     }
     start(async () => {
-      const res = await fetchQuoteRate(code, header.costing_date || null);
+      const res = await fetchQuoteRate(code, (onDate ?? header.costing_date) || null);
       if (!res.ok) {
         toastError(res.error);
         return;
       }
       setH({ exchange_rate: String(res.rate) });
+      if (quiet) return;
       success(`${code} rate ${res.rate} from ${res.source}${res.effectiveFrom ? `, ${fmtDate(res.effectiveFrom)}` : ""}.`);
     });
   }
@@ -1131,6 +1197,8 @@ export function SampleCostingScreen({
                   onChange={(e) => {
                     setH({ costing_date: e.target.value });
                     if (!editId && e.target.value) void previewCostingNo(e.target.value).then(setPreview);
+                    // A new date, a new rate (Costing 3, 2026-10-21) — applied, since the operator moved the date.
+                    if (e.target.value && header.currency_code && header.currency_code !== "INR") fetchRate(undefined, e.target.value, true);
                   }}
                 />
               </Field>
@@ -1141,6 +1209,18 @@ export function SampleCostingScreen({
                   and the Quotation tab no longer asks it. */}
               <Field label="Currency" required w="range">
                 <CurrencyPicker label="Currency" compact currencies={data.currencies} value={header.currency_code} canCreate={false} canEdit={false} onChange={onCurrency} />
+              </Field>
+              {/* SHIP MODE IS AN ORDER FACT, SO IT IS ON DETAILS (Costing 3, user 2026-10-21):
+                  it left the Quotation tab, which Cost & Quote replaced. */}
+              <Field label="Ship Mode" w="range" htmlFor="sc-ship">
+                <Select id="sc-ship" value={header.ship_mode} onChange={(e) => setH({ ship_mode: e.target.value })}>
+                  <option value=""></option>
+                  {SHIP_MODES.map((m) => (
+                    <option key={m.value} value={m.value}>
+                      {m.label}
+                    </option>
+                  ))}
+                </Select>
               </Field>
               {/* ONLY WHEN THERE IS ANOTHER REVISION TO OPEN (user 2026-10-17: "rev no
                   need that blank field"). A new sheet showed an empty, dead box here; the
@@ -1286,26 +1366,26 @@ export function SampleCostingScreen({
   /* SHIP MODE and the rate fetch — Currency moved to the Details row (2026-10-17); the
      Quotation tab's terms table edits the margin, exchange rate, commission, discount,
      freight and insurance itself. */
-  const termsBar = (
-    <div className="mb-3">
-      <FieldRow gap="row" align="end">
-        <Field label="Ship Mode" w="range" htmlFor="sc-ship">
-          <Select id="sc-ship" value={header.ship_mode} onChange={(e) => setH({ ship_mode: e.target.value })}>
-            <option value=""></option>
-            {SHIP_MODES.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Button variant="outline" onClick={() => fetchRate()} disabled={!header.currency_code || isPending}>
-          <RefreshCw className="h-4 w-4" aria-hidden />
-          Fetch exchange rate
-        </Button>
-      </FieldRow>
-    </div>
-  );
+  // No terms bar (Costing 3, 2026-10-21): Ship Mode is on Details and the rate fills itself.
+
+  /** Under the exchange-rate box: where the rate came from, or a newer one to use. */
+  const shortSource = (src: string) => (src.includes("register") ? "Register" : src.includes("ECB") ? "ECB" : "Market");
+  const rateNote =
+    rateInfo && rateInfo.code === header.currency_code && rateInfo.date === header.costing_date ? (
+      header.exchange_rate.trim() && Math.abs(Number(header.exchange_rate) - rateInfo.rate) < 0.00005 ? (
+        <span title={`Rate from ${rateInfo.source}${rateInfo.from ? `, ${fmtDate(rateInfo.from)}` : ""}`}>
+          {shortSource(rateInfo.source)}
+          {rateInfo.from ? ` · ${fmtDate(rateInfo.from)}` : ""}
+        </span>
+      ) : (
+        <>
+          {header.costing_date === today() ? "today" : fmtDate(header.costing_date)} {rateInfo.rate} ·{" "}
+          <button type="button" tabIndex={-1} title={`Use ${rateInfo.rate} from ${rateInfo.source}`} onClick={() => setH({ exchange_rate: String(rateInfo.rate) })}>
+            Use
+          </button>
+        </>
+      )
+    ) : null;
 
   const sheetModel = buildCostSheetModel(
     {
@@ -1356,9 +1436,26 @@ export function SampleCostingScreen({
       ) : null}
       <CostSheetDocument
         model={sheetModel}
-        // ENTER-ONLY ENTRY, AS COSTING 6 (user 2026-10-23: "costing to costing 5 varaikkum add
-        // button irukka kudathu"): a blank row ends every table, no "+ Add" (2026-10-21).
+        // COSTING 3: Operations, Overheads and Quotation as one split-screen tab (2026-10-21).
+        merged
+        // COSTING 4: the Price build side is a quarter of the width, set tight (2026-10-21).
+        narrowValues
+        // COSTING 4: processes | CMT | trims in one row, then overheads | terms (2026-10-21).
+        opsRow
+        // COSTING 5: CMT operations under Garment processes, Trims beside the pair (2026-10-21).
+        opsStack
+        // COSTING 5: the Direct Rate tick decides which trim fields show (2026-10-21).
+        trimsByTick
+        // COSTING 5: Fabric processing cost folds one fabric at a time (2026-10-21).
+        fabricFold
+        // COSTING 5: Overheads, Terms and Quoted price as ONE table (2026-10-21).
+        chargesTable
+        // COSTING 5: Enter-only entry — a blank row ends every table, no "+ Add" (2026-10-21).
         enterFlow
+        // COSTING 6: each percentage shows its ₹ amount beside the entry (2026-10-22).
+        liveAmounts
+        // COSTING 6: Size-wise over both Fabric tables, fabric table to the right edge (2026-10-22).
+        fabricAlign
         // The cost ENTRY: no letterhead, no Print / Download (user 2026-10-17).
         // Reports and Revise keep both.
         entry
@@ -1366,7 +1463,7 @@ export function SampleCostingScreen({
         locked={dirty || !editId}
         edit={
           editable
-            ? { draft, onChange: applyDraft, options: editOptions, details: detailsBlock, sizes: sizesBar, sizeWise, terms: termsBar, pickFabric: pickedFabric }
+            ? { draft, onChange: applyDraft, options: editOptions, details: detailsBlock, sizes: sizesBar, sizeWise, rateNote, pickFabric: pickedFabric }
             : undefined
         }
       />
@@ -1498,10 +1595,10 @@ export function SampleCostingScreen({
           <Button variant="ghost" size="sm" onClick={closeEditor} aria-label="Back to list" className="h-10 w-10 shrink-0 px-0 text-lg md:hidden">
             ←
           </Button>
-          {/* THE DESKTOP BACK IS BACK (user 2026-10-21, screenshot 110515: "set
-              back button this page"), reversing 2026-10-15's "no desktop ←
-              Costing". The app's own BackLink, as Sample Entry's editor draws
-              it — reads "← Back", asks before discarding unsaved work. */}
+          {/* THE DESKTOP BACK, ON EVERY COSTING PAGE (user 2026-10-23, screenshot
+              100852: "ella costing page layum … ulla pona back button venum"),
+              as the main Costing editor has had since 2026-10-21. The app's own
+              BackLink — reads "← Back", asks before discarding unsaved work. */}
           <BackLink onBack={closeEditor} label="Costing" className="max-md:hidden" />
           <div className="flex min-w-0 shrink-0 items-baseline gap-2 max-md:shrink max-md:flex-wrap">
             <span className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-muted-foreground">
@@ -1734,7 +1831,7 @@ export function SampleCostingScreen({
     <div className="space-y-4">
       <PageHeader
         title="Costing"
-        description="Cost a sample style — fabric, consumption, CMT, trims — quote the buyer, and record the buyer's answer."
+        description="A test copy of Sample ▸ Costing, on the same costings. The original screen is unchanged."
         actions={perms.canCreate ? <Button onClick={openNew}>New Sample Costing</Button> : undefined}
       />
       <FilterBar
@@ -1771,8 +1868,8 @@ export function SampleCostingScreen({
           }}
         />
       ) : null}
-      {/* EACH WORD ONCE (user 2026-10-23, artifact "Costing Card — Duplicates Removed"):
-          what every card shares is said here, and stripped from the cards below. */}
+      {/* EACH WORD ONCE (user 2026-10-23, screenshot 101313: "intha page mariye ella
+          costing page kku"): what every card shares is said here, and stripped below. */}
       {viewMode.view === "cards" && filtered.length > 0 ? (
         <CostingCardLegend costing={cardShared.costing} sample={cardShared.sample} currency={cardShared.currency} year={cardShared.year} />
       ) : null}
@@ -1797,10 +1894,8 @@ export function SampleCostingScreen({
            approval stage, so a saved-not-sent sheet said "Draft" under Pending
            and a sample with no sheet said "Not costed". One word, one answer. */
         pillText={(r) => TAB_LABEL[costingTabOf(r)]}
-        /* THE BUYER-GLOW CARD (user 2026-10-21, "Card Glow Styles" option 1 +
-           the duotone action row, screenshot 095215: "apply this"). The five
-           actions sit in one fixed row on every card; one that does not apply
-           here stays greyed with its reason. Same handlers as the table's. */
+        /* THE COSTING PAGE'S CARD (user 2026-10-23): the same build as Costing's,
+           from costing-card.tsx — each word once, five icon actions. */
         renderCard={(r) => {
           const label = `${r.code ?? "Costing"} · ${revisionShort(r.version)}`;
           return (
@@ -1816,7 +1911,7 @@ export function SampleCostingScreen({
               onOpen={() => openById(r.id)}
               onDecide={(decision) => setListDecision({ id: r.id, label, decision })}
               onReports={() => router.push(`/sales/sample-costing/${r.id}/reports`)}
-              onRevise={() => startOpening(() => router.push(raiseReviseHref(r.id)))}
+              onRevise={() => reviseNow(r.id)}
               onDelete={() => del(r)}
             />
           );
@@ -1884,7 +1979,7 @@ export function SampleCostingScreen({
         canReportsRow={(r) => !r.awaiting}
         /* RAISE REVISE ON AN UNDER PROGRESS CARD (user 2026-10-14) — the card's
            action slot, opening the Quotation report already revising. */
-        onSend={(r) => startOpening(() => router.push(raiseReviseHref(r.id)))}
+        onSend={(r) => reviseNow(r.id)}
         canSendRow={(r) => perms.canEdit && !r.awaiting && costingTabOf(r) === "progress"}
         sendLabel={opening ? "Opening…" : "Raise Revise"}
         cardSendLabel={opening ? "Opening…" : "Raise Revise"}
