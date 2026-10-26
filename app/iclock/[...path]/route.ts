@@ -29,7 +29,8 @@
  *   - A failed insert must answer NON-200. The device then keeps the punch and
  *     sends it again. Answering OK on a failure throws the punch away silently,
  *     and nothing downstream can tell it ever existed.
- *   - The device sends local time with NO timezone, so `+05:30` is appended here.
+ *   - The device sends local time with NO timezone, so the device's own
+ *     `clock_offset` (0737, `+05:30` by default) is appended here.
  */
 
 import { NextRequest } from "next/server";
@@ -47,6 +48,61 @@ export const runtime = "nodejs";
  * than of the installation (see 0737 for the whole story).
  */
 const DEFAULT_CLOCK_OFFSET = "+05:30";
+
+/**
+ * THE ZONE WE ASK THE DEVICE TO SHOW, IN MINUTES EAST OF UTC.
+ *
+ * Sent as `TimeZone=` in the handshake. The ADMS spec reads a value inside
+ * -12..12 as HOURS and anything else as MINUTES, and IST's half hour cannot be
+ * said in whole hours — so 330, never 5 or 5.5. The device reads its options on
+ * a handshake (boot or reconnect), not on the heartbeat, so it takes effect
+ * after a restart.
+ */
+const DEVICE_TIMEZONE_MINUTES = 330;
+
+/**
+ * HAS A UTC DEVICE JUST MOVED TO IST? — and if so, read this batch as IST.
+ *
+ * 0737's trap, closed: a device recorded as `+00:00` that starts keeping IST
+ * (which is what `TimeZone=` above asks it to do) sends times 5½ hours ahead,
+ * and appending `+00:00` would store every punch 5½ hours LATE with nothing to
+ * say why.
+ *
+ * ONE DIRECTION ONLY, because only this direction is unambiguous. A device on
+ * UTC can never report a punch hours in the FUTURE, so the newest line reading
+ * more than an hour ahead as UTC — and not in the future as IST — can only
+ * mean the zone changed. "Not in the future", not "close to now", so a backlog
+ * delivered by a device that has already moved switches it too. The reverse test is not safe: an IST device
+ * delivering a 5½-hour-old backlog looks exactly like a UTC device delivering
+ * now, so a switch back to `+00:00` stays a person's decision.
+ */
+async function detectIstSwitch(
+  sn: string,
+  current: string,
+  times: string[],
+): Promise<string> {
+  if (current !== "+00:00" || times.length === 0) return current;
+
+  const newest = times.reduce((a, b) => (a > b ? a : b));
+  const now = Date.now();
+  const asUtc = Date.parse(`${newest}+00:00`);
+  const asIst = Date.parse(`${newest}+05:30`);
+  if (Number.isNaN(asUtc)) return current;
+
+  const HOUR = 60 * 60 * 1000;
+  if (!(asUtc - now > HOUR && asIst - now <= 15 * 60 * 1000)) {
+    return current;
+  }
+
+  const supabase = createAdminClient();
+  const { error } = await supabase
+    .from("biometric_devices")
+    .update({ clock_offset: "+05:30" })
+    .eq("serial_no", sn);
+  if (error) console.error("[iclock] clock_offset switch failed", error);
+  console.log(`[iclock] ${sn}: device clock moved to IST — clock_offset now +05:30`);
+  return "+05:30";
+}
 
 /**
  * WHICH ADMS ENDPOINT THIS IS, WITH ANY FILE EXTENSION STRIPPED.
@@ -278,6 +334,7 @@ export async function GET(req: NextRequest) {
         "TransFlag=1111000000",
         "Realtime=1",
         "Encrypt=0",
+        `TimeZone=${DEVICE_TIMEZONE_MINUTES}`,
       ].join("\r\n"),
     );
   }
@@ -354,16 +411,26 @@ export async function POST(req: NextRequest) {
     const { direction } = device;
 
     // USER_ID \t YYYY-MM-DD HH:MM:SS \t STATUS \t VERIFY \t WORKCODE \t … \t …
-    const rows = body
+    const lines = body
       .split(/\r?\n/)
       .map((line) => line.trim())
-      .filter(Boolean)
+      .filter(Boolean);
+
+    const clockOffset = await detectIstSwitch(
+      sn,
+      device.clockOffset,
+      lines
+        .map((line) => (line.split("\t")[1] ?? "").trim().replace(" ", "T"))
+        .filter((t) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(t)),
+    );
+
+    const rows = lines
       .map((line) => {
         const [userId = "", time = "", status, verify] = line.split("\t");
         return {
           device_sn: sn,
           user_id: userId.trim(),
-          punch_time: `${time.trim().replace(" ", "T")}${device.clockOffset}`,
+          punch_time: `${time.trim().replace(" ", "T")}${clockOffset}`,
           direction,
           status: Number(status) || 0,
           verify_mode: Number(verify) || 0,
