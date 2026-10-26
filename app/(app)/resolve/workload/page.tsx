@@ -11,7 +11,7 @@ export default async function WorkloadPage() {
   const rows = await getWorkload();
   return (
     <div className="space-y-4">
-      <PageHeader title="Workload" description="Open, in-progress, blocked and overdue jobs per team and per person" />
+      <PageHeader title="Workload" description="Open, in-progress, blocked and late jobs per team — tap a team to see its people" />
       <WorkloadTables rows={rows} />
     </div>
   );

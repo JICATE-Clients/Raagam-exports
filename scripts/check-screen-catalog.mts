@@ -63,6 +63,11 @@ function check(cond: boolean, msg: string) {
  * back to its module's grant — say why that is right.
  */
 const UNREGISTERED: Record<string, string> = {
+  "/resolve/my-work": "redirect() to Resolve ▸ Inbox — the per-lane lists folded into one Inbox 2026-10-26",
+  "/resolve/requirements": "redirect() to Resolve ▸ Inbox — the per-lane lists folded into one Inbox 2026-10-26",
+  "/resolve/my-complaints": "redirect() to Resolve ▸ My Reports — named complaints joined it 2026-10-26",
+  "/resolve/complaints": "redirect() to Resolve ▸ Inbox — complaints are worked there (sidebar de-dup 2026-10-26)",
+  "/resolve/desk-hub": "redirect() to Resolve ▸ Reports — the Service Desk hub folded into Work + Reports 2026-10-26",
   "/admin/document-no-formats": "redirect() to Master Data ▸ System (declared in check-module-groups REDIRECTED)",
   "/orders/changes": "redirect() — the Amendments hub moved",
   "/orders/confirmations": "redirect() — merged into another screen",

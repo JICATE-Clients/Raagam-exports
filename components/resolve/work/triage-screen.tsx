@@ -2,29 +2,20 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { UserPlus } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { DataTable, type Column } from "@/components/ui/data-table";
-import { withCreatedColumns } from "@/components/ui/created-columns";
 import { FilterBar } from "@/components/ui/filter-bar";
-import { RowActions } from "@/components/ui/row-actions";
-import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { ToggleGroup } from "@/components/ui/segmented";
-import { SelectionBar } from "@/components/ui/selection-bar";
-import { Tooltip } from "@/components/ui/tooltip";
 import { useToast } from "@/components/ui/toast";
+import { LiveBadge } from "@/components/resolve/live/live-badge";
+import { useLiveRefresh } from "@/components/resolve/live/use-live-refresh";
+import { useCurrentLocationId } from "@/lib/auth/location-context";
 import { assignTickets } from "@/lib/resolve/actions";
 import type { TriageRow } from "@/lib/resolve/types";
+import { useUnsavedGuard } from "@/lib/reload-guard";
+import { cn } from "@/lib/utils";
 import { AssignSheet, type Person } from "./assign-sheet";
-import {
-  assigneeColumn,
-  dueColumn,
-  placeColumn,
-  refColumn,
-  statusColumn,
-  titleColumn,
-  tradeColumn,
-} from "./ticket-columns";
+import { ticketClock } from "./queue-clock";
+import { AssignButton, QueueList, QueueRow, SelectDock, SelectToggle } from "./queue-rows";
+import { ticketHaystack, ticketLine } from "./ticket-columns";
 
 export type TriageTab = "decide" | "open" | "all";
 
@@ -34,51 +25,125 @@ const TABS: { value: TriageTab; label: string; tooltip: string }[] = [
   { value: "all", label: "All", tooltip: "Every job, closed ones last at score 0" },
 ];
 
-/** The score, with what earned it — the spec asks for "clear explanations for
- *  each score contribution", so the parts are a tooltip on the number AND the
- *  accessible name, never only a colour. */
-function ScoreCell({ row }: { row: TriageRow }) {
+/** Red from 80, amber from 50, green below — the badge's whole colour rule. */
+function scoreLook(score: number): string {
+  if (score >= 80) return "bg-danger-soft text-danger";
+  if (score >= 50) return "bg-warning-soft text-warning";
+  return "bg-success-soft text-success";
+}
+
+function scoreWhy(row: TriageRow): string {
   const parts = row.score_parts.filter((p) => p.points);
-  const why = parts.length ? parts.map((p) => `${p.label} +${p.points}`).join(" · ") : "Nothing adds to this score";
+  return parts.length ? parts.map((p) => `${p.label} +${p.points}`).join(" · ") : "Nothing adds to this score";
+}
+
+/**
+ * A triage row: the round SCORE badge leads, and tapping it opens the line
+ * that says what earned it (the spec's "clear explanations for each score
+ * contribution") — a tap, not a hover, so a phone can read it too. The number
+ * is never the only signal: the explanation is also the badge's accessible name.
+ */
+function TriageItem({
+  row,
+  nowMs,
+  selecting,
+  selected,
+  onToggle,
+  onAssign,
+}: {
+  row: TriageRow;
+  nowMs: number;
+  selecting: boolean;
+  selected: boolean;
+  onToggle: (id: string) => void;
+  onAssign: () => void;
+}) {
+  const [why, setWhy] = useState(false);
+  const explanation = scoreWhy(row);
   return (
-    <Tooltip label={why} touch>
-      <span className="inline-flex min-w-9 justify-end font-semibold tabular-nums" aria-label={`Score ${row.score}: ${why}`}>
-        {row.score}
-      </span>
-    </Tooltip>
+    <QueueRow
+      id={row.id}
+      lead={
+        // button-shape: exempt -- a round score badge that reveals its explanation, not an action button
+        <button
+          type="button"
+          aria-expanded={why}
+          aria-label={`Score ${row.score}: ${explanation}`}
+          title={explanation}
+          onClick={() => setWhy((w) => !w)}
+          className={cn(
+            "flex size-8 flex-none items-center justify-center rounded-full text-xs font-bold tabular-nums",
+            "focus-visible:outline-2 focus-visible:outline-ring",
+            scoreLook(row.score),
+          )}
+        >
+          {row.score}
+        </button>
+      }
+      title={row.title}
+      dangerous={row.is_dangerous}
+      refNo={row.ref_no}
+      meta={ticketLine(row)}
+      clock={ticketClock(row, nowMs)}
+      selecting={selecting}
+      selected={selected}
+      onToggle={onToggle}
+      action={<AssignButton onClick={onAssign} />}
+      below={
+        why ? (
+          <p className="border-t border-dashed border-border bg-surface-muted px-3 py-1.5 text-xs text-muted-foreground">
+            <span className="font-semibold text-foreground">Why {row.score}:</span> {explanation}
+          </p>
+        ) : null
+      }
+    />
   );
 }
 
 /**
  * Triage Queue — Decide · Open · All, highest score first (the RPC orders it;
- * this screen never re-sorts). Tick jobs and "Assign to…" sends them one by one
- * through `assignTickets`, which checks each job on its own and returns the
- * ones it refused — so a batch of ten with two refused says which two and why,
- * instead of failing whole or succeeding silently.
+ * this screen never re-sorts). "Select" turns on tick mode and the docked bar's
+ * "Assign to…" sends the ticked jobs one by one through `assignTickets`, which
+ * checks each job on its own and returns the ones it refused — so a batch of
+ * ten with two refused says which two and why, instead of failing whole or
+ * succeeding silently.
  */
-export function TriageScreen({ lists, people }: { lists: Record<TriageTab, TriageRow[]>; people: Person[] }) {
+export function TriageScreen({
+  lists,
+  people,
+  nowMs,
+}: {
+  lists: Record<TriageTab, TriageRow[]>;
+  people: Person[];
+  /** The request time, read by the page (queue-clock.ts says why). */
+  nowMs: number;
+}) {
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
+  const locationId = useCurrentLocationId();
+  const live = useLiveRefresh(locationId ? { locationId } : null);
   const [tab, setTab] = useState<TriageTab>("decide");
   const [query, setQuery] = useState("");
+  const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [assigning, setAssigning] = useState<string[] | null>(null);
+  useUnsavedGuard(isPending);
 
   const rows = lists[tab];
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
     if (!needle) return rows;
-    return rows.filter((r) =>
-      [r.ref_no, r.title, r.place_name, r.trade_name, r.assignee_name].some((v) =>
-        (v ?? "").toLowerCase().includes(needle),
-      ),
-    );
+    return rows.filter((r) => ticketHaystack(r).some((v) => (v ?? "").toLowerCase().includes(needle)));
   }, [rows, query]);
   const refOf = useMemo(() => new Map(rows.map((r) => [r.id, r.ref_no])), [rows]);
 
   function changeTab(next: TriageTab) {
     setTab(next);
+    setSelected(new Set());
+  }
+  function changeSelecting(on: boolean) {
+    setSelecting(on);
     setSelected(new Set());
   }
   function toggle(id: string) {
@@ -88,9 +153,6 @@ export function TriageScreen({ lists, people }: { lists: Record<TriageTab, Triag
       else n.add(id);
       return n;
     });
-  }
-  function toggleAll() {
-    setSelected((s) => (s.size === filtered.length ? new Set() : new Set(filtered.map((r) => r.id))));
   }
 
   function assign(ids: string[], assigneeId: string) {
@@ -105,54 +167,53 @@ export function TriageScreen({ lists, people }: { lists: Record<TriageTab, Triag
       for (const f of failed) error(`${refOf.get(f.id) ?? "A job"}: ${f.error}`);
       setAssigning(null);
       setSelected(new Set());
+      setSelecting(false);
       router.refresh();
     });
   }
 
-  const triageColumns: Column<TriageRow>[] = [
-    { header: "Score", align: "right", cell: (r) => <ScoreCell row={r} /> },
-    refColumn(),
-    titleColumn(),
-    placeColumn(),
-    tradeColumn(),
-    assigneeColumn(),
-    dueColumn(),
-    statusColumn(),
-    rowActionsColumn((r) => (
-      <RowActions
-        label={r.ref_no}
-        view={false}
-        menu={[{ label: "Assign", icon: UserPlus, onClick: () => setAssigning([r.id]) }]}
-      />
-    )),
-  ];
-
   return (
     <div className="space-y-3">
-      <ToggleGroup
-        label="Triage queue"
-        role="tablist"
-        value={tab}
-        onChange={changeTab}
-        options={TABS.map((t) => ({ ...t, count: lists[t.value].length }))}
-      />
+      <div className="flex items-center gap-2">
+        <ToggleGroup
+          label="Triage queue"
+          role="tablist"
+          value={tab}
+          onChange={changeTab}
+          className="min-w-0 flex-1 overflow-x-auto"
+          options={TABS.map((t) => ({ ...t, count: lists[t.value].length }))}
+        />
+        <LiveBadge status={live} />
+        <SelectToggle on={selecting} onChange={changeSelecting} />
+      </div>
       <FilterBar search={query} onSearch={setQuery} searchPlaceholder="Search ref, problem, place, trade or assignee…" />
-      <SelectionBar count={selected.size} onClear={() => setSelected(new Set())}>
-        <Button size="sm" onClick={() => setAssigning([...selected])}>
-          <UserPlus aria-hidden />
-          Assign to…
-        </Button>
-      </SelectionBar>
-      <DataTable
-        columns={withCreatedColumns(triageColumns, rows)}
+      <QueueList
+        key={tab}
+        label="Triage queue"
         rows={filtered}
         getKey={(r) => r.id}
-        selectable
-        selectedKeys={selected}
-        onToggle={toggle}
-        onToggleAll={toggleAll}
         empty={rows.length ? "No job matches this search." : tab === "decide" ? "Nothing waiting on a decision." : "No jobs."}
+        renderRow={(r) => (
+          <TriageItem
+            row={r}
+            nowMs={nowMs}
+            selecting={selecting}
+            selected={selected.has(r.id)}
+            onToggle={toggle}
+            onAssign={() => setAssigning([r.id])}
+          />
+        )}
       />
+      {selecting && (
+        <SelectDock
+          count={selected.size}
+          total={filtered.length}
+          onAll={() => setSelected(new Set(filtered.map((r) => r.id)))}
+          onClear={() => setSelected(new Set())}
+          onAssign={() => setAssigning([...selected])}
+          disabled={isPending}
+        />
+      )}
       <AssignSheet
         key={assigning?.join(",") ?? "none"}
         open={!!assigning}

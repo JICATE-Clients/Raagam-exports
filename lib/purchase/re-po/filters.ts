@@ -1,7 +1,7 @@
 /**
  * THE FILTERS ON PO FROM REQUIREMENT (user 2026-10-26, canvas "PO Order Filters"
- * v6: one row of pills — Item Class · Vendor │ Order by · Type · Category ·
- * Budget · Buyer · Progress). Each filter is there to stop one mistake, and the
+ * v6: one row of pills, reordered 2026-10-26 — PO Type · Order Type · Buyer ·
+ * Item Class · Orders · Category · Vendor │ Order by · Budget · Progress). Each filter is there to stop one mistake, and the
  * rules live here, pure, so the screen and `scripts/check-re-po-filters.mts`
  * read one definition:
  *
@@ -11,6 +11,13 @@
  *   and holds the other orders on it up; filtering lets those go on their own PO.
  * - **Type · Buyer · Category** — picking a look-alike number.
  * - **Progress** — re-ordering what a colleague already part-ordered.
+ * - **Orders** — going straight to one number among many (user 2026-10-26: a pill
+ *   after Item Class listing the RE / SWO / IWO numbers the filters before it leave).
+ *
+ * EVERY FILTER IS MULTI-SELECT (user 2026-10-26: "Multi-Select dropdowns/chips for
+ * all primary filter fields"). A group with nothing chosen lets everything through;
+ * several chosen in one group mean ANY of them (RE or SWO), and the groups AND
+ * together (RE or SWO, and Late).
  *
  * TWO RULES EVERY COUNT OBEYS. A choice's count is the orders it would leave with
  * every OTHER filter applied (`countFor` skips its own group), so a choice that
@@ -74,15 +81,20 @@ export type OrderFacts = {
 };
 
 export type FilterState = {
-  orderBy: OrderByBand | "";
-  kind: SourceKind | "";
-  category: string;
-  budget: BudgetState | "";
-  buyer: string;
-  progress: Progress | "";
+  /** Order ids — narrows the tick list to them. */
+  order: string[];
+  orderBy: OrderByBand[];
+  kind: SourceKind[];
+  category: string[];
+  budget: BudgetState[];
+  buyer: string[];
+  progress: Progress[];
 };
-export const NO_FILTERS: FilterState = { orderBy: "", kind: "", category: "", budget: "", buyer: "", progress: "" };
+export const NO_FILTERS: FilterState = { order: [], orderBy: [], kind: [], category: [], budget: [], buyer: [], progress: [] };
 export type FilterKey = keyof FilterState;
+
+/** Is any filter group narrowing the list? (An empty group is not.) */
+export const hasFilters = (f: FilterState) => Object.values(f).some((v: readonly string[]) => v.length > 0);
 
 /**
  * The orders of one class, one row each. `budgeted` holds the line keys
@@ -139,6 +151,8 @@ export function orderByBand(days: number | null): OrderByBand {
 /** The value each filter reads off an order. */
 function valueOf(o: OrderFacts, k: Exclude<FilterKey, "category">, band: OrderByBand): string {
   switch (k) {
+    case "order":
+      return o.id;
     case "orderBy":
       return band;
     case "kind":
@@ -155,13 +169,14 @@ function valueOf(o: OrderFacts, k: Exclude<FilterKey, "category">, band: OrderBy
 /** Does the order pass every filter (but `skip`)? `band` is its Order by band. */
 export function passes(o: OrderFacts, f: FilterState, band: OrderByBand, skip?: FilterKey): boolean {
   for (const k of Object.keys(f) as FilterKey[]) {
-    if (k === skip || !f[k]) continue;
-    if (k === "category" ? !o.categoryIds.has(f.category) : valueOf(o, k, band) !== f[k]) return false;
+    const chosen: readonly string[] = f[k];
+    if (k === skip || chosen.length === 0) continue;
+    if (k === "category" ? !chosen.some((c) => o.categoryIds.has(c)) : !chosen.includes(valueOf(o, k, band))) return false;
   }
   return true;
 }
 
-/** How many orders choosing `value` for `k` would leave, the other filters applied. */
+/** How many orders `value` alone in group `k` would leave, the other groups applied. */
 export function countFor(
   orders: readonly OrderFacts[],
   bands: ReadonlyMap<string, OrderByBand>,
@@ -169,7 +184,7 @@ export function countFor(
   k: FilterKey,
   value: string,
 ): number {
-  const probe = { ...f, [k]: value } as FilterState;
+  const probe = { ...f, [k]: [value] } as FilterState;
   return orders.filter((o) => passes(o, probe, bands.get(o.id) ?? "nodate")).length;
 }
 

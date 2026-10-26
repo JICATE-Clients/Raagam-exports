@@ -50,6 +50,10 @@ export async function getRequirementLines(sourceIds?: readonly string[]): Promis
     required_qty: num(r.required_qty),
     ordered_qty: num(r.ordered_qty),
     balance_qty: num(r.balance_qty),
+    size_id: (r.size_id as string | null) ?? null,
+    size_name: (r.size_name as string | null) ?? null,
+    size_sort: r.size_sort == null ? null : num(r.size_sort),
+    slice_base: String(r.slice_base ?? r.slice_label ?? ""),
   }));
 }
 

@@ -9,7 +9,9 @@ import {
   capQty,
   gstSlab,
   lineDescription,
+  lineGst,
   lineKeyOf,
+  withNote,
   poTotals,
   rePoInput,
   type BudgetFlag,
@@ -91,7 +93,7 @@ export async function savePoFromRequirement(raw: RePoInput, mode: "draft" | "sub
   }
 
   const byKey = new Map(requirement.map((r) => [lineKeyOf(r), r]));
-  const lines: { req: RequirementLine; qty: number; rate: number | null; delivery_date: string }[] = [];
+  const lines: { req: RequirementLine; qty: number; rate: number | null; delivery_date: string; note: string | null; gst_pct: number | null }[] = [];
   for (const l of input.lines) {
     if (l.qty <= 0) continue; // qty 0 = "not ordered on this PO"
     const req = byKey.get(lineKeyOf(l));
@@ -102,7 +104,7 @@ export async function savePoFromRequirement(raw: RePoInput, mode: "draft" | "sub
         error: `${lineDescription(req)} (${req.source_no}): only ${req.balance_qty} ${req.uom_code ?? ""} is left to buy — excess quantity is not allowed`,
       };
     }
-    lines.push({ req, qty: l.qty, rate: l.rate, delivery_date: l.delivery_date });
+    lines.push({ req, qty: l.qty, rate: l.rate, delivery_date: l.delivery_date, note: l.note ?? null, gst_pct: l.gst_pct ?? null });
   }
   if (lines.length === 0) return { ok: false, error: "Every line has quantity 0 — there is nothing to order" };
 
@@ -154,7 +156,8 @@ export async function savePoFromRequirement(raw: RePoInput, mode: "draft" | "sub
   }
 
   const slab = gstSlab(input.gst);
-  const totals = poTotals(lines.map((l) => ({ qty: l.qty, rate: l.rate ?? 0 })), slab.pct);
+  // GST line by line (0756): each line's own slab, else the header's default.
+  const totals = poTotals(lines.map((l) => ({ qty: l.qty, rate: l.rate ?? 0, gstPct: l.gst_pct })), slab.pct);
   /* Add − Less from the Commercial section, in the PO's currency like the rates. */
   const chargesNet = input.charges.reduce((a, c) => a + (c.kind === "less" ? -1 : 1) * c.amount, 0);
   const grand = Math.round((totals.total + chargesNet) * 100) / 100;
@@ -195,7 +198,12 @@ export async function savePoFromRequirement(raw: RePoInput, mode: "draft" | "sub
     lines.map((l, i) => ({
       purchase_order_id: poRow.id,
       item_id: l.req.item_id,
-      description: lineDescription(l.req).toUpperCase(),
+      // "MAIN LABEL · L (PROCESS: CUT & SEAL)" — the print, GRN and stock logs read this (0755).
+      description: withNote(lineDescription(l.req), l.note).toUpperCase(),
+      note: l.note,
+      // Stored as the slab that APPLIED — the default written out, so a line never needs its header to be read.
+      gst_pct: l.gst_pct ?? slab.pct,
+      gst_amount: lineGst({ qty: l.qty, rate: l.rate ?? 0, gstPct: l.gst_pct }, slab.pct),
       quantity: l.qty,
       uom_id: l.req.uom_id,
       unit_price: l.rate ?? 0,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useAppUser } from "@/lib/auth/permission-context";
 import type { Notification } from "./types";
@@ -13,8 +13,23 @@ const LIMIT = 30;
  * syncs read state). A refetch on tab refocus heals any missed Realtime events.
  * Only valid inside the (app) segment (needs PermissionProvider / useAppUser).
  */
-export function useNotifications() {
+export function useNotifications(
+  options: {
+    /**
+     * Called once per NEW row Realtime delivers (not for the initial fetch or a
+     * refocus refetch). The row carries `event_key` (0673), which the typed
+     * `Notification` leaves out. The Resolve Hub pop-up is the one caller; the
+     * bell passes nothing and behaves exactly as before.
+     */
+    onInsert?: (n: Notification & { event_key?: string | null }) => void;
+  } = {},
+) {
   const { id: userId } = useAppUser();
+  // Kept in a ref so a caller's inline callback never re-subscribes the channel.
+  const onInsertRef = useRef(options.onInsert);
+  useEffect(() => {
+    onInsertRef.current = options.onInsert;
+  }, [options.onInsert]);
   const supabase = useMemo(() => createClient(), []);
   /**
    * ONE CHANNEL PER CALLER, NOT PER USER (2026-10-01). supabase-js hands back
@@ -88,6 +103,7 @@ export function useNotifications() {
           const row = payload.new as Notification;
           setItems((prev) => [row, ...prev].slice(0, LIMIT));
           if (!row.read_at) setUnread((n) => (n === null ? n : n + 1));
+          onInsertRef.current?.(row as Notification & { event_key?: string | null });
         },
       )
       .on(

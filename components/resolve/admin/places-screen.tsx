@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Printer, QrCode } from "lucide-react";
+import { Check, Printer, QrCode } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Combobox } from "@/components/ui/combobox";
 import { type Column } from "@/components/ui/data-table";
@@ -11,6 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Sheet } from "@/components/ui/sheet";
 import { StatusPill } from "@/components/ui/status-pill";
+import { ToggleGroup } from "@/components/ui/segmented";
+import { Truncated } from "@/components/ui/truncated";
 import { ActiveField } from "@/components/ui/active-field";
 import { DuplicateError } from "@/components/ui/duplicate-error";
 import { useToast } from "@/components/ui/toast";
@@ -62,6 +64,16 @@ function qrState(r: PlaceRow): { tone: "neutral" | "warning" | "success"; text: 
   return { tone: "success", text: `Printed ${fmtDate(r.qr_printed_at)}` };
 }
 
+/** The chips above the list. "No sticker" is a place still taking reports whose
+ *  sticker has not been printed — no QR yet, or a QR nobody has printed. */
+type Chip = "all" | "nosticker" | "off";
+const needsSticker = (r: PlaceRow) => !r.inactive && !r.qr_printed_at;
+
+/** "Inside · caretaker" — the second line of a place on a phone. */
+function whereWho(r: PlaceRow): string {
+  return [r.parent_name ? `In ${r.parent_name}` : KIND_LABEL[r.kind], r.caretaker_name].filter(Boolean).join(" · ");
+}
+
 /**
  * Resolve Hub ▸ Administration ▸ Places & QR — the rooms, machines and assets
  * a problem can be reported against, in the current unit. A place's QR token
@@ -69,8 +81,11 @@ function qrState(r: PlaceRow): { tone: "neutral" | "warning" | "success"; text: 
  * from its code — so a sticker cannot be guessed from its neighbour's.
  * Regenerating kills the old sticker, which is the point when one is lost.
  *
- * Tick places and "Print stickers" opens the printable sheet; printing it is
- * what records `qr_printed_at`.
+ * PRINTING IS A MODE, NOT A COLUMN (mobile redesign, 2026-10-26). "Select"
+ * turns the list into tick boxes — on a phone the card itself is what you tap
+ * — and the bar docked under the list carries the count and "Print stickers".
+ * Before Select, the same bar says how many places are waiting for a sticker
+ * and picks exactly those. Printing the sheet is what records `qr_printed_at`.
  */
 export function PlacesScreen({
   rows,
@@ -92,6 +107,9 @@ export function PlacesScreen({
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<Form>(blankForm);
   const [dirty, setDirty] = useState(false);
+  const [chip, setChip] = useState<Chip>("all");
+  const [selecting, setSelecting] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(() => new Set());
   useUnsavedGuard(open && (dirty || isPending));
 
   const set = (patch: Partial<Form>) => {
@@ -129,6 +147,32 @@ export function PlacesScreen({
   const personOptions = useMemo(() => optionsOf(people, form.caretaker_id), [people, form.caretaker_id]);
   const tradeOptions = useMemo(() => optionsOf(trades, form.default_trade_id), [trades, form.default_trade_id]);
   const assetOptions = useMemo(() => optionsOf(assets, form.asset_id), [assets, form.asset_id]);
+
+  const counts = {
+    all: rows.length,
+    nosticker: rows.filter(needsSticker).length,
+    off: rows.filter((r) => r.inactive).length,
+  };
+  const shown = chip === "nosticker" ? rows.filter(needsSticker) : chip === "off" ? rows.filter((r) => r.inactive) : rows;
+  /** Waiting for a sticker AND able to print one — a place with no QR needs Generate QR first. */
+  const printable = rows.filter((r) => needsSticker(r) && !!r.qr_token);
+
+  function togglePick(r: PlaceRow) {
+    setPicked((s) => {
+      const next = new Set(s);
+      if (next.has(r.id)) next.delete(r.id);
+      else next.add(r.id);
+      return next;
+    });
+  }
+  function startSelect(preselect: PlaceRow[]) {
+    setPicked(new Set(preselect.map((r) => r.id)));
+    setSelecting(true);
+  }
+  function stopSelect() {
+    setPicked(new Set());
+    setSelecting(false);
+  }
 
   function openAdd() {
     setEditId(null);
@@ -195,30 +239,51 @@ export function PlacesScreen({
     });
   }
 
-  function printStickers(selected: PlaceRow[], clear: () => void) {
-    const ids = selected.filter((r) => r.qr_token).map((r) => r.id);
+  function printStickers() {
+    const ids = rows.filter((r) => picked.has(r.id) && r.qr_token).map((r) => r.id);
     if (!ids.length) {
-      error("None of the ticked places has a QR yet — generate one first.");
+      error("None of the picked places has a QR yet — generate one first.");
       return;
     }
-    clear();
+    stopSelect();
     router.push(`/resolve/setup/places/stickers?ids=${ids.join(",")}`);
   }
 
+  const qrPill = (r: PlaceRow) => {
+    const q = qrState(r);
+    return <StatusPill tone={q.tone}>{q.text}</StatusPill>;
+  };
+
+  const pickColumn: Column<PlaceRow> = {
+    header: "",
+    className: "w-10",
+    cell: (r) => (
+      <input
+        type="checkbox"
+        className="size-4 accent-(--primary)"
+        aria-label={`Pick ${r.name}`}
+        checked={picked.has(r.id)}
+        onChange={() => togglePick(r)}
+      />
+    ),
+  };
   const placeColumns: Column<PlaceRow>[] = [
-    { header: "Code", cell: (r) => <span className="font-mono text-xs">{r.code}</span> },
-    { header: "Name", cell: (r) => <span className="text-sm font-semibold">{r.name}</span> },
-    { header: "Kind", cell: (r) => <span className="text-sm">{KIND_LABEL[r.kind] ?? r.kind}</span> },
+    ...(selecting ? [pickColumn] : []),
+    {
+      header: "Place",
+      cell: (r) => (
+        <span className="block min-w-0">
+          <Truncated text={r.name} className="text-sm font-semibold" />
+          <span className="block font-mono text-xs text-muted-foreground">
+            {r.code} · {KIND_LABEL[r.kind] ?? r.kind}
+          </span>
+        </span>
+      ),
+    },
     { header: "Inside", cell: (r) => <span className="text-sm text-muted-foreground">{r.parent_name ?? "—"}</span> },
     { header: "Caretaker", cell: (r) => <span className="text-sm">{r.caretaker_name ?? "—"}</span> },
     { header: "Default Trade", cell: (r) => <span className="text-sm">{r.default_trade_name ?? "—"}</span> },
-    {
-      header: "QR",
-      cell: (r) => {
-        const q = qrState(r);
-        return <StatusPill tone={q.tone}>{q.text}</StatusPill>;
-      },
-    },
+    { header: "QR", cell: qrPill },
     {
       header: "Status",
       cell: (r) => <StatusPill tone={activeTone(!r.inactive)}>{r.inactive ? "Inactive" : "Active"}</StatusPill>,
@@ -227,43 +292,110 @@ export function PlacesScreen({
 
   return (
     <div className="space-y-4">
+      <ToggleGroup<Chip>
+        label="Show"
+        value={chip}
+        onChange={setChip}
+        options={[
+          { value: "all", label: "All", count: counts.all },
+          { value: "nosticker", label: "No sticker", count: counts.nosticker },
+          { value: "off", label: "Switched off", count: counts.off },
+        ]}
+      />
       <MasterListShell
-        rows={rows}
+        rows={shown}
         getKey={(r) => r.id}
         perms={perms}
         searchText={(r) => [r.code, r.name, r.parent_name, r.caretaker_name].filter(Boolean).join(" ")}
-        searchPlaceholder="Search code, name, parent or caretaker…"
+        searchPlaceholder="Search places, inside or caretaker…"
         statusOf={(r) => (r.inactive ? "inactive" : "active")}
-        addLabel="+ Add Place"
-        onAdd={perms.canCreate ? openAdd : undefined}
+        addLabel={selecting ? undefined : "+ Add Place"}
+        onAdd={perms.canCreate && !selecting ? openAdd : undefined}
+        toolbarExtra={
+          selecting ? null : (
+            <Button variant="outline" onClick={() => startSelect([])}>
+              <Check aria-hidden />
+              Select
+            </Button>
+          )
+        }
         columns={placeColumns}
-        actions={{
-          onEdit: openEdit,
-          onDelete: remove,
-          menuAs: "icons",
-          menu: (r) =>
-            perms.canEdit && !r.inactive
-              ? [{ label: r.qr_token ? "Regenerate QR" : "Generate QR", icon: QrCode, onClick: () => regenerate(r) }]
-              : [],
-        }}
-        bulkActions={(selected, clear) => (
-          <Button size="sm" variant="outline" onClick={() => printStickers(selected, clear)}>
-            <Printer aria-hidden />
-            Print stickers
-          </Button>
-        )}
+        view={selecting ? false : undefined}
+        actions={
+          selecting
+            ? undefined
+            : {
+                onEdit: openEdit,
+                onDelete: remove,
+                menuAs: "icons",
+                menu: (r) =>
+                  perms.canEdit && !r.inactive
+                    ? [{ label: r.qr_token ? "Regenerate QR" : "Generate QR", icon: QrCode, onClick: () => regenerate(r) }]
+                    : [],
+              }
+        }
         rowLabel={(r) => r.name}
-        empty="No places in this unit yet."
+        empty={chip === "all" ? "No places in this unit yet." : "No places to show here."}
         mobile={{
           title: (r) => r.name,
-          subtitle: (r) => r.code,
-          meta: (r) => [KIND_LABEL[r.kind], r.caretaker_name, qrState(r).text].filter(Boolean).join(" · "),
-          pill: (r) => <StatusPill tone={activeTone(!r.inactive)}>{r.inactive ? "Inactive" : "Active"}</StatusPill>,
-          onEdit: openEdit,
-          onDelete: remove,
+          subtitle: (r) => whereWho(r) || r.code,
+          meta: (r) => [r.code, r.default_trade_name].filter(Boolean).join(" · "),
+          pill: (r) =>
+            selecting ? (
+              <span
+                aria-hidden
+                className={
+                  picked.has(r.id)
+                    ? "flex size-5 items-center justify-center rounded-md bg-primary text-primary-foreground"
+                    : "block size-5 rounded-md border border-border bg-surface"
+                }
+              >
+                {picked.has(r.id) && <Check className="size-3.5" />}
+              </span>
+            ) : r.inactive ? (
+              <StatusPill tone={activeTone(false)}>Inactive</StatusPill>
+            ) : (
+              qrPill(r)
+            ),
+          // In Select mode the card IS the tick box: a tap picks it.
+          onEdit: selecting ? togglePick : openEdit,
+          onDelete: selecting ? undefined : remove,
         }}
         isPending={isPending}
       />
+
+      {/* Docked under the list. Before Select it says how many are waiting and
+          picks exactly those; while selecting it carries the count and the one
+          action, so the operator never scrolls back up to print. */}
+      {(selecting || printable.length > 0) && (
+        <div
+          role="region"
+          aria-label="Print stickers"
+          className="sticky bottom-0 z-10 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2 shadow-sm"
+        >
+          <span className="mr-auto text-sm font-semibold">
+            {selecting
+              ? `${picked.size} picked`
+              : `${printable.length} ${printable.length === 1 ? "place" : "places"} without a sticker`}
+          </span>
+          {selecting ? (
+            <>
+              <Button variant="ghost" onClick={stopSelect}>
+                Done
+              </Button>
+              <Button disabled={picked.size === 0} onClick={printStickers}>
+                <Printer aria-hidden />
+                Print stickers
+              </Button>
+            </>
+          ) : (
+            <Button variant="outline" onClick={() => startSelect(printable)}>
+              <Printer aria-hidden />
+              Print stickers
+            </Button>
+          )}
+        </div>
+      )}
 
       <Sheet
         open={open}

@@ -10,7 +10,7 @@ import { TrackLookupForm } from "./track-lookup-form";
  */
 
 export const metadata: Metadata = {
-  title: "Track a complaint — Raagam Exports",
+  title: "Track a concern — Raagam Exports",
   robots: { index: false, follow: false },
 };
 
@@ -29,16 +29,16 @@ export default function TrackPage() {
           />
         </header>
         <section className="space-y-3 rounded-lg border border-border bg-surface p-5">
-          <h1 className="text-lg font-semibold">Track a complaint</h1>
+          <h1 className="text-lg font-semibold">Track a concern</h1>
           <p className="text-sm text-muted-foreground">
-            Paste the private tracking link you were shown when you sent an anonymous complaint. It
-            shows the complaint&apos;s status and the handler&apos;s reply — nothing about who sent it.
+            Paste the private link you were shown when you raised an anonymous concern. It shows where
+            it stands and the reply — nothing about who sent it.
           </p>
           <TrackLookupForm />
           <p className="text-xs text-muted-foreground">
             Lost the link? It cannot be recovered — it was only ever shown once, and we do not know
-            who sent the complaint. You can send a new one, and mention the old reference number.
-            Complaints sent with your name are under My Complaints after you sign in.
+            who sent it. You can raise a new one, and mention the old reference number.
+            Concerns raised with your name are under My Reports after you sign in.
           </p>
         </section>
       </div>

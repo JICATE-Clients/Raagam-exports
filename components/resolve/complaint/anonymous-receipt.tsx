@@ -47,11 +47,11 @@ export function AnonymousReceipt({
     <div className="w-full max-w-[40rem] space-y-4">
       <div role="status" className="rounded-lg border border-success/40 bg-success-soft/50 p-4">
         <p className="text-sm font-semibold text-foreground">
-          Complaint sent anonymously — reference <span className="font-mono">{refNo}</span>
+          Concern sent anonymously — reference <span className="font-mono">{refNo}</span>
         </p>
         <p className="mt-1 text-sm text-muted-foreground">
           Your name was not stored with it.
-          {responseDueAt ? ` The handler must respond by ${fmtDateTime(responseDueAt)}, or it is escalated.` : ""}
+          {responseDueAt ? ` Someone will reply by ${fmtDateTime(responseDueAt)}.` : ""}
         </p>
       </div>
 
@@ -76,8 +76,8 @@ export function AnonymousReceipt({
           <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-danger" aria-hidden />
           <span>
             <strong>Save this link now. It will not be shown again</strong> and cannot be recovered —
-            we do not know who sent this complaint, so we cannot send it to you. Anyone with the
-            link can see the complaint&apos;s status, so keep it private. It works without signing in.
+            we do not know who sent this concern, so we cannot send it to you. Anyone with the
+            link can see where it stands, so keep it private. It works without signing in.
           </span>
         </p>
       </div>
@@ -93,7 +93,7 @@ export function AnonymousReceipt({
       <ConfirmDialog
         open={confirmLeave}
         title="Leave without copying the link?"
-        body="You did not press Copy. Once you leave, the tracking link is gone for good and this complaint can only be followed by its handler."
+        body="You did not press Copy. Once you leave, the tracking link is gone for good and this concern can only be followed by the person looking into it."
         confirmLabel="Leave anyway"
         cancelLabel="Stay"
         tone="danger"

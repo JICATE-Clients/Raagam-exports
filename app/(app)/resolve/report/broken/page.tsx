@@ -4,6 +4,9 @@ import { listReportablePlaces, listTrades } from "@/lib/resolve/service";
 import { findSimilar } from "@/lib/resolve/actions";
 import { PageHeader } from "@/components/ui/page-header";
 import { BrokenReportForm } from "@/components/resolve/report/broken-report-form";
+import { AssistChat } from "@/components/resolve/chat/assist-chat";
+import { loadAssistChat } from "@/lib/resolve/assist-service";
+import { AssistLayout } from "@/components/resolve/chat/assist";
 
 /**
  * SOMETHING IS BROKEN. `?place=<id>` pre-selects a place (a link from a place
@@ -31,7 +34,7 @@ export default async function BrokenReportPage({
 
   return (
     <div className="space-y-4">
-      <PageHeader title="Something is broken" back={{ href: "/resolve/report", label: "Report a problem" }} />
+      <PageHeader title="Fix something" back={{ href: "/resolve/report", label: "Report a problem" }} />
       {/* No places yet is NOT a dead end: the form asks "Where is it?" instead
           and the report is routed as needs-sorting. Only an admin can fix the
           list, so only an admin is pointed at it. */}
@@ -44,14 +47,23 @@ export default async function BrokenReportPage({
           to give them a list (and QR stickers).
         </p>
       ) : null}
-      <BrokenReportForm
-        places={places}
-        trades={trades.map((t) => ({ id: t.id, name: t.name }))}
-        initialPlaceId={startPlace}
-        initialSimilar={similar?.ok ? similar.data : []}
-        initialCheckedAt={checkedAt}
-        source="form"
-      />
+      {/* The chat asks "where is it?" first; a link that already names the
+          place (?place=, like a QR sticker) has answered that, so it keeps the
+          one-page form with the place filled in. */}
+      {startPlace ? (
+        <BrokenReportForm
+          places={places}
+          trades={trades.map((t) => ({ id: t.id, name: t.name }))}
+          initialPlaceId={startPlace}
+          initialSimilar={similar?.ok ? similar.data : []}
+          initialCheckedAt={checkedAt}
+          source="form"
+        />
+      ) : (
+        <AssistLayout>
+          <AssistChat {...(await loadAssistChat())} startLane="fix" />
+        </AssistLayout>
+      )}
     </div>
   );
 }

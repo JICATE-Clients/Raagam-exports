@@ -21,7 +21,7 @@ export function TrackLookupForm() {
         e.preventDefault();
         const token = tokenFromPaste(value);
         if (!token) {
-          setError("Paste the tracking link you were given when you sent the complaint.");
+          setError("Paste the private link you were given when you raised the concern.");
           return;
         }
         setError(null);

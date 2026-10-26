@@ -2,12 +2,16 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ArrowRight, Ban, Boxes, Check, ChevronRight, Lock, Undo2, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, Ban, Boxes, Check, ChevronRight, Lock, Ruler, Undo2, X } from "lucide-react";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { Button } from "@/components/ui/button";
 import { FIELD_WIDTH_CSS } from "@/components/ui/field";
 import { FilterPill, type FilterPillOption } from "@/components/ui/filter-pill";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
+import { Tabs } from "@/components/ui/tabs";
+import { Sheet, type SheetOrigin } from "@/components/ui/sheet";
+import { SubSheetFooter } from "@/components/orders/sub-sheet-footer";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
 import { useToast } from "@/components/ui/toast";
@@ -25,6 +29,7 @@ import {
   KIND_OPTIONS,
   NO_BUYER,
   NO_FILTERS,
+  hasFilters,
   ORDER_BY_BANDS,
   PROGRESS_STATES,
   addDays,
@@ -42,10 +47,12 @@ import {
 } from "@/lib/purchase/re-po/filters";
 import {
   GST_SLABS,
+  LINE_GST_PCTS,
   capQty,
   gstSlab,
   lineDescription,
   lineKeyOf,
+  withNote,
   poTotals,
   type BudgetFlag,
   type ClassVendor,
@@ -58,8 +65,8 @@ import {
  * requirement lines list themselves, the Purchase Manager types the rate.
  *
  * FILTERS ON TOP (user 2026-10-26, canvas "PO Order Filters" v6). One row of
- * `FilterPill`s — Item Class · Vendor │ Order by · Type · Category · Budget ·
- * Buyer · Progress — and under it the orders as a TICK LIST, which replaced the
+ * `FilterPill`s — PO Type · Order Type · Buyer · Item Class · Orders · Category · Vendor │
+ * Order by · Budget · Progress (reordered 2026-10-26, screenshot 3728) — and under it the orders as a TICK LIST, which replaced the
  * RE / SWO / IWO No dropdown: on a touch screen a visible list is one tap per
  * order and no typing. The rules are `lib/purchase/re-po/filters.ts`.
  *
@@ -77,7 +84,8 @@ import {
  *   `savePoFromRequirement` decides that again from the database.
  */
 
-type RowState = { qty: string; rate: string; date: string; skip?: boolean };
+/** `note` — the item-level instruction to the vendor (0755), appended to the line's description on save. */
+type RowState = { qty: string; rate: string; date: string; skip?: boolean; note?: string; /** own GST % (0756); unset = the header's */ gst?: number };
 
 /**
  * THE GRID HEADER IN THE ORDERS TABLE BAND (user 2026-10-23, screenshot 3697): the
@@ -98,6 +106,23 @@ const CELL_INPUT =
 type GridRow = RequirementLine & { key: string; row: RowState; /** a vendor is chosen, so this line can be ordered */ supplied: boolean };
 
 const CURRENCIES = ["USD", "EUR", "GBP"] as const;
+
+/** One order-grid row: an item in one slice and colour, its sizes underneath (0757). */
+type SizeGroup = { key: string; first: GridRow; members: GridRow[]; sized: boolean };
+function sizeGroupsOf(rows: readonly GridRow[]): SizeGroup[] {
+  const by = new Map<string, GridRow[]>();
+  for (const r of rows) {
+    const k = `${r.source_id}|${r.item_id}|${r.slice_base.trim().toUpperCase()}|${(r.colour ?? "").toUpperCase()}|${r.uom_id ?? ""}`;
+    by.set(k, [...(by.get(k) ?? []), r]);
+  }
+  return [...by].map(([key, ms]) => {
+    // The order's own size sequence (XS S M L XL), never alphabetical.
+    const members = ms
+      .slice()
+      .sort((a, b) => (a.size_sort ?? 1e9) - (b.size_sort ?? 1e9) || (a.size_name ?? "").localeCompare(b.size_name ?? ""));
+    return { key, first: members[0], members, sized: members.some((m) => !!m.size_name) };
+  });
+}
 
 export function RequirementPoForm({
   lines,
@@ -130,9 +155,13 @@ export function RequirementPoForm({
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
 
-  const [classId, setClassId] = useState(
-    () => (initialOrderId ? lines.find((l) => l.source_id === initialOrderId)?.item_class_id : null) ?? "",
-  );
+  /* ITEM CLASS IS MULTI-SELECT (user 2026-10-26). One PO may carry several classes —
+     `savePoFromRequirement` already checks the vendor supplies every one of them. */
+  const [classIds, setClassIds] = useState<string[]>(() => {
+    const first = initialOrderId ? lines.find((l) => l.source_id === initialOrderId)?.item_class_id : null;
+    return first ? [first] : [];
+  });
+  const hasClass = classIds.length > 0;
   /** The TICKED orders — what this PO carries, in the order they were ticked. */
   const [orderIds, setOrderIds] = useState<string[]>(() => (initialOrderId ? [initialOrderId] : []));
   const [filters, setFilters] = useState<FilterState>(NO_FILTERS);
@@ -152,6 +181,8 @@ export function RequirementPoForm({
   /* One ticked order's lines on the right at a time (the fold rule); "items" = the
      All Items view. */
   const [activeKey, setActiveKey] = useState(initialOrderId ?? "");
+  /** The open Size Breakup — which item row, and the button it grows out of. */
+  const [sizeSheet, setSizeSheet] = useState<{ key: string; origin: SheetOrigin } | null>(null);
   /* ITEM-WISE (client via user 2026-10-23: "multi order, multiple item — we are missing
      the multiple item concept"). The same item needed by several orders is ONE line to
      the vendor — offered once two orders are ticked. One item's breakup open at a time. */
@@ -172,6 +203,10 @@ export function RequirementPoForm({
     );
     for (const l of lines) {
       if (!l.item_class_id) continue;
+      /* ORDER TYPE AND BUYER COME FIRST (user 2026-10-26, screenshot 3728), so a class
+         counts only the orders those two leave — "SWO" then reads each class's SWOs. */
+      if (filters.kind.length && !filters.kind.includes(l.source_kind)) continue;
+      if (filters.buyer.length && !filters.buyer.includes(l.source_kind === "re" ? (l.customer ?? NO_BUYER) : NO_BUYER)) continue;
       const c = byClass.get(l.item_class_id) ?? { label: l.item_class ?? "—", orders: new Set<string>() };
       c.orders.add(l.source_id);
       byClass.set(l.item_class_id, c);
@@ -180,19 +215,24 @@ export function RequirementPoForm({
     return [...byClass.entries()]
       .sort((a, b) => Number(b[1].orders.size > 0) - Number(a[1].orders.size > 0) || a[1].label.localeCompare(b[1].label))
       .map(([value, c]) => ({ value, label: c.label, count: c.orders.size }));
-  }, [lines, itemClasses]);
-  const classLines = useMemo(() => lines.filter((l) => l.item_class_id === classId), [lines, classId]);
+  }, [lines, itemClasses, filters.kind, filters.buyer]);
+  const classLines = useMemo(() => lines.filter((l) => !!l.item_class_id && classIds.includes(l.item_class_id)), [lines, classIds]);
+  /* Before a class is picked the filters read EVERY line, so Order Type and Buyer —
+     which lead the row — have something to count. The tick list waits for a class. */
+  const scopeLines = hasClass ? classLines : lines;
 
   /* THE VENDOR IS CHOSEN, NEVER ASSUMED (V7 point 5). Best on-time first, so the
      reliable vendor is the one at the top — with its lead days beside it, because a
-     slow vendor on an urgent order is a mistake you can only avoid if you see it. */
-  const classVendors = useMemo(
-    () =>
-      (vendorsByClass[classId] ?? [])
-        .slice()
-        .sort((a, b) => (b.on_time_pct ?? -1) - (a.on_time_pct ?? -1) || a.name.localeCompare(b.name)),
-    [vendorsByClass, classId],
-  );
+     slow vendor on an urgent order is a mistake you can only avoid if you see it.
+     SEVERAL CLASSES → ONLY THE VENDORS MAPPED TO ALL OF THEM: one PO is one vendor, and the
+     save refuses a vendor missing any class on it. */
+  const classVendors = useMemo(() => {
+    const [first, ...rest] = classIds;
+    if (!first) return [];
+    return (vendorsByClass[first] ?? [])
+      .filter((v) => rest.every((c) => (vendorsByClass[c] ?? []).some((x) => x.id === v.id)))
+      .sort((a, b) => (b.on_time_pct ?? -1) - (a.on_time_pct ?? -1) || a.name.localeCompare(b.name));
+  }, [vendorsByClass, classIds]);
   const vendor = classVendors.find((v) => v.id === vendorPick) ?? null;
   const vendorId = vendor?.id ?? "";
   const vendorName = vendor?.name ?? "";
@@ -201,18 +241,21 @@ export function RequirementPoForm({
   const leadDays = vendor ? (vendor.lead_days ?? 0) : Math.max(0, ...classVendors.map((v) => v.lead_days ?? 0));
 
   // ---------- the orders and the filters ----------
-  const facts = useMemo(() => orderFacts(classLines, budgeted, draftHolds, lineKeyOf), [classLines, budgeted, draftHolds]);
+  const facts = useMemo(() => orderFacts(scopeLines, budgeted, draftHolds, lineKeyOf), [scopeLines, budgeted, draftHolds]);
   const daysLeft = new Map(facts.map((o) => [o.id, daysToOrder(o.shipDate, poDate, leadDays)] as const));
   const bands = new Map<string, OrderByBand>(facts.map((o) => [o.id, orderByBand(daysLeft.get(o.id) ?? null)]));
   const visible = visibleOrders(facts, bands, filters, orderIds);
-  const anyFilter = Object.values(filters).some(Boolean);
+  const anyFilter = hasFilters(filters);
   const count = (k: FilterKey, v: string) => countFor(facts, bands, filters, k, v);
   const anyCount = (k: FilterKey) => facts.filter((o) => passes(o, filters, bands.get(o.id) ?? "nodate", k)).length;
-  const setFilter = (k: FilterKey, v: string) => setFilters((f) => ({ ...f, [k]: v }));
+  const setFilter = (k: FilterKey, v: string[]) => setFilters((f) => ({ ...f, [k]: v }));
 
   const categoryOptions: FilterPillOption[] = (() => {
     const byCat = new Map<string, string>();
-    for (const l of classLines) if (l.category_id) byCat.set(l.category_id, l.category ?? "—");
+    // Two classes can share a category name (COTTON is a Yarn and a Fabric), so with
+    // several classes ticked each category says whose it is (Cascading filters).
+    for (const l of classLines)
+      if (l.category_id) byCat.set(l.category_id, classIds.length > 1 ? `${l.item_class ?? "—"} · ${l.category ?? "—"}` : (l.category ?? "—"));
     return [...byCat.entries()]
       .sort((a, b) => a[1].localeCompare(b[1]))
       .map(([value, label]) => ({ value, label, count: count("category", value) }));
@@ -235,7 +278,9 @@ export function RequirementPoForm({
   const chosen = new Set(orderIds);
   const inClassOrders = classLines.filter((l) => chosen.has(l.source_id));
   // Category narrows the LINES of a ticked order too — the filter means "buy only these".
-  const inOrders = filters.category ? inClassOrders.filter((l) => l.category_id === filters.category) : inClassOrders;
+  const inOrders = filters.category.length
+    ? inClassOrders.filter((l) => !!l.category_id && filters.category.includes(l.category_id))
+    : inClassOrders;
 
   /**
    * A LINE'S DEFAULT DELIVERY, and why (V7 point 6). The chosen vendor's lead days
@@ -284,7 +329,7 @@ export function RequirementPoForm({
   const unpriced = active.filter((r) => num(r.row.rate) <= 0).length;
   const undated = active.filter((r) => !(r.row.date || defaultFor(r.delivery_date))).length;
   const slab = gstSlab(gst);
-  const totals = poTotals(active.map((r) => ({ qty: num(r.row.qty), rate: num(r.row.rate) })), slab.pct);
+  const totals = poTotals(active.map((r) => ({ qty: num(r.row.qty), rate: num(r.row.rate), gstPct: r.row.gst })), slab.pct);
   const above = active.filter((r) => flags[r.key]?.above).length;
   const unbudgeted = active.filter((r) => num(r.row.rate) > 0 && flags[r.key] && !flags[r.key].hasBudget).length;
   const goesToMd = above + unbudgeted > 0;
@@ -331,9 +376,10 @@ export function RequirementPoForm({
   function openRe(g: (typeof groups)[number]) {
     setActiveKey(g.id);
     const first = g.toPrice[0] ?? g.rows[0];
+    const row = sizeGroupsOf(g.rows).find((sg) => sg.members.some((m) => m.key === first.key));
     requestAnimationFrame(() =>
       requestAnimationFrame(() => {
-        const el = document.getElementById(rateId(first.key));
+        const el = document.getElementById(rateId(row?.first.key ?? first.key));
         if (el) focusField(el);
       }),
     );
@@ -389,7 +435,7 @@ export function RequirementPoForm({
   }, [checkSignature]);
 
   // ---------- edits ----------
-  /** One edit to every order line under an item — the item-wise rate and delivery. */
+  /** One edit to every order line under an item — the item-wise note, rate, GST and delivery. */
   function setMembers(members: readonly GridRow[], patch: Partial<RowState>) {
     setDirty(true);
     setRows((prev) => {
@@ -434,6 +480,8 @@ export function RequirementPoForm({
             rate: num(r.row.rate) > 0 ? num(r.row.rate) : null,
             // The PO date only fills a line that is not ordered — the schema wants a date on every line.
             delivery_date: r.row.date || defaultFor(r.delivery_date)?.date || poDate,
+            note: r.row.note?.trim() || null,
+            gst_pct: r.row.gst ?? null,
           })),
         },
         mode,
@@ -512,58 +560,147 @@ export function RequirementPoForm({
     );
   };
 
-  /** One line, the item then its slice · colour in grey — not two stacked lines (V6). */
-  const itemCell = (name: string, spec: string, struck = false) => (
-    <div className={cn("flex min-w-0 items-baseline gap-1.5", struck && "text-muted-foreground line-through")}>
-      <Truncated className="min-w-0 shrink text-sm font-medium">{name}</Truncated>
-      {spec ? <Truncated className="min-w-0 shrink-[2] text-xs text-muted-foreground">{spec}</Truncated> : null}
+  /* THE ITEM CELL IS THE NAME ONLY (user 2026-10-26: "in item field item name after you
+     descripting the color, size no need there remove it"). Size lives in the Size Breakup
+     now, and the colour / slice is the hover — so two rows of one item in two colours can
+     still be told apart without either being printed in the cell. */
+  const itemCell = (name: string, describe: string, struck = false) => (
+    <div title={describe ? `${name} · ${describe}` : name} className={cn("min-w-0", struck && "text-muted-foreground line-through")}>
+      <Truncated className="min-w-0 text-sm font-medium">{name}</Truncated>
     </div>
+  );
+  /* THE QUANTITY WORDS FOLLOW WHAT IS BOUGHT (user 2026-10-26): yarn and fabric are bought
+     by weight, so a grid holding only those reads Weight (Kg); anything else — or a mix,
+     now that Item Class is multi-select — reads Qty, with the UOM column beside it. */
+  const byWeight = gridRows.length > 0 && gridRows.every((r) => /\b(yarn|fabric)\b/i.test(r.item_class ?? ""));
+  const QTY = byWeight
+    ? { required: "Required Wt", toOrder: "To Order Wt", po: "Order PO Wt (Kg)" }
+    : { required: "Required Qty", toOrder: "To Order Qty", po: "Order PO Qty" };
+  /** The Order PO box itself — capped at To Order (spec 6). Shared by the row and the Size Breakup. */
+  const qtyInput = (r: GridRow, id?: string) => (
+    <Input
+      id={id}
+      type="number"
+      min={0}
+      max={r.balance_qty}
+      inputMode="decimal"
+      aria-label={`${QTY.po}, ${lineDescription(r)}${r.size_name ? `, size ${r.size_name}` : ""}, at most ${r.balance_qty} ${r.uom_code ?? ""}`}
+      title={`At most ${fmtNumber(r.balance_qty)} ${r.uom_code ?? ""}: ${fmtNumber(r.required_qty)} on the requirement sheet${r.ordered_qty > 0 ? `, less ${fmtNumber(r.ordered_qty)} already on other POs` : ""}`}
+      className={cn(CELL_INPUT, "min-w-0 flex-1 text-right tabular-nums")}
+      disabled={r.row.skip}
+      value={r.row.skip ? "0" : r.row.qty}
+      onChange={(e) => {
+        const typed = num(e.target.value);
+        // Spec 6: excess is never possible — a figure above the balance snaps back to it.
+        setRow(r, { qty: e.target.value === "" ? "" : typed > r.balance_qty ? String(capQty(typed, r.balance_qty)) : e.target.value });
+      }}
+    />
+  );
+  /** A line's Qty cell: the box and its unit on ONE line; Required · To Order float under it on focus. */
+  const qtyBox = (r: GridRow) => (
+    <div className="group/qty relative flex items-center gap-1">
+      {qtyInput(r)}
+      {/* The Purchase UOM rides inside the quantity — it is what the number is counted in. */}
+      <span className="w-10 shrink-0 truncate text-[11px] font-semibold text-muted-foreground uppercase">{r.uom_code ?? ""}</span>
+      {qtyFacts(r.required_qty, r.balance_qty, r.ordered_qty)}
+    </div>
+  );
+  /*
+   * REQUIRED · TO ORDER ON DEMAND (user 2026-10-26, screenshot 3736: "for all same like
+   * that … if the field is clicked they can see that details, like compact it"). Printed
+   * under every box they made each row two lines tall and ran into the Rate column; now
+   * they are a small tag that floats under the box while it has the cursor (or the
+   * pointer), over the row beneath rather than pushing it down — so nothing jumps. The
+   * parent carries `group/qty relative`. A sized row has no tag: its pop-up shows both.
+   */
+  const qtyFacts = (required: number, toOrder: number, ordered: number) => (
+    <div
+      role="note"
+      className="pointer-events-none absolute top-full right-0 z-20 mt-0.5 hidden gap-2 rounded-md border border-[#dde4eb] bg-white px-2 py-0.5 text-[11px] leading-4 whitespace-nowrap text-muted-foreground tabular-nums shadow-md group-focus-within/qty:flex group-hover/qty:flex"
+    >
+      <span>
+        Req <span className="font-semibold text-foreground">{fmtNumber(required)}</span>
+      </span>
+      <span>
+        To order <span className="font-semibold text-foreground">{fmtNumber(toOrder)}</span>
+      </span>
+      {ordered > 0 ? <span>· {fmtNumber(ordered)} on other POs</span> : null}
+    </div>
+  );
+  /* GST % PER LINE (user 2026-10-26, 0756). A line follows the header's slab until it is
+     changed here, so the header box still sets every untouched line at once. CGST+SGST vs
+     IGST is not chosen per line — it is the vendor's state, and stays on the header. */
+  const gstCell = (id: string, label: string, value: number | null, disabled: boolean, set: (pct: number) => void) => (
+    <Select
+      id={id}
+      aria-label={`GST %, ${label}`}
+      title={slab.kind === "igst" ? "IGST" : "CGST + SGST, split in half"}
+      className={cn(CELL_INPUT, "pr-6 tabular-nums")}
+      disabled={disabled}
+      value={value == null ? "" : String(value)}
+      onChange={(e) => set(Number(e.target.value))}
+    >
+      {/* Only when the orders under an item were given different slabs — never offered as a choice. */}
+      {value == null ? (
+        <option value="" disabled>
+          mixed
+        </option>
+      ) : null}
+      {LINE_GST_PCTS.map((p) => (
+        <option key={p} value={p}>
+          {p}%
+        </option>
+      ))}
+    </Select>
   );
   /** THE ONE COLUMN TO TYPE IN is tinted (V6) — the cells around it are read, this is filled. */
   const RATE_COL = "bg-[#fffaeb]";
 
   // ---------- grid ----------
   /*
-   * A TIGHT TABLE (user 2026-10-24, screenshot 3704). 200 + 72 + 88 + 88 + 144 + 112
-   * + 72 = 776, + 40 chrome = 816 (no Budget column since 2026-10-26 — see Amount),
-   * so it fits beside the 17rem order list with no sideways scroll; ChildGrid's DEFAULT switch (a table from a
-   * 512px pane, cards below it on a phone).
+   * A TIGHT TABLE (user 2026-10-24, screenshot 3704). Item 200 + Note 112 + Qty 144 +
+   * Rate 88 + GST 72 + Delivery 144 + Amount 88 + 72 = 920, + 40 chrome = 960 — inside
+   * the ~1,060px pane beside the order list (1920 screen at 125%), so no sideways scroll.
+   * Every row is ONE line: Required · To Order float under the Qty box on focus (`qtyFacts`).
+   * ChildGrid's DEFAULT switch (a table from a 512px pane, cards below it on a phone). No
+   * Budget column since 2026-10-26 — see Amount.
    *
-   * NO ORDER COLUMN: the list on the left names the order on screen. NO BALANCE COLUMN
-   * (screenshot 3692): Qty starts AT the balance and cannot pass it; where the balance
-   * comes from is the Qty cell's tooltip.
+   * NO ORDER COLUMN: the list on the left names the order on screen.
+   *
+   * THE THREE QUANTITIES LIVE IN ONE CELL (user 2026-10-26: "qty detail inside can show
+   * all the three qty detail"): Order PO Qty is the box, its unit beside it, and Required
+   * · To Order read underneath. Three columns of their own made the grid 1,224px and it
+   * scrolled sideways; this is one 144px cell. It REVERSES "no balance column"
+   * (screenshot 3692, 2026-10-24) on the later instruction — the balance was a tooltip,
+   * and the Purchase Manager wants to read it, not hover for it.
    */
   const poLineColumns: ChildGridColumn<GridRow>[] = [
     {
       header: "Item",
-      width: FIELD_WIDTH_CSS.name,
+      width: FIELD_WIDTH_CSS.party,
       cell: (r) =>
         itemCell(r.item_name, lineDescription({ item_name: "", slice_label: r.slice_label, colour: r.colour }).replace(/^ · /, ""), r.row.skip),
     },
-    { header: "UOM", width: FIELD_WIDTH_CSS.num, cell: (r) => <span className="text-sm">{r.uom_code ?? ""}</span> },
     {
-      // "Qty", not "Order Qty": the longer label is wider than `hug` on one line.
-      header: "Qty",
-      width: FIELD_WIDTH_CSS.hug,
+      /* NOTE / REMARK (user 2026-10-26): the Purchase Manager's instruction for THIS item —
+         "PROCESS: CUT & SEAL", "SHADE 402". Saved onto the line's description as
+         "ITEM (NOTE)", which is what the print, GRN and store logs read. */
+      header: "Note / Remark",
+      width: FIELD_WIDTH_CSS.range,
       cell: (r) => (
         <Input
-          type="number"
-          min={0}
-          max={r.balance_qty}
-          inputMode="decimal"
-          aria-label={`Order qty, ${lineDescription(r)}, at most ${r.balance_qty}`}
-          title={`At most ${fmtNumber(r.balance_qty)} ${r.uom_code ?? ""}: ${fmtNumber(r.required_qty)} on the requirement sheet${r.ordered_qty > 0 ? `, less ${fmtNumber(r.ordered_qty)} already on other POs` : ""}`}
-          className={cn(CELL_INPUT, "text-right tabular-nums")}
+          id={`rpo-note-${r.key}`}
+          maxLength={200}
+          aria-label={`Note to the vendor, ${lineDescription(r)}`}
+          title={r.row.note ? `Prints as: ${withNote(lineDescription(r), r.row.note).toUpperCase()}` : "Printed after the item on the PO, e.g. PROCESS: CUT & SEAL"}
+          className={CELL_INPUT}
           disabled={r.row.skip}
-          value={r.row.skip ? "0" : r.row.qty}
-          onChange={(e) => {
-            const typed = num(e.target.value);
-            // Spec 6: excess is never possible — a figure above the balance snaps back to it.
-            setRow(r, { qty: e.target.value === "" ? "" : typed > r.balance_qty ? String(capQty(typed, r.balance_qty)) : e.target.value });
-          }}
+          value={r.row.note ?? ""}
+          onChange={(e) => setRow(r, { note: e.target.value })}
         />
       ),
     },
+    { header: QTY.po, width: FIELD_WIDTH_CSS.code, cell: (r) => qtyBox(r) },
     {
       header: `Rate ${cur}`,
       width: FIELD_WIDTH_CSS.hug,
@@ -583,6 +720,11 @@ export function RequirementPoForm({
       ),
     },
     {
+      header: "GST %",
+      width: FIELD_WIDTH_CSS.num,
+      cell: (r) => gstCell(`rpo-gst-${r.key}`, lineDescription(r), r.row.gst ?? slab.pct, !!r.row.skip, (pct) => setRow(r, { gst: pct })),
+    },
+    {
       header: "Delivery",
       width: FIELD_WIDTH_CSS.code,
       cell: (r) =>
@@ -595,7 +737,7 @@ export function RequirementPoForm({
          the approved budget is red with a warning mark, a skipped line says so, a line at
          0 is a dash. The spec's exact "Above Approved Budget" is the title and the bar. */
       header: "Amount",
-      width: FIELD_WIDTH_CSS.range,
+      width: FIELD_WIDTH_CSS.hug,
       align: "right",
       cell: (r) => {
         if (r.row.skip)
@@ -656,6 +798,10 @@ export function RequirementPoForm({
     qty: number;
     rate: string;
     mixedRate: boolean;
+    note: string;
+    mixedNote: boolean;
+    /** null = the orders under it carry different slabs */
+    gst: number | null;
     date: string;
     amount: number;
     orders: number;
@@ -672,6 +818,8 @@ export function RequirementPoForm({
     for (const [key, ms] of byKey) {
       const act = ms.filter(isActive);
       const rates = [...new Set(act.map((m) => m.row.rate.trim()))];
+      const notes = [...new Set(ms.map((m) => (m.row.note ?? "").trim()))];
+      const gsts = [...new Set(ms.map((m) => m.row.gst ?? slab.pct))];
       const def = defaultFor(earliest(ms.map((m) => m.delivery_date)));
       const dates = [...new Set(act.map((m) => m.row.date || defaultFor(m.delivery_date)?.date || ""))];
       itemGroups.push({
@@ -684,6 +832,9 @@ export function RequirementPoForm({
         qty: act.reduce((a, m) => a + num(m.row.qty), 0),
         rate: rates.length === 1 ? rates[0] : "",
         mixedRate: rates.length > 1,
+        note: notes.length === 1 ? notes[0] : "",
+        mixedNote: notes.length > 1,
+        gst: gsts.length === 1 ? gsts[0] : null,
         date: dates.length === 1 ? dates[0] : (def?.date ?? ""),
         amount: act.reduce((a, m) => a + num(m.row.qty) * num(m.row.rate), 0),
         orders: ms.length,
@@ -694,9 +845,11 @@ export function RequirementPoForm({
   const openItem = itemGroups.find((g) => g.key === itemFold.openKey) ?? null;
 
   /*
-   * 200 + 72 + 88 + 88 + 88 + 144 + 112 + 112 = 904, + 40 chrome = 944, on the same
-   * default switch as the order grid (see its note). The rate and delivery typed here go to every order line
-   * under the item; the breakup below edits one order at a time.
+   * Item 200 + Note 88 + Orders 88 + Qty 144 + Rate 88 + GST 72 + Delivery 144 + Amount 88
+   * + Budget 112 = 1024, + 40 chrome = 1064 — about the pane beside the order list; the unit
+   * rides inside Qty, as on the order grid. Same default switch as the order grid (see its note). The note, rate, GST
+   * and delivery typed here go to every order line under the item; the breakup below edits
+   * one order at a time.
    */
   const itemColumns: ChildGridColumn<ItemGroup>[] = [
     {
@@ -704,7 +857,22 @@ export function RequirementPoForm({
       width: FIELD_WIDTH_CSS.party,
       cell: (g) => itemCell(g.item_name, g.spec),
     },
-    { header: "UOM", width: FIELD_WIDTH_CSS.num, cell: (g) => <span className="text-sm">{g.uom_code ?? ""}</span> },
+    {
+      header: "Note / Remark",
+      width: FIELD_WIDTH_CSS.hug,
+      cell: (g) => (
+        <Input
+          id={`rpo-inote-${g.key}`}
+          maxLength={200}
+          aria-label={`Note to the vendor, ${g.item_name} ${g.spec}, for all ${g.orders} orders`}
+          className={CELL_INPUT}
+          // MIXED: the orders were noted apart in the order view — typing here sets them all again.
+          placeholder={g.mixedNote ? "mixed" : undefined}
+          value={g.note}
+          onChange={(e) => setMembers(g.members, { note: e.target.value })}
+        />
+      ),
+    },
     {
       header: "Orders",
       width: FIELD_WIDTH_CSS.hug,
@@ -721,10 +889,19 @@ export function RequirementPoForm({
       ),
     },
     {
-      header: "Total Qty",
-      width: FIELD_WIDTH_CSS.hug,
-      align: "right",
-      cell: (g) => <span className="text-sm font-medium tabular-nums">{g.qty > 0 ? fmtNumber(g.qty) : ""}</span>,
+      header: QTY.po,
+      width: FIELD_WIDTH_CSS.code,
+      cell: (g) => (
+        <div className="group/qty relative flex h-8 items-center justify-end gap-1 px-2 text-sm font-medium tabular-nums">
+          {g.qty > 0 ? fmtNumber(g.qty) : "—"}
+          <span className="w-10 shrink-0 truncate text-left text-[11px] font-semibold text-muted-foreground uppercase">{g.uom_code ?? ""}</span>
+          {qtyFacts(
+            g.members.reduce((a, m) => a + m.required_qty, 0),
+            g.members.reduce((a, m) => a + m.balance_qty, 0),
+            g.members.reduce((a, m) => a + m.ordered_qty, 0),
+          )}
+        </div>
+      ),
     },
     {
       header: `Rate ${cur}`,
@@ -746,6 +923,14 @@ export function RequirementPoForm({
       ),
     },
     {
+      header: "GST %",
+      width: FIELD_WIDTH_CSS.num,
+      cell: (g) =>
+        gstCell(`rpo-igst-${g.key}`, `${g.item_name} ${g.spec}, for all ${g.orders} orders`, g.gst, !g.supplied, (pct) =>
+          setMembers(g.members, { gst: pct }),
+        ),
+    },
+    {
       header: "Delivery",
       width: FIELD_WIDTH_CSS.code,
       cell: (g) =>
@@ -760,7 +945,7 @@ export function RequirementPoForm({
     },
     {
       header: "Amount",
-      width: FIELD_WIDTH_CSS.range,
+      width: FIELD_WIDTH_CSS.hug,
       align: "right",
       cell: (g) => <span className="text-sm font-medium tabular-nums">{g.amount > 0 ? fmtFixed(g.amount, 2) : ""}</span>,
     },
@@ -788,19 +973,21 @@ export function RequirementPoForm({
         </div>
       ),
     },
-    ...poLineColumns.filter((c) => ["Qty", "Delivery", "Amount", ""].includes(c.header)),
+    ...poLineColumns.filter((c) => [QTY.po, "GST %", "Delivery", "Amount", ""].includes(c.header)),
   ];
 
   const canSave =
-    !isPending && !!classId && orderIds.length > 0 && !!vendorId && active.length > 0 && undated === 0 && (poType === "local" || num(exRate) > 0);
+    !isPending && hasClass && orderIds.length > 0 && !!vendorId && active.length > 0 && undated === 0 && (poType === "local" || num(exRate) > 0);
   const canSubmit = canSave && unpriced === 0;
-  const hint = !classId
+  const hint = !hasClass
     ? "Choose the item class."
     : orderIds.length === 0
       ? "Tick the orders for this PO."
       : !vendorId
         ? classVendors.length === 0
-          ? `No bought-item vendor is mapped to ${classOptions.find((c) => c.value === classId)?.label ?? "this class"} — add one in Master Data ▸ Vendors.`
+          ? classIds.length > 1
+            ? "No bought-item vendor is mapped to every class ticked — untick one, or map a vendor in Master Data ▸ Vendors."
+            : `No bought-item vendor is mapped to ${classOptions.find((c) => c.value === classIds[0])?.label ?? "this class"} — add one in Master Data ▸ Vendors.`
           : "Choose the vendor. Its lead days set each line's delivery."
         : active.length === 0
           ? "Every line is skipped or 0 — there is nothing to order."
@@ -817,7 +1004,7 @@ export function RequirementPoForm({
      better colouring"): amber = something still to do, red = Submit goes to the MD,
      green = ready. Fixed colour pairs, as in FilterPill — the skin cannot repaint them. */
   const hintKind: "todo" | "md" | "ready" =
-    unpriced > 0 || !vendorId || undated > 0 || orderIds.length === 0 || !classId || active.length === 0 ? "todo" : goesToMd ? "md" : "ready";
+    unpriced > 0 || !vendorId || undated > 0 || orderIds.length === 0 || !hasClass || active.length === 0 ? "todo" : goesToMd ? "md" : "ready";
   const HINT_CHIP = {
     todo: { box: "border-[#f1d48a] bg-[#fff7e0] text-[#8a5800]", dot: "bg-[#d9a400]" },
     md: { box: "border-[#f5b8b0] bg-[#fdecea] text-[#b42318]", dot: "bg-[#d92d20]" },
@@ -827,11 +1014,234 @@ export function RequirementPoForm({
 
   const itemsToPrice = itemGroups.filter((g) => g.supplied && g.qty > 0 && !g.rate && !g.mixedRate).length;
 
+  // ---------- SIZE BREAKUP (user 2026-10-26, 0757) ----------
+  /*
+   * ONE ROW PER ITEM, NOT PER SIZE. A trim bought in S · M · L · XL was five rows; it is
+   * now one — item + slice-without-size + colour + unit — and its sizes open in a pop-up.
+   * The requirement lines underneath are untouched: each size is still its own line with
+   * its own req_key, balance and saved PO line, so nothing about the save, the cap or the
+   * GRN changes. A row's Note, Rate, GST, Delivery and Skip are typed ONCE and go to every
+   * size under it (the item-wise view's `setMembers`); only the quantity is per size.
+   */
+  /** What the item cell's hover says: the slice without its size, and the colour. */
+  const describeGroup = (g: SizeGroup) =>
+    lineDescription({ item_name: "", slice_label: g.first.slice_base, colour: g.first.colour }).replace(/^ · /, "");
+  /** One value when every size agrees, else null — the cell then reads "mixed". */
+  const common = <T,>(vals: T[]): T | null => (new Set(vals).size === 1 ? vals[0] : null);
+  const groupSkip = (g: SizeGroup) => g.members.every((m) => m.row.skip);
+  const groupQty = (g: SizeGroup) => g.members.reduce((a, m) => a + (m.row.skip ? 0 : num(m.row.qty)), 0);
+  const openSizes = (g: SizeGroup, el: HTMLElement) => setSizeSheet({ key: g.key, origin: el.getBoundingClientRect() });
+
+  /*
+   * The order grid on size rows. Same widths as `poLineColumns` (920 + 40 = 960). The
+   * Qty cell of a sized row is a BUTTON showing the total — click it, or ↓ on it (the
+   * key that opens any list here), for the per-size quantities. It is `data-field-trigger`
+   * so Tab lands on it like a field (AGENTS, Tab lands on fields) and ↓ is the way in.
+   */
+  const groupColumns: ChildGridColumn<SizeGroup>[] = [
+    { header: "Item", width: FIELD_WIDTH_CSS.party, cell: (g) => itemCell(g.first.item_name, describeGroup(g), groupSkip(g)) },
+    {
+      header: "Note / Remark",
+      width: FIELD_WIDTH_CSS.range,
+      cell: (g) => {
+        const note = common(g.members.map((m) => (m.row.note ?? "").trim()));
+        return (
+          <Input
+            id={`rpo-note-${g.first.key}`}
+            maxLength={200}
+            aria-label={`Note to the vendor, ${g.first.item_name} ${describeGroup(g)}`}
+            title={note ? `Prints as: ${withNote(lineDescription(g.first), note).toUpperCase()}` : "Printed after the item on the PO, e.g. PROCESS: CUT & SEAL"}
+            className={CELL_INPUT}
+            placeholder={note == null ? "mixed" : undefined}
+            disabled={groupSkip(g)}
+            value={note ?? ""}
+            onChange={(e) => setMembers(g.members, { note: e.target.value })}
+          />
+        );
+      },
+    },
+    {
+      header: QTY.po,
+      width: FIELD_WIDTH_CSS.code,
+      cell: (g) => {
+        if (!g.sized) return qtyBox(g.first);
+        const sizes = g.members.map((m) => m.size_name).filter(Boolean);
+        return (
+          <div className="group/qty flex items-center gap-1">
+            <button
+                type="button"
+                data-field-trigger
+                aria-haspopup="dialog"
+                aria-label={`Size breakup, ${g.first.item_name} ${describeGroup(g)} — ${sizes.length} sizes, ${fmtNumber(groupQty(g))} ${g.first.uom_code ?? ""} on this PO. Press down arrow to open.`}
+                title={`${sizes.join(" · ")} — open the size breakup`}
+                disabled={groupSkip(g)}
+                onClick={(e) => openSizes(g, e.currentTarget)}
+                onKeyDown={(e) => {
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    openSizes(g, e.currentTarget);
+                  }
+                }}
+                /* LOOKS LIKE EVERY OTHER QUANTITY (user 2026-10-26: "why this much large pill",
+                   screenshot 3737 "looks mistake", screenshot 3738 "remove that 7 sizes, just the
+                   icon, which is clickable — align it"). The total is drawn exactly as the boxes
+                   draw theirs: foreground, no grouping, right-aligned, and `pr-2.5` because that
+                   is `Input`'s own padding — so 3230 here ends where 3230 ends in the box above.
+                   The ruler on the left is the only sign it opens; the count is in the label. */
+                className="flex h-8 min-w-0 flex-1 items-center pr-2.5 pl-2 text-sm tabular-nums hover:bg-[#f2f7fb] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:opacity-50"
+              >
+                <Ruler aria-hidden className="size-4 shrink-0 text-[#037bb8]" />
+                <span className="ml-auto">{Number(groupQty(g).toFixed(3))}</span>
+              </button>
+            <span className="w-10 shrink-0 truncate text-[11px] font-semibold text-muted-foreground uppercase">{g.first.uom_code ?? ""}</span>
+            {/* NO Req · To order HERE (user 2026-10-26, screenshot 3735): the pop-up shows both per size. */}
+          </div>
+        );
+      },
+    },
+    {
+      header: `Rate ${cur}`,
+      width: FIELD_WIDTH_CSS.hug,
+      className: RATE_COL,
+      cell: (g) => {
+        const rate = common(g.members.filter((m) => !m.row.skip).map((m) => m.row.rate.trim()));
+        return (
+          <Input
+            type="number"
+            min={0}
+            inputMode="decimal"
+            id={rateId(g.first.key)}
+            aria-label={`Rate per ${g.first.uom_code ?? "unit"}, ${g.first.item_name} ${describeGroup(g)}${g.sized ? ", every size" : ""}`}
+            className={cn(CELL_INPUT, "text-right tabular-nums")}
+            placeholder={rate == null ? "mixed" : undefined}
+            disabled={groupSkip(g)}
+            value={rate ?? ""}
+            onChange={(e) => setMembers(g.members, { rate: e.target.value })}
+          />
+        );
+      },
+    },
+    {
+      header: "GST %",
+      width: FIELD_WIDTH_CSS.num,
+      cell: (g) =>
+        gstCell(
+          `rpo-gst-${g.first.key}`,
+          `${g.first.item_name} ${describeGroup(g)}`,
+          common(g.members.map((m) => m.row.gst ?? slab.pct)),
+          groupSkip(g),
+          (pct) => setMembers(g.members, { gst: pct }),
+        ),
+    },
+    {
+      header: "Delivery",
+      width: FIELD_WIDTH_CSS.code,
+      cell: (g) =>
+        deliveryCell(
+          `rpo-date-${g.first.key}`,
+          common(g.members.map((m) => m.row.date)) ?? "",
+          `${g.first.item_name} ${describeGroup(g)}`,
+          groupSkip(g),
+          defaultFor(g.first.delivery_date),
+          (v) => setMembers(g.members, { date: v }),
+        ),
+    },
+    {
+      header: "Amount",
+      width: FIELD_WIDTH_CSS.hug,
+      align: "right",
+      cell: (g) => {
+        if (groupSkip(g))
+          return (
+            <span className="text-xs font-semibold text-muted-foreground" title="Not on this PO — its balance stays for another vendor's PO">
+              Skipped
+            </span>
+          );
+        if (groupQty(g) <= 0)
+          return (
+            <span className="text-muted-foreground" title="Not ordered on this PO">
+              —
+            </span>
+          );
+        const live = g.members.filter((m) => !m.row.skip);
+        const a = live.reduce((t, m) => t + num(m.row.qty) * num(m.row.rate), 0);
+        if (a <= 0) return null;
+        const above = live.some((m) => flags[m.key]?.above);
+        return (
+          <span
+            title={above ? "Above Approved Budget" : undefined}
+            className={cn("inline-flex items-center gap-1 text-sm font-medium tabular-nums", above && "font-semibold text-[#b42318]")}
+          >
+            {above ? <AlertTriangle aria-label="Above Approved Budget" className="size-3.5" /> : null}
+            {fmtFixed(a, 2)}
+          </span>
+        );
+      },
+    },
+    {
+      header: "",
+      width: FIELD_WIDTH_CSS.num,
+      cell: (g) => {
+        const skip = groupSkip(g);
+        const what = `${g.first.item_name} ${describeGroup(g)}${g.sized ? " (every size)" : ""}`;
+        return (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label={skip ? `Put ${what} back on this PO` : `Skip ${what} on this PO`}
+            title={skip ? "Put back on this PO" : "Skip on this PO — the balance stays for another PO"}
+            onClick={() => setMembers(g.members, { skip: !skip })}
+          >
+            {skip ? <Undo2 aria-hidden className="size-4" /> : <Ban aria-hidden className="size-4 text-muted-foreground" />}
+          </Button>
+        );
+      },
+    },
+  ];
+
+  /* The pop-up's own grid: one row per size — Size · Required · To Order · Order PO Qty,
+     the four the spec names, each in its own column (the pop-up has the room the order
+     grid does not). 72 + 112 + 112 + 144 + 40 = 480, inside `md`'s ~1,100px. */
+  const sizeColumns: ChildGridColumn<GridRow>[] = [
+    { header: "Size", width: FIELD_WIDTH_CSS.num, cell: (r) => <span className="text-sm font-semibold">{r.size_name ?? "—"}</span> },
+    {
+      header: QTY.required,
+      width: FIELD_WIDTH_CSS.range,
+      align: "right",
+      cell: (r) => <span className="text-sm tabular-nums text-muted-foreground">{fmtNumber(r.required_qty)}</span>,
+    },
+    {
+      header: QTY.toOrder,
+      width: FIELD_WIDTH_CSS.range,
+      align: "right",
+      cell: (r) => (
+        <span
+          className="text-sm font-medium tabular-nums"
+          title={r.ordered_qty > 0 ? `${fmtNumber(r.required_qty)} required less ${fmtNumber(r.ordered_qty)} already on other POs (drafts count)` : undefined}
+        >
+          {fmtNumber(r.balance_qty)}
+        </span>
+      ),
+    },
+    {
+      header: QTY.po,
+      width: FIELD_WIDTH_CSS.code,
+      cell: (r) => (
+        <div className="flex items-center gap-1">
+          {qtyInput(r, `rpo-sqty-${r.key}`)}
+          <span className="w-10 shrink-0 truncate text-[11px] font-semibold text-muted-foreground uppercase">{r.uom_code ?? ""}</span>
+        </div>
+      ),
+    },
+  ];
+  const sheetGroup = sizeSheet && activeGroup ? (sizeGroupsOf(activeGroup.rows).find((g) => g.key === sizeSheet.key) ?? null) : null;
+
   const rePane = (g: (typeof groups)[number]) => (
     // default-row: exempt -- the rows are the order's requirement lines, derived; nothing is added here
-    <ChildGrid<GridRow>
-      columns={poLineColumns}
-      rows={g.rows}
+    <ChildGrid<SizeGroup>
+      columns={groupColumns}
+      rows={sizeGroupsOf(g.rows)}
       flatRows
       hideAdd
       hideRemove
@@ -998,7 +1408,7 @@ export function RequirementPoForm({
             Print opens after approval
           </span>
         </div>
-          {/* THE FILTER ROW (canvas v6). Item Class and Vendor lead it as required pills;
+          {/* THE FILTER ROW (canvas v6). PO Type, Item Class and Vendor are required pills;
               the rest only narrow the tick list below. Counts are "what this choice would
               leave", so a greyed choice is one that would empty the list. */}
           <div className="flex flex-wrap items-center gap-1 border-t border-[#dde4eb] bg-[#fafbfc] px-4 py-2">
@@ -1018,27 +1428,79 @@ export function RequirementPoForm({
                 setPoType(v === "import" ? "import" : "local");
               }}
             />
+            {/* THE ROW'S ORDER (user 2026-10-26, screenshot 3728): narrow the sources first —
+                Order Type, Buyer — then pick what to buy and from whom — Item Class, Orders, Category,
+                Vendor — and the rest only filter the tick list. */}
+            <FilterPill
+              // "Order Type", not "Type": PO Type (Local / Import) leads the same row.
+              label="Order Type"
+              options={KIND_OPTIONS.map((k) => ({ ...k, count: count("kind", k.value) }))}
+              anyCount={anyCount("kind")}
+              multiple
+              value={filters.kind}
+              onChange={(v) => setFilter("kind", v)}
+            />
+            <FilterPill
+              label="Buyer"
+              wide
+              options={buyerOptions}
+              anyCount={anyCount("buyer")}
+              multiple
+              value={filters.buyer}
+              onChange={(v) => setFilter("buyer", v)}
+            />
             <FilterPill
               id="rpo-class"
               label="Item Class"
               required
               options={classOptions}
-              value={classId}
+              multiple
+              value={classIds}
               /* EVERY CLASS PICKS (user 2026-10-26: "why the remaining item class in disable
                  mode"). Greyed read as broken; the 0 beside a class already says it has nothing
                  pending, and picking it says so again in the list below. */
               zeroPickable
               emptyText="No requirement sheet has anything left to buy"
               onChange={(v) => {
-                if (v === classId) return;
                 setDirty(true);
-                setClassId(v);
-                // A new class keeps only the ticked orders that still have something of it to buy;
-                // its vendors and categories are its own, so neither carries across.
-                setOrderIds((prev) => prev.filter((id) => lines.some((l) => l.source_id === id && l.item_class_id === v)));
-                setVendorPick("");
-                setFilters((f) => ({ ...f, category: "", buyer: "" }));
+                setClassIds(v);
+                const inV = (l: RequirementLine) => !!l.item_class_id && v.includes(l.item_class_id);
+                // What no longer has anything of the ticked classes drops off: ticked orders, the
+                // vendor (unless it supplies every class still ticked), and the Orders / Category
+                // picks. Buyer and Order Type are chosen BEFORE the class, so they carry.
+                setOrderIds((prev) => prev.filter((id) => lines.some((l) => l.source_id === id && inV(l))));
+                setVendorPick((cur) => (cur && v.length && v.every((c) => (vendorsByClass[c] ?? []).some((x) => x.id === cur)) ? cur : ""));
+                setFilters((f) => ({
+                  ...f,
+                  order: f.order.filter((id) => lines.some((l) => l.source_id === id && inV(l))),
+                  category: f.category.filter((c) => lines.some((l) => l.category_id === c && inV(l))),
+                }));
               }}
+            />
+            {/* ORDERS (user 2026-10-26: "add the new filter option after the item class Orders
+                which will list order number"). The numbers the pills before it leave, nearest
+                ship date first — the tick list's own order — and one picked narrows that list
+                to it. A ticked order still stays pinned: a filter never takes a line off the PO. */}
+            <FilterPill
+              id="rpo-order"
+              label="Orders"
+              wide
+              disabled={!hasClass}
+              options={facts.map((o) => ({ value: o.id, label: o.no, sublabel: o.note ?? undefined, count: count("order", o.id) }))}
+              anyCount={anyCount("order")}
+              multiple
+              value={filters.order}
+              emptyText="No order of this class has anything left to buy"
+              onChange={(v) => setFilter("order", v)}
+            />
+            <FilterPill
+              label="Category"
+              disabled={!hasClass || categoryOptions.length === 0}
+              options={categoryOptions}
+              anyCount={anyCount("category")}
+              multiple
+              value={filters.category}
+              onChange={(v) => setFilter("category", v)}
             />
             <FilterPill
               id="rpo-vendor"
@@ -1046,7 +1508,7 @@ export function RequirementPoForm({
               required
               wide
               placeholder="Choose vendor"
-              disabled={!classId}
+              disabled={!hasClass}
               options={classVendors.map((v) => ({
                 value: v.id,
                 label: v.name,
@@ -1056,7 +1518,11 @@ export function RequirementPoForm({
                 ].join(" · "),
               }))}
               value={vendorId}
-              emptyText="No bought-item vendor for this class — add one in Master Data ▸ Vendors"
+              emptyText={
+                classIds.length > 1
+                  ? "No bought-item vendor supplies every class ticked — untick one, or map one in Master Data ▸ Vendors"
+                  : "No bought-item vendor for this class — add one in Master Data ▸ Vendors"
+              }
               onChange={(v) => {
                 setDirty(true);
                 setVendorPick(v);
@@ -1066,207 +1532,246 @@ export function RequirementPoForm({
             <FilterPill
               label="Order by"
               wide
-              disabled={!classId}
+              disabled={!hasClass}
               note={leadNote}
-              tone={filters.orderBy === "late" ? "danger" : undefined}
+              tone={filters.orderBy.includes("late") ? "danger" : undefined}
               options={ORDER_BY_BANDS.map((b) => ({ ...b, count: count("orderBy", b.value), tone: b.value === "late" ? "danger" : undefined }))}
               anyCount={anyCount("orderBy")}
+              multiple
               value={filters.orderBy}
               onChange={(v) => setFilter("orderBy", v)}
             />
             <FilterPill
-              // "Order Type", not "Type": PO Type (Local / Import) leads the same row.
-              label="Order Type"
-              disabled={!classId}
-              options={KIND_OPTIONS.map((k) => ({ ...k, count: count("kind", k.value) }))}
-              anyCount={anyCount("kind")}
-              value={filters.kind}
-              onChange={(v) => setFilter("kind", v)}
-            />
-            <FilterPill
-              label="Category"
-              disabled={!classId || categoryOptions.length === 0}
-              options={categoryOptions}
-              anyCount={anyCount("category")}
-              value={filters.category}
-              onChange={(v) => setFilter("category", v)}
-            />
-            <FilterPill
               label="Budget"
-              disabled={!classId}
+              disabled={!hasClass}
               options={BUDGET_STATES.map((b) => ({ ...b, count: count("budget", b.value) }))}
               anyCount={anyCount("budget")}
+              multiple
               value={filters.budget}
               onChange={(v) => setFilter("budget", v)}
             />
             <FilterPill
-              label="Buyer"
-              wide
-              disabled={!classId}
-              options={buyerOptions}
-              anyCount={anyCount("buyer")}
-              value={filters.buyer}
-              onChange={(v) => setFilter("buyer", v)}
-            />
-            <FilterPill
               label="Progress"
-              disabled={!classId}
+              disabled={!hasClass}
               options={PROGRESS_STATES.map((p) => ({ ...p, count: count("progress", p.value) }))}
               anyCount={anyCount("progress")}
+              multiple
               value={filters.progress}
               onChange={(v) => setFilter("progress", v)}
             />
           </div>
 
 
-          {!classId ? null : (
-            <div className="border-t border-[#dde4eb] md:grid md:grid-cols-[12.5rem_minmax(0,1fr)]">
-              {/* THE TICK LIST — the orders of this class with a balance, ticked ones pinned
-                  on top whatever the filters say (they narrow the list, never the PO). */}
-              <nav
-                aria-label="RE / SWO / IWO / HO numbers"
-                className="border-b border-[#dde4eb] bg-[#fafbfc] md:border-r md:border-b-0"
-              >
-                {/* THE COUNT AND CLEAR FILTERS HEAD THE LIST THEY COUNT — at the end of the
-                    filter row they pushed it onto a second line (screenshot 3717). */}
-                {/* COMPACT (user 2026-10-26: "now compact the side rail"): the rail holds a tick
-                    and a number, so it is 12.5rem and its head says "Orders 11 · 1 ✓". */}
-                <div
-                  className="flex h-8 items-center gap-1.5 border-b border-[#dde4eb] bg-white px-2.5 text-xs whitespace-nowrap text-muted-foreground"
-                  title={`RE / SWO / IWO / HO numbers — ${shown} shown${orderIds.length ? `, ${orderIds.length} ticked` : ""}`}
-                >
-                  <span className="font-semibold text-foreground">Orders</span>
-                  <span className="tabular-nums">
-                    {shown}
-                    {orderIds.length ? ` · ${orderIds.length} ✓` : ""}
-                  </span>
-                  {anyFilter ? (
-                    <button
-                      type="button"
-                      onClick={() => setFilters(NO_FILTERS)}
-                      className="ml-auto font-semibold text-[#037bb8] hover:underline"
-                    >
-                      Clear
-                    </button>
-                  ) : null}
-                </div>
-                {visible.ticked.length ? (
-                  <>
-                    {sectionLabel("On this PO")}
-                    {visible.ticked.map(orderRow)}
-                    {/* ITEM-WISE: the same purchase across every ticked order is ONE line to
-                        the vendor — offered once two orders are ticked. */}
-                    {showItems ? (
-                      <button
-                        type="button"
-                        aria-current={selKey === "items" || undefined}
-                        onClick={() => setActiveKey("items")}
-                        className={cn(
-                          "flex h-8 w-full items-center gap-1.5 border-b border-[#dde4eb] px-2.5 text-left hover:bg-[#eef4f9]",
-                          selKey === "items" && "bg-[#eef6fc] shadow-[inset_3px_0_0_#037bb8]",
-                        )}
-                      >
-                        <Boxes aria-hidden className="size-4 text-muted-foreground" />
-                        <span className="flex-1 text-xs font-bold">All items together</span>
-                        {itemsToPrice > 0 ? (
-                          <span className="rounded-full bg-danger-soft px-1.5 text-[11px] font-semibold tabular-nums text-danger">{itemsToPrice}</span>
-                        ) : null}
-                      </button>
-                    ) : null}
-                    {visible.rest.length ? sectionLabel("More orders") : null}
-                  </>
-                ) : null}
-                {visible.rest.map(orderRow)}
-                {shown === 0 ? (
-                  <div className="px-3 py-4 text-sm text-muted-foreground">
-                    {facts.length === 0 ? (
-                      "No order has anything of this item class left to buy."
-                    ) : (
-                      <>
-                        No order matches.{" "}
-                        <button type="button" onClick={() => setFilters(NO_FILTERS)} className="font-semibold text-[#037bb8] hover:underline">
-                          Clear filters
-                        </button>
-                      </>
-                    )}
-                  </div>
-                ) : null}
-              </nav>
-              <div className="min-w-0 p-2">
-                {selKey === "items" ? (
-                  <div className="space-y-2">
-                    {/* default-row: exempt -- one row per item across the ticked orders, derived; nothing is added here */}
-                    <ChildGrid<ItemGroup>
-                      columns={itemColumns}
-                      rows={itemGroups}
-                      flatRows
-                      hideAdd
-                      hideRemove
-                      keepOne={false}
-                      onAdd={() => false}
-                      onRemove={() => {}}
-                      frameless
-                      headerClassName={GRID_HEAD}
-                    />
-                    {openItem ? (
-                      <div className="border-l-2 border-[#037bb8] pl-3">
-                        <div className="mb-1 text-[11.5px] font-semibold text-muted-foreground">
-                          {openItem.item_name}
-                          {openItem.spec ? ` · ${openItem.spec}` : ""} — {openItem.orders} order{openItem.orders === 1 ? "" : "s"}
+          {/* ITEMS | COMMERCIAL (user 2026-10-26: "move the commercial as separate tab item |
+              commercial"). The lines and the PO's terms were one long page with Commercial
+              under the grid; they are two pages of one document, so they take the app's
+              document tab strip (components/ui/tabs.tsx). Items counts the lines still
+              without a rate — what holds Submit — so the blocker shows from either tab. */}
+          {!hasClass ? null : (
+            <div className="border-t border-[#dde4eb] px-2 pt-1">
+              <Tabs
+                defaultKey="items"
+                items={[
+                  {
+                    key: "items",
+                    label: "Items",
+                    problems: vendorId ? unpriced : 0,
+                    content: (
+                      <div className="-mx-2 -mt-4 md:grid md:grid-cols-[12.5rem_minmax(0,1fr)]">
+                        {/* THE TICK LIST — the orders of this class with a balance, ticked ones pinned
+                            on top whatever the filters say (they narrow the list, never the PO). */}
+                        <nav
+                          aria-label="RE / SWO / IWO / HO numbers"
+                          className="border-b border-[#dde4eb] bg-[#fafbfc] md:border-r md:border-b-0"
+                        >
+                          {/* THE COUNT AND CLEAR FILTERS HEAD THE LIST THEY COUNT — at the end of the
+                              filter row they pushed it onto a second line (screenshot 3717). */}
+                          {/* COMPACT (user 2026-10-26: "now compact the side rail"): the rail holds a tick
+                              and a number, so it is 12.5rem and its head says "Orders 11 · 1 ✓". */}
+                          <div
+                            className="flex h-8 items-center gap-1.5 border-b border-[#dde4eb] bg-white px-2.5 text-xs whitespace-nowrap text-muted-foreground"
+                            title={`RE / SWO / IWO / HO numbers — ${shown} shown${orderIds.length ? `, ${orderIds.length} ticked` : ""}`}
+                          >
+                            <span className="font-semibold text-foreground">Orders</span>
+                            <span className="tabular-nums">
+                              {shown}
+                              {orderIds.length ? ` · ${orderIds.length} ✓` : ""}
+                            </span>
+                            {anyFilter ? (
+                              <button
+                                type="button"
+                                onClick={() => setFilters(NO_FILTERS)}
+                                className="ml-auto font-semibold text-[#037bb8] hover:underline"
+                              >
+                                Clear
+                              </button>
+                            ) : null}
+                          </div>
+                          {visible.ticked.length ? (
+                            <>
+                              {sectionLabel("On this PO")}
+                              {visible.ticked.map(orderRow)}
+                              {/* ITEM-WISE: the same purchase across every ticked order is ONE line to
+                                  the vendor — offered once two orders are ticked. */}
+                              {showItems ? (
+                                <button
+                                  type="button"
+                                  aria-current={selKey === "items" || undefined}
+                                  onClick={() => setActiveKey("items")}
+                                  className={cn(
+                                    "flex h-8 w-full items-center gap-1.5 border-b border-[#dde4eb] px-2.5 text-left hover:bg-[#eef4f9]",
+                                    selKey === "items" && "bg-[#eef6fc] shadow-[inset_3px_0_0_#037bb8]",
+                                  )}
+                                >
+                                  <Boxes aria-hidden className="size-4 text-muted-foreground" />
+                                  <span className="flex-1 text-xs font-bold">All items together</span>
+                                  {itemsToPrice > 0 ? (
+                                    <span className="rounded-full bg-danger-soft px-1.5 text-[11px] font-semibold tabular-nums text-danger">{itemsToPrice}</span>
+                                  ) : null}
+                                </button>
+                              ) : null}
+                              {visible.rest.length ? sectionLabel("More orders") : null}
+                            </>
+                          ) : null}
+                          {visible.rest.map(orderRow)}
+                          {shown === 0 ? (
+                            <div className="px-3 py-4 text-sm text-muted-foreground">
+                              {facts.length === 0 ? (
+                                "No order has anything of this item class left to buy."
+                              ) : (
+                                <>
+                                  No order matches.{" "}
+                                  <button type="button" onClick={() => setFilters(NO_FILTERS)} className="font-semibold text-[#037bb8] hover:underline">
+                                    Clear filters
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          ) : null}
+                        </nav>
+                        <div className="min-w-0 p-2">
+                          {selKey === "items" ? (
+                            <div className="space-y-2">
+                              {/* default-row: exempt -- one row per item across the ticked orders, derived; nothing is added here */}
+                              <ChildGrid<ItemGroup>
+                                columns={itemColumns}
+                                rows={itemGroups}
+                                flatRows
+                                hideAdd
+                                hideRemove
+                                keepOne={false}
+                                onAdd={() => false}
+                                onRemove={() => {}}
+                                frameless
+                                headerClassName={GRID_HEAD}
+                              />
+                              {openItem ? (
+                                <div className="border-l-2 border-[#037bb8] pl-3">
+                                  <div className="mb-1 text-[11.5px] font-semibold text-muted-foreground">
+                                    {openItem.item_name}
+                                    {openItem.spec ? ` · ${openItem.spec}` : ""} — {openItem.orders} order{openItem.orders === 1 ? "" : "s"}
+                                  </div>
+                                  {/* default-row: exempt -- the item's order lines, derived; nothing is added here */}
+                                  <ChildGrid<GridRow>
+                                    columns={breakupColumns}
+                                    rows={openItem.members}
+                                    flatRows
+                                    hideAdd
+                                    hideRemove
+                                    keepOne={false}
+                                    onAdd={() => false}
+                                    onRemove={() => {}}
+                                    frameless
+                                    headerClassName={GRID_HEAD}
+                                  />
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : activeGroup ? (
+                            rePane(activeGroup)
+                          ) : orderIds.length && gridRows.length === 0 ? (
+                            <p className="p-6 text-sm text-muted-foreground">
+                              {filters.category.length ? "Nothing of this category left to buy on the ticked orders." : "Nothing left to buy on the ticked orders."}
+                            </p>
+                          ) : (
+                            <p className="grid h-full min-h-40 place-items-center p-6 text-center text-sm text-muted-foreground">
+                              Tick orders on the left. Their lines list here with the balance filled in; only the rate is typed.
+                            </p>
+                          )}
                         </div>
-                        {/* default-row: exempt -- the item's order lines, derived; nothing is added here */}
-                        <ChildGrid<GridRow>
-                          columns={breakupColumns}
-                          rows={openItem.members}
-                          flatRows
-                          hideAdd
-                          hideRemove
-                          keepOne={false}
-                          onAdd={() => false}
-                          onRemove={() => {}}
-                          frameless
-                          headerClassName={GRID_HEAD}
-                        />
                       </div>
-                    ) : null}
-                  </div>
-                ) : activeGroup ? (
-                  rePane(activeGroup)
-                ) : orderIds.length && gridRows.length === 0 ? (
-                  <p className="p-6 text-sm text-muted-foreground">
-                    {filters.category ? "Nothing of this category left to buy on the ticked orders." : "Nothing left to buy on the ticked orders."}
-                  </p>
-                ) : (
-                  <p className="grid h-full min-h-40 place-items-center p-6 text-center text-sm text-muted-foreground">
-                    Tick orders on the left. Their lines list here with the balance filled in; only the rate is typed.
-                  </p>
-                )}
-              </div>
+                    ),
+                  },
+                  {
+                    key: "commercial",
+                    label: "Commercial",
+                    content: (
+                      <div className="-mx-2">
+                      <CommercialSection
+                        value={commercial}
+                        onChange={(v) => {
+                          setDirty(true);
+                          setCommercial(v);
+                        }}
+                        currency={cur}
+                        gst={gst}
+                        gstOptions={GST_SLABS.map((g) => ({ value: g.id, label: g.label }))}
+                        onGst={(v) => {
+                          setDirty(true);
+                          setGst(v);
+                        }}
+                        terms={paymentTerms}
+                        onTerms={(v) => {
+                          setDirty(true);
+                          setPaymentTerms(v);
+                        }}
+                      />
+                      </div>
+                    ),
+                  },
+                ]}
+              />
             </div>
           )}
 
-      {/* COMMERCIAL, after the rates and before Submit to MD (user 2026-10-26). */}
-      {orderIds.length ? (
-        <CommercialSection
-          value={commercial}
-          onChange={(v) => {
-            setDirty(true);
-            setCommercial(v);
-          }}
-          currency={cur}
-          gst={gst}
-          gstOptions={GST_SLABS.map((g) => ({ value: g.id, label: g.label }))}
-          onGst={(v) => {
-            setDirty(true);
-            setGst(v);
-          }}
-          terms={paymentTerms}
-          onTerms={(v) => {
-            setDirty(true);
-            setPaymentTerms(v);
-          }}
-        />
-      ) : null}
+
+      {/* THE SIZE BREAKUP POP-UP — a sub-detail of the open PO (AGENTS, A sub-detail Sheet's
+          size): `md` because it carries a ChildGrid, centred on the pane, grown out of the
+          Qty button, and no Save of its own — the sizes are written by the PO's Save. */}
+      <Sheet
+        open={!!sheetGroup}
+        onClose={() => setSizeSheet(null)}
+        size="md"
+        alignToPane
+        origin={sizeSheet?.origin ?? null}
+        title={sheetGroup ? `Size breakup — ${sheetGroup.first.item_name}${describeGroup(sheetGroup) ? ` · ${describeGroup(sheetGroup)}` : ""}` : "Size breakup"}
+        footer={<SubSheetFooter onDone={() => setSizeSheet(null)} />}
+      >
+        {sheetGroup ? (
+          <div className="space-y-2">
+            {/* default-row: exempt -- one row per size of the item, derived from the requirement; nothing is added here */}
+            <ChildGrid<GridRow>
+              columns={sizeColumns}
+              rows={sheetGroup.members}
+              flatRows
+              hideAdd
+              hideRemove
+              keepOne={false}
+              onAdd={() => false}
+              onRemove={() => {}}
+              frameless
+              headerClassName={GRID_HEAD}
+            />
+            <p className="px-2 text-sm text-muted-foreground">
+              Total on this PO:{" "}
+              <span className="font-semibold text-foreground tabular-nums">
+                {fmtNumber(groupQty(sheetGroup))} {sheetGroup.first.uom_code ?? ""}
+              </span>{" "}
+              of {fmtNumber(sheetGroup.members.reduce((a, m) => a + m.balance_qty, 0))} to order
+            </p>
+          </div>
+        ) : null}
+      </Sheet>
 
       {/* THE BOTTOM BAR (V6): the total, why Submit waits, a way to the next blank rate,
           and the buttons — kept in view while the lines scroll.

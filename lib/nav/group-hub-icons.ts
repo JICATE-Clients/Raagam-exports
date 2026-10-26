@@ -30,10 +30,17 @@ import {
   Hammer,
   QrCode,
   Route,
-  MessageSquareWarning,
   MessagesSquare,
   ScanSearch,
   ShieldAlert,
+  Headset,
+  LayoutDashboard,
+  PhoneCall,
+  BookOpen,
+  Gauge,
+  Laptop,
+  Timer,
+  ListTree,
 } from "lucide-react";
 import type { HubMark } from "@/components/masters/hub-icons";
 
@@ -115,7 +122,7 @@ export const GROUP_HUB_ICONS: Readonly<Record<string, HubMark>> = {
   // Resolve Hub — Reporting · Work · Administration
   "/resolve/report": { icon: TriangleAlert, tone: "danger" },
   "/resolve/my-reports": { icon: ClipboardList, tone: "info" },
-  "/resolve/my-work": { icon: Wrench, tone: "primary" },
+  "/resolve/inbox": { icon: Wrench, tone: "primary" },
   "/resolve/triage": { icon: ListOrdered, tone: "warning" },
   "/resolve/jobs": { icon: ListChecks, tone: "info" },
   "/resolve/workload": { icon: Users, tone: "accent" },
@@ -123,11 +130,18 @@ export const GROUP_HUB_ICONS: Readonly<Record<string, HubMark>> = {
   "/resolve/setup/places": { icon: QrCode, tone: "info" },
   "/resolve/setup/teams": { icon: Users, tone: "accent" },
   "/resolve/setup/routing": { icon: Route, tone: "warning" },
-  "/resolve/my-complaints": { icon: MessageSquareWarning, tone: "warning" },
   "/resolve/track": { icon: ScanSearch, tone: "accent" },
-  "/resolve/complaints": { icon: MessagesSquare, tone: "warning" },
   "/resolve/setup/complaint-categories": { icon: ShieldAlert, tone: "danger" },
   "/resolve/setup/unit-settings": { icon: Settings, tone: "primary" },
+  // Service Desk (stage 3)
+  "/resolve/desk": { icon: Headset, tone: "primary" },
+  "/resolve/desk/dashboard": { icon: LayoutDashboard, tone: "info" },
+  "/resolve/desk/log": { icon: PhoneCall, tone: "accent" },
+  "/resolve/kb": { icon: BookOpen, tone: "success" },
+  "/resolve/desk/performance": { icon: Gauge, tone: "warning" },
+  "/resolve/setup/service-categories": { icon: Laptop, tone: "info" },
+  "/resolve/setup/service-sla": { icon: Timer, tone: "warning" },
+  "/resolve/setup/problem-catalog": { icon: ListTree, tone: "accent" },
 };
 
 /** The mark for an href, or `undefined` so the card keeps its own defaults. */

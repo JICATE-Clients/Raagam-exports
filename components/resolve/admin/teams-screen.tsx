@@ -2,10 +2,11 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { Star, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Combobox } from "@/components/ui/combobox";
 import { type Column } from "@/components/ui/data-table";
-import { Field, FieldRow, FIELD_WIDTH_CSS } from "@/components/ui/field";
+import { Field, FieldRow } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Sheet } from "@/components/ui/sheet";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -13,12 +14,12 @@ import { Toggle } from "@/components/ui/toggle";
 import { ActiveField } from "@/components/ui/active-field";
 import { DuplicateError } from "@/components/ui/duplicate-error";
 import { useToast } from "@/components/ui/toast";
-import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { MasterListShell } from "@/components/masters/master-list-shell";
 import { useDuplicateName, dupFieldProps } from "@/lib/masters/use-duplicate-check";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { activeTone } from "@/lib/ui/status-tone";
 import { saveTeam } from "@/lib/resolve/actions";
+import { AvatarStack } from "@/components/resolve/admin/avatar-stack";
 import type { TeamRow } from "@/lib/resolve/service";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
@@ -26,9 +27,6 @@ type Option = { id: string; name: string; inactive?: boolean };
 type MemberRow = { key: string; profile_id: string; active: boolean };
 
 let seq = 0;
-/** A blank member line — every key empty or false, so an untouched one is
- *  dropped on save rather than inserted (AGENTS "Editable sub-tables"). */
-const blankMember = (): MemberRow => ({ key: `m${++seq}`, profile_id: "", active: true });
 
 const blankForm = () => ({ trade_id: "", name: "", lead_id: "", inactive: false });
 type Form = ReturnType<typeof blankForm>;
@@ -40,6 +38,12 @@ type Form = ReturnType<typeof blankForm>;
  *
  * Switching a member off keeps the line (and their history) but takes them out
  * of routing and To claim; removing the line takes them off the team.
+ *
+ * MEMBERS ARE CHIPS (mobile redesign, 2026-10-26): each person a chip with
+ * their on/off switch (a real checkbox, so Tab lands on it) and the lead
+ * starred; the "Add person" picker under them is the always-open entry, so the
+ * list never needs a seeded blank line. The list shows one card per team —
+ * trade, lead and the members' initials.
  */
 export function TeamsScreen({
   rows,
@@ -58,7 +62,7 @@ export function TeamsScreen({
   const [open, setOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<Form>(blankForm);
-  const [members, setMembers] = useState<MemberRow[]>(() => [blankMember()]);
+  const [members, setMembers] = useState<MemberRow[]>([]);
   const [dirty, setDirty] = useState(false);
   useUnsavedGuard(open && (dirty || isPending));
 
@@ -92,7 +96,7 @@ export function TeamsScreen({
   function openAdd() {
     setEditId(null);
     setForm(blankForm());
-    setMembers([blankMember()]);
+    setMembers([]);
     setDirty(false);
     setOpen(true);
   }
@@ -100,7 +104,7 @@ export function TeamsScreen({
     setEditId(r.id);
     setForm({ trade_id: r.trade_id, name: r.name, lead_id: r.lead_id ?? "", inactive: r.inactive });
     const held = r.members.map((m) => ({ key: m.id, profile_id: m.profile_id, active: m.active }));
-    setMembers(held.length ? held : [blankMember()]);
+    setMembers(held);
     setDirty(false);
     setOpen(true);
   }
@@ -144,30 +148,13 @@ export function TeamsScreen({
     });
   }
 
-  // Active first (AGENTS "Active leads the form" — a grid whose rows switch off
-  // shows the switch as its FIRST column). 88 + 288 + 72 chrome = 448px.
-  const memberColumns: ChildGridColumn<MemberRow>[] = [
-    {
-      header: "Active",
-      width: FIELD_WIDTH_CSS.hug,
-      cell: (m) => (
-        <Toggle checked={m.active} onChange={(on) => setMember(m.key, { active: on })} tone="success" ariaLabel="Active on this team" />
-      ),
-    },
-    {
-      header: "Person",
-      width: FIELD_WIDTH_CSS.name,
-      cell: (m) => (
-        <Combobox
-          options={personOptions.filter(
-            (o) => o.value === m.profile_id || !members.some((x) => x.key !== m.key && x.profile_id === o.value),
-          )}
-          value={m.profile_id}
-          onChange={(v) => setMember(m.key, { profile_id: v })}
-        />
-      ),
-    },
-  ];
+  const addOptions = personOptions.filter((o) => !members.some((m) => m.profile_id === o.value));
+  function addMember(profileId: string) {
+    if (!profileId || members.some((m) => m.profile_id === profileId)) return;
+    setMembers((ms) => [...ms, { key: `m${++seq}`, profile_id: profileId, active: true }]);
+    setDirty(true);
+  }
+  const memberNames = (r: TeamRow) => r.members.filter((m) => m.active).map((m) => m.name ?? "?");
 
   const teamColumns: Column<TeamRow>[] = [
     { header: "Team", cell: (r) => <span className="text-sm font-semibold">{r.name}</span> },
@@ -175,8 +162,12 @@ export function TeamsScreen({
     { header: "Lead", cell: (r) => <span className="text-sm">{r.lead_name ?? "—"}</span> },
     {
       header: "Members",
-      align: "right",
-      cell: (r) => <span className="tabular-nums text-sm">{r.members.filter((m) => m.active).length}</span>,
+      cell: (r) => (
+        <span className="flex items-center gap-2">
+          <AvatarStack names={memberNames(r)} />
+          <span className="tabular-nums text-xs text-muted-foreground">{memberNames(r).length}</span>
+        </span>
+      ),
     },
     {
       header: "Status",
@@ -206,7 +197,13 @@ export function TeamsScreen({
         empty="No teams in this unit yet."
         mobile={{
           title: (r) => r.name,
-          meta: (r) => [r.trade_name, r.lead_name ? `Lead ${r.lead_name}` : null].filter(Boolean).join(" · "),
+          subtitle: (r) => [r.trade_name, r.lead_name ? `Lead ${r.lead_name}` : null].filter(Boolean).join(" · "),
+          meta: (r) =>
+            memberNames(r).length ? (
+              <AvatarStack names={memberNames(r)} className="mt-1" />
+            ) : (
+              "No members yet"
+            ),
           pill: (r) => <StatusPill tone={activeTone(!r.inactive)}>{r.inactive ? "Inactive" : "Active"}</StatusPill>,
           onEdit: openEdit,
           onDelete: toggleInactive,
@@ -258,22 +255,52 @@ export function TeamsScreen({
               />
             </Field>
           </FieldRow>
-          <div className="space-y-1">
+          <div className="max-w-[50rem] space-y-2">
             <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Members</h3>
-            <ChildGrid<MemberRow>
-              rows={members}
-              columns={memberColumns}
-              tableFrom="5xl"
-              addLabel="+ Add member"
-              onAdd={() => {
-                setMembers((ms) => [...ms, blankMember()]);
-                setDirty(true);
-              }}
-              onRemove={(m) => {
-                setMembers((ms) => ms.filter((x) => x.key !== m.key));
-                setDirty(true);
-              }}
-            />
+            {members.length > 0 ? (
+              <ul className="flex flex-wrap gap-2">
+                {members.map((m) => {
+                  const name = nameOf.get(m.profile_id) ?? "Unknown person";
+                  const lead = m.profile_id === form.lead_id;
+                  return (
+                    <li
+                      key={m.key}
+                      className={
+                        m.active
+                          ? "flex h-9 items-center gap-2 rounded-full border border-border bg-surface pl-2 pr-1"
+                          : "flex h-9 items-center gap-2 rounded-full border border-dashed border-border bg-surface-muted pl-2 pr-1 text-muted-foreground"
+                      }
+                    >
+                      <Toggle
+                        checked={m.active}
+                        onChange={(on) => setMember(m.key, { active: on })}
+                        tone="success"
+                        ariaLabel={`${name} active on this team`}
+                      />
+                      <span className="text-sm font-medium">{name}</span>
+                      {lead && <Star className="size-3.5 fill-warning text-warning" aria-label="Lead" />}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        aria-label={`Remove ${name}`}
+                        onClick={() => {
+                          setMembers((ms) => ms.filter((x) => x.key !== m.key));
+                          setDirty(true);
+                        }}
+                      >
+                        <X aria-hidden />
+                      </Button>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted-foreground">No members yet — add the people who work this trade here.</p>
+            )}
+            <Field label="Add person" w="party" htmlFor="rh-team-add">
+              <Combobox id="rh-team-add" options={addOptions} value="" onChange={addMember} />
+            </Field>
             {twice && <p className="text-xs text-danger">A person is listed twice.</p>}
             {form.lead_id && !kept.some((m) => m.profile_id === form.lead_id) && (
               <p className="text-xs text-muted-foreground">

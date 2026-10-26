@@ -11,6 +11,7 @@ import { RolePreviewBanner } from "@/components/shell/role-preview-banner";
 import { WorkspaceTabsBar } from "@/components/shell/workspace-tabs-bar";
 import { MobileNav } from "@/components/shell/mobile-nav";
 import { PushPrompt } from "@/components/pwa/push-prompt";
+import { ResolvePopup } from "@/components/resolve/live/resolve-popup";
 import { SearchProvider } from "@/components/search/search-provider";
 import { ShortcutsProvider } from "@/components/shell/shortcuts-provider";
 import { KeyboardNavProvider } from "@/components/shell/keyboard-nav-provider";
@@ -132,6 +133,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
                   </div>
                   <MobileNav stores={stores} />
                   <PushPrompt userId={user.id} />
+                  <ResolvePopup />
                 </div>
               </div>
             </KeyboardNavProvider>

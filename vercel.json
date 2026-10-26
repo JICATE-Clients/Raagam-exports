@@ -29,6 +29,10 @@
     {
       "path": "/api/cron/resolve-outbox",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/resolve-desk",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

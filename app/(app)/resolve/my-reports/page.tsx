@@ -1,20 +1,28 @@
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { requireRh } from "@/lib/resolve/auth";
-import { listMyReports } from "@/lib/resolve/service";
+import { getAppUser } from "@/lib/auth/server";
+import { loadMyRequests } from "@/lib/resolve/inbox-service";
+import { getTicketDetail } from "@/lib/resolve/service";
 import { PageHeader } from "@/components/ui/page-header";
 import { buttonClasses } from "@/components/ui/button";
-import { MyReportsClient } from "./my-reports-client";
+import { InboxScreen } from "@/components/resolve/inbox/inbox-screen";
 
-/** Everything I reported or joined, any unit — the reporter's own register. */
-export default async function MyReportsPage() {
+/**
+ * Everything I raised — any lane, any unit — on the same two-pane screen the
+ * resolver works from, seen from the other side (2026-10-26). What waits on
+ * my tap (confirm, reopen, rate) is listed first and opened first. Named
+ * complaints joined it, so My Complaints now lands here.
+ */
+export default async function MyReportsPage({ searchParams }: { searchParams: Promise<{ t?: string }> }) {
   await requireRh("view");
-  const rows = await listMyReports();
-  // The server's clock, read once — "due in / late" is worded against it.
-  const nowIso = new Date().toISOString();
+  const user = await getAppUser();
+  const [{ t }, lists] = await Promise.all([searchParams, loadMyRequests()]);
+  const firstId = t ?? (lists.turn[0] ?? lists.open[0] ?? lists.done[0])?.id ?? null;
+  const initial = firstId ? await getTicketDetail(firstId) : null;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <PageHeader
         title="My Reports"
         actions={
@@ -24,7 +32,7 @@ export default async function MyReportsPage() {
           </Link>
         }
       />
-      <MyReportsClient rows={rows} nowIso={nowIso} />
+      <InboxScreen mode="raiser" lists={lists} meId={user?.id ?? ""} initial={initial} />
     </div>
   );
 }
