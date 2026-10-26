@@ -282,16 +282,92 @@ export function mentionIds(body: string | null | undefined): string[] {
   return out;
 }
 
-/** A body split into text and mention pieces, for a renderer to map over. */
-export type BodyPiece = { text: string } | { mention: string };
+// ---------------------------------------------------------------------------
+// ERP record links: `<rec:kind:uuid>` in the body (phase 6)
+// ---------------------------------------------------------------------------
+//
+// A LINK IS A POINTER, NEVER A GRANT (spec §8). The body stores only the kind
+// and the id — no number, no vendor, no amount — so nothing about the record
+// is copied into a chat that people outside its module can read. Every viewer's
+// chip is resolved on the server AS THAT VIEWER (lib/comms/records.ts: the
+// module's view permission, then the row through RLS); someone who may not see
+// the record sees "not available to you" and no link. Opening it lands on the
+// record's own screen, which checks access again.
+
+export const RECORD_KINDS = {
+  purchase_order: { label: "Purchase order", short: "PO", module: "materials_purchase", path: "/purchase/orders/" },
+  purchase_indent: { label: "Purchase indent", short: "Indent", module: "materials_purchase", path: "/purchase/indents/" },
+  sales_order: { label: "Order (RE)", short: "RE", module: "orders", path: "/orders/" },
+} as const;
+export type RecordKind = keyof typeof RECORD_KINDS;
+export const RECORD_KIND_KEYS = Object.keys(RECORD_KINDS) as RecordKind[];
+
+export function isRecordKind(k: unknown): k is RecordKind {
+  return typeof k === "string" && Object.prototype.hasOwnProperty.call(RECORD_KINDS, k);
+}
+
+export function recordToken(kind: RecordKind, id: string): string {
+  return `<rec:${kind}:${id}>`;
+}
+
+/** "purchase_order:<uuid>" — the key a preview is cached and returned under. */
+export function recordKey(kind: RecordKind, id: string): string {
+  return `${kind}:${id.toLowerCase()}`;
+}
+
+export function recordHref(kind: RecordKind, id: string): string {
+  return `${RECORD_KINDS[kind].path}${id}`;
+}
+
+/** What a viewer allowed to see the record is shown. Deliberately NO amounts. */
+export interface RecordPreview {
+  kind: RecordKind;
+  id: string;
+  /** The document's own number — PO code, indent code, RE number. */
+  number: string;
+  /** Vendor / department / buyer. */
+  party: string | null;
+  status: string | null;
+  /** The document's own date (order, required or ship date), ISO date. */
+  date: string | null;
+  href: string;
+}
+
+export const recordRefInput = z.object({ kind: z.enum(RECORD_KIND_KEYS as [RecordKind, ...RecordKind[]]), id: uuid });
+export type RecordRef = z.infer<typeof recordRefInput>;
+
+const KIND_ALT = RECORD_KIND_KEYS.join("|");
+const UUID_SRC = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
+/** One pass over a body: a mention OR a record token, in order. */
+const TOKEN_RE = new RegExp(`<@(${UUID_SRC})>|<rec:(${KIND_ALT}):(${UUID_SRC})>`, "g");
+
+/** Distinct record refs a body links, in order of first appearance. */
+export function recordRefs(body: string | null | undefined): RecordRef[] {
+  const out: RecordRef[] = [];
+  const seen = new Set<string>();
+  for (const m of (body ?? "").matchAll(TOKEN_RE)) {
+    if (!m[2]) continue;
+    const ref = { kind: m[2] as RecordKind, id: m[3].toLowerCase() };
+    const k = recordKey(ref.kind, ref.id);
+    if (!seen.has(k)) {
+      seen.add(k);
+      out.push(ref);
+    }
+  }
+  return out;
+}
+
+/** A body split into text, mention and record pieces, for a renderer to map over. */
+export type BodyPiece = { text: string } | { mention: string } | { record: RecordRef };
 export function bodyPieces(body: string | null | undefined): BodyPiece[] {
   const src = body ?? "";
   const out: BodyPiece[] = [];
   let at = 0;
-  for (const m of src.matchAll(MENTION_RE)) {
+  for (const m of src.matchAll(TOKEN_RE)) {
     const i = m.index ?? 0;
     if (i > at) out.push({ text: src.slice(at, i) });
-    out.push({ mention: m[1].toLowerCase() });
+    if (m[1]) out.push({ mention: m[1].toLowerCase() });
+    else out.push({ record: { kind: m[2] as RecordKind, id: m[3].toLowerCase() } });
     at = i + m[0].length;
   }
   if (at < src.length) out.push({ text: src.slice(at) });

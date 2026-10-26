@@ -1,10 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { can, getAppUser } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
 import { allow } from "@/lib/rate-limit";
+import { notifyForMessage } from "./notify";
+import { resolveRecords, searchRecords } from "./records";
 import {
   getMessages,
   getPinned,
@@ -21,6 +24,8 @@ import {
   memberIdsInput,
   memberRoleInput,
   reactionInput,
+  recordRefInput,
+  isRecordKind,
   sendMessageInput,
   updateConversationInput,
   type CommMessage,
@@ -29,6 +34,7 @@ import {
   type DirectoryPerson,
   type MessageHit,
   type MessagePage,
+  type RecordPreview,
   type SendMessageInput,
   type SendResult,
   type UpdateConversationInput,
@@ -57,11 +63,12 @@ import {
  * reason lib/orders/community/actions.ts gives for `markChannelRead`.
  * Structural changes (a new conversation, a join, a rename) DO revalidate.
  *
- * ## NOTIFICATIONS ARE PHASE 4
+ * ## ALERTS GO OUT AFTER THE REPLY (phase 4, lib/comms/notify.ts)
  *
- * `sendMessage` returns `mentioned` and `created` from the RPC. Phase 4 hands
- * them to `notify()` — and only when `created` is true, so a retried send can
- * never notify twice.
+ * A send answers the composer first; `after()` then hands the RPC's
+ * `mentioned` ids to `notify()`. Only when `created` is true — a retried send
+ * that found its message already there alerts nobody — and every alert is
+ * keyed on the message id (0746), so even a second run cannot alert twice.
  */
 
 type Fail = { ok: false; error: string };
@@ -283,6 +290,18 @@ export async function sendMessage(input: SendMessageInput): Promise<SendResult> 
   });
   if (error || !data) return fail(commErrorText(error, "The message was not sent. Try again."));
   const r = data as { id: string; created: boolean; created_at: string; mentioned: string[] };
+  if (r.created) {
+    after(() =>
+      notifyForMessage({
+        conversationId: d.conversation_id,
+        messageId: r.id,
+        mentioned: r.mentioned ?? [],
+        senderId: me.id,
+        senderName: me.fullName,
+        isNewMessage: true,
+      }).catch(() => {}),
+    );
+  }
   return { ok: true, id: r.id, created_at: r.created_at, created: r.created };
 }
 
@@ -290,8 +309,27 @@ export async function editMessage(messageId: string, body: string): Promise<Resu
   const parsed = editMessageInput.safeParse({ message_id: messageId, body });
   if (!parsed.success) return fail("That message could not be read.");
   const s = await createClient();
-  const { error } = await s.rpc("comm_edit_message", { p_message: parsed.data.message_id, p_body: parsed.data.body });
+  const { data, error } = await s.rpc("comm_edit_message", { p_message: parsed.data.message_id, p_body: parsed.data.body });
   if (error) return fail(commErrorText(error, "The message could not be edited."));
+  // An edit that ADDS a mention tells only the person just added (the RPC
+  // returns newly mentioned ids alone); the message-id key stops a repeat.
+  const added = ((data as { mentioned?: string[] } | null)?.mentioned ?? []).filter((u) => typeof u === "string");
+  const me = added.length > 0 ? await getAppUser() : null;
+  if (me) {
+    after(async () => {
+      const { data: row } = await s.from("comm_messages").select("conversation_id").eq("id", parsed.data.message_id).maybeSingle();
+      const conversationId = (row as { conversation_id?: string } | null)?.conversation_id;
+      if (!conversationId) return;
+      await notifyForMessage({
+        conversationId,
+        messageId: parsed.data.message_id,
+        mentioned: added,
+        senderId: me.id,
+        senderName: me.fullName,
+        isNewMessage: false,
+      }).catch(() => {});
+    });
+  }
   return { ok: true };
 }
 
@@ -416,5 +454,44 @@ export async function findMessages(query: string): Promise<{ ok: true; hits: Mes
     return { ok: true, hits: await searchMessages(query) };
   } catch {
     return fail("Messages could not be searched. Try again.");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ERP record links (phase 6) — resolved AS THE CALLER, never the admin client
+// ---------------------------------------------------------------------------
+
+/**
+ * Previews for the record links on screen, keyed `kind:id`. Links the caller
+ * may not see are absent from the answer; the chip then says so. Malformed refs
+ * are dropped before any query (a ref is browser input).
+ */
+export async function resolveRecordLinks(
+  refs: { kind: string; id: string }[],
+): Promise<{ ok: true; previews: Record<string, RecordPreview> } | Fail> {
+  if (!Array.isArray(refs)) return fail("Those links could not be read.");
+  const valid = refs.slice(0, 50).flatMap((r) => {
+    const p = recordRefInput.safeParse(r);
+    return p.success ? [{ kind: p.data.kind, id: p.data.id.toLowerCase() }] : [];
+  });
+  try {
+    return { ok: true, previews: await resolveRecords(valid) };
+  } catch {
+    return fail("Linked records could not be loaded. Try again.");
+  }
+}
+
+/** Search one kind of record by its number, for the composer's link picker. */
+export async function findRecords(
+  kind: string,
+  query: string,
+): Promise<{ ok: true; records: RecordPreview[] } | Fail> {
+  if (!isRecordKind(kind)) return fail("Pick what kind of record to link.");
+  try {
+    const records = await searchRecords(kind, typeof query === "string" ? query.slice(0, 60) : "");
+    if (records === null) return fail("You do not have access to that kind of record.");
+    return { ok: true, records };
+  } catch {
+    return fail("Records could not be searched. Try again.");
   }
 }

@@ -82,6 +82,9 @@ function explain(e: unknown, fallback: string): string {
  */
 function revalidateApprovals(subjectPath?: string) {
   revalidatePath("/approvals");
+  // The same inbox, opened from Messages ▸ My Approvals (comms phase 5) — and
+  // the hub's layout, whose badge counts this queue.
+  revalidatePath("/comms", "layout");
   if (subjectPath) revalidatePath(subjectPath);
 }
 

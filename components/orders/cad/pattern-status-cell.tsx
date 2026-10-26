@@ -49,6 +49,9 @@ export function PatternStatusCell({ row, canEdit }: { row: CadStyleRow; canEdit:
   return (
     <Select
       aria-label={`Pattern Status — ${row.style_ref_no}`}
+      // CAD Queue fits without a sideways scrollbar (user 2026-10-26); a long
+      // status ends in "…" in the closed box and reads whole in the list.
+      className="w-36"
       value={v.pattern_status}
       disabled={isPending}
       onChange={(e) => change(e.target.value as PatternStatus)}

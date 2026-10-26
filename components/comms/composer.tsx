@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { Loader2, Paperclip, Send, X } from "lucide-react";
+import { Link2, Loader2, Paperclip, Send, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { createClient } from "@/lib/supabase/client";
@@ -13,11 +13,15 @@ import {
   attachmentPath,
   attachmentProblem,
   mentionToken,
+  recordToken,
+  RECORD_KINDS,
   type AttachmentInput,
   type CommMember,
+  type RecordPreview,
 } from "@/lib/comms/types";
 import { cn } from "@/lib/utils";
 import { fileSize } from "./message-body";
+import { RecordPickerSheet } from "./record-picker-sheet";
 
 type Upload = { key: string; name: string; size: number; status: "uploading" | "done" | "failed"; file?: AttachmentInput; error?: string };
 
@@ -44,6 +48,12 @@ type Upload = { key: string; name: string; size: number; status: "uploading" | "
  * `@Name` for the eye and remembers name → id; on send each remembered `@Name`
  * becomes the `<@uuid>` token the server parses. The SERVER decides who was
  * really mentioned (active members only) — this list is a convenience.
+ *
+ * ## RECORD LINKS (phase 6)
+ *
+ * "Link a record" picks a PO, indent or RE the SENDER may see and inserts
+ * `[PO PO-0012]` for the eye; on send it becomes `<rec:kind:uuid>`. Only the
+ * kind and id travel — each reader's chip is resolved for that reader.
  *
  * ## FILES UPLOAD WHEN CHOSEN
  *
@@ -75,7 +85,9 @@ export function Composer({
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
-  const [picked, setPicked] = useState<Map<string, string>>(new Map()); // "@Name" → id
+  // What the operator sees → the token sent: "@Name" → <@uuid>, "[PO PO-0012]" → <rec:…>.
+  const [picked, setPicked] = useState<Map<string, string>>(new Map());
+  const [linking, setLinking] = useState(false);
   const [mention, setMention] = useState<{ query: string; start: number } | null>(null);
   const [hi, setHi] = useState(0);
 
@@ -102,7 +114,7 @@ export function Composer({
     const caret = ref.current.selectionStart ?? text.length;
     const next = `${text.slice(0, mention.start)}@${name} ${text.slice(caret)}`;
     setText(next);
-    setPicked((prev) => new Map(prev).set(`@${name}`, m.user_id));
+    setPicked((prev) => new Map(prev).set(`@${name}`, mentionToken(m.user_id)));
     setMention(null);
     const at = mention.start + name.length + 2;
     requestAnimationFrame(() => {
@@ -112,12 +124,29 @@ export function Composer({
   }
 
   function withTokens(value: string): string {
-    // Longest name first, so "@ANBU SELVAN" is not eaten by "@ANBU".
+    // Longest label first, so "@ANBU SELVAN" is not eaten by "@ANBU".
     let out = value;
-    for (const [label, id] of [...picked].sort((a, b) => b[0].length - a[0].length)) {
-      out = out.split(label).join(mentionToken(id));
+    for (const [label, token] of [...picked].sort((a, b) => b[0].length - a[0].length)) {
+      out = out.split(label).join(token);
     }
     return out;
+  }
+
+  function insertRecord(p: RecordPreview) {
+    const label = `[${RECORD_KINDS[p.kind].short} ${p.number}]`;
+    const el = ref.current;
+    const caret = el?.selectionStart ?? text.length;
+    const before = text.slice(0, caret);
+    const pad = before && !/\s$/.test(before) ? " " : "";
+    const next = `${before}${pad}${label} ${text.slice(caret)}`;
+    setText(next);
+    setPicked((prev) => new Map(prev).set(label, recordToken(p.kind, p.id)));
+    setLinking(false);
+    const at = caret + pad.length + label.length + 1;
+    requestAnimationFrame(() => {
+      ref.current?.focus();
+      ref.current?.setSelectionRange(at, at);
+    });
   }
 
   async function addFiles(files: FileList | null) {
@@ -280,6 +309,16 @@ export function Composer({
         >
           <Paperclip className="h-4 w-4" />
         </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          onClick={() => setLinking(true)}
+          aria-label="Link a record"
+          title="Link a PO, indent or order"
+        >
+          <Link2 className="h-4 w-4" />
+        </Button>
         {/* caps-input: exempt -- a chat message is prose, not a stored value (lib/comms/types.ts) */}
         <Textarea
           ref={ref}
@@ -303,8 +342,9 @@ export function Composer({
         </Button>
       </div>
       <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
-        <span>{problem ? <span className="text-danger">{problem}</span> : "Enter to send · Shift+Enter for a new line · @ to mention"}</span>
+        <span>{problem ? <span className="text-danger">{problem}</span> : "Enter to send · Shift+Enter for a new line · @ to mention · 🔗 to link a record"}</span>
       </div>
+      <RecordPickerSheet open={linking} onClose={() => setLinking(false)} onPick={insertRecord} />
     </div>
   );
 }

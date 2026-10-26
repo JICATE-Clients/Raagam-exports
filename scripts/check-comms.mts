@@ -33,6 +33,9 @@ import {
   encodeCursor,
   mentionIds,
   mentionToken,
+  recordHref,
+  recordRefs,
+  recordToken,
   sendMessageInput,
 } from "../lib/comms/types.ts";
 
@@ -124,6 +127,23 @@ const parsed = sendMessageInput.safeParse({ conversation_id: conv, client_id: id
 check(parsed.success && parsed.data.attachments.length === 0 && parsed.data.parent_id === null, "sendMessageInput defaults attachments and parent");
 check(!sendMessageInput.safeParse({ conversation_id: conv, body: "hi" }).success, "sendMessageInput requires the retry key");
 check(!sendMessageInput.safeParse({ conversation_id: conv, client_id: id, body: "x".repeat(8001) }).success, "sendMessageInput refuses a body over 8,000");
+
+// ---------- 4. record links (phase 6) ----------
+
+const PO = "eeeeeeee-0000-4000-8000-000000000005";
+const linked = `see <rec:purchase_order:${PO}> and <@${A}> and <rec:sales_order:${B.toUpperCase()}> and <rec:purchase_order:${PO}>`;
+const refs = recordRefs(linked);
+check(refs.length === 2 && refs[0].kind === "purchase_order" && refs[1].id === B, "recordRefs: distinct, lower-cased, mentions ignored");
+const lp = bodyPieces(linked);
+check(lp.filter((p) => "record" in p).length === 3 && lp.filter((p) => "mention" in p).length === 1, "bodyPieces splits record and mention tokens in one pass");
+check(recordRefs(`<rec:salary_slip:${PO}> <rec:purchase_order:not-a-uuid> <rec::${PO}>`).length === 0, "an unknown kind or a malformed id is plain text, never a link");
+check(recordToken("purchase_indent", PO) === `<rec:purchase_indent:${PO}>`, "recordToken round-trips through the parser");
+check(recordHref("sales_order", PO) === `/orders/${PO}`, "a link opens the record's own screen");
+
+const records = read("lib/comms/records.ts");
+check(!/createAdminClient/.test(records), "record previews never use the service role — a link must not grant access");
+check(/can\(RECORD_KINDS\[kind\]\.module/.test(records), "every record read asks the module's own view permission first");
+check(!/total_amount|fob_price|total_value|unit_price/.test(records.replace(/\/\*[\s\S]*?\*\//g, "")), "previews select no amounts");
 
 if (failures > 0) {
   console.error(`\ncheck:comms — ${failures} failure(s)`);

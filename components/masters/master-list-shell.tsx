@@ -190,6 +190,9 @@ export type MasterListShellProps<Row> = {
     onView?: (r: Row) => void;
   };
   isPending?: boolean;
+  /** Table density, passed to `DataTable` — "spacing" tightens the gutters
+   *  only (see its `dense` note). Default unchanged. */
+  dense?: boolean | "spacing";
   /** Rare per-screen extra toolbar buttons (rendered next to Add). */
   toolbarExtra?: ReactNode;
   /**
@@ -291,6 +294,7 @@ export function MasterListShell<Row>({
   empty = "No records yet.",
   mobile,
   isPending = false,
+  dense,
   toolbarExtra,
   bulkEntityKey,
   bulkLabel,
@@ -703,6 +707,7 @@ export function MasterListShell<Row>({
           columns={shownColumns}
           rows={inline?.newRow ? [inline.newRow, ...pg.paged] : pg.paged}
           paginate={false}
+          dense={dense}
           getKey={(r) => getKey(r)}
           rowClassName={shownRowClassName}
           empty={empty}

@@ -761,6 +761,11 @@ const BLANK = (): Form => ({ garment_order_id: null, bom_date: today() });
 
 const blankDia = (key: string): DiaRow => ({ key, knit_type: "", dia: "" });
 
+/* The blank end rows of the four Colour / Print panels (`PaletteTable`'s
+   `tailRow`). At module scope so the table's tail effect sees a stable function. */
+const isBlankPaletteRow = (r: PaletteRow) => !r.value.trim();
+const isBlankDiaRow = (r: DiaRow) => !r.knit_type && !r.dia.trim();
+
 /**
  * ONE COLOUR/PRINT PANEL, AS A HAND-ROLLED TABLE (client 2026-09-03, asked
  * three times: the four panels side by side in a single row).
@@ -815,6 +820,8 @@ function PaletteTable<T extends { key: string }>({
   onRemove,
   addLabel,
   width,
+  tailRow,
+  onTail,
 }: {
   label: string;
   columns: ChildGridColumn<T>[];
@@ -825,7 +832,36 @@ function PaletteTable<T extends { key: string }>({
   /** The panel's cap — a STATIC literal per call site, never interpolated:
    *  Tailwind scans source text, so a computed class compiles to no CSS. */
   width: string;
+  /**
+   * ENTER-ONLY ENTRY — `ChildGrid`'s `tailRow`, for this hand-rolled table (user
+   * 2026-10-24, screenshot 105728: "intha add buttons lam vendam costing la irukka
+   * mari"). One blank row always stands at the end and no "+ Add" is drawn; typing
+   * into it makes it a line and the grid puts a fresh blank under it; Enter on it
+   * untouched leaves the table (`data-row-tail`). The server drops blank rows
+   * (`paletteDiff`, `normalizeDias`).
+   */
+  tailRow?: (row: T) => boolean;
+  /** Puts the blank row back WITHOUT marking the form dirty. Defaults to `onAdd`. */
+  onTail?: () => void;
 }) {
+  /* Same shape as `ChildGrid`'s tail effect, `tailStuck` included: a predicate the
+     added row does not satisfy adds ONE row and stops instead of looping. */
+  const hasTail = !!tailRow && rows.some((r) => tailRow(r));
+  const tailStuck = useRef(false);
+  const onTailRef = useRef(onTail ?? onAdd);
+  useEffect(() => {
+    onTailRef.current = onTail ?? onAdd;
+  });
+  useEffect(() => {
+    if (!tailRow) return;
+    if (hasTail) {
+      tailStuck.current = false;
+      return;
+    }
+    if (tailStuck.current) return;
+    tailStuck.current = true;
+    onTailRef.current();
+  }, [tailRow, hasTail, rows.length]);
   return (
     /* `max-sm:max-w-none`: stacked on a phone (see the row of four), each
        panel takes the line rather than its desktop cap. */
@@ -870,7 +906,7 @@ function PaletteTable<T extends { key: string }>({
               the arrows walk as plain fields. */}
           <tbody data-grid-body onKeyDown={(e) => gridKeyNav(e)}>
             {rows.map((row, i) => (
-              <tr key={row.key} data-grid-row>
+              <tr key={row.key} data-grid-row {...(tailRow?.(row) ? { "data-row-tail": "" } : {})}>
                 <td className="text-center text-xs tabular-nums text-muted-foreground">
                   {i + 1}
                 </td>
@@ -894,17 +930,20 @@ function PaletteTable<T extends { key: string }>({
         </table>
       </div>
       {/* `data-row-add` IS WHAT ENTER STEERS BY (AGENTS.md, "Add a grid row"):
-          Enter or Tab off the last field lands here and a second Enter adds. */}
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        data-row-add
-        className="mt-2"
-        onClick={onAdd}
-      >
-        {addLabel}
-      </Button>
+          Enter or Tab off the last field lands here and a second Enter adds.
+          Not drawn under `tailRow` — the blank end row replaces it. */}
+      {!tailRow && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          data-row-add
+          className="mt-2"
+          onClick={onAdd}
+        >
+          {addLabel}
+        </Button>
+      )}
     </div>
   );
 }
@@ -1099,6 +1138,18 @@ const blankLine = (key: string): LineRow => ({
   // still refuses a line that has been cleared back to blank.
   notes: "",
 });
+
+/**
+ * AN ALLOCATION ROW NOTHING HAS BEEN TYPED INTO — the Fabric Allocation grid's
+ * blank end row (ENTER-ONLY ENTRY, user 2026-10-24: "costing la irukka mari fabric
+ * layum add button vendam enter key press panna add aagaramari venum").
+ *
+ * Reads only the row's three typed cells. `style_ref_no` is NOT one of them: the
+ * grid stamps its section's style on the blank row itself. The Type cell's narrowing
+ * is `typeFilter`, not the line, so it cannot make a row non-blank. The save drops
+ * such a line by itself (`item_id !== null || consumption != null` in the action).
+ */
+const isBlankAllocation = (l: LineRow) => !l.structure_id && !l.item_id && !l.mixing_uom_id;
 
 /**
  * THE ROW NO LONGER HAS ONE WIDTH, AND THE INSTRUCTION THAT SAID SO IS KEPT HERE.
@@ -1659,6 +1710,9 @@ export function FabricBomScreen({
   const mutPalette = (
     panel: "fabric" | "yarn" | "prints",
     fn: (xs: PaletteRow[]) => PaletteRow[],
+    /* FALSE ONLY for the blank end row the panel puts back (`PaletteTable`'s
+       `onTail`) — that is not the operator's work and must not arm the guard. */
+    markDirty = true,
   ) => {
     /**
      * IT CREATES THE DRAFT WHEN THERE IS NONE, and that is the other half of
@@ -1690,8 +1744,11 @@ export function FabricBomScreen({
             };
       return { ...base, [panel]: fn(base[panel]) };
     });
-    setDirty(true);
+    if (markDirty) setDirty(true);
   };
+  /** The palette panel's blank end row, put back without dirtying the form. */
+  const tailPalette = (panel: "fabric" | "yarn" | "prints") =>
+    mutPalette(panel, (xs) => [...xs, { key: newKey(), value: "" }], false);
   const setPaletteCell = (panel: "fabric" | "yarn" | "prints", key: string, value: string) =>
     mutPalette(panel, (xs) => xs.map((x) => (x.key === key ? { ...x, value } : x)));
 
@@ -3344,7 +3401,10 @@ export function FabricBomScreen({
       rows: allocationRows.filter((l) => keyOf(l.style_ref_no) === keyOf(ref)),
     }));
     const unscoped = allocationRows.filter((l) => !keyOf(l.style_ref_no));
-    if (unscoped.length > 0) groups.push({ key: "", ref: "", rows: unscoped });
+    /* A BLANK ROW ALONE IS NOT A SECTION — each style's grid keeps its own blank
+       end row (`isBlankAllocation`), so an untouched unstyled line would only
+       draw an empty "All styles" band. */
+    if (unscoped.some((l) => !isBlankAllocation(l))) groups.push({ key: "", ref: "", rows: unscoped });
     return groups;
   })();
 
@@ -6885,7 +6945,9 @@ export function FabricBomScreen({
         <RecordPicker
           label="Fabric"
           compact
-          required
+          /* Not on the blank end row (`isBlankAllocation`) — a hold there would
+             cage Enter in a row the operator never started. */
+          required={!isBlankAllocation(r)}
           /* ONLY THIS ROW'S STRUCTURE (client 2026-09-02) — see `fabricItemsFor`
              for the narrowing, the held-value survival and why a row with no
              structure still sees everything. */
@@ -9845,6 +9907,8 @@ export function FabricBomScreen({
                 })
               }
               addLabel="+ Add fabric colour"
+              tailRow={isBlankPaletteRow}
+              onTail={() => tailPalette("fabric")}
             />
             <PaletteTable<PaletteRow>
               label="Yarn Colour"
@@ -9859,6 +9923,8 @@ export function FabricBomScreen({
                 })
               }
               addLabel="+ Add yarn colour"
+              tailRow={isBlankPaletteRow}
+              onTail={() => tailPalette("yarn")}
             />
             <PaletteTable<PaletteRow>
               label="Roll form prints"
@@ -9877,6 +9943,8 @@ export function FabricBomScreen({
                 })
               }
               addLabel="+ Add print"
+              tailRow={isBlankPaletteRow}
+              onTail={() => tailPalette("prints")}
             />
             {/* THE ONE PANEL THE ORDER CANNOT ANSWER, which is why this tab
                 reads three-read-one-typed: the order declares its colours and
@@ -9899,6 +9967,9 @@ export function FabricBomScreen({
                 })
               }
               addLabel="+ Add dia"
+              tailRow={isBlankDiaRow}
+              /* `setDias`, not `mutDias`: the blank row is not unsaved work. */
+              onTail={() => setDias((xs) => [...xs, blankDia(newKey())])}
             />
             )}
           </div>
@@ -10016,7 +10087,17 @@ export function FabricBomScreen({
                tab asks a different question of the same array. On a
                multi-style order, only THIS style's allocations. */
             rows={rows}
-            seedRow
+            /* ENTER-ONLY ENTRY (user 2026-10-24, "costing la irukka mari"): no
+               "+ Add fabric" — one blank row always stands at the end, typing
+               into it makes it a line and a fresh blank appears under it, and
+               Enter on it untouched leaves the table. Replaces `seedRow`. */
+            tailRow={isBlankAllocation}
+            /* `setLines`, NOT `mut`: putting the blank row back is not the
+               operator's work, so it must not arm "Unsaved changes" on a BOM
+               nobody touched (AGENTS "Editable sub-tables open with a row"). */
+            onTail={() =>
+              setLines((xs) => [...xs, { ...blankLine(newKey()), style_ref_no: styleRef }])
+            }
             /* ## THE WIDTH BUDGET — AGAINST A 1155px PANE
 
                The declared widths sum below the row chrome's total, against
@@ -10079,7 +10160,9 @@ export function FabricBomScreen({
             renderMobileRow={(row) => (
               <FieldGrid>
                 {lineColumns.map((c, ci) => (
-                  <Field key={ci} label={c.header} required={c.required} size="sm">
+                  /* The blank end row holds nothing mandatory — `tailRow` releases
+                     the table cells; a row rendered here releases its own. */
+                  <Field key={ci} label={c.header} required={c.required && !isBlankAllocation(row)} size="sm">
                     {c.cell(row, ci)}
                   </Field>
                 ))}

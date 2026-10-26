@@ -35,7 +35,7 @@ import {
   type MasterFullScreenHandle,
 } from "@/components/masters/master-full-screen";
 import { DataTable, type Column } from "@/components/ui/data-table";
-import { RowActions, type RowMenuItem } from "@/components/ui/row-actions";
+import { RowActions, RowIconAction, type RowMenuItem } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -518,40 +518,56 @@ export function IwoScreen({
       ),
     },
     rowActionsColumn((r) => {
-      // The status steps the old detail page carried as buttons are the row's
-      // own icons (no ⋮ since 2026-09-29), since the editor is a mode of this list.
+      // OPTION D (user 2026-10-26: "apply D", from six loose icons): the row
+      // shows its NEXT STEP, the pencil, and one ⋯ holding Open BOM, Open
+      // Budget, Cancel and Delete (last, red, still confirmed in the row).
+      // A deliberate exception to "no ⋮ on a row" (AGENTS.md, Row actions)
+      // for this list only.
+      const step =
+        perms.canEdit && r.status === "draft"
+          ? { label: "Issue", icon: Send, onClick: () => changeStatus(r, "issued", "Work order issued") }
+          : perms.canEdit && r.status === "issued"
+            ? {
+                label: "Mark complete",
+                icon: CheckCircle2,
+                onClick: () => changeStatus(r, "completed", "Work order completed"),
+              }
+            : null;
       const menu: RowMenuItem[] = [];
       const b = isIwoFor(r.iwo_for) ? bomOf(r.iwo_for) : null;
       if (b && isIwoFor(r.iwo_for)) {
         const f = r.iwo_for;
-        menu.push({ label: `Open ${b.label}`, icon: Layers, onClick: () => router.push(bomHref(f, r.id)) });
+        menu.push({ label: `Open ${b.label}`, icon: Layers, section: "Open", onClick: () => router.push(bomHref(f, r.id)) });
         // The work order's budget, pulled from that BOM (0594).
-        menu.push({ label: "Open Budget", icon: Wallet, onClick: () => router.push(`/orders/iwo-budgets?open=${r.id}`) });
+        menu.push({ label: "Open Budget", icon: Wallet, section: "Open", onClick: () => router.push(`/orders/iwo-budgets?open=${r.id}`) });
       }
-      if (perms.canEdit && r.status === "draft")
-        menu.push({ label: "Issue", icon: Send, onClick: () => changeStatus(r, "issued", "Work order issued") });
-      if (perms.canEdit && r.status === "issued")
-        menu.push({
-          label: "Mark complete",
-          icon: CheckCircle2,
-          onClick: () => changeStatus(r, "completed", "Work order completed"),
-        });
       if (perms.canEdit && (r.status === "draft" || r.status === "issued"))
         menu.push({
           label: "Cancel work order",
           icon: Ban,
           danger: true,
+          separatorBefore: menu.length > 0,
           onClick: () => changeStatus(r, "cancelled", "Work order cancelled"),
         });
       return (
         <RowActions
           label={r.code}
+          // No eye (user 2026-10-26: "view icon a remove pannidu") — the
+          // pencil opens the work order, so View was a second way in.
+          view={false}
+          lead={
+            step ? (
+              <RowIconAction label={step.label} name={r.code} icon={step.icon} onClick={step.onClick} />
+            ) : undefined
+          }
           onEdit={() => openEdit(r)}
           canEdit={perms.canEdit}
           onDelete={() => del(r)}
           canDelete={perms.canDelete}
           isPending={isPending}
-          menu={menu.length ? menu : undefined}
+          menu={menu}
+          menuAs="dropdown"
+          deleteInMenu
         />
       );
     }),

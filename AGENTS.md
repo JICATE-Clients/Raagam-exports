@@ -4,6 +4,25 @@
 This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
 <!-- END:nextjs-agent-rules -->
 
+# ONE Supabase project only (STANDING — CRITICAL)
+
+**This repo works against the Raagam Roja Supabase project and NO OTHER**
+(user 2026-10-26: "we should only work on this raagam roja supabase project
+only, this is very important").
+
+- **Project ref: `xcidbfgujrxginrgvbjw`** — `https://xcidbfgujrxginrgvbjw.supabase.co`,
+  the same ref as `NEXT_PUBLIC_SUPABASE_URL` and the `supabase` server in `.mcp.json`.
+- **Every Supabase MCP call names this ref and nothing else** — SQL, migrations,
+  logs, advisors, edge functions, branches, type generation. The Supabase account
+  can see other projects; listing them is allowed, reading or writing them is not.
+- **Never create, pause, restore, delete or modify any other project**, and never
+  create a new project or organisation, even if a tool offers it.
+- **If a tool, error or doc points at a different ref, STOP and ask the user** —
+  never "fix" it by switching projects, and never change the ref in `.mcp.json`
+  or `.env*`.
+- A database write (migration, `execute_sql` that changes data, branch merge)
+  still needs the user's go-ahead first, even on this project.
+
 # Project conventions
 
 ## Hooks above every early return (STANDING)
@@ -497,7 +516,13 @@ module except Master Data). Three statements:
 **MASTER DATA KEEPS ITS ⋮.** `MasterListShell` defaults `actions.menuAs` to
 `"dropdown"` (its Block/Unblock item), and its collapsed `TableRowActionsMenu`
 variant (client 2026-09-11) is a separate renderer. A NON-master screen that
-borrows the shell passes `menuAs: "icons"` (CAD Lifecycle does). Not yet
+borrows the shell passes `menuAs: "icons"` (CAD Lifecycle does).
+
+**ONE NON-MASTER EXCEPTION: Internal Work Orders** (user 2026-10-26, "apply D",
+after six loose icons per row). Its row is the next step (Issue / Mark
+complete) as an icon, the pencil, and a ⋯ holding Open BOM, Open Budget,
+Cancel and Delete — `menuAs="dropdown"` + `deleteInMenu`, which keeps Delete
+confirmed in the row. A chosen exception for that list, not a new default. Not yet
 enforced by a script — a new `canDelete={r.status === "draft"}` is the shape
 to catch in review.
 
