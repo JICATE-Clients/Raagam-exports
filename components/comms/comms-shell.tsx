@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
-import { Bookmark, Hash, Lock, PenSquare, Search, Users } from "lucide-react";
+import { Bell, Bookmark, CheckCheck, Hash, Lock, MessagesSquare, PenSquare, Search, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAppUser } from "@/lib/auth/permission-context";
@@ -33,7 +33,16 @@ import { NewConversationSheet } from "./new-conversation-sheet";
  * returning to view or the network coming back refreshes too, which is what
  * covers an event missed while disconnected.
  */
-export function CommsShell({ conversations, children }: { conversations: ConversationSummary[]; children: ReactNode }) {
+export function CommsShell({
+  conversations,
+  approvalsWaiting = null,
+  children,
+}: {
+  conversations: ConversationSummary[];
+  /** The approval engine's own queue count; null when unknown (badge off). */
+  approvalsWaiting?: number | null;
+  children: ReactNode;
+}) {
   const pathname = usePathname();
   const router = useRouter();
   const user = useAppUser();
@@ -116,11 +125,24 @@ export function CommsShell({ conversations, children }: { conversations: Convers
         </div>
 
         <nav className="min-h-0 flex-1 overflow-y-auto p-2" aria-label="Conversation list">
-          <ul className="mb-3 space-y-0.5">
-            <ShellLink href="/comms/channels" icon={Hash} label="Browse channels" active={pathname === "/comms/channels"} />
-            <ShellLink href="/comms/saved" icon={Bookmark} label="Saved" active={pathname === "/comms/saved"} />
-            <ShellLink href="/comms/search" icon={Search} label="Search" active={pathname.startsWith("/comms/search")} />
-          </ul>
+          {/* COLLABORATION — the same caption and order the sidebar draws (components/shell/nav.ts). */}
+          <div className="mb-3">
+            <h2 className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Collaboration</h2>
+            <ul className="space-y-0.5">
+              <ShellLink href="/comms" icon={MessagesSquare} label="Messages" active={pathname === "/comms"} />
+              <ShellLink href="/comms/channels" icon={Hash} label="Channels" active={pathname === "/comms/channels"} />
+              <ShellLink href="/comms/search" icon={Search} label="Search" active={pathname.startsWith("/comms/search")} />
+              <ShellLink href="/comms/saved" icon={Bookmark} label="Saved" active={pathname === "/comms/saved"} />
+              <ShellLink href="/comms/notifications" icon={Bell} label="Notifications" active={pathname === "/comms/notifications"} />
+              <ShellLink
+                href="/comms/approvals"
+                icon={CheckCheck}
+                label="My Approvals"
+                active={pathname === "/comms/approvals"}
+                count={approvalsWaiting}
+              />
+            </ul>
+          </div>
 
           <Section title="Channels" empty={filter ? "No channels match." : "You are not in any channel yet."}>
             {channels.map((c) => (
@@ -152,11 +174,14 @@ function ShellLink({
   icon: Icon,
   label,
   active,
+  count = null,
 }: {
   href: string;
   icon: typeof Hash;
   label: string;
   active: boolean;
+  /** A waiting count shown as a badge; 0 or null shows none. */
+  count?: number | null;
 }) {
   return (
     <li>
@@ -168,7 +193,15 @@ function ShellLink({
           active ? "bg-primary-soft font-semibold text-primary" : "text-foreground hover:bg-surface-muted",
         )}
       >
-        <Icon className="h-4 w-4 shrink-0" aria-hidden /> {label}
+        <Icon className="h-4 w-4 shrink-0" aria-hidden /> <span className="min-w-0 flex-1">{label}</span>
+        {!!count && count > 0 && (
+          <span
+            className="shrink-0 rounded-full bg-danger-solid px-1.5 text-[11px] font-bold text-white tabular-nums"
+            aria-label={`${count} waiting`}
+          >
+            {count > 99 ? "99+" : count}
+          </span>
+        )}
       </Link>
     </li>
   );

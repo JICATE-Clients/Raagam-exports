@@ -188,7 +188,7 @@ export async function exportCostSheetReportPdf(m: CostSheetModel, sizeIndex = 0)
       gc("Total cost", (x) => x.grossCost),
       gc(`Profit ${m.terms.margin}%`, (x) => x.margin),
       ...(m.terms.freight + m.terms.insurance > 0 ? [gc("Freight & insurance (on the price)", () => (m.terms.freight + m.terms.insurance) * m.pieceCount)] : []),
-      ...(m.sizes.some((x) => x.priceAdj - x.discount !== 0) ? [gc("Price charges & discount", (x) => x.priceAdj - x.discount)] : []),
+      ...(m.sizes.some((x) => x.priceAdj + x.discount !== 0) ? [gc("Price charges & LC discount", (x) => x.priceAdj + x.discount)] : []),
       gc("Price", (x) => x.price),
     ],
     m.sizes.map((_, i) => i + 1),
@@ -312,7 +312,7 @@ export function exportCostSheetCsv(m: CostSheetModel): void {
   line("Extra charges", (x) => x.extraOverhead);
   line("Gross cost", (x) => x.grossCost);
   line("Margin", (x) => x.margin);
-  line("Discount", (x) => -x.discount);
+  line("LC discount", (x) => x.discount);
   line("Price charges", (x) => x.priceAdj);
   line("Price", (x) => x.price);
   blank();

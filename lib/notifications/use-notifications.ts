@@ -41,6 +41,14 @@ export function useNotifications(
   const instance = useId().replace(/[^A-Za-z0-9]/g, "");
   const [items, setItems] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
+  /**
+   * THE BADGE IS A COUNT, NOT THE LIST'S LENGTH (0746). It used to be the
+   * unread rows among the latest 30, so the 31st unread alert — the approval
+   * from last week under a busy chat — never moved the badge. Now it is a
+   * `count` query of every unread row, kept current by Realtime. Null until the
+   * first answer; the list-derived figure stands in for it meanwhile.
+   */
+  const [unread, setUnread] = useState<number | null>(null);
 
   /**
    * A NETWORK DROP IS NOT AN ERROR SCREEN (2026-09-29, screenshot 123220:
@@ -58,16 +66,29 @@ export function useNotifications(
   const load = useCallback(async () => {
     if (typeof navigator !== "undefined" && !navigator.onLine) return;
     try {
-      const { data, error } = await supabase
-        .from("notifications")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(LIMIT);
-      if (!error) setItems((data ?? []) as Notification[]);
+      const [list, count] = await Promise.all([
+        supabase.from("notifications").select("*").order("created_at", { ascending: false }).limit(LIMIT),
+        supabase.from("notifications").select("id", { count: "exact", head: true }).is("read_at", null),
+      ]);
+      if (!list.error) setItems((list.data ?? []) as Notification[]);
+      if (!count.error && count.count != null) setUnread(count.count);
     } catch {
       // Offline / DNS / connection reset — keep the current list.
     } finally {
       setLoading(false);
+    }
+  }, [supabase]);
+
+  /** Re-count only — after a read state changed somewhere else (another tab, another device). */
+  const recount = useCallback(async () => {
+    try {
+      const { count, error } = await supabase
+        .from("notifications")
+        .select("id", { count: "exact", head: true })
+        .is("read_at", null);
+      if (!error && count != null) setUnread(count);
+    } catch {
+      /* offline — the next load reconciles */
     }
   }, [supabase]);
 
@@ -79,8 +100,10 @@ export function useNotifications(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${userId}` },
         (payload) => {
-          setItems((prev) => [payload.new as Notification, ...prev].slice(0, LIMIT));
-          onInsertRef.current?.(payload.new as Notification & { event_key?: string | null });
+          const row = payload.new as Notification;
+          setItems((prev) => [row, ...prev].slice(0, LIMIT));
+          if (!row.read_at) setUnread((n) => (n === null ? n : n + 1));
+          onInsertRef.current?.(row as Notification & { event_key?: string | null });
         },
       )
       .on(
@@ -89,6 +112,7 @@ export function useNotifications(
         (payload) => {
           const updated = payload.new as Notification;
           setItems((prev) => prev.map((n) => (n.id === updated.id ? updated : n)));
+          void recount();
         },
       )
       /*
@@ -105,7 +129,10 @@ export function useNotifications(
         { event: "DELETE", schema: "public", table: "notifications" },
         (payload) => {
           const gone = (payload.old as { id?: string } | null)?.id;
-          if (gone) setItems((prev) => prev.filter((n) => n.id !== gone));
+          if (gone) {
+            setItems((prev) => prev.filter((n) => n.id !== gone));
+            void recount();
+          }
         },
       )
       .subscribe();
@@ -157,13 +184,14 @@ export function useNotifications(
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("online", onOnline);
     };
-  }, [supabase, userId, instance, load]);
+  }, [supabase, userId, instance, load, recount]);
 
-  const unreadCount = items.reduce((n, i) => (i.read_at ? n : n + 1), 0);
+  const unreadCount = unread ?? items.reduce((n, i) => (i.read_at ? n : n + 1), 0);
 
   const markRead = useCallback(
     async (id: string) => {
       const now = new Date().toISOString();
+      if (items.some((n) => n.id === id && !n.read_at)) setUnread((n) => (n === null ? n : Math.max(n - 1, 0)));
       setItems((prev) =>
         prev.map((n) => (n.id === id && !n.read_at ? { ...n, read_at: now } : n)),
       );
@@ -179,12 +207,13 @@ export function useNotifications(
         /* offline — reconciled on the next load */
       }
     },
-    [supabase],
+    [supabase, items],
   );
 
   const markAllRead = useCallback(async () => {
     const now = new Date().toISOString();
     setItems((prev) => prev.map((n) => (n.read_at ? n : { ...n, read_at: now })));
+    setUnread(0);
     try {
       await supabase
         .from("notifications")

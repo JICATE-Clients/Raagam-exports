@@ -55,7 +55,7 @@ export type SizeFigures = {
   margin: number;
   discount: number;
   priceAdj: number;
-  /** The INR selling price: gross cost + margin − discount ± price charges. */
+  /** The INR selling price: gross cost + margin + LC discount ± price charges. */
   price: number;
   calc: number | null;
   quoted: number | null;
@@ -457,7 +457,8 @@ export function priceParts(s: SizeFigures): { label: string; value: number; tone
     { label: "CMT", value: s.cmt, tone: "cmt" },
     { label: "Embellishment & testing", value: s.process + s.testing, tone: "emb" },
     { label: "Trims", value: s.trims, tone: "trims" },
-    { label: "Overheads", value: s.bank + s.sample + s.wastage + s.overhead + s.extraOverhead, tone: "over" },
-    { label: "Margin", value: Math.max(s.margin + s.priceAdj - s.discount, 0), tone: "margin" },
+    // LC discount is a charge the price recovers (user 2026-10-26), so it sits with the overheads.
+    { label: "Overheads", value: s.bank + s.sample + s.wastage + s.overhead + s.extraOverhead + s.discount, tone: "over" },
+    { label: "Margin", value: Math.max(s.margin + s.priceAdj, 0), tone: "margin" },
   ];
 }

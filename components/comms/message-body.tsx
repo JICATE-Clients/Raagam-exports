@@ -1,9 +1,12 @@
 import { fmtTime } from "@/lib/format";
 import { bodyPieces } from "@/lib/comms/types";
 import { cn } from "@/lib/utils";
+import { RecordChip } from "./record-chip";
 
 /**
- * A message's text with its `<@uuid>` mentions drawn as @Name chips.
+ * A message's text with its `<@uuid>` mentions drawn as @Name chips and its
+ * `<rec:kind:uuid>` links drawn as record chips (resolved for the viewer —
+ * see record-chip.tsx).
  *
  * Names come from the conversation's own member list (`names`), never from the
  * token — the body stores the id so a rename never rewrites history. An id the
@@ -19,17 +22,22 @@ export function MessageBody({
   names,
   meId,
   className,
+  recordLinks = true,
 }: {
   body: string | null;
   names: Map<string, string | null>;
   meId: string;
   className?: string;
+  /** False when the whole message is already a link (Saved, Search). */
+  recordLinks?: boolean;
 }) {
   return (
     <p className={cn("whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground", className)}>
       {bodyPieces(body).map((p, i) =>
         "text" in p ? (
           <span key={i}>{p.text}</span>
+        ) : "record" in p ? (
+          <RecordChip key={i} kind={p.record.kind} id={p.record.id} link={recordLinks} />
         ) : (
           <span
             key={i}

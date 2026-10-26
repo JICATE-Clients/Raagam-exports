@@ -233,6 +233,7 @@ export function RowActions({
   deleteLabel = "Delete",
   menu = [],
   menuAs = "icons",
+  deleteInMenu = false,
   lead,
   row,
   view,
@@ -320,6 +321,13 @@ export function RowActions({
   menu?: RowMenuItem[];
   /** `"dropdown"` keeps the old `⋮` — Master Data only (`MasterListShell`). */
   menuAs?: "icons" | "dropdown";
+  /**
+   * With `menuAs="dropdown"`, Delete becomes the menu's LAST item (red, behind
+   * a rule) instead of an inline bin — and still asks in the row: picking it
+   * opens the same Confirm strip the bin would. Internal Work Orders' option D
+   * (user 2026-10-26: "apply D"): next step + Edit + ⋯.
+   */
+  deleteInMenu?: boolean;
   /**
    * A control drawn FIRST, in the eye's slot — for a list whose primary row
    * action is not "view" (Order Entry's Report, client 2026-09-29). Pair it
@@ -441,7 +449,7 @@ export function RowActions({
           </Link>
         </Tooltip>
       )}
-      {showDelete && (
+      {showDelete && !(deleteInMenu && menuAs === "dropdown") && (
         // `touch` only while blocked: a press-and-hold that reveals a reason is
         // worth the gesture, one that reveals the word "Delete" is not — and the
         // hold swallows the tap, which on the live bin would eat the click.
@@ -466,8 +474,25 @@ export function RowActions({
           </Button>
         </Tooltip>
       )}
-      {menuAs === "dropdown" && menu.length > 0 && (
-        <DropdownMenu items={menu} label={`More actions${suffix}`} />
+      {menuAs === "dropdown" && (menu.length > 0 || (deleteInMenu && showDelete)) && (
+        <DropdownMenu
+          items={
+            deleteInMenu && showDelete
+              ? [
+                  ...menu,
+                  {
+                    label: deleteLabel,
+                    icon: Trash2,
+                    danger: true,
+                    disabled: deleteBlocked,
+                    separatorBefore: menu.length > 0,
+                    onClick: () => setConfirming(true),
+                  },
+                ]
+              : menu
+          }
+          label={`More actions${suffix}`}
+        />
       )}
       {sheet}
     </div>

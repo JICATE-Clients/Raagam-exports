@@ -604,7 +604,9 @@ function costCard(columns: CostCol[], row: CostRow, i: number) {
           <Field
             key={ci}
             label={c.labelFor ? c.labelFor(row) : c.header}
-            required={c.requiredFor ? c.requiredFor(row) : c.required}
+            /* The grid's blank end row (`tailRow`) holds nothing — `ChildGrid`
+               releases its table cells; a row rendered here releases its own. */
+            required={c.requiredFor ? c.requiredFor(row) : c.required && !isBlankLine(row)}
             w={fieldWidthStep(c.width) ?? "hug"}
           >
             {c.cell(row, i)}
@@ -3048,6 +3050,18 @@ export function BudgetScreen({
    *  line the BOM no longer has (`staleKeys`), and a line typed by hand. */
   const pulledRowLocked = (r: CostRow) => r.from_bom && !staleKeys.has(r.key);
   const addCost = (source: BudgetSource) => mutCosts((xs) => [...xs, blankRow(source)]);
+  /**
+   * ENTER-ONLY ENTRY, THE COSTING SCREEN'S WAY (user 2026-10-24: "budgeting screen
+   * also this add button remove and take reference to costing screen"). Every cost
+   * grid passes `tailRow={isBlankLine}`: no "+ Add line", one blank row always
+   * stands at the end, typing into it makes it a line and a fresh blank appears
+   * under it, and Enter on it untouched leaves the table. `isBlankLine` is already
+   * the save-side filter, so the blank is never saved, priced or counted.
+   *
+   * `setCosts`, NOT `mutCosts`: putting the blank back is not the operator's work,
+   * so it must not arm "Unsaved changes" on a budget nobody touched.
+   */
+  const tailCost = (source: BudgetSource) => setCosts((xs) => [...xs, blankRow(source)]);
   const removeCost = (r: CostRow) => {
     if (staleKeys.has(r.key)) {
       setStaleKeys((s0) => {
@@ -3083,6 +3097,8 @@ export function BudgetScreen({
         keepOne={false}
         lockRow={pulledRowLocked}
         onAdd={() => addCost("yarn")}
+        tailRow={isBlankLine}
+        onTail={() => tailCost("yarn")}
         onRemove={removeCost}
         addLabel="+ Add line"
       />
@@ -3100,6 +3116,8 @@ export function BudgetScreen({
         keepOne={false}
         lockRow={pulledRowLocked}
         onAdd={() => addCost("fabric")}
+        tailRow={isBlankLine}
+        onTail={() => tailCost("fabric")}
         onRemove={removeCost}
         addLabel="+ Add line"
       />
@@ -3117,6 +3135,8 @@ export function BudgetScreen({
         keepOne={false}
         lockRow={pulledRowLocked}
         onAdd={() => addCost("material")}
+        tailRow={isBlankLine}
+        onTail={() => tailCost("material")}
         onRemove={removeCost}
         addLabel="+ Add line"
       />
@@ -3134,6 +3154,8 @@ export function BudgetScreen({
         keepOne={false}
         lockRow={pulledRowLocked}
         onAdd={() => addCost("yarn_process")}
+        tailRow={isBlankLine}
+        onTail={() => tailCost("yarn_process")}
         onRemove={removeCost}
         addLabel="+ Add line"
       />
@@ -3151,6 +3173,8 @@ export function BudgetScreen({
         keepOne={false}
         lockRow={pulledRowLocked}
         onAdd={() => addCost("material_process")}
+        tailRow={isBlankLine}
+        onTail={() => tailCost("material_process")}
         onRemove={removeCost}
         addLabel="+ Add line"
       />
@@ -3170,6 +3194,8 @@ export function BudgetScreen({
         keepOne={false}
         lockRow={pulledRowLocked}
         onAdd={() => addCost("garment_process")}
+        tailRow={isBlankLine}
+        onTail={() => tailCost("garment_process")}
         onRemove={removeCost}
         addLabel="+ Add line"
       />
@@ -3187,6 +3213,8 @@ export function BudgetScreen({
         keepOne={false}
         lockRow={pulledRowLocked}
         onAdd={() => addCost("cmt")}
+        tailRow={isBlankLine}
+        onTail={() => tailCost("cmt")}
         onRemove={removeCost}
         addLabel="+ Add line"
       />
@@ -3203,6 +3231,8 @@ export function BudgetScreen({
         lockExisting={!editable}
         keepOne={true}
         onAdd={() => addCost("expense")}
+        tailRow={isBlankLine}
+        onTail={() => tailCost("expense")}
         onRemove={removeCost}
         addLabel="+ Add line"
       />
@@ -3219,6 +3249,8 @@ export function BudgetScreen({
         lockExisting={!editable}
         keepOne={true}
         onAdd={() => addCost("income")}
+        tailRow={isBlankLine}
+        onTail={() => tailCost("income")}
         onRemove={removeCost}
         addLabel="+ Add line"
       />
