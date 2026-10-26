@@ -34,10 +34,15 @@ const ONLINE_WINDOW_MS = 2 * 60 * 1000;
 
 const IST = "Asia/Kolkata";
 
+/**
+ * 12-hour with am/pm, like every other clock in the app (`fmtTime`,
+ * `fmtDateTime` — user 2026-10-01: "not railway format"); seconds kept,
+ * because two punches a few seconds apart are what this screen is read for.
+ */
 function istTime(iso: string) {
-  return new Date(iso).toLocaleTimeString("en-GB", {
+  return new Date(iso).toLocaleTimeString("en-IN", {
     timeZone: IST,
-    hour: "2-digit",
+    hour: "numeric",
     minute: "2-digit",
     second: "2-digit",
   });
