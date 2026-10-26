@@ -307,10 +307,11 @@ export function ConversationView({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex items-center gap-2 border-b border-border px-3 py-2">
+        {/* Always shown: no list sits beside the view any more (2026-10-26). */}
         <Link
-          href="/comms"
-          className="rounded-md p-1.5 text-muted-foreground hover:bg-surface-muted @3xl/comms:hidden"
-          aria-label="Back to conversations"
+          href={conversation.kind === "channel" ? "/comms/channels" : "/comms"}
+          className="rounded-md p-1.5 text-muted-foreground hover:bg-surface-muted"
+          aria-label={conversation.kind === "channel" ? "Back to channels" : "Back to chats"}
         >
           <ArrowLeft className="h-4 w-4" />
         </Link>

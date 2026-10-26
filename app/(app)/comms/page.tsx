@@ -1,17 +1,11 @@
-import { MessagesSquare } from "lucide-react";
+import { listMyConversations } from "@/lib/comms/service";
+import { ConversationList } from "@/components/comms/conversation-list";
 
 /**
- * Messages — the hub's home. On a wide pane the conversation list sits beside
- * this placeholder; on a narrow one the shell shows only the list here.
+ * Chats — the hub's home: the person's conversations, full width. The hub frame
+ * no longer draws a list beside every view (user 2026-10-26), so this page is
+ * where a conversation is picked. `communication:view` is checked by the layout.
  */
-export default function CommsHomePage() {
-  return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
-      <MessagesSquare className="h-10 w-10 text-muted-foreground" aria-hidden />
-      <p className="text-sm font-medium text-foreground">Pick a conversation</p>
-      <p className="max-w-sm text-xs text-muted-foreground">
-        Choose one on the left, or press New to message a colleague or start a group.
-      </p>
-    </div>
-  );
+export default async function CommsHomePage() {
+  return <ConversationList conversations={await listMyConversations()} />;
 }
