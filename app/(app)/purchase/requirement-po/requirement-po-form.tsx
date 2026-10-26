@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ArrowRight, Ban, Boxes, Check, ChevronRight, Lock, Undo2, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, Ban, Boxes, Check, ChevronRight, Lock, Ruler, Undo2, X } from "lucide-react";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { Button } from "@/components/ui/button";
 import { FIELD_WIDTH_CSS } from "@/components/ui/field";
@@ -10,6 +10,8 @@ import { FilterPill, type FilterPillOption } from "@/components/ui/filter-pill";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Tabs } from "@/components/ui/tabs";
+import { Sheet, type SheetOrigin } from "@/components/ui/sheet";
+import { SubSheetFooter } from "@/components/orders/sub-sheet-footer";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
 import { useToast } from "@/components/ui/toast";
@@ -105,6 +107,23 @@ type GridRow = RequirementLine & { key: string; row: RowState; /** a vendor is c
 
 const CURRENCIES = ["USD", "EUR", "GBP"] as const;
 
+/** One order-grid row: an item in one slice and colour, its sizes underneath (0757). */
+type SizeGroup = { key: string; first: GridRow; members: GridRow[]; sized: boolean };
+function sizeGroupsOf(rows: readonly GridRow[]): SizeGroup[] {
+  const by = new Map<string, GridRow[]>();
+  for (const r of rows) {
+    const k = `${r.source_id}|${r.item_id}|${r.slice_base.trim().toUpperCase()}|${(r.colour ?? "").toUpperCase()}|${r.uom_id ?? ""}`;
+    by.set(k, [...(by.get(k) ?? []), r]);
+  }
+  return [...by].map(([key, ms]) => {
+    // The order's own size sequence (XS S M L XL), never alphabetical.
+    const members = ms
+      .slice()
+      .sort((a, b) => (a.size_sort ?? 1e9) - (b.size_sort ?? 1e9) || (a.size_name ?? "").localeCompare(b.size_name ?? ""));
+    return { key, first: members[0], members, sized: members.some((m) => !!m.size_name) };
+  });
+}
+
 export function RequirementPoForm({
   lines,
   vendorsByClass,
@@ -162,6 +181,8 @@ export function RequirementPoForm({
   /* One ticked order's lines on the right at a time (the fold rule); "items" = the
      All Items view. */
   const [activeKey, setActiveKey] = useState(initialOrderId ?? "");
+  /** The open Size Breakup — which item row, and the button it grows out of. */
+  const [sizeSheet, setSizeSheet] = useState<{ key: string; origin: SheetOrigin } | null>(null);
   /* ITEM-WISE (client via user 2026-10-23: "multi order, multiple item — we are missing
      the multiple item concept"). The same item needed by several orders is ONE line to
      the vendor — offered once two orders are ticked. One item's breakup open at a time. */
@@ -355,9 +376,10 @@ export function RequirementPoForm({
   function openRe(g: (typeof groups)[number]) {
     setActiveKey(g.id);
     const first = g.toPrice[0] ?? g.rows[0];
+    const row = sizeGroupsOf(g.rows).find((sg) => sg.members.some((m) => m.key === first.key));
     requestAnimationFrame(() =>
       requestAnimationFrame(() => {
-        const el = document.getElementById(rateId(first.key));
+        const el = document.getElementById(rateId(row?.first.key ?? first.key));
         if (el) focusField(el);
       }),
     );
@@ -538,11 +560,13 @@ export function RequirementPoForm({
     );
   };
 
-  /** One line, the item then its slice · colour in grey — not two stacked lines (V6). */
-  const itemCell = (name: string, spec: string, struck = false) => (
-    <div className={cn("flex min-w-0 items-baseline gap-1.5", struck && "text-muted-foreground line-through")}>
-      <Truncated className="min-w-0 shrink text-sm font-medium">{name}</Truncated>
-      {spec ? <Truncated className="min-w-0 shrink-[2] text-xs text-muted-foreground">{spec}</Truncated> : null}
+  /* THE ITEM CELL IS THE NAME ONLY (user 2026-10-26: "in item field item name after you
+     descripting the color, size no need there remove it"). Size lives in the Size Breakup
+     now, and the colour / slice is the hover — so two rows of one item in two colours can
+     still be told apart without either being printed in the cell. */
+  const itemCell = (name: string, describe: string, struck = false) => (
+    <div title={describe ? `${name} · ${describe}` : name} className={cn("min-w-0", struck && "text-muted-foreground line-through")}>
+      <Truncated className="min-w-0 text-sm font-medium">{name}</Truncated>
     </div>
   );
   /* THE QUANTITY WORDS FOLLOW WHAT IS BOUGHT (user 2026-10-26): yarn and fabric are bought
@@ -552,11 +576,47 @@ export function RequirementPoForm({
   const QTY = byWeight
     ? { required: "Required Wt", toOrder: "To Order Wt", po: "Order PO Wt (Kg)" }
     : { required: "Required Qty", toOrder: "To Order Qty", po: "Order PO Qty" };
-  /** Required · To Order, read under the Order PO box — the two figures it is typed against. */
+  /** The Order PO box itself — capped at To Order (spec 6). Shared by the row and the Size Breakup. */
+  const qtyInput = (r: GridRow, id?: string) => (
+    <Input
+      id={id}
+      type="number"
+      min={0}
+      max={r.balance_qty}
+      inputMode="decimal"
+      aria-label={`${QTY.po}, ${lineDescription(r)}${r.size_name ? `, size ${r.size_name}` : ""}, at most ${r.balance_qty} ${r.uom_code ?? ""}`}
+      title={`At most ${fmtNumber(r.balance_qty)} ${r.uom_code ?? ""}: ${fmtNumber(r.required_qty)} on the requirement sheet${r.ordered_qty > 0 ? `, less ${fmtNumber(r.ordered_qty)} already on other POs` : ""}`}
+      className={cn(CELL_INPUT, "min-w-0 flex-1 text-right tabular-nums")}
+      disabled={r.row.skip}
+      value={r.row.skip ? "0" : r.row.qty}
+      onChange={(e) => {
+        const typed = num(e.target.value);
+        // Spec 6: excess is never possible — a figure above the balance snaps back to it.
+        setRow(r, { qty: e.target.value === "" ? "" : typed > r.balance_qty ? String(capQty(typed, r.balance_qty)) : e.target.value });
+      }}
+    />
+  );
+  /** A line's Qty cell: the box and its unit on ONE line; Required · To Order float under it on focus. */
+  const qtyBox = (r: GridRow) => (
+    <div className="group/qty relative flex items-center gap-1">
+      {qtyInput(r)}
+      {/* The Purchase UOM rides inside the quantity — it is what the number is counted in. */}
+      <span className="w-10 shrink-0 truncate text-[11px] font-semibold text-muted-foreground uppercase">{r.uom_code ?? ""}</span>
+      {qtyFacts(r.required_qty, r.balance_qty, r.ordered_qty)}
+    </div>
+  );
+  /*
+   * REQUIRED · TO ORDER ON DEMAND (user 2026-10-26, screenshot 3736: "for all same like
+   * that … if the field is clicked they can see that details, like compact it"). Printed
+   * under every box they made each row two lines tall and ran into the Rate column; now
+   * they are a small tag that floats under the box while it has the cursor (or the
+   * pointer), over the row beneath rather than pushing it down — so nothing jumps. The
+   * parent carries `group/qty relative`. A sized row has no tag: its pop-up shows both.
+   */
   const qtyFacts = (required: number, toOrder: number, ordered: number) => (
     <div
-      className="flex gap-2 px-2 text-[11px] leading-4 whitespace-nowrap text-muted-foreground tabular-nums"
-      title={`${QTY.required} ${fmtNumber(required)} · ${QTY.toOrder} ${fmtNumber(toOrder)}${ordered > 0 ? ` — ${fmtNumber(ordered)} already on other POs (drafts count)` : ""}`}
+      role="note"
+      className="pointer-events-none absolute top-full right-0 z-20 mt-0.5 hidden gap-2 rounded-md border border-[#dde4eb] bg-white px-2 py-0.5 text-[11px] leading-4 whitespace-nowrap text-muted-foreground tabular-nums shadow-md group-focus-within/qty:flex group-hover/qty:flex"
     >
       <span>
         Req <span className="font-semibold text-foreground">{fmtNumber(required)}</span>
@@ -564,6 +624,7 @@ export function RequirementPoForm({
       <span>
         To order <span className="font-semibold text-foreground">{fmtNumber(toOrder)}</span>
       </span>
+      {ordered > 0 ? <span>· {fmtNumber(ordered)} on other POs</span> : null}
     </div>
   );
   /* GST % PER LINE (user 2026-10-26, 0756). A line follows the header's slab until it is
@@ -600,6 +661,7 @@ export function RequirementPoForm({
    * A TIGHT TABLE (user 2026-10-24, screenshot 3704). Item 200 + Note 112 + Qty 144 +
    * Rate 88 + GST 72 + Delivery 144 + Amount 88 + 72 = 920, + 40 chrome = 960 — inside
    * the ~1,060px pane beside the order list (1920 screen at 125%), so no sideways scroll.
+   * Every row is ONE line: Required · To Order float under the Qty box on focus (`qtyFacts`).
    * ChildGrid's DEFAULT switch (a table from a 512px pane, cards below it on a phone). No
    * Budget column since 2026-10-26 — see Amount.
    *
@@ -638,35 +700,7 @@ export function RequirementPoForm({
         />
       ),
     },
-    {
-      header: QTY.po,
-      width: FIELD_WIDTH_CSS.code,
-      cell: (r) => (
-        <div className="py-0.5">
-          <div className="flex items-center gap-1">
-            <Input
-              type="number"
-              min={0}
-              max={r.balance_qty}
-              inputMode="decimal"
-              aria-label={`${QTY.po}, ${lineDescription(r)}, at most ${r.balance_qty} ${r.uom_code ?? ""}`}
-              title={`At most ${fmtNumber(r.balance_qty)} ${r.uom_code ?? ""}: ${fmtNumber(r.required_qty)} on the requirement sheet${r.ordered_qty > 0 ? `, less ${fmtNumber(r.ordered_qty)} already on other POs` : ""}`}
-              className={cn(CELL_INPUT, "h-7 min-w-0 flex-1 text-right tabular-nums")}
-              disabled={r.row.skip}
-              value={r.row.skip ? "0" : r.row.qty}
-              onChange={(e) => {
-                const typed = num(e.target.value);
-                // Spec 6: excess is never possible — a figure above the balance snaps back to it.
-                setRow(r, { qty: e.target.value === "" ? "" : typed > r.balance_qty ? String(capQty(typed, r.balance_qty)) : e.target.value });
-              }}
-            />
-            {/* The Purchase UOM rides inside the quantity — it is what the number is counted in. */}
-            <span className="w-10 shrink-0 truncate text-[11px] font-semibold text-muted-foreground uppercase">{r.uom_code ?? ""}</span>
-          </div>
-          {qtyFacts(r.required_qty, r.balance_qty, r.ordered_qty)}
-        </div>
-      ),
-    },
+    { header: QTY.po, width: FIELD_WIDTH_CSS.code, cell: (r) => qtyBox(r) },
     {
       header: `Rate ${cur}`,
       width: FIELD_WIDTH_CSS.hug,
@@ -858,11 +892,9 @@ export function RequirementPoForm({
       header: QTY.po,
       width: FIELD_WIDTH_CSS.code,
       cell: (g) => (
-        <div className="py-0.5">
-          <div className="flex h-7 items-center justify-end gap-1 px-2 text-sm font-medium tabular-nums">
-            {g.qty > 0 ? fmtNumber(g.qty) : "—"}
-            <span className="w-10 shrink-0 truncate text-left text-[11px] font-semibold text-muted-foreground uppercase">{g.uom_code ?? ""}</span>
-          </div>
+        <div className="group/qty relative flex h-8 items-center justify-end gap-1 px-2 text-sm font-medium tabular-nums">
+          {g.qty > 0 ? fmtNumber(g.qty) : "—"}
+          <span className="w-10 shrink-0 truncate text-left text-[11px] font-semibold text-muted-foreground uppercase">{g.uom_code ?? ""}</span>
           {qtyFacts(
             g.members.reduce((a, m) => a + m.required_qty, 0),
             g.members.reduce((a, m) => a + m.balance_qty, 0),
@@ -982,11 +1014,234 @@ export function RequirementPoForm({
 
   const itemsToPrice = itemGroups.filter((g) => g.supplied && g.qty > 0 && !g.rate && !g.mixedRate).length;
 
+  // ---------- SIZE BREAKUP (user 2026-10-26, 0757) ----------
+  /*
+   * ONE ROW PER ITEM, NOT PER SIZE. A trim bought in S · M · L · XL was five rows; it is
+   * now one — item + slice-without-size + colour + unit — and its sizes open in a pop-up.
+   * The requirement lines underneath are untouched: each size is still its own line with
+   * its own req_key, balance and saved PO line, so nothing about the save, the cap or the
+   * GRN changes. A row's Note, Rate, GST, Delivery and Skip are typed ONCE and go to every
+   * size under it (the item-wise view's `setMembers`); only the quantity is per size.
+   */
+  /** What the item cell's hover says: the slice without its size, and the colour. */
+  const describeGroup = (g: SizeGroup) =>
+    lineDescription({ item_name: "", slice_label: g.first.slice_base, colour: g.first.colour }).replace(/^ · /, "");
+  /** One value when every size agrees, else null — the cell then reads "mixed". */
+  const common = <T,>(vals: T[]): T | null => (new Set(vals).size === 1 ? vals[0] : null);
+  const groupSkip = (g: SizeGroup) => g.members.every((m) => m.row.skip);
+  const groupQty = (g: SizeGroup) => g.members.reduce((a, m) => a + (m.row.skip ? 0 : num(m.row.qty)), 0);
+  const openSizes = (g: SizeGroup, el: HTMLElement) => setSizeSheet({ key: g.key, origin: el.getBoundingClientRect() });
+
+  /*
+   * The order grid on size rows. Same widths as `poLineColumns` (920 + 40 = 960). The
+   * Qty cell of a sized row is a BUTTON showing the total — click it, or ↓ on it (the
+   * key that opens any list here), for the per-size quantities. It is `data-field-trigger`
+   * so Tab lands on it like a field (AGENTS, Tab lands on fields) and ↓ is the way in.
+   */
+  const groupColumns: ChildGridColumn<SizeGroup>[] = [
+    { header: "Item", width: FIELD_WIDTH_CSS.party, cell: (g) => itemCell(g.first.item_name, describeGroup(g), groupSkip(g)) },
+    {
+      header: "Note / Remark",
+      width: FIELD_WIDTH_CSS.range,
+      cell: (g) => {
+        const note = common(g.members.map((m) => (m.row.note ?? "").trim()));
+        return (
+          <Input
+            id={`rpo-note-${g.first.key}`}
+            maxLength={200}
+            aria-label={`Note to the vendor, ${g.first.item_name} ${describeGroup(g)}`}
+            title={note ? `Prints as: ${withNote(lineDescription(g.first), note).toUpperCase()}` : "Printed after the item on the PO, e.g. PROCESS: CUT & SEAL"}
+            className={CELL_INPUT}
+            placeholder={note == null ? "mixed" : undefined}
+            disabled={groupSkip(g)}
+            value={note ?? ""}
+            onChange={(e) => setMembers(g.members, { note: e.target.value })}
+          />
+        );
+      },
+    },
+    {
+      header: QTY.po,
+      width: FIELD_WIDTH_CSS.code,
+      cell: (g) => {
+        if (!g.sized) return qtyBox(g.first);
+        const sizes = g.members.map((m) => m.size_name).filter(Boolean);
+        return (
+          <div className="group/qty flex items-center gap-1">
+            <button
+                type="button"
+                data-field-trigger
+                aria-haspopup="dialog"
+                aria-label={`Size breakup, ${g.first.item_name} ${describeGroup(g)} — ${sizes.length} sizes, ${fmtNumber(groupQty(g))} ${g.first.uom_code ?? ""} on this PO. Press down arrow to open.`}
+                title={`${sizes.join(" · ")} — open the size breakup`}
+                disabled={groupSkip(g)}
+                onClick={(e) => openSizes(g, e.currentTarget)}
+                onKeyDown={(e) => {
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    openSizes(g, e.currentTarget);
+                  }
+                }}
+                /* LOOKS LIKE EVERY OTHER QUANTITY (user 2026-10-26: "why this much large pill",
+                   screenshot 3737 "looks mistake", screenshot 3738 "remove that 7 sizes, just the
+                   icon, which is clickable — align it"). The total is drawn exactly as the boxes
+                   draw theirs: foreground, no grouping, right-aligned, and `pr-2.5` because that
+                   is `Input`'s own padding — so 3230 here ends where 3230 ends in the box above.
+                   The ruler on the left is the only sign it opens; the count is in the label. */
+                className="flex h-8 min-w-0 flex-1 items-center pr-2.5 pl-2 text-sm tabular-nums hover:bg-[#f2f7fb] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:opacity-50"
+              >
+                <Ruler aria-hidden className="size-4 shrink-0 text-[#037bb8]" />
+                <span className="ml-auto">{Number(groupQty(g).toFixed(3))}</span>
+              </button>
+            <span className="w-10 shrink-0 truncate text-[11px] font-semibold text-muted-foreground uppercase">{g.first.uom_code ?? ""}</span>
+            {/* NO Req · To order HERE (user 2026-10-26, screenshot 3735): the pop-up shows both per size. */}
+          </div>
+        );
+      },
+    },
+    {
+      header: `Rate ${cur}`,
+      width: FIELD_WIDTH_CSS.hug,
+      className: RATE_COL,
+      cell: (g) => {
+        const rate = common(g.members.filter((m) => !m.row.skip).map((m) => m.row.rate.trim()));
+        return (
+          <Input
+            type="number"
+            min={0}
+            inputMode="decimal"
+            id={rateId(g.first.key)}
+            aria-label={`Rate per ${g.first.uom_code ?? "unit"}, ${g.first.item_name} ${describeGroup(g)}${g.sized ? ", every size" : ""}`}
+            className={cn(CELL_INPUT, "text-right tabular-nums")}
+            placeholder={rate == null ? "mixed" : undefined}
+            disabled={groupSkip(g)}
+            value={rate ?? ""}
+            onChange={(e) => setMembers(g.members, { rate: e.target.value })}
+          />
+        );
+      },
+    },
+    {
+      header: "GST %",
+      width: FIELD_WIDTH_CSS.num,
+      cell: (g) =>
+        gstCell(
+          `rpo-gst-${g.first.key}`,
+          `${g.first.item_name} ${describeGroup(g)}`,
+          common(g.members.map((m) => m.row.gst ?? slab.pct)),
+          groupSkip(g),
+          (pct) => setMembers(g.members, { gst: pct }),
+        ),
+    },
+    {
+      header: "Delivery",
+      width: FIELD_WIDTH_CSS.code,
+      cell: (g) =>
+        deliveryCell(
+          `rpo-date-${g.first.key}`,
+          common(g.members.map((m) => m.row.date)) ?? "",
+          `${g.first.item_name} ${describeGroup(g)}`,
+          groupSkip(g),
+          defaultFor(g.first.delivery_date),
+          (v) => setMembers(g.members, { date: v }),
+        ),
+    },
+    {
+      header: "Amount",
+      width: FIELD_WIDTH_CSS.hug,
+      align: "right",
+      cell: (g) => {
+        if (groupSkip(g))
+          return (
+            <span className="text-xs font-semibold text-muted-foreground" title="Not on this PO — its balance stays for another vendor's PO">
+              Skipped
+            </span>
+          );
+        if (groupQty(g) <= 0)
+          return (
+            <span className="text-muted-foreground" title="Not ordered on this PO">
+              —
+            </span>
+          );
+        const live = g.members.filter((m) => !m.row.skip);
+        const a = live.reduce((t, m) => t + num(m.row.qty) * num(m.row.rate), 0);
+        if (a <= 0) return null;
+        const above = live.some((m) => flags[m.key]?.above);
+        return (
+          <span
+            title={above ? "Above Approved Budget" : undefined}
+            className={cn("inline-flex items-center gap-1 text-sm font-medium tabular-nums", above && "font-semibold text-[#b42318]")}
+          >
+            {above ? <AlertTriangle aria-label="Above Approved Budget" className="size-3.5" /> : null}
+            {fmtFixed(a, 2)}
+          </span>
+        );
+      },
+    },
+    {
+      header: "",
+      width: FIELD_WIDTH_CSS.num,
+      cell: (g) => {
+        const skip = groupSkip(g);
+        const what = `${g.first.item_name} ${describeGroup(g)}${g.sized ? " (every size)" : ""}`;
+        return (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            aria-label={skip ? `Put ${what} back on this PO` : `Skip ${what} on this PO`}
+            title={skip ? "Put back on this PO" : "Skip on this PO — the balance stays for another PO"}
+            onClick={() => setMembers(g.members, { skip: !skip })}
+          >
+            {skip ? <Undo2 aria-hidden className="size-4" /> : <Ban aria-hidden className="size-4 text-muted-foreground" />}
+          </Button>
+        );
+      },
+    },
+  ];
+
+  /* The pop-up's own grid: one row per size — Size · Required · To Order · Order PO Qty,
+     the four the spec names, each in its own column (the pop-up has the room the order
+     grid does not). 72 + 112 + 112 + 144 + 40 = 480, inside `md`'s ~1,100px. */
+  const sizeColumns: ChildGridColumn<GridRow>[] = [
+    { header: "Size", width: FIELD_WIDTH_CSS.num, cell: (r) => <span className="text-sm font-semibold">{r.size_name ?? "—"}</span> },
+    {
+      header: QTY.required,
+      width: FIELD_WIDTH_CSS.range,
+      align: "right",
+      cell: (r) => <span className="text-sm tabular-nums text-muted-foreground">{fmtNumber(r.required_qty)}</span>,
+    },
+    {
+      header: QTY.toOrder,
+      width: FIELD_WIDTH_CSS.range,
+      align: "right",
+      cell: (r) => (
+        <span
+          className="text-sm font-medium tabular-nums"
+          title={r.ordered_qty > 0 ? `${fmtNumber(r.required_qty)} required less ${fmtNumber(r.ordered_qty)} already on other POs (drafts count)` : undefined}
+        >
+          {fmtNumber(r.balance_qty)}
+        </span>
+      ),
+    },
+    {
+      header: QTY.po,
+      width: FIELD_WIDTH_CSS.code,
+      cell: (r) => (
+        <div className="flex items-center gap-1">
+          {qtyInput(r, `rpo-sqty-${r.key}`)}
+          <span className="w-10 shrink-0 truncate text-[11px] font-semibold text-muted-foreground uppercase">{r.uom_code ?? ""}</span>
+        </div>
+      ),
+    },
+  ];
+  const sheetGroup = sizeSheet && activeGroup ? (sizeGroupsOf(activeGroup.rows).find((g) => g.key === sizeSheet.key) ?? null) : null;
+
   const rePane = (g: (typeof groups)[number]) => (
     // default-row: exempt -- the rows are the order's requirement lines, derived; nothing is added here
-    <ChildGrid<GridRow>
-      columns={poLineColumns}
-      rows={g.rows}
+    <ChildGrid<SizeGroup>
+      columns={groupColumns}
+      rows={sizeGroupsOf(g.rows)}
       flatRows
       hideAdd
       hideRemove
@@ -1479,6 +1734,44 @@ export function RequirementPoForm({
             </div>
           )}
 
+
+      {/* THE SIZE BREAKUP POP-UP — a sub-detail of the open PO (AGENTS, A sub-detail Sheet's
+          size): `md` because it carries a ChildGrid, centred on the pane, grown out of the
+          Qty button, and no Save of its own — the sizes are written by the PO's Save. */}
+      <Sheet
+        open={!!sheetGroup}
+        onClose={() => setSizeSheet(null)}
+        size="md"
+        alignToPane
+        origin={sizeSheet?.origin ?? null}
+        title={sheetGroup ? `Size breakup — ${sheetGroup.first.item_name}${describeGroup(sheetGroup) ? ` · ${describeGroup(sheetGroup)}` : ""}` : "Size breakup"}
+        footer={<SubSheetFooter onDone={() => setSizeSheet(null)} />}
+      >
+        {sheetGroup ? (
+          <div className="space-y-2">
+            {/* default-row: exempt -- one row per size of the item, derived from the requirement; nothing is added here */}
+            <ChildGrid<GridRow>
+              columns={sizeColumns}
+              rows={sheetGroup.members}
+              flatRows
+              hideAdd
+              hideRemove
+              keepOne={false}
+              onAdd={() => false}
+              onRemove={() => {}}
+              frameless
+              headerClassName={GRID_HEAD}
+            />
+            <p className="px-2 text-sm text-muted-foreground">
+              Total on this PO:{" "}
+              <span className="font-semibold text-foreground tabular-nums">
+                {fmtNumber(groupQty(sheetGroup))} {sheetGroup.first.uom_code ?? ""}
+              </span>{" "}
+              of {fmtNumber(sheetGroup.members.reduce((a, m) => a + m.balance_qty, 0))} to order
+            </p>
+          </div>
+        ) : null}
+      </Sheet>
 
       {/* THE BOTTOM BAR (V6): the total, why Submit waits, a way to the next blank rate,
           and the buttons — kept in view while the lines scroll.

@@ -43,6 +43,13 @@ export type RequirementLine = {
   required_qty: number;
   ordered_qty: number;
   balance_qty: number;
+  /** The requirement's own size (0757) — NULL on an IWO / SWO line, whose plan has no size. */
+  size_id: string | null;
+  size_name: string | null;
+  /** The order's size sequence, else the size-group master's; NULL sorts last. */
+  size_sort: number | null;
+  /** The slice without its size ("WHITE · L" → "WHITE") — Raise PO groups sizes on it. */
+  slice_base: string;
 };
 
 /** A bought-item vendor of one item class (`po_vendors_for_class`, 0737). */
