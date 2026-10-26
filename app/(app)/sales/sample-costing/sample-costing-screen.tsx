@@ -73,7 +73,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BackLink } from "@/components/ui/back-link";
-import { CostingCardLegend, CostingQueueCard, costingCardShared } from "./costing-card";
+import { CostingQueueCard, costingCardShared } from "./costing-card";
 import { RowIconAction } from "@/components/ui/row-actions";
 import { MoreActions } from "@/components/ui/more-actions";
 import { Input } from "@/components/ui/input";
@@ -1867,11 +1867,6 @@ export function SampleCostingScreen({
             router.refresh();
           }}
         />
-      ) : null}
-      {/* EACH WORD ONCE (user 2026-10-23, screenshot 101313: "intha page mariye ella
-          costing page kku"): what every card shares is said here, and stripped below. */}
-      {viewMode.view === "cards" && filtered.length > 0 ? (
-        <CostingCardLegend costing={cardShared.costing} sample={cardShared.sample} currency={cardShared.currency} year={cardShared.year} />
       ) : null}
       <SampleCards<CostingListRow>
         rows={filtered}

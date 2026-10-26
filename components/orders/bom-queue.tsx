@@ -15,6 +15,7 @@ import { ToggleGroup } from "@/components/ui/segmented";
 import { MobileCardList, type CardStat } from "@/components/masters/mobile-card-list";
 import { FigureCell, OrderQueueTable } from "@/components/orders/order-queue-table";
 import { DaysOut } from "@/components/orders/days-out";
+import { sharedPrefix, sharedValue } from "@/lib/ui/shared-words";
 import {
   createdByFacet,
   urgencyFacet,
@@ -87,7 +88,7 @@ export { DaysOut };
  * what its table showed and what an operator picking up a half-done BOM looks
  * for. Both come off the same `BomTaskRow`, so neither costs a query.
  */
-export function bomCardStats(t: BomTaskRow, middle: CardStat): CardStat[] {
+export function bomCardStats(t: BomTaskRow, middle: CardStat, sharedYear: string | null = null): CardStat[] {
   return [
     {
       label: "Production",
@@ -101,7 +102,8 @@ export function bomCardStats(t: BomTaskRow, middle: CardStat): CardStat[] {
       label: "Delivery",
       value: t.delivery_date ? (
         <>
-          {fmtDate(t.delivery_date)}
+          {/* DD/MM alone when every card shares the year (2026-10-23, "each word once"). */}
+          {sharedYear ? fmtDate(t.delivery_date).slice(0, 5) : fmtDate(t.delivery_date)}
           <DaysOut iso={t.delivery_date} />
         </>
       ) : (
@@ -740,6 +742,12 @@ export function BomQueue({
       );
     });
   }, [tasks, query, quickStatus, quickFilter, matchesFacets, queueWordOf]);
+  /* EACH WORD ONCE ON THE CARDS (user 2026-10-23, screenshot 155209: "duplicate
+     words lam remove pannu"), as Sample Costing's card: the RE series prefix
+     ("HO/RE/26-27/") and the delivery year every card shares are left off. A
+     plain pass — cheap, no memo. */
+  const cardPrefix = sharedPrefix(filtered.map((t) => t.sc_no ?? t.order_code));
+  const cardYear = sharedValue(filtered.map((t) => t.delivery_date?.slice(0, 4)));
 
   /**
    * THE FIGURE ON EACH WORD (user 2026-09-24) — over the list with the search
@@ -949,7 +957,10 @@ export function BomQueue({
            dense layout: it is the identity the operator scans by, ~125px of
            mono, and it used to share a row with a pill that could be 88px of
            "Recalculate". */
-        title={(t) => <span className="font-mono">{t.sc_no ?? t.order_code ?? "—"}</span>}
+        title={(t) => {
+          const re = t.sc_no ?? t.order_code;
+          return <span className="font-mono">{(re && cardPrefix && re.startsWith(cardPrefix) ? re.slice(cardPrefix.length) : re) ?? "—"}</span>;
+        }}
         /* CUSTOMER AND PO ON THE SECONDARY LINE, under the RE No. Mono on the PO
            only — a customer name in mono reads as a code. The card truncates the
            line; a tap opens the BOM, whose header names the order in full. */
@@ -963,7 +974,11 @@ export function BomQueue({
         // ON A FOUR-WORD QUEUE THE ICON FOLLOWS THE TAB'S WORD, never the BOM's own
         // (user 2026-10-16, screenshot 3581): there "Updated" means saved, NOT
         // approved, and the ✔ it drew put a green tick on every Under Progress card.
+        /* NO MARK WHILE A TAB IS PICKED (2026-10-23): every card under it then
+           wears the tab's own word — the ⚠ on each Pending card said "Pending"
+           three times beside the tab that already says it. */
         pill={(t) => {
+          if (quickStatus && quickFilter) return null;
           const w = isApproved ? queueWordOf(t) : null;
           return w ? (
             <StatusMark word={QUICK[w].text} mark={QUICK_MARK[w]} tone={QUICK_TONE[w]} />
@@ -971,7 +986,8 @@ export function BomQueue({
             <StatusMark word={bomStatusText(t.status)} tone={queueTone(t.status)} />
           );
         }}
-        stats={(t) => bomCardStats(t, stat(t))}
+        stats={(t) => bomCardStats(t, stat(t), cardYear)}
+        bareStats
         /* THE QUEUE CARD (operator, 2026-09-18, reference screenshot) — see
            `queue` on `MobileCardList`. A tap opens the BOM straight away; no
            drawer and no slide-over. Since 2026-10-23 it is the Sample Costing

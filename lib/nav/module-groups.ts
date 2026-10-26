@@ -1071,6 +1071,9 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         label: "Procurement",
         description: "Indents, RFQs and purchase orders",
         children: [
+          // doc/purchase/puchase.md (2026-10-23): RE numbers in, requirement lines out, the manager types the rate.
+          // First in the group (user 2026-10-26): a PO starts from the requirement, then is worked on Purchase Orders.
+          { href: "/purchase/requirement-po", label: "Raise PO", description: "Pick RE numbers; what they still need lists itself; type the rate" },
           { href: "/purchase/orders", label: "Purchase Orders", description: "Create from budget, submit and approve" },
           { href: "/purchase/rfq", label: "RFQ", description: "Request quotes from vendors and award" },
           { href: "/purchase/indents", label: "Indents", description: "Department indents and their lines" },
@@ -1349,6 +1352,60 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           { href: "/finance/ledger", label: "General Ledger", description: "Journals and ledger enquiry" },
           { href: "/finance/other-entries", label: "Other Income / Expense", description: "Entries outside AR and AP" },
           { href: "/finance/pnl", label: "Shipment P&L", description: "Profitability per shipment" },
+        ],
+      },
+    ],
+  },
+
+  // RESOLVE HUB — broken-item tickets (doc/resolve/resolve-hub-plan.md §9).
+  // Reporting is for everyone; Work, Analytics and Administration each check
+  // their own `RH` key on the page, so the module grant only opens the hubs.
+  "/resolve": {
+    label: "Resolve Hub",
+    description: "Report a problem, work the jobs, and see what stays broken",
+    module: "resolve",
+    entries: [
+      {
+        kind: "group",
+        slug: "reporting",
+        label: "Reporting",
+        description: "Report something broken and follow your reports",
+        children: [
+          { href: "/resolve/report", label: "Report a Problem", description: "Something is broken — say where and what" },
+          { href: "/resolve/my-reports", label: "My Reports", description: "Everything you reported or joined, and where it stands" },
+          { href: "/resolve/my-complaints", label: "My Complaints", description: "Complaints you raised under your own name, and their answers" },
+          // Redirects to the PUBLIC /p/track (no login — an anonymous complaint
+          // is followed by its token alone). The row is an in-module hop because
+          // check:nav resolves every leaf under app/(app); see that page.
+          { href: "/resolve/track", label: "Track Complaint", description: "Follow an anonymous complaint with its tracking link" },
+        ],
+      },
+      {
+        kind: "group",
+        slug: "work",
+        label: "Work",
+        description: "Jobs to fix, the triage queue and who is carrying what",
+        children: [
+          { href: "/resolve/my-work", label: "My Work", description: "Jobs assigned to you, in progress, to claim and done" },
+          { href: "/resolve/triage", label: "Triage Queue", description: "Decide, assign and spot-check — sorted by score" },
+          { href: "/resolve/jobs", label: "All Jobs", description: "Every job in this unit, with filters and CSV export" },
+          { href: "/resolve/workload", label: "Workload", description: "Open, blocked and overdue jobs per team and person" },
+          { href: "/resolve/complaints", label: "Complaints", description: "Complaints you handle or sit on the committee for" },
+        ],
+      },
+      { kind: "link", href: "/resolve/analytics", label: "Analytics" },
+      {
+        kind: "group",
+        slug: "setup",
+        label: "Administration",
+        description: "Trades, places and QR stickers, teams, routing and unit settings",
+        children: [
+          { href: "/resolve/setup/trades", label: "Trades", description: "Electrical, plumbing, carpentry … the kinds of fix" },
+          { href: "/resolve/setup/places", label: "Places & QR", description: "Rooms, machines and assets, and their QR stickers" },
+          { href: "/resolve/setup/teams", label: "Teams", description: "Trade teams, their lead and members" },
+          { href: "/resolve/setup/routing", label: "Routing", description: "Send a trade or place to a named owner" },
+          { href: "/resolve/setup/complaint-categories", label: "Complaint Categories", description: "Who handles each kind of complaint, and who may see the sensitive ones" },
+          { href: "/resolve/setup/unit-settings", label: "Unit Settings", description: "Heads, SLA days, escalation and triage weights" },
         ],
       },
     ],

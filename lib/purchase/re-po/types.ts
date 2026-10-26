@@ -1,0 +1,181 @@
+import { z } from "zod";
+
+/**
+ * PURCHASE ORDER FROM AN RE'S REQUIREMENT (doc/purchase/puchase.md, 0737).
+ *
+ * The Purchase Manager picks one or more RE numbers; every requirement line
+ * those REs still have to buy lists itself in its PURCHASE unit with the
+ * balance; the manager types the rate. Pure — no `server-only` — so the screen
+ * and the save action read one set of rules.
+ */
+
+/** Where a requirement comes from (0740): a garment order's Material BOM, an IWO's
+ *  accessories plan, or a sample work order's (SWO, bought through its SIW). */
+export type SourceKind = "re" | "iwo" | "swo";
+export const SOURCE_KIND_LABEL: Record<SourceKind, string> = { re: "RE", iwo: "IWO", swo: "SWO" };
+
+/** One requirement still to buy (`po_requirement_lines`, 0737 · 0740). */
+export type RequirementLine = {
+  source_kind: SourceKind;
+  /** The garment order (RE) or the IWO — what the screen picks and groups by. */
+  source_id: string;
+  /** What the operator reads: "HO/RE/26-27/0013", "HO/IWO/2627/0003", "SWO/26-27/0001 · SIW/26-27/0002". */
+  source_no: string;
+  garment_order_id: string | null;
+  iwo_id: string | null;
+  sales_order_id: string | null;
+  re_no: string | null;
+  customer: string | null;
+  delivery_date: string | null;
+  item_id: string;
+  item_name: string;
+  item_class_id: string | null;
+  item_class: string | null;
+  /** The item master's category (0748) — the PO header's Category narrows to it. */
+  category_id: string | null;
+  category: string | null;
+  slice_label: string;
+  colour: string | null;
+  /** item | slice | colour, upper-cased — what a PO line remembers it by. */
+  req_key: string;
+  uom_id: string | null;
+  uom_code: string | null;
+  required_qty: number;
+  ordered_qty: number;
+  balance_qty: number;
+};
+
+/** A bought-item vendor of one item class (`po_vendors_for_class`, 0737). */
+export type ClassVendor = {
+  id: string;
+  code: string | null;
+  name: string;
+  lead_days: number | null;
+  /** On or before the promised date, over every received line. NULL = no history yet. */
+  on_time_pct: number | null;
+  received_lines: number;
+};
+
+/** One requirement line's identity across the screen and the action. */
+export const lineKeyOf = (l: Pick<RequirementLine, "source_id" | "req_key">) =>
+  `${l.source_id}::${l.req_key}`;
+
+/** What a requirement line is called on the PO: item · slice · colour. */
+export function lineDescription(l: Pick<RequirementLine, "item_name" | "slice_label" | "colour">): string {
+  const slice = l.slice_label.trim();
+  const colour = l.colour?.trim() ?? "";
+  const parts = [l.item_name, slice];
+  // The colour only where the slice does not already say it — a tape's slice IS its
+  // colour, and a colour-and-size slice reads "WHITE · L" (screenshot 3692 showed
+  // "WHITE · L · WHITE").
+  const sliceParts = slice.toUpperCase().split("·").map((x) => x.trim());
+  if (colour && !sliceParts.includes(colour.toUpperCase())) parts.push(colour);
+  return parts.filter(Boolean).join(" · ");
+}
+
+/**
+ * GST slabs (spec point 4: "selects applicable GST tax structures"). CGST + SGST
+ * for a vendor in the same state, IGST for one outside it. Labels kept SHORT — the
+ * header is one row (2026-10-23) and the GST box is 176px; the split (6 + 6) is
+ * the slab halved, so it need not be spelt out.
+ */
+export const GST_SLABS = [
+  { id: "c5", pct: 5, kind: "cgst_sgst", label: "5% · CGST+SGST" },
+  { id: "c12", pct: 12, kind: "cgst_sgst", label: "12% · CGST+SGST" },
+  { id: "c18", pct: 18, kind: "cgst_sgst", label: "18% · CGST+SGST" },
+  { id: "i5", pct: 5, kind: "igst", label: "5% · IGST" },
+  { id: "i12", pct: 12, kind: "igst", label: "12% · IGST" },
+  { id: "i18", pct: 18, kind: "igst", label: "18% · IGST" },
+] as const;
+export type GstSlabId = (typeof GST_SLABS)[number]["id"];
+export const gstSlab = (id: string) => GST_SLABS.find((g) => g.id === id) ?? GST_SLABS[1];
+
+/** Spec point 6: never above the balance, never below nothing. */
+export function capQty(typed: number, balance: number): number {
+  if (!Number.isFinite(typed) || typed < 0) return 0;
+  return Math.min(typed, balance);
+}
+
+const money = (n: number) => Math.round(n * 100) / 100;
+
+/** Taxable, GST and total for the PO, in the PO's own currency. */
+export function poTotals(
+  lines: readonly { qty: number; rate: number }[],
+  gstPct: number,
+): { taxable: number; gst: number; total: number } {
+  const taxable = money(lines.reduce((a, l) => a + (l.qty > 0 && l.rate > 0 ? l.qty * l.rate : 0), 0));
+  const gst = money((taxable * gstPct) / 100);
+  return { taxable, gst, total: money(taxable + gst) };
+}
+
+export const rePoLineInput = z.object({
+  source_id: z.string().uuid(),
+  req_key: z.string().min(1),
+  qty: z.number().min(0),
+  rate: z.number().min(0).nullable(),
+  delivery_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Delivery date is required"),
+});
+
+/** A free-text commercial term: trimmed, capitals, blank → null. */
+const rePoText = z
+  .string()
+  .trim()
+  .max(200)
+  .toUpperCase()
+  .nullable()
+  .transform((v) => v || null);
+
+export const rePoInput = z
+  .object({
+    source_ids: z.array(z.string().uuid()).min(1, "Choose at least one RE / SWO / IWO"),
+    vendor_id: z.string().uuid({ message: "Choose the vendor" }),
+    po_type: z.enum(["local", "import"]),
+    currency_code: z.string().nullable(),
+    exchange_rate: z.number().positive().nullable(),
+    gst: z.string(),
+    payment_terms: z.string().trim().max(200).nullable(),
+    /* The Commercial section (user 2026-10-26: before the MD, not after). Optional so
+       a caller that predates it still saves; text is stored in capitals (AGENTS CAPITALS). */
+    commercial: z
+      .object({
+        pay_mode: rePoText,
+        ship_mode: rePoText,
+        ship_type: rePoText,
+        place_of_delivery: rePoText,
+        invoice_send_to: rePoText,
+        vat_against: rePoText,
+        duty_against: rePoText,
+        freight_type: z.enum(["itemwise", "consolidated"]).nullable(),
+      })
+      .optional(),
+    charges: z
+      .array(z.object({ kind: z.enum(["add", "less"]), label: z.string().trim().min(1).max(120).toUpperCase(), amount: z.number().positive() }))
+      .default([]),
+    lines: z.array(rePoLineInput).min(1, "There is nothing to order"),
+  })
+  .superRefine((v, ctx) => {
+    if (v.po_type === "import" && (!v.currency_code || !v.exchange_rate)) {
+      ctx.addIssue({ code: "custom", message: "An import PO needs its currency and exchange rate", path: ["currency_code"] });
+    }
+  });
+export type RePoInput = z.infer<typeof rePoInput>;
+export type RePoLineInput = z.infer<typeof rePoLineInput>;
+
+/** What the hidden budget check tells the screen — never the budget figure. */
+export type BudgetFlag = { key: string; hasBudget: boolean; above: boolean };
+
+/** A PO raised on Raise PO — a row of its Updated / Draft lists (`listRaisedPos`). */
+export type RaisedPo = {
+  id: string;
+  code: string | null;
+  status: string;
+  order_date: string | null;
+  total_amount: number;
+  master_vendor_id: string | null;
+  vendor: string | null;
+  /** RE / SWO / IWO numbers its lines were ordered against. */
+  source_nos: string[];
+  customers: string[];
+  created_at: string | null;
+  created_by: string | null;
+};

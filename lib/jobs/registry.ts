@@ -72,6 +72,23 @@ export const JOBS = {
     runNowNote: "Old alerts and log rows are deleted now, by the retention set on Notifications ▸ Settings. This cannot be undone.",
     deletes: true,
   },
+  "resolve-escalation": {
+    label: "Resolve Hub overdue jobs",
+    does: "Tells the owner's manager about jobs a day late, the unit head about jobs three days late, and sends directors a digest of jobs a week late.",
+    // escalation_hour 8 IST (rh_unit_settings default) = 02:30 UTC.
+    schedule: "30 2 * * *",
+    when: "Daily at 8:00 am",
+    everyMinutes: 1440,
+    runNowNote: "Overdue jobs not yet escalated at their level are escalated now. Each job is escalated once per level.",
+  },
+  "resolve-outbox": {
+    label: "Resolve Hub alerts",
+    does: "Sends the Resolve Hub alerts still waiting — new problems, assignments, fixes, disputes — and retries any that failed.",
+    schedule: "*/5 * * * *",
+    when: "Every 5 minutes",
+    everyMinutes: 5,
+    runNowNote: "Waiting alerts are sent now. Nothing already sent is sent again.",
+  },
 } as const satisfies Record<string, JobDef>;
 
 export type JobKey = keyof typeof JOBS;

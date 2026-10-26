@@ -121,6 +121,7 @@ export function MobileCardList<Row>({
   badge,
   columns = 1,
   queue = false,
+  bareStats = false,
   selected,
   hue,
 }: {
@@ -322,6 +323,14 @@ export function MobileCardList<Row>({
    * colour is the party's (`hue`).
    */
   queue?: boolean;
+  /**
+   * A `queue` card's figures WITHOUT their label row (user 2026-10-23,
+   * screenshot 155209 — Orders ▸ Accessories Plan: "duplicate words lam remove
+   * pannu"). Every card in the grid printed PRODUCTION · STYLES · DELIVERY over
+   * the same three columns; Sample Costing's card dropped its labels the same
+   * way. The label stays for a screen reader (`sr-only`). Opt-in.
+   */
+  bareStats?: boolean;
   /** A ticked card (Grouping ▸ Ungrouped) — ringed in the theme colour. */
   selected?: (r: Row) => boolean;
   /**
@@ -418,6 +427,7 @@ export function MobileCardList<Row>({
               subtitle={subtitle?.(r)}
               pill={pill?.(r)}
               stats={stats?.(r)}
+              bareStats={bareStats}
               note={footerNote?.(r)}
               actions={showFooter && rowHasAction(r) ? actions(r) : null}
               onEdit={onEdit ? () => onEdit(r) : undefined}
@@ -722,6 +732,7 @@ function QueueCard({
   subtitle,
   pill,
   stats,
+  bareStats = false,
   note,
   actions,
   onEdit,
@@ -732,6 +743,7 @@ function QueueCard({
   subtitle?: ReactNode;
   pill?: ReactNode;
   stats?: CardStat[];
+  bareStats?: boolean;
   note?: ReactNode;
   actions: ReactNode;
   onEdit?: () => void;
@@ -771,7 +783,7 @@ function QueueCard({
             </span>
           </div>
         )}
-        <LabelledStats stats={stats} />
+        <LabelledStats stats={stats} bare={bareStats} />
       </button>
       {(note || actions) && (
         /* `flex-wrap`: past what one line holds, the actions drop to a second
@@ -828,7 +840,7 @@ const STAT_COLS: Record<number, string> = {
   4: "grid-cols-[repeat(4,minmax(min-content,1fr))]",
 };
 
-function LabelledStats({ stats }: { stats?: CardStat[] }) {
+function LabelledStats({ stats, bare = false }: { stats?: CardStat[]; bare?: boolean }) {
   if (!stats || stats.length === 0) return null;
   return (
     // `mt-auto`: the strip sits on the card's floor, so it is level across a
@@ -841,7 +853,7 @@ function LabelledStats({ stats }: { stats?: CardStat[] }) {
     >
       {stats.map((s, i) => (
         <div key={i} className="flex flex-col gap-0.5">
-          <dt className="whitespace-nowrap text-[9.5px] font-medium uppercase leading-3 tracking-wide text-muted-foreground">
+          <dt className={bare ? "sr-only" : "whitespace-nowrap text-[9.5px] font-medium uppercase leading-3 tracking-wide text-muted-foreground"}>
             {s.label}
           </dt>
           <dd

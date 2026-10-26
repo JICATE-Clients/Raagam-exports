@@ -57,3 +57,19 @@ export async function markAllRead(): Promise<Result> {
     .is("read_at", null);
   return { ok: true };
 }
+
+/** Mark one of the current user's notifications read (RLS: own rows only). */
+export async function markNotificationRead(id: string): Promise<Result> {
+  const user = await getAppUser();
+  if (!user) return { ok: false, error: "Not authenticated" };
+  if (typeof id !== "string" || !id) return { ok: false, error: "Unknown notification" };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("notifications")
+    .update({ read_at: new Date().toISOString() })
+    .eq("id", id)
+    .is("read_at", null);
+  if (error) return { ok: false, error: "That notification could not be marked read." };
+  return { ok: true };
+}

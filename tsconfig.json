@@ -58,6 +58,7 @@
     "scripts/check-amendment-modules.mts",
     "scripts/check-permission-overrides.mts",
     "scripts/check-screen-catalog.mts",
+    "scripts/check-comms.mts",
     "scripts/check-order-value.mts",
     "scripts/check-order-status-filter.mts",
     "scripts/check-bom-requirement.mts",

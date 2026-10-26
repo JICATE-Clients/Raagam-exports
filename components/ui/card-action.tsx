@@ -38,13 +38,18 @@ export const CardActionContext = createContext(false);
 
 export type CardTone = "success" | "danger" | "info" | "violet" | "primary" | "teal" | "warning";
 
-/* Static literals (Tailwind scans source text). */
+/* Static literals (Tailwind scans source text).
+   PRIMARY'S HOVER MUST NOT SPELL `bg-primary` (user 2026-10-26, screenshot
+   101445: "intha icon vendam"). The raagam skin paints the filled-button
+   gradient on any `button[class*="bg-primary"]`, and `hover:bg-primary/10`
+   matches that substring, so the Edit tile showed up as a solid gradient
+   square. `--primary-soft` is the same 4% tint, written so it doesn't match. */
 const TONE: Record<CardTone, string> = {
   success: "text-success hover:bg-success/10",
   danger: "text-danger hover:bg-danger/10",
   info: "text-info hover:bg-info/10",
   violet: "text-violet-600 hover:bg-violet-500/10 dark:text-violet-400",
-  primary: "text-primary hover:bg-primary/10",
+  primary: "text-primary hover:bg-[var(--primary-soft)]",
   teal: "text-teal-600 hover:bg-teal-500/10 dark:text-teal-400",
   warning: "text-warning hover:bg-warning/10",
 };
@@ -201,6 +206,23 @@ export const DUO = {
     <Duo>
       <path d={PENCIL} {...FILL} />
       <path d={PENCIL} />
+    </Duo>
+  ),
+  /* The pencil and the "!" in the same ringed circle as ok / no / redo (user
+     2026-10-26, artifact "Budget Card Edit Icon": "apply A") — the Budgeting
+     card's Open budget and its can't-value-yet warning. */
+  editRing: (
+    <Duo>
+      <circle cx="12" cy="12" r="10" {...FILL} />
+      <circle cx="12" cy="12" r="10" />
+      <path d="M14.3 7.7a1.5 1.5 0 0 1 2.1 2.1L10 16.2l-2.8.6.6-2.8Z" />
+    </Duo>
+  ),
+  alert: (
+    <Duo>
+      <circle cx="12" cy="12" r="10" {...FILL} />
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 7.5v5.5M12 16.5h.01" />
     </Duo>
   ),
 };

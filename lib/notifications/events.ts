@@ -20,7 +20,7 @@
 
 export type NotificationEventDef = {
   /** Groups the catalog on the admin screen. */
-  module: "approvals" | "orders" | "cad" | "ta" | "admin";
+  module: "approvals" | "orders" | "cad" | "ta" | "comms" | "admin" | "resolve";
   label: string;
   /**
    * Who the CODE sends it to, in the operator's words. The admin can ADD
@@ -186,6 +186,158 @@ export const NOTIFICATION_EVENTS = {
     fallbackToAdmins: true,
   },
 
+  // ---- Resolve Hub (broken-item tickets) ------------------------------------
+  // Raised only by lib/resolve/outbox.ts, which drains rh_outbox — the rows a
+  // trigger on rh_ticket_activity writes (doc/resolve/resolve-hub-plan.md §8).
+  // The actor is never a recipient; that is decided in SQL.
+  "resolve.ticket_routed": {
+    module: "resolve",
+    label: "Problem reported to you",
+    audience: "The person the problem was routed to, and its team",
+    staticAudience: null,
+    mandatory: false,
+    push: true,
+    fallbackToAdmins: true,
+  },
+  "resolve.dangerous": {
+    module: "resolve",
+    label: "Dangerous problem reported",
+    audience: "The person the problem was routed to (also by SMS, when a provider is set up)",
+    staticAudience: null,
+    // A hazard nobody hears about is the one alert that must not be switchable.
+    mandatory: true,
+    push: true,
+    fallbackToAdmins: true,
+  },
+  "resolve.assigned": {
+    module: "resolve",
+    label: "Job assigned to you",
+    audience: "The person the job was assigned to",
+    staticAudience: null,
+    mandatory: false,
+    push: true,
+    fallbackToAdmins: false,
+  },
+  "resolve.joined": {
+    module: "resolve",
+    label: "Someone else reported the same problem",
+    audience: "The job's owner and assignee",
+    staticAudience: null,
+    mandatory: false,
+    push: true,
+    fallbackToAdmins: false,
+  },
+  "resolve.fixed": {
+    module: "resolve",
+    label: "Your problem was fixed",
+    audience: "Whoever reported it, and everyone who joined",
+    staticAudience: null,
+    mandatory: false,
+    push: true,
+    fallbackToAdmins: false,
+  },
+  "resolve.closed": {
+    module: "resolve",
+    label: "Problem closed",
+    audience: "Whoever reported it, and everyone who joined",
+    staticAudience: null,
+    mandatory: false,
+    push: true,
+    fallbackToAdmins: false,
+  },
+  "resolve.disputed": {
+    module: "resolve",
+    label: "A fix was disputed",
+    audience: "The job's owner (a second dispute also goes to the unit head)",
+    staticAudience: null,
+    mandatory: false,
+    push: true,
+    fallbackToAdmins: true,
+  },
+  "resolve.rated": {
+    module: "resolve",
+    label: "Your fix was rated",
+    audience: "The person who fixed it",
+    staticAudience: null,
+    mandatory: false,
+    push: true,
+    fallbackToAdmins: false,
+  },
+  "resolve.overdue": {
+    module: "resolve",
+    label: "Job overdue",
+    audience: "The owner's manager, then the estate owner, then the unit head, as it gets later",
+    staticAudience: null,
+    mandatory: false,
+    push: true,
+    fallbackToAdmins: true,
+  },
+  "resolve.digest": {
+    module: "resolve",
+    label: "Overdue jobs digest",
+    audience: "The unit's directors, for jobs a week or more late",
+    staticAudience: null,
+    mandatory: false,
+    push: true,
+    fallbackToAdmins: false,
+  },
+
+  // Complaints (plan §10.6). A title never carries the complainant's name, and
+  // for a sensitive category not the subject either — the ref number only.
+  // Never falls back to the administrators: a sensitive complaint must reach
+  // its listed handlers and nobody else.
+  "resolve.complaint_new": {
+    module: "resolve",
+    label: "New complaint to handle",
+    audience: "The complaint's handler",
+    staticAudience: null,
+    // The handler's 72-hour clock starts now; an alert they cannot switch off.
+    mandatory: true,
+    push: true,
+    fallbackToAdmins: false,
+  },
+  "resolve.complaint_escalated": {
+    module: "resolve",
+    label: "Complaint not answered in time",
+    audience: "The unit head, or for a sensitive category its oversight members",
+    staticAudience: null,
+    mandatory: false,
+    push: true,
+    fallbackToAdmins: false,
+  },
+  "resolve.complaint_resolved": {
+    module: "resolve",
+    label: "Your complaint was resolved",
+    audience: "Whoever raised it (never an anonymous complainant — nobody knows who they are)",
+    staticAudience: null,
+    mandatory: false,
+    push: true,
+    fallbackToAdmins: false,
+  },
+
+  // ---- Messages (Communication Hub, 0737 / 0746) ------------------------------
+  // Raised by lib/comms/notify.ts, keyed on the message id (dedupe_key), so a
+  // retried send or a re-mentioning edit can never alert anyone twice.
+  "comms.direct_message": {
+    module: "comms",
+    label: "New direct or group message",
+    audience:
+      "The other people in a direct message or group, unless they muted it — one unread alert per conversation, not one per message",
+    staticAudience: null,
+    mandatory: false,
+    push: true,
+    fallbackToAdmins: false,
+  },
+  "comms.mention": {
+    module: "comms",
+    label: "Mentioned in a message",
+    audience: "The person @mentioned, if they are an active member of that conversation (even when they muted it)",
+    staticAudience: null,
+    mandatory: false,
+    push: true,
+    fallbackToAdmins: false,
+  },
+
   // ---- Administration -------------------------------------------------------
   "admin.test": {
     module: "admin",
@@ -220,5 +372,7 @@ export const EVENT_MODULE_LABEL: Record<NotificationEventDef["module"], string> 
   orders: "Orders",
   cad: "CAD",
   ta: "T&A",
+  comms: "Messages",
   admin: "Administration",
+  resolve: "Resolve Hub",
 };

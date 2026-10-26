@@ -68,11 +68,11 @@ export type CatalogModule = {
 
 /**
  * Module roots that ARE a screen, not a hub of cards: the dashboard, the
- * analytics page, and the approvals inbox (its only child, Flows, sits
- * beneath it). Every other module root renders cards and falls back to the
- * module grant.
+ * analytics page, the approvals inbox (its only child, Flows, sits beneath
+ * it), and Messages (the Communication Hub's conversation list, 0737). Every
+ * other module root renders cards and falls back to the module grant.
  */
-const ROOT_SCREENS = new Set(["/", "/analytics", "/approvals"]);
+const ROOT_SCREENS = new Set(["/", "/analytics", "/approvals", "/comms"]);
 
 /** Build the tree. Pure; cheap enough to call per render, memoised below. */
 export function buildScreenCatalog(): CatalogModule[] {

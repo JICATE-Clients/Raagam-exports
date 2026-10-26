@@ -226,14 +226,17 @@ export async function listPurchaseOrders(): Promise<PoWithVendor[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("purchase_orders")
-    .select("*, vendors!vendor_id(name)")
+    .select("*, vendors!vendor_id(name), master_vendor:master_vendors!master_vendor_id(name)")
     // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
     .order("created_at", { ascending: true });
 
   return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) => {
-    const vendor = row.vendors as { name: string } | null;
-    const { vendors: _v, ...rest } = row;
+    // 0737: a PO raised from a requirement names the MASTER DATA vendor instead.
+    const vendor =
+      (row.vendors as { name: string } | null) ?? (row.master_vendor as { name: string } | null);
+    const { vendors: _v, master_vendor: _mv, ...rest } = row;
     void _v;
+    void _mv;
     return {
       ...(rest as unknown as PurchaseOrder),
       vendor_name: vendor?.name ?? null,
@@ -248,7 +251,7 @@ export async function getPurchaseOrder(
 
   const { data: po } = await supabase
     .from("purchase_orders")
-    .select("*, vendors!vendor_id(name)")
+    .select("*, vendors!vendor_id(name), master_vendor:master_vendors!master_vendor_id(name)")
     .eq("id", id)
     .maybeSingle();
   if (!po) return null;
@@ -273,9 +276,12 @@ export async function getPurchaseOrder(
     ]);
 
   const poRow = po as Record<string, unknown>;
-  const vendor = poRow.vendors as { name: string } | null;
-  const { vendors: _v, ...poRest } = poRow;
+  // 0737: a PO raised from a requirement names the MASTER DATA vendor instead.
+  const vendor =
+    (poRow.vendors as { name: string } | null) ?? (poRow.master_vendor as { name: string } | null);
+  const { vendors: _v, master_vendor: _mv, ...poRest } = poRow;
   void _v;
+  void _mv;
 
   return {
     ...(poRest as unknown as PurchaseOrder),

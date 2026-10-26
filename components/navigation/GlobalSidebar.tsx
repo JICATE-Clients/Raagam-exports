@@ -20,6 +20,9 @@ const RAIL_BANDS: { label?: string; hrefs: string[] }[] = [
   { label: "Commercial", hrefs: ["/sales", "/orders"] },
   { label: "Operations", hrefs: ["/planning", "/purchase", "/stores", "/production", "/logistics"] },
   { label: "People & Accounts", hrefs: ["/hr", "/finance"] },
+  // Its own captioned band, not among the overview screens (user 2026-10-26:
+  // "message module kku oru name vachi heading … dashboard kulla vendam").
+  { label: "Collaboration", hrefs: ["/comms"] },
   { label: "System", hrefs: ["/masters", "/integration", "/admin"] },
 ];
 
