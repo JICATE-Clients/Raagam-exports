@@ -167,15 +167,16 @@ eq("§4.1 net", s1.net, 214);
 eq("§4.1 margin", s1.margin, 53.5);
 eq("§4.1 wastage", s1.wastage, 10.7);
 eq("§4.1 discount", s1.discount, 4.28);
-eq("§4.1 gross", s1.gross, 273.92);
-// §4.2 — (273.92 + 2 + 1) / 83
-eq("§4.2 calc price", s1.calc, 3.3364, 4);
+// LC discount is ADDED (user 2026-10-26): 214 + 10.7 + 53.5 + 4.28 = 282.48 (was 273.92 with it subtracted).
+eq("§4.1 gross", s1.gross, 282.48);
+// §4.2 — (282.48 + 2 + 1) / 83
+eq("§4.2 calc price", s1.calc, 3.4395, 4);
 eq("§4.2 no quote → margin is the typed 25 %", s1.effectiveMarginPct, 25);
 eq("§4.2 missing rate → no calc price", costingSummary({ ...base, terms: { ...base.terms, exchange_rate: "" } }).groups[0].pieces[0].calc, null);
 
 const quoted = costingSummary({ ...base, quotes: { [quoteKey("top", null)]: "3.40" } }).groups[0].pieces[0];
-eq("§4.2 delta", quoted.delta, 3.4 - 3.3364, 4);
-eq("§4.2 delta %", quoted.deltaPct, ((3.4 - 3.3364) / 3.3364) * 100);
+eq("§4.2 delta", quoted.delta, 3.4 - 3.4395, 4);
+eq("§4.2 delta %", quoted.deltaPct, ((3.4 - 3.4395) / 3.4395) * 100);
 
 // §5.2 — a quote that earns < 20 % flags; one that earns ≥ 20 % does not
 const cheap = costingSummary({ ...base, quotes: { [quoteKey("top", null)]: "3.00" } });
@@ -253,25 +254,25 @@ eq("v2 §4.1 health 14.9 poor", marginHealth(14.9) === "poor", true);
 eq("v2 approval floor unchanged at 20", MARGIN_FLOOR_PCT, 20);
 
 // UX plan P2.4 — target solver. Net 214, wastage 5 %, discount 2 %, freight 2 + insurance 1, rate 83.
-// Target $3.10 → INR 3.10 × 83 − 3 = 254.30; margin = (254.30 − 214 × 1.03) / 214 = 15.83 %.
+// Target $3.10 → INR 3.10 × 83 − 3 = 254.30; margin = (254.30 − 214 × 1.07) / 214 = 11.83 % (LC discount adds).
 const tgt = solveTarget({ net: 214 }, base.terms, 3.1, 1, 0.118);
-eq("P2.4 margin at target", tgt?.marginPct ?? null, 15.83);
+eq("P2.4 margin at target", tgt?.marginPct ?? null, 11.83);
 eq("P2.4 below floor", tgt?.clearsFloor ?? null, false);
-// Net that clears 20 %: 254.30 ÷ (1 + .05 − .02 + .20) = 206.75 → cut 7.25
-eq("P2.4 cost cut to reach 20 %", tgt?.costCut ?? null, 7.25);
-eq("P2.4 cut per kg of fabric", tgt?.perKgFabric ?? null, 61.44);
+// Net that clears 20 %: 254.30 ÷ (1 + .05 + .02 + .20) = 200.24 → cut 13.76
+eq("P2.4 cost cut to reach 20 %", tgt?.costCut ?? null, 13.76);
+eq("P2.4 cut per kg of fabric", tgt?.perKgFabric ?? null, 116.61);
 // Feeding the solved margin back as the quoted price reproduces the target.
-eq("P2.4 round-trip", costingSummary({ ...base, quotes: { [quoteKey("top", null)]: "3.10" } }).groups[0].pieces[0].effectiveMarginPct, 15.83);
+eq("P2.4 round-trip", costingSummary({ ...base, quotes: { [quoteKey("top", null)]: "3.10" } }).groups[0].pieces[0].effectiveMarginPct, 11.83);
 eq("P2.4 fabric kg ignores the stored allowance", fabricKgFor([{ ...w("p", "f", "100"), wastage_pct: "3" }], null), 0.1, 3);
-// 2026-10-14 negotiation read-out — calc 3.3364 at 25 %; the buyer says $3.40 at rate 83.
-// ₹/pc = (3.40 − 3.3364) × 83 = 5.28; margin at 3.40 = (282.20 − 3 − 220.42) ÷ 214 = 27.47 % → +2.47 pts.
-const imp = targetImpact({ net: 214, calc: 3.3364 }, base.terms, 3.4, 1);
+// 2026-10-14 negotiation read-out — calc 3.4395 at 25 %; the buyer says $3.50 at rate 83.
+// ₹/pc = (3.50 − 3.4395) × 83 = 5.02; margin at 3.50 = (290.50 − 3 − 228.98) ÷ 214 = 27.35 % → +2.35 pts.
+const imp = targetImpact({ net: 214, calc: 3.4395 }, base.terms, 3.5, 1);
 eq("impact: calc price earns the typed 25 %", imp?.calcMarginPct ?? null, 25);
-eq("impact: margin shift at the target", imp?.marginShiftPts ?? null, 2.47);
-eq("impact: rupees per piece", imp?.inrPerUnit ?? null, 5.28);
+eq("impact: margin shift at the target", imp?.marginShiftPts ?? null, 2.35);
+eq("impact: rupees per piece", imp?.inrPerUnit ?? null, 5.02);
 eq("impact: one cent is 0.83 rupee", imp?.perCentInr ?? null, 0.83);
 eq("impact: one cent is 0.388 margin points", imp?.perCentMarginPts ?? null, 0.388, 3);
-eq("impact: a target BELOW calc gives rupees away", (targetImpact({ net: 214, calc: 3.3364 }, base.terms, 3.3, 1)?.inrPerUnit ?? 0) < 0, true);
+eq("impact: a target BELOW calc gives rupees away", (targetImpact({ net: 214, calc: 3.4395 }, base.terms, 3.4, 1)?.inrPerUnit ?? 0) < 0, true);
 eq("impact: no calc price, no read-out", targetImpact({ net: 214, calc: null }, base.terms, 3.4, 1), null);
 
 // 0693 — the SIZE matrix. Body 162 / 258 / 270 across M, L, XL and a 40 g rib typed once;

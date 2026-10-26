@@ -18,7 +18,10 @@
  *                        + Testing & FOB + Bank charges
  *   Margin / Wastage / Overhead / Discount = Net × their %
  *   Gross cost (INR)   = Net + Wastage + Overhead + Σ Overhead charges  (UI/UX spec §3 rail)
- *   Price (INR)        = Gross cost + Margin − Discount ± Σ Price charges
+ *   Price (INR)        = Gross cost + Margin + LC discount ± Σ Price charges
+ *                        LC discount is ADDED (user 2026-10-26: "lc discount now minusing
+ *                        … make it plus"): the bank keeps it out of the LC proceeds, so the
+ *                        price carries it to recover it — a cost, never a rebate.
  *                                                             (= the costing spec's
  *                                                             "Gross Price", §4.1)
  *
@@ -355,7 +358,7 @@ export type PieceFigures = {
   priceAdj: number;
   /** Net + Wastage + Overhead + extra overheads — what the piece COSTS before any margin. */
   grossCost: number;
-  /** The INR selling price: Gross cost + Margin − Discount. */
+  /** The INR selling price: Gross cost + Margin + LC discount. */
   gross: number;
   /** In the target currency; null while the exchange rate is missing. */
   calc: number | null;
@@ -413,7 +416,7 @@ function effectiveMargin(
 ): number | null {
   if (quotedOrCalc == null || rate == null || rate <= 0 || net <= 0) return null;
   const priceFromQuote = quotedOrCalc * rate - freight - insurance;
-  return round(((priceFromQuote - net - costAdds + discount) / net) * 100, 2);
+  return round(((priceFromQuote - net - costAdds - discount) / net) * 100, 2);
 }
 
 /** Every figure the summary rail, the quotation matrix and Submit read. */
@@ -448,7 +451,7 @@ export function costingSummary(input: CostingInput): CostingSummary {
       const extraOverhead = extrasOf(input.extras, "overhead", net);
       const priceAdj = extrasOf(input.extras, "price", net);
       const grossCost = round(net + wastage + overhead + extraOverhead, 4);
-      const gross = round(grossCost + margin - discount + priceAdj, 4);
+      const gross = round(grossCost + margin + discount + priceAdj, 4);
       const calc = rate ? round((gross + freight + insurance) / rate, 4) : null;
       const quoted = num(input.quotes[quoteKey(p.key, size)]);
       const delta = quoted != null && calc != null ? round(quoted - calc, 4) : null;
@@ -561,8 +564,8 @@ export type TargetSolve = {
  * the price covers (freight and insurance are per piece).
  *
  *   target INR      = target × rate − freight × n − insurance × n
- *   margin %        = (target INR − net − wastage − overhead + discount) ÷ net
- *   net that clears = target INR ÷ (1 + wastage% + overhead% − discount% + floor%)
+ *   margin %        = (target INR − net − wastage − overhead − LC discount) ÷ net
+ *   net that clears = target INR ÷ (1 + wastage% + overhead% + LC discount% + floor%)
  *   cost cut        = net − net that clears
  */
 export function solveTarget(
@@ -591,7 +594,7 @@ export function solveTarget(
   const w = z(terms.garment_waste_pct) / 100;
   const o = z(terms.overhead_pct) / 100;
   const d = z(terms.discount_pct) / 100;
-  const load = 1 + w + o + ohPct + pricePct - d;
+  const load = 1 + w + o + ohPct + pricePct + d;
   const marginPct = round(((targetInr - total.net * load) / total.net) * 100, 2);
   const netThatClears = targetInr / (load + MARGIN_FLOOR_PCT / 100);
   const costCut = round(Math.max(0, total.net - netThatClears), 2);
