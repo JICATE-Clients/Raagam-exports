@@ -9,6 +9,7 @@ import { Field, FieldRow } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
+import { Truncated } from "@/components/ui/truncated";
 import { MasterListShell } from "@/components/masters/master-list-shell";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { deleteRoutingOverride, saveRoutingOverride } from "@/lib/resolve/actions";
@@ -24,6 +25,21 @@ function scopeWords(r: { trade_name: string | null; place_name: string | null })
   if (r.place_name && r.trade_name) return `${r.trade_name} at ${r.place_name}`;
   if (r.place_name) return `Anything at ${r.place_name}`;
   return `${r.trade_name ?? "—"} anywhere in this unit`;
+}
+
+/** One rule as one sentence — "Electrical at Boiler room → Arun K" — with its
+ *  note under it (mobile redesign, 2026-10-26). It replaced five columns whose
+ *  first ("When") only repeated the next two. */
+function RuleSentence({ r }: { r: RoutingOverrideRow }) {
+  return (
+    <span className="block min-w-0">
+      <span className="block text-sm">
+        <b>{r.trade_name ?? "Any trade"}</b> at <b>{r.place_name ?? "any place"}</b> <span aria-hidden>→</span>
+        <span className="sr-only">goes to</span> <b className="text-primary">{r.owner_name ?? "—"}</b>
+      </span>
+      {r.note && <Truncated text={r.note} className="text-xs text-muted-foreground" />}
+    </span>
+  );
 }
 
 /**
@@ -113,16 +129,13 @@ export function RoutingScreen({
     });
   }
 
-  const routingColumns: Column<RoutingOverrideRow>[] = [
-    { header: "When", cell: (r) => <span className="text-sm font-semibold">{scopeWords(r)}</span> },
-    { header: "Trade", cell: (r) => <span className="text-sm">{r.trade_name ?? "Any"}</span> },
-    { header: "Place", cell: (r) => <span className="text-sm">{r.place_name ?? "Any"}</span> },
-    { header: "Goes to", cell: (r) => <span className="text-sm">{r.owner_name ?? "—"}</span> },
-    { header: "Note", cell: (r) => <span className="text-sm text-muted-foreground">{r.note ?? "—"}</span> },
-  ];
+  const routingColumns: Column<RoutingOverrideRow>[] = [{ header: "Rule", cell: (r) => <RuleSentence r={r} /> }];
 
   return (
     <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">
+        Everything else goes to the caretaker, then the trade&apos;s team. Add a rule only for the exceptions.
+      </p>
       <MasterListShell
         rows={rows}
         getKey={(r) => r.id}
@@ -136,8 +149,7 @@ export function RoutingScreen({
         rowLabel={(r) => scopeWords(r)}
         empty="No routing rules — jobs go to the caretaker, the trade team, then the estate office."
         mobile={{
-          title: (r) => scopeWords(r),
-          meta: (r) => (r.owner_name ? `Goes to ${r.owner_name}` : ""),
+          title: (r) => <RuleSentence r={r} />,
           onEdit: openEdit,
           onDelete: remove,
         }}

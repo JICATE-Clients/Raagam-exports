@@ -7,22 +7,27 @@ import { fmtDate } from "@/lib/format";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusPill } from "@/components/ui/status-pill";
 import { KbSteps } from "@/components/resolve/kb/kb-steps";
-import { KbArticleActions } from "@/components/resolve/kb/kb-article-actions";
+import { KbArticleMenu, KbFeedbackBar } from "@/components/resolve/kb/kb-article-actions";
 import { kbStatusTone } from "@/components/resolve/kb/kb-status";
 
-function Pair({ label, children }: { label: string; children: React.ReactNode }) {
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="min-w-0">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="text-sm text-foreground">{children}</dd>
-    </div>
+    <section className="space-y-2 rounded-xl border border-border bg-surface p-3 md:p-4">
+      <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h2>
+      {children}
+    </section>
   );
 }
 
 /**
- * One article. RLS decides who reads it (`rh_kb_get`: published to everyone
- * in Resolve Hub, any status to `resolve:edit`); one the viewer may not read
- * is a 404, exactly like one that does not exist.
+ * One article, read on a phone first (mobile redesign 2026-10-26): the title,
+ * its category, the problem, the numbered steps, the tags — then "Did this
+ * help?" pinned at the foot. Publish / Edit / Retire sit in one "More" in the
+ * header for `resolve:edit`.
+ *
+ * RLS decides who reads it (`rh_kb_get`: published to everyone in Resolve Hub,
+ * any status to `resolve:edit`); one the viewer may not read is a 404, exactly
+ * like one that does not exist.
  */
 export default async function KbArticlePage({ params }: { params: Promise<{ id: string }> }) {
   await requireRh("view");
@@ -33,60 +38,62 @@ export default async function KbArticlePage({ params }: { params: Promise<{ id: 
   const category = article.category_code
     ? (categories.find((c) => c.code === article.category_code)?.name ?? article.category_code)
     : "Any";
+  const answers = article.helpful_count + article.not_helpful_count;
+  const helpful = answers > 0 ? Math.round((article.helpful_count / answers) * 100) : null;
 
   return (
-    <div className="space-y-4">
-      <PageHeader title={`${article.code} — ${article.title}`} />
-      <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
-        <div className="min-w-0 max-w-[48rem] flex-1 space-y-4">
-          <dl className="flex flex-wrap gap-x-8 gap-y-3">
-            <Pair label="Status">
+    <div className="space-y-3">
+      <PageHeader
+        title={`${article.code} — ${article.title}`}
+        actions={canEdit ? <KbArticleMenu article={article} categories={categories} /> : undefined}
+      />
+      <div className="max-w-[48rem] space-y-3">
+        <div className="space-y-1.5">
+          <p className="text-lg font-semibold leading-6 text-foreground">{article.title}</p>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+            <span className="rounded-full bg-surface-muted px-2 py-0.5 font-medium text-foreground">{category}</span>
+            {canEdit || article.status !== "published" ? (
               <StatusPill tone={kbStatusTone(article.status)}>{KB_STATUS_LABEL[article.status]}</StatusPill>
-            </Pair>
-            <Pair label="Category">{category}</Pair>
-            <Pair label="Written by">{article.author_name ?? "—"}</Pair>
-            <Pair label="Published">{article.published_at ? fmtDate(article.published_at) : "—"}</Pair>
-            <Pair label="Used to resolve">
-              <span className="tabular-nums">{article.used_count}</span> request{article.used_count === 1 ? "" : "s"}
-            </Pair>
-            <Pair label="Helpful">
-              <span className="tabular-nums">
-                {article.helpful_count} yes · {article.not_helpful_count} no
-              </span>
-            </Pair>
-            {canEdit && article.source_ticket_id ? (
-              <Pair label="Written from">
-                <Link href={`/resolve/tickets/${article.source_ticket_id}`} className="text-primary hover:underline">
-                  The resolved request
-                </Link>
-              </Pair>
             ) : null}
-          </dl>
-
-          <section className="space-y-2 border-t border-border pt-4">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Problem</h2>
-            <p className="whitespace-pre-wrap text-sm text-foreground">{article.problem}</p>
-          </section>
-          <section className="space-y-2 border-t border-border pt-4">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Steps</h2>
-            <KbSteps steps={article.steps} />
-          </section>
-          {article.tags.length > 0 ? (
-            <section className="space-y-2 border-t border-border pt-4">
-              <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tags</h2>
-              <div className="flex flex-wrap gap-1.5">
-                {article.tags.map((t) => (
-                  <StatusPill key={t} tone="neutral">
-                    {t}
-                  </StatusPill>
-                ))}
-              </div>
-            </section>
-          ) : null}
+            <span className="font-mono">{article.code}</span>
+            <span className="tabular-nums">
+              used {article.used_count}×{helpful != null ? ` · ${helpful}% helpful` : ""}
+            </span>
+          </div>
         </div>
-        <aside className="w-full space-y-2 lg:sticky lg:top-4 lg:w-80 lg:shrink-0">
-          <KbArticleActions article={article} canEdit={canEdit} categories={categories} />
-        </aside>
+
+        <Section title="The problem">
+          <p className="whitespace-pre-wrap text-sm text-foreground">{article.problem}</p>
+        </Section>
+        <Section title="Steps">
+          <KbSteps steps={article.steps} />
+        </Section>
+        {article.tags.length > 0 ? (
+          <Section title="Tags">
+            <div className="flex flex-wrap gap-1.5">
+              {article.tags.map((t) => (
+                <StatusPill key={t} tone="neutral">
+                  {t}
+                </StatusPill>
+              ))}
+            </div>
+          </Section>
+        ) : null}
+
+        <p className="text-xs text-muted-foreground">
+          Written by {article.author_name ?? "—"}
+          {article.published_at ? ` · published ${fmtDate(article.published_at)}` : ""}
+          {canEdit && article.source_ticket_id ? (
+            <>
+              {" · "}
+              <Link href={`/resolve/tickets/${article.source_ticket_id}`} className="text-primary hover:underline">
+                from the resolved request
+              </Link>
+            </>
+          ) : null}
+        </p>
+
+        <KbFeedbackBar article={article} />
       </div>
     </div>
   );

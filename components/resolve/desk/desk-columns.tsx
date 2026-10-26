@@ -1,30 +1,24 @@
 "use client";
 
-import Link from "next/link";
-import { Zap } from "lucide-react";
-import type { Column } from "@/components/ui/data-table";
-import { StatusPill } from "@/components/ui/status-pill";
-import { Tooltip } from "@/components/ui/tooltip";
-import { Truncated } from "@/components/ui/truncated";
-import { fmtDateTime } from "@/lib/format";
+import type { Stripe } from "@/components/resolve/work/queue-rows";
 import { statusTone, type StatusToneOverrides } from "@/lib/ui/status-tone";
 import {
   OVERRIDE_LABEL,
   PRIORITY_LABEL,
-  TICKET_TYPE_LABEL,
   type DeskQueueRow,
   type ResolutionState,
   type ResponseState,
 } from "@/lib/resolve/desk-types";
-import { SERVICE_STATUS_LABEL, type Priority } from "@/lib/resolve/types";
+import type { Priority } from "@/lib/resolve/types";
 
 /*
- * The cells the Service Desk listings share (Desk Queue, the dashboard's
- * lists). One declaration so a ticket reads the same everywhere: the ref opens
- * the ticket page (where every action lives), an Urgent OVERRIDE is flagged on
- * the priority — the spec's "jumps the line" has to be visible as the reason
- * the row is on top — and both SLA clocks come from the SERVER's states
- * (`rh_sd_queue`), never from a browser clock (lib/resolve/sla.ts says why).
+ * What the Service Desk listings share (Desk Queue, the dashboard's lists,
+ * Log a Call, the SLA admin). One declaration so a ticket reads the same
+ * everywhere: an Urgent OVERRIDE is flagged (⚡) — the spec's "jumps the line"
+ * has to be visible as the reason the row is on top — and the SLA clocks come
+ * from the SERVER's states (`rh_sd_queue`), never from a browser clock
+ * (lib/resolve/sla.ts says why). The Desk Queue's thirteen columns became one
+ * row in the mobile redesign (2026-10-26); priority is its left stripe.
  */
 
 /** A priority is not a status, so it is a NAMED override on the shared table. */
@@ -59,133 +53,28 @@ export function deskTicketHref(id: string): string {
   return `/resolve/tickets/${id}`;
 }
 
-export function deskRefColumn<T extends DeskQueueRow>(): Column<T> {
-  return {
-    header: "Ref No",
-    cell: (r) => (
-      <Link href={deskTicketHref(r.id)} className="whitespace-nowrap font-mono text-xs font-medium text-primary hover:underline">
-        {r.ref_no}
-      </Link>
-    ),
-  };
+/** Priority as the row's left stripe — the same four tones as its pill. */
+export function priorityStripe(p: Priority): Stripe {
+  const tone = priorityTone(p);
+  return tone === "danger" || tone === "warning" || tone === "info" ? tone : "neutral";
 }
 
-export function deskTypeColumn<T extends DeskQueueRow>(): Column<T> {
-  return {
-    header: "Type",
-    cell: (r) => <span className="whitespace-nowrap text-sm">{TICKET_TYPE_LABEL[r.ticket_type] ?? r.ticket_type}</span>,
-  };
+/** The override's reason, worded for the ⚡'s tooltip. */
+export function overrideWords(r: DeskQueueRow): string {
+  return `Urgent override — ${r.override_kind ? OVERRIDE_LABEL[r.override_kind] : "jumps the queue"}`;
 }
 
-export function deskTitleColumn<T extends DeskQueueRow>(): Column<T> {
-  return {
-    header: "Request",
-    cell: (r) => (
-      <span className="block min-w-0">
-        <Truncated text={r.title} className="block max-w-[18rem] text-sm" />
-        {r.category_name && <Truncated text={r.category_name} className="block max-w-[18rem] text-xs text-muted-foreground" />}
-      </span>
-    ),
-  };
+/** The row's one muted line: requester · priority · who has it · idle days. */
+export function deskLine(r: DeskQueueRow): (string | null)[] {
+  return [
+    r.reporter_name,
+    PRIORITY_LABEL[r.priority] ?? r.priority,
+    r.assignee_name ?? "nobody",
+    r.stale_days > 0 ? `idle ${r.stale_days} d` : null,
+  ];
 }
 
-export function deskPriorityColumn<T extends DeskQueueRow>(): Column<T> {
-  return {
-    header: "Priority",
-    cell: (r) => (
-      <span className="flex items-center gap-1.5 whitespace-nowrap">
-        <StatusPill tone={priorityTone(r.priority)}>{PRIORITY_LABEL[r.priority] ?? r.priority}</StatusPill>
-        {r.overridden && (
-          <Tooltip label={`Urgent override — ${r.override_kind ? OVERRIDE_LABEL[r.override_kind] : "jumps the queue"}`}>
-            <Zap className="h-4 w-4 shrink-0 text-danger" aria-label="Urgent override" />
-          </Tooltip>
-        )}
-      </span>
-    ),
-  };
-}
-
-export function deskRequesterColumn<T extends DeskQueueRow>(): Column<T> {
-  return {
-    header: "Requester",
-    cell: (r) => <Truncated text={r.reporter_name ?? "—"} className="block max-w-[11rem] text-sm" />,
-  };
-}
-
-export function deskAssigneeColumn<T extends DeskQueueRow>(): Column<T> {
-  return {
-    header: "Assignee",
-    cell: (r) =>
-      r.assignee_name ? (
-        <Truncated text={r.assignee_name} className="block max-w-[11rem] text-sm" />
-      ) : (
-        <span className="text-sm text-muted-foreground">Unassigned</span>
-      ),
-  };
-}
-
-const RESPONSE_WORD: Record<ResponseState, string> = { met: "Met", pending: "Due", breached: "Breached" };
-
-export function deskResponseColumn<T extends DeskQueueRow>(): Column<T> {
-  return {
-    header: "Response",
-    cell: (r) => (
-      <span className="flex flex-col gap-0.5 whitespace-nowrap">
-        <StatusPill tone={slaTone(r.response_state)}>{RESPONSE_WORD[r.response_state] ?? r.response_state}</StatusPill>
-        <span className="text-xs tabular-nums text-muted-foreground">
-          {r.response_state === "met" ? fmtDateTime(r.first_response_at) : fmtDateTime(r.response_due_at)}
-        </span>
-      </span>
-    ),
-  };
-}
-
-function resolutionWords(r: DeskQueueRow): string {
-  switch (r.resolution_state) {
-    case "paused":
-      return "Paused";
-    case "breached":
-      return r.minutes_left == null ? "Breached" : `${minutesWords(r.minutes_left)} over`;
-    case "at_risk":
-    case "on_track":
-      return r.minutes_left == null ? "On track" : `${minutesWords(r.minutes_left)} left`;
-    default:
-      return "Done";
-  }
-}
-
-export function deskResolutionColumn<T extends DeskQueueRow>(): Column<T> {
-  return {
-    header: "Resolution",
-    cell: (r) => (
-      <span className="flex flex-col gap-0.5 whitespace-nowrap">
-        <StatusPill tone={slaTone(r.resolution_state)}>{resolutionWords(r)}</StatusPill>
-        {r.resolution_state !== "done" && (
-          <span className="text-xs tabular-nums text-muted-foreground">{fmtDateTime(r.due_at)}</span>
-        )}
-      </span>
-    ),
-  };
-}
-
-export function deskStaleColumn<T extends DeskQueueRow>(): Column<T> {
-  return {
-    header: "Idle",
-    align: "right",
-    cell: (r) =>
-      r.stale_days > 0 ? (
-        <Tooltip label={`No one has touched it for ${r.stale_days} day${r.stale_days === 1 ? "" : "s"}`}>
-          <span className="tabular-nums text-sm font-semibold text-warning">{r.stale_days} d</span>
-        </Tooltip>
-      ) : (
-        <span className="text-sm text-muted-foreground">—</span>
-      ),
-  };
-}
-
-export function deskStatusColumn<T extends DeskQueueRow>(): Column<T> {
-  return {
-    header: "Status",
-    cell: (r) => <StatusPill tone={statusTone(r.status)}>{SERVICE_STATUS_LABEL[r.status] ?? r.status}</StatusPill>,
-  };
+/** Everything the search box looks in. */
+export function deskHaystack(r: DeskQueueRow): (string | null)[] {
+  return [r.ref_no, r.title, r.category_name, r.team_name, r.reporter_name, r.assignee_name];
 }

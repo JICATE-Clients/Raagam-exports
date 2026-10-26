@@ -10,7 +10,7 @@ export default async function ServiceCategoriesPage() {
   const perms = { canCreate: true, canEdit: true, canDelete: true };
   return (
     <div className="space-y-4">
-      <PageHeader title="Service Categories" description="What an IT request can be about — its type, the team it goes to, and its starting priority" />
+      <PageHeader title="IT Categories" description="What an IT request can be about — its type, the team it goes to, and its starting priority" />
       <ServiceCategoriesScreen
         rows={rows}
         perms={perms}

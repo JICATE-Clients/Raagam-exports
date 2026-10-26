@@ -15,7 +15,7 @@ export default async function Page() {
   return (
     <div className="space-y-4">
       <PageHeader title="Need IT help" back={{ href: "/resolve/report", label: "Report a problem" }} />
-      <AssistLayout replyMinutes={props.replyMinutes}>
+      <AssistLayout>
         <AssistChat {...props} startLane="it" />
       </AssistLayout>
     </div>

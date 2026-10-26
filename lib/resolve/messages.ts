@@ -164,12 +164,12 @@ export const RESOLVE_MESSAGES = {
     const due = istDateTime(c.response_due_at);
     const by = due ? `, respond by ${due}` : "";
     return hidesSubject(c)
-      ? { title: `New sensitive complaint ${c.ref_no ?? ""}${by}`.trim(), body: "Open it in Resolve Hub ▸ Complaints.", type: "warning" }
+      ? { title: `New sensitive complaint ${c.ref_no ?? ""}${by}`.trim(), body: "Open it in Resolve Hub ▸ Work ▸ Inbox.", type: "warning" }
       : { title: `New complaint ${c.ref_no ?? ""}${by}`.trim(), body: what(c), type: "warning" };
   },
   "resolve.complaint_escalated": (c) => ({
     title: `Complaint ${c.ref_no ?? ""} was not answered in time`.replace("  ", " "),
-    body: hidesSubject(c) ? "It has been escalated to you. Open it in Resolve Hub ▸ Complaints." : `${what(c)}. It has been escalated to you.`,
+    body: hidesSubject(c) ? "It has been escalated to you. Open it in Resolve Hub ▸ Work ▸ Inbox." : `${what(c)}. It has been escalated to you.`,
     type: "danger",
   }),
   "resolve.complaint_resolved": (c) => ({

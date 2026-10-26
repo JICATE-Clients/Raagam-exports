@@ -7,6 +7,7 @@ import {
   MessageSquareWarning,
   ShoppingCart,
   Sparkles,
+  TriangleAlert,
   Wrench,
   type LucideIcon,
 } from "lucide-react";
@@ -49,7 +50,7 @@ export const ROUTE_LOOK: Record<
   },
   concern: {
     label: "Raise a concern",
-    sub: "Pay, behaviour, conditions — can be anonymous",
+    sub: "Pay, people, work — you can stay anonymous",
     icon: MessageSquareWarning,
     tile: "bg-violet-100 text-violet-800 dark:bg-violet-400/15 dark:text-violet-300",
     ring: "hover:border-violet-400 focus-visible:border-violet-500",
@@ -85,11 +86,11 @@ export function AgentAvatar({ size = "sm" }: { size?: "sm" | "md" | "lg" }) {
 /** A message from Raagam Assist. */
 export function Bot({ children, muted = false }: { children: ReactNode; muted?: boolean }) {
   return (
-    <div className="flex max-w-[92%] items-end gap-2">
+    <div className="flex max-w-[92%] items-end gap-2 motion-safe:animate-rise">
       <AgentAvatar />
       <div
         className={cn(
-          "rounded-[14px_14px_14px_4px] border border-border bg-surface px-3 py-2.5 text-[15px] leading-[21px] shadow-sm",
+          "rounded-[14px_14px_14px_4px] border border-border bg-surface px-3 py-2 text-sm leading-5 shadow-sm",
           muted && "text-muted-foreground",
         )}
       >
@@ -104,7 +105,7 @@ export function Me({ children, tone }: { children: ReactNode; tone?: AssistRoute
   return (
     <div
       className={cn(
-        "max-w-[82%] self-end whitespace-pre-line rounded-[14px_4px_14px_14px] px-3 py-2.5 text-[15px] leading-[21px] text-white shadow-sm",
+        "max-w-[82%] self-end whitespace-pre-line rounded-[14px_4px_14px_14px] px-3 py-2 text-sm font-medium leading-5 text-white shadow-sm motion-safe:animate-rise",
         tone === "fix"
           ? "bg-amber-700"
           : tone === "concern"
@@ -122,10 +123,10 @@ export function Me({ children, tone }: { children: ReactNode; tone?: AssistRoute
 /** The chat panel's top bar — the agent's name and the desk's pace. */
 export function AssistHeader({ status, step }: { status: ReactNode; step?: string | null }) {
   return (
-    <div className="flex items-center gap-3 rounded-t-none border-b border-border bg-gradient-to-r from-sky-50 via-cyan-50 to-emerald-50 px-4 py-3 md:rounded-t-2xl dark:from-sky-500/10 dark:via-cyan-500/10 dark:to-emerald-500/10">
+    <div className="flex items-center gap-2.5 rounded-t-none border-b border-border bg-gradient-to-r from-sky-50 via-cyan-50 to-emerald-50 px-3.5 py-2 md:rounded-t-2xl dark:from-sky-500/10 dark:via-cyan-500/10 dark:to-emerald-500/10">
       <AgentAvatar size="md" />
       <div className="flex min-w-0 flex-1 flex-col">
-        <span className="text-[15px] font-semibold leading-5">{AGENT_NAME}</span>
+        <span className="text-sm font-semibold leading-5">{AGENT_NAME}</span>
         <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <span className="size-2 rounded-full bg-emerald-600" aria-hidden="true" />
           {status}
@@ -145,48 +146,14 @@ export function AssistHeader({ status, step }: { status: ReactNode; step?: strin
  * right — and one column on a phone, where the chat's own header introduces it
  * and the follow-up links fall below.
  */
-export function AssistLayout({ children, replyMinutes }: { children: ReactNode; replyMinutes?: number }) {
+/** The chat's page frame — the chat alone, centred (user 2026-10-26: the
+ *  intro side panel was removed, "i dont like it"). The follow-up links stay
+ *  under the chat on a phone, where the sidebar is out of reach. */
+export function AssistLayout({ children }: { children: ReactNode }) {
   return (
-    <div className="mx-auto grid w-full max-w-5xl grid-cols-1 gap-5 md:grid-cols-[minmax(0,19rem)_minmax(0,1fr)] md:items-start">
-      <aside className="hidden flex-col gap-5 rounded-2xl border border-border bg-gradient-to-b from-sky-50 via-cyan-50/60 to-emerald-50 p-5 md:sticky md:top-4 md:flex dark:from-sky-500/10 dark:via-cyan-500/5 dark:to-emerald-500/10">
-        <div className="flex flex-col items-start gap-3">
-          <AgentAvatar size="lg" />
-          <div className="flex flex-col gap-1">
-            <h2 className="text-lg font-semibold leading-6">{AGENT_NAME}</h2>
-            <p className="text-sm leading-5 text-muted-foreground">
-              Tell me what happened in your own words. I find the right person, and you can follow it to the end.
-            </p>
-          </div>
-          {replyMinutes ? (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-white/80 px-2.5 py-1 text-xs font-medium text-emerald-800 shadow-sm dark:bg-background/60 dark:text-emerald-300">
-              <span className="size-2 rounded-full bg-emerald-600" aria-hidden="true" />
-              IT desk replies in about {replyMinutes} min
-            </span>
-          ) : null}
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">I can help with</span>
-          {(Object.keys(ROUTE_LOOK) as AssistRoute[]).map((k) => {
-            const r = ROUTE_LOOK[k];
-            return (
-              <div key={k} className="flex items-center gap-2.5">
-                <span className={cn("flex size-8 flex-none items-center justify-center rounded-lg", r.tile)}>
-                  <r.icon className="size-4" aria-hidden="true" />
-                </span>
-                <span className="text-sm font-medium">{r.label}</span>
-              </div>
-            );
-          })}
-        </div>
-
-        <FollowUp className="flex-col items-start gap-2 border-t border-border/70 pt-4" />
-      </aside>
-
-      <div className="flex min-w-0 flex-col gap-4">
-        {children}
-        <FollowUp className="justify-center gap-x-6 gap-y-2 md:hidden" />
-      </div>
+    <div className="mx-auto flex w-full max-w-3xl min-w-0 flex-col gap-4">
+      {children}
+      <FollowUp className="justify-center gap-x-6 gap-y-2 md:hidden" />
     </div>
   );
 }
@@ -199,13 +166,9 @@ function FollowUp({ className }: { className?: string }) {
         <ClipboardList className="size-4" aria-hidden="true" />
         My Reports
       </Link>
-      <Link href="/resolve/my-complaints" className={link}>
-        <MessageSquareWarning className="size-4" aria-hidden="true" />
-        My Complaints
-      </Link>
       <Link href="/p/track" className={link}>
         <KeyRound className="size-4" aria-hidden="true" />
-        Track an anonymous complaint
+        Track an anonymous concern
       </Link>
     </nav>
   );
@@ -216,7 +179,74 @@ function FollowUp({ className }: { className?: string }) {
  * 4.5rem + inset clear for it), at the panel's foot on a desktop.
  */
 export const ANSWER_BAR =
-  "sticky bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-10 flex flex-col gap-2.5 border-t border-border bg-surface px-3 py-3 md:bottom-0 md:rounded-b-2xl";
+  "sticky bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-10 flex flex-col gap-2 border-t border-border bg-surface px-3 py-2.5 md:bottom-0 md:rounded-b-2xl";
+
+/** Acronyms that stay in capitals when a stored label is shown softly. */
+const KEEP_CAPS = new Set(["ERP", "CCTV", "AC", "IT", "PPE", "UPS", "RO", "PC", "SIM", "ID", "OT", "PF", "ESI"]);
+
+/**
+ * A stored catalog label (CAPITALS, by the storage rule) shown in sentence case
+ * on a tap answer — "Not stitching right", not a wall of block letters. Display
+ * only: the value sent and stored is still the label as it is.
+ */
+export function softLabel(label: string): string {
+  const lower = label.toLowerCase();
+  return lower
+    .replace(/[a-z][a-z-]*/g, (w) => (KEEP_CAPS.has(w.toUpperCase()) ? w.toUpperCase() : w))
+    .replace(/^\s*[a-z]/, (c) => c.toUpperCase())
+    .replace(/\bi\b/g, "I")
+    .replace(/\bwi-fi\b/g, "Wi-Fi");
+}
+
+/**
+ * A ONE-LINE TAP ANSWER — the chat's everyday choice: a pill with a small
+ * coloured icon. Compact so a whole area's choices fit on one or two rows,
+ * and it lifts under the finger so a tap reads as a tap.
+ */
+export function AnswerPill({
+  label,
+  onClick,
+  icon: Icon,
+  tile,
+  ring,
+  danger = false,
+}: {
+  label: ReactNode;
+  onClick: () => void;
+  icon?: LucideIcon;
+  tile?: string;
+  ring?: string;
+  /** A dangerous choice: red tile and a warning glyph, whatever the lane. */
+  danger?: boolean;
+}) {
+  const Glyph = danger ? TriangleAlert : Icon;
+  return (
+    // button-shape: exempt -- a pill-shaped tap answer, not an action button
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex min-h-10 w-full min-w-0 items-center gap-2 rounded-xl border border-border bg-surface py-1.5 pr-2.5 text-left text-[13px] font-medium leading-4 shadow-sm",
+        "transition duration-150 hover:-translate-y-px hover:shadow-md active:translate-y-0 active:scale-[0.97] focus-visible:outline-2 focus-visible:outline-ring",
+        Glyph ? "pl-1.5" : "pl-3",
+        danger ? "border-red-200 hover:border-red-400 dark:border-red-500/30" : ring,
+      )}
+    >
+      {Glyph && (
+        <span
+          className={cn(
+            "flex size-7 flex-none items-center justify-center rounded-lg",
+            danger ? "bg-red-100 text-red-700 dark:bg-red-400/15 dark:text-red-300" : tile ?? "bg-primary-soft text-primary",
+          )}
+          aria-hidden="true"
+        >
+          <Glyph className="size-3.5" />
+        </span>
+      )}
+      <span className="min-w-0">{label}</span>
+    </button>
+  );
+}
 
 /** A two-line tap answer ("I can't work at all / Everything is stopped"). */
 export function AnswerCard({
@@ -241,13 +271,13 @@ export function AnswerCard({
       type="button"
       onClick={onClick}
       className={cn(
-        "flex min-h-14 items-start gap-3 rounded-xl border border-border bg-surface px-3 py-2.5 text-left shadow-sm transition-colors hover:bg-surface-muted hover:shadow focus-visible:outline-2 focus-visible:outline-ring",
+        "flex min-h-12 items-center gap-2.5 rounded-xl border border-border bg-surface px-2.5 py-2 text-left shadow-sm transition duration-150 hover:-translate-y-px hover:shadow-md active:translate-y-0 active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-ring",
         ring,
       )}
     >
       {Icon && (
-        <span className={cn("flex size-9 flex-none items-center justify-center rounded-lg", tile ?? "bg-primary-soft text-primary")}>
-          <Icon className="size-5" aria-hidden="true" />
+        <span className={cn("flex size-8 flex-none items-center justify-center rounded-lg", tile ?? "bg-primary-soft text-primary")}>
+          <Icon className="size-4" aria-hidden="true" />
         </span>
       )}
       <span className="flex flex-col gap-0.5">

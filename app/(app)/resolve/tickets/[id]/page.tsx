@@ -2,104 +2,57 @@ import { notFound } from "next/navigation";
 import { getAppUser, requireUser } from "@/lib/auth/server";
 import { getTicketDetail, listPeople, listTrades } from "@/lib/resolve/service";
 import { getServiceTicketExtras, listDeskQueue, listOpenServiceCategories } from "@/lib/resolve/desk-service";
-import { PageHeader } from "@/components/ui/page-header";
-import { TicketDetailView } from "@/components/resolve/ticket/ticket-detail";
-import { ServiceTicketView } from "@/components/resolve/ticket/service-ticket-detail";
-import { RequirementTicketView } from "@/components/resolve/ticket/requirement-ticket-detail";
+import { TicketPage } from "@/components/resolve/inbox/ticket-page";
+import type { TicketAction } from "@/lib/resolve/types";
 
 /**
  * ONE TICKET — `/resolve/tickets/<id>`, and the receipt at `?receipt=1`.
  *
+ * Every kind (Fix, IT, Buy, Concern) and both sides (the person who raised it,
+ * the people who work it) draw the SAME pane the Inbox draws (mobile redesign,
+ * 2026-10-26); `TicketPage` adds the facts and the rarer steps beside it.
+ *
  * `requireUser`, not a permission redirect: who may see a ticket is a ROW
- * question (`rh_can_see` — the reporter and joiners from any unit, staff in
- * theirs), answered by RLS. A ticket the viewer cannot see reads exactly like
- * one that does not exist — a 404, never "forbidden", which would confirm it.
+ * question (`rh_can_see`), answered by RLS. A ticket the viewer cannot see
+ * reads exactly like one that does not exist — a 404, never "forbidden".
  */
-export default async function TicketPage({
+export default async function Page({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>;
   searchParams: Promise<{ receipt?: string }>;
 }) {
-  await requireUser();
+  const user = await requireUser();
   const [{ id }, { receipt }] = await Promise.all([params, searchParams]);
   const detail = await getTicketDetail(id);
   if (!detail) notFound();
 
-  const back = detail.isStaff
-    ? true
-    : detail.ticket.kind === "complaint"
-      ? { href: "/resolve/my-complaints", label: "My Complaints" }
-      : { href: "/resolve/my-reports", label: "My Reports" };
-
-  // A Buy request (0751) — its own view, and the Requirements queue is the
-  // staff's way back to the list.
-  if (detail.ticket.kind === "requirement") {
-    const rqBack = detail.isStaff ? { href: "/resolve/requirements", label: "Requirements" } : back;
-    return (
-      <div className="space-y-4">
-        <PageHeader title={`${detail.ticket.ref_no} — ${detail.ticket.title}`} back={rqBack} />
-        <RequirementTicketView detail={detail} receipt={receipt === "1"} />
-      </div>
-    );
-  }
-
-  // An IT request (service-desk-plan §6) — its own view; Broken and complaints
-  // below are unchanged.
-  if (detail.ticket.kind === "service") {
-    const has = (a: string) => detail.actions.includes(a as (typeof detail.actions)[number]);
-    const [extras, people, categories, current] = await Promise.all([
-      getServiceTicketExtras(id),
-      has("sd_assign") ? listPeople() : Promise.resolve([]),
-      has("sd_reclassify") || has("kb_draft") ? listOpenServiceCategories() : Promise.resolve([]),
-      // What Start may pause: MY other requests in progress. The queue RPC
-      // needs desk access, which anyone offered Start holds; a refusal just
-      // means nothing to offer.
-      has("sd_start") ? myOtherInProgress(id) : Promise.resolve([]),
-    ]);
-    if (!extras) notFound();
-    return (
-      <div className="space-y-4">
-        <PageHeader title={`${detail.ticket.ref_no} — ${detail.ticket.title}`} back={back} />
-        <ServiceTicketView
-          detail={detail}
-          extras={extras}
-          receipt={receipt === "1"}
-          people={people}
-          categories={categories}
-          current={current}
-        />
-      </div>
-    );
-  }
-
-  // Only fetched when a dialog that needs them can open.
-  const needTrades = detail.actions.includes("reclassify");
-  // listPeople RAISES for a reporter (rh_people needs work/triage), so it is
-  // called only when an assign dialog can actually open.
-  const needPeople = detail.actions.includes("assign") || detail.actions.includes("c_assign");
-  const [trades, people] = await Promise.all([
-    needTrades ? listTrades() : Promise.resolve([]),
-    needPeople ? listPeople() : Promise.resolve([]),
+  const has = (a: TicketAction) => detail.actions.includes(a);
+  const service = detail.ticket.kind === "service";
+  // Each extra read only when a panel that needs it can open — listPeople
+  // RAISES for a viewer without work / triage (rh_people), so it is never
+  // asked for a reporter.
+  const [extras, people, categories, current, trades] = await Promise.all([
+    service ? getServiceTicketExtras(id) : Promise.resolve(null),
+    has("sd_assign") || has("assign") || has("c_assign") ? listPeople() : Promise.resolve([]),
+    service && (has("sd_reclassify") || has("kb_draft")) ? listOpenServiceCategories() : Promise.resolve([]),
+    service && has("sd_start") ? myOtherInProgress(id) : Promise.resolve([]),
+    has("reclassify") ? listTrades() : Promise.resolve([]),
   ]);
-  // The server's clock, read once — SLA words are measured against it.
-  const nowIso = new Date().toISOString();
+  if (service && !extras) notFound();
 
   return (
-    <div className="space-y-4">
-      <PageHeader
-        title={`${detail.ticket.ref_no} — ${detail.ticket.title}`}
-        back={back}
-      />
-      <TicketDetailView
-        detail={detail}
-        nowIso={nowIso}
-        receipt={receipt === "1"}
-        trades={trades.map((t) => ({ id: t.id, name: t.name }))}
-        people={people}
-      />
-    </div>
+    <TicketPage
+      detail={detail}
+      meId={user.id}
+      receipt={receipt === "1"}
+      extras={extras}
+      people={people}
+      categories={categories}
+      current={current}
+      trades={trades.map((t) => ({ id: t.id, name: t.name }))}
+    />
   );
 }
 

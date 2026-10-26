@@ -24,7 +24,7 @@ declare
   i_spark  uuid := (select id from public.rh_catalog_items where code = 'F-ELE-SPARK');
   i_print  uuid := (select id from public.rh_catalog_items where code = 'I-PRN-NOPRT');
   i_shout  uuid := (select id from public.rh_catalog_items where code = 'C-BEH-SHOUT');
-  i_oil    uuid := (select id from public.rh_catalog_items where code = 'B-PRD-OIL');
+  i_oil    uuid := (select id from public.rh_catalog_items where code = 'B-PRD-NEEDLE');
   v_used0 int;
 begin
   if u_rep is null or u_store is null or v_ho is null or i_needle is null then
@@ -63,7 +63,7 @@ begin
   v_out := public.rh_assist_broken(i_needle, null, null, 'LINE 3 MACHINE 12', false);
   t1 := (v_out ->> 'ticket_id')::uuid;
   select count(*) into v_n from public.rh_tickets t join public.rh_trades tr on tr.id = t.trade_id
-   where t.id = t1 and tr.code = 'MECH' and t.title = 'NEEDLE BREAKING' and t.catalog_item_id = i_needle
+   where t.id = t1 and tr.code = 'MECH' and t.title = 'NOT STITCHING RIGHT' and t.catalog_item_id = i_needle
      and not t.is_dangerous;
   r := r || case when v_n = 1 then 'ok A2-broken-routed-MECH ' else 'FAIL A2 ' end;
   if v_n <> 1 then nfail := nfail + 1; end if;
@@ -75,7 +75,7 @@ begin
 
   v_out := public.rh_assist_service(i_print, null, 'SHOWS OFFLINE', 'degraded');
   select count(*) into v_n from public.rh_tickets t join public.rh_sd_categories c on c.id = t.sd_category_id
-   where t.id = (v_out ->> 'ticket_id')::uuid and c.code = 'PRN' and t.title = 'NOT PRINTING' and t.catalog_item_id = i_print;
+   where t.id = (v_out ->> 'ticket_id')::uuid and c.code = 'PRN' and t.title = 'PRINTER OR SCANNER NOT WORKING' and t.catalog_item_id = i_print;
   r := r || case when v_n = 1 then 'ok A4-it-routed-PRN ' else 'FAIL A4 ' end;
   if v_n <> 1 then nfail := nfail + 1; end if;
 
@@ -93,7 +93,7 @@ begin
   v_out := public.rh_assist_requirement(i_oil, null, 'FOR LINE 3', 5, 'week', 'ran_out');
   t3 := (v_out ->> 'ticket_id')::uuid;
   select count(*) into v_n from public.rh_tickets where id = t3 and kind = 'requirement' and ref_no like 'REQ-____-______'
-     and owner_id = u_store and rq_qty = 5 and title = 'MACHINE OIL' and catalog_item_id = i_oil;
+     and owner_id = u_store and rq_qty = 5 and title = 'NEEDLES, OIL OR SPARE PARTS' and catalog_item_id = i_oil;
   r := r || case when v_n = 1 then 'ok A7-requirement-to-stores ' else 'FAIL A7 ' end;
   if v_n <> 1 then nfail := nfail + 1; end if;
   v_arr := public.rh_ticket_actions(t3);

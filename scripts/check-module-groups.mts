@@ -548,6 +548,15 @@ const REDIRECTED: Record<string, string> = {
   // Contract Review, Price Confirmation) keep their own routes unchanged, now
   // under `retired`.
   "/orders/confirmations": "/orders/retired",
+  // Resolve Hub's one Inbox (2026-10-26, "one unified chain"): the per-lane
+  // worker lists folded into it, and named complaints into My Reports.
+  "/resolve/my-work": "/resolve/inbox",
+  "/resolve/requirements": "/resolve/inbox",
+  "/resolve/my-complaints": "/resolve/my-reports",
+  // Sidebar de-duplicated 2026-10-26: complaints are worked in the Inbox, and
+  // the Service Desk hub folded into Work + Reports.
+  "/resolve/complaints": "/resolve/inbox",
+  "/resolve/desk-hub": "/resolve/insights",
 };
 
 for (const [moduleHref, leaves] of Object.entries(OLD_NAV_LEAVES)) {

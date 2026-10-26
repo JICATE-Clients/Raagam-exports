@@ -2,39 +2,45 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { CircleDot, Download, UserPlus } from "lucide-react";
+import { CircleDot, Download, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { DataTable, type Column } from "@/components/ui/data-table";
-import { withCreatedColumns } from "@/components/ui/created-columns";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { useFacetFilter, createdDateFacet, createdByFacet, type FacetGroup } from "@/components/ui/filter-drawer";
-import { RowActions } from "@/components/ui/row-actions";
-import { rowActionsColumn } from "@/components/ui/row-actions-column";
-import { Stat } from "@/components/ui/stat";
+import { PageHeader } from "@/components/ui/page-header";
+import { ToggleGroup } from "@/components/ui/segmented";
 import { useToast } from "@/components/ui/toast";
+import { LaneTile } from "@/components/resolve/inbox/inbox-bits";
 import { LiveBadge } from "@/components/resolve/live/live-badge";
 import { useLiveRefresh } from "@/components/resolve/live/use-live-refresh";
 import { useCurrentLocationId } from "@/lib/auth/location-context";
 import { assignTickets, exportJobsCsv } from "@/lib/resolve/actions";
-import { BROKEN_STATUSES, STATUS_LABEL, type BrokenStatus, type TicketListRow } from "@/lib/resolve/types";
-import { AssignSheet, type Person } from "./assign-sheet";
 import {
-  assigneeColumn,
-  dueColumn,
-  placeColumn,
-  refColumn,
-  statusColumn,
-  titleColumn,
-  tradeColumn,
-} from "./ticket-columns";
+  ACTIVE_STATUSES,
+  BROKEN_STATUSES,
+  STATUS_LABEL,
+  type BrokenStatus,
+  type TicketListRow,
+} from "@/lib/resolve/types";
+import { useUnsavedGuard } from "@/lib/reload-guard";
+import { AssignSheet, type Person } from "./assign-sheet";
+import { ticketClock } from "./queue-clock";
+import { AssignButton, QueueList, QueueRow } from "./queue-rows";
+import { ticketHaystack, ticketLine } from "./ticket-columns";
 
 export type JobCounts = { open: number; late: number; waiting: number; completed30: number };
 
+type Bucket = "open" | "late" | "waiting" | "done";
+const DAY_MS = 86_400_000;
+
 /**
- * All Jobs — every broken ticket in the current unit, in entry order. The four
- * tiles are the server's counts over the WHOLE unit (not the filtered rows), so
- * a filter never makes "Late" look smaller than it is. CSV export runs on the
- * server with the same three filters, so the file says what the screen says.
+ * All Jobs — every broken ticket in the current unit, in entry order.
+ *
+ * The four status chips (Open · Late · Waiting · Done) carry the server's
+ * counts over the WHOLE unit (not the filtered rows), so a filter never makes
+ * "Late" look smaller than it is; tapping one narrows the list to it, tapping
+ * it again lets go. Search and Filters share one row, and every facet set shows
+ * as a chip with its own ✕. CSV export stays in the header and runs on the
+ * server with the same filters, so the file says what the screen says.
  */
 export function JobsScreen({
   rows,
@@ -43,6 +49,7 @@ export function JobsScreen({
   people,
   canAssign,
   canExport,
+  nowMs,
 }: {
   rows: TicketListRow[];
   counts: JobCounts;
@@ -50,6 +57,8 @@ export function JobsScreen({
   people: Person[];
   canAssign: boolean;
   canExport: boolean;
+  /** The request time, read by the page (queue-clock.ts says why). */
+  nowMs: number;
 }) {
   const router = useRouter();
   const { success, error } = useToast();
@@ -57,7 +66,9 @@ export function JobsScreen({
   const locationId = useCurrentLocationId();
   const live = useLiveRefresh(locationId ? { locationId } : null);
   const [query, setQuery] = useState("");
+  const [bucket, setBucket] = useState<Bucket | null>(null);
   const [assigning, setAssigning] = useState<TicketListRow | null>(null);
+  useUnsavedGuard(isPending);
 
   const groups = useMemo<FacetGroup<TicketListRow>[]>(
     () => [
@@ -97,22 +108,45 @@ export function JobsScreen({
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
+    const since30 = nowMs - 30 * DAY_MS;
+    const inBucket = (r: TicketListRow) => {
+      switch (bucket) {
+        case "open":
+          return (ACTIVE_STATUSES as readonly string[]).includes(r.status);
+        case "late":
+          return r.is_late;
+        case "waiting":
+          return r.status === "blocked";
+        case "done":
+          return r.status === "closed" && !!r.closed_at && new Date(r.closed_at).getTime() >= since30;
+        default:
+          return true;
+      }
+    };
     return rows.filter((r) => {
-      if (!matchesFacets(r)) return false;
+      if (!inBucket(r) || !matchesFacets(r)) return false;
       if (!needle) return true;
-      return [r.ref_no, r.title, r.place_name, r.trade_name, r.assignee_name, r.owner_name].some((v) =>
-        (v ?? "").toLowerCase().includes(needle),
-      );
+      return ticketHaystack(r).some((v) => (v ?? "").toLowerCase().includes(needle));
     });
-  }, [rows, query, matchesFacets]);
+  }, [rows, query, matchesFacets, bucket, nowMs]);
+
+  /** Each facet that is set, worded for its removable chip. */
+  const activeChips = groups
+    .flatMap((g) => g.facets)
+    .flatMap((f) => {
+      const v = facets.values[f.key];
+      if (!v) return [];
+      const word = f.options?.find((o) => o.value === v)?.label ?? v;
+      return [{ key: f.key, text: f.key === "overdue" ? word : `${f.label}: ${word}` }];
+    });
 
   function exportCsv() {
     const v = facets.values;
     startTransition(async () => {
       const res = await exportJobsCsv({
-        status: (v.status || undefined) as BrokenStatus | undefined,
+        status: (v.status || (bucket === "waiting" ? "blocked" : undefined)) as BrokenStatus | undefined,
         trade_id: v.trade || undefined,
-        overdue: v.overdue === "yes" || undefined,
+        overdue: v.overdue === "yes" || bucket === "late" || undefined,
       });
       if (!res.ok) {
         error(res.error);
@@ -142,42 +176,12 @@ export function JobsScreen({
     });
   }
 
-  const jobColumns: Column<TicketListRow>[] = [
-    refColumn(),
-    titleColumn(),
-    placeColumn(),
-    tradeColumn(),
-    assigneeColumn(),
-    dueColumn(),
-    statusColumn(),
-    rowActionsColumn((r) => (
-      <RowActions
-        label={r.ref_no}
-        view={false}
-        menu={canAssign ? [{ label: "Assign", icon: UserPlus, onClick: () => setAssigning(r) }] : []}
-      />
-    )),
-  ];
-
   return (
     <div className="space-y-3">
-      <div className="flex justify-end">
-        <LiveBadge status={live} />
-      </div>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Stat label="Open" value={counts.open} hint="Still owed — open, in progress, blocked or awaiting a check" />
-        <Stat label="Late" value={counts.late} tone={counts.late ? "danger" : "neutral"} hint="Past due while open or in progress" />
-        <Stat label="Waiting" value={counts.waiting} tone={counts.waiting ? "warning" : "neutral"} hint="Blocked — the clock is paused" />
-        <Stat label="Completed (30 days)" value={counts.completed30} tone="success" hint="Closed in the last 30 days" />
-      </div>
-      <FilterBar
-        search={query}
-        onSearch={setQuery}
-        searchPlaceholder="Search ref, problem, place, trade or person…"
-        activeCount={facets.activeCount}
-        onReset={facets.activeCount ? facets.reset : undefined}
-        panel={facets.panel}
-        trailing={
+      <PageHeader
+        title="All Jobs"
+        description="Every broken report in this unit, oldest first"
+        actions={
           canExport ? (
             <Button variant="outline" disabled={isPending} onClick={exportCsv}>
               <Download aria-hidden />
@@ -186,11 +190,65 @@ export function JobsScreen({
           ) : undefined
         }
       />
-      <DataTable
-        columns={withCreatedColumns(jobColumns, rows)}
+      <div className="flex items-center gap-2">
+        <ToggleGroup
+          label="Job status"
+          value={bucket}
+          onChange={(b) => setBucket((cur) => (cur === b ? null : b))}
+          className="min-w-0 flex-1 overflow-x-auto"
+          options={[
+            { value: "open" as Bucket, label: "Open", count: counts.open, tooltip: "Still owed — open, in progress, blocked or awaiting a check" },
+            {
+              value: "late" as Bucket,
+              label: "Late",
+              tooltip: "Past due while open or in progress",
+              after: counts.late ? (
+                <span className="ml-0.5 rounded-full bg-danger-solid px-1.5 text-[10px] font-bold text-white">{counts.late}</span>
+              ) : (
+                <span className="tabular-nums opacity-80">(0)</span>
+              ),
+            },
+            { value: "waiting" as Bucket, label: "Waiting", count: counts.waiting, tooltip: "Blocked — the clock is paused" },
+            { value: "done" as Bucket, label: "Done", count: counts.completed30, tooltip: "Closed in the last 30 days" },
+          ]}
+        />
+        <LiveBadge status={live} />
+      </div>
+      <FilterBar
+        search={query}
+        onSearch={setQuery}
+        searchPlaceholder="Search ref, problem, place, trade or person…"
+        activeCount={facets.activeCount}
+        onReset={facets.activeCount ? facets.reset : undefined}
+        panel={facets.panel}
+      />
+      {activeChips.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {activeChips.map((c) => (
+            <Button key={c.key} size="sm" variant="outline" onClick={() => facets.set(c.key, "")} aria-label={`Remove filter ${c.text}`}>
+              {c.text}
+              <X aria-hidden />
+            </Button>
+          ))}
+        </div>
+      )}
+      <QueueList
+        label="All jobs"
         rows={filtered}
         getKey={(r) => r.id}
         empty={rows.length ? "No job matches these filters." : "No jobs reported in this unit yet."}
+        renderRow={(r) => (
+          <QueueRow
+            id={r.id}
+            lead={<LaneTile lane="fix" />}
+            title={r.title}
+            dangerous={r.is_dangerous}
+            refNo={r.ref_no}
+            meta={ticketLine(r)}
+            clock={ticketClock(r, nowMs)}
+            action={canAssign ? <AssignButton onClick={() => setAssigning(r)} /> : undefined}
+          />
+        )}
       />
       <AssignSheet
         key={assigning?.id ?? "none"}

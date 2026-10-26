@@ -1,6 +1,6 @@
 import { PageHeader } from "@/components/ui/page-header";
 import { DeskPerformanceScreen } from "@/components/resolve/desk/desk-performance-screen";
-import { isCalendarDate, startOfMonth, today } from "@/lib/calendar";
+import { isCalendarDate, startOfMonth, startOfWeek, today } from "@/lib/calendar";
 import { requireRh } from "@/lib/resolve/auth";
 import { getDeskPerformance } from "@/lib/resolve/desk-service";
 
@@ -23,10 +23,13 @@ export default async function DeskPerformancePage({ searchParams }: { searchPara
   let to = day(sp.to, t);
   if (from > to) [from, to] = [to, from];
   const rows = await getDeskPerformance(from, to);
+  // The chips' ranges, from the same server-side today — a phone whose clock
+  // is off must not shift "This week".
+  const presets = { week: { from: startOfWeek(t), to: t }, month: { from: startOfMonth(t), to: t } };
   return (
     <div className="space-y-4">
       <PageHeader title="Performance" description="Response, resolution, SLA met and CSAT per technician — tickets resolved in the range" />
-      <DeskPerformanceScreen key={`${from}|${to}`} from={from} to={to} rows={rows} />
+      <DeskPerformanceScreen key={`${from}|${to}`} from={from} to={to} rows={rows} presets={presets} />
     </div>
   );
 }

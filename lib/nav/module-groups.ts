@@ -1365,52 +1365,55 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
     description: "Report a problem, work the jobs, and see what stays broken",
     module: "resolve",
     entries: [
+      // DE-DUPLICATED 2026-10-26 (user: "a lot duplicated page in side bar").
+      // Three jobs, three groups: raise it, work it, watch it. Dropped rows,
+      // each still reachable: IT Help Request (it IS Report a Problem with the
+      // IT lane picked — /resolve/report/service still opens it and resolves to
+      // that screen) and Complaints (a handler works them in the Inbox; the
+      // URL redirects there). The four dashboards moved under one Reports row.
       {
         kind: "group",
         slug: "reporting",
         label: "Reporting",
-        description: "Report something broken and follow your reports",
+        description: "Raise a problem and follow what you raised",
         children: [
-          { href: "/resolve/report", label: "Report a Problem", description: "Something is broken — say where and what" },
-          { href: "/resolve/my-reports", label: "My Reports", description: "Everything you reported or joined, and where it stands" },
-          { href: "/resolve/report/service", label: "IT Help Request", description: "Ask the IT service desk for help or something new" },
-          { href: "/resolve/my-complaints", label: "My Complaints", description: "Complaints you raised under your own name, and their answers" },
-          // Redirects to the PUBLIC /p/track (no login — an anonymous complaint
-          // is followed by its token alone). The row is an in-module hop because
+          { href: "/resolve/report", label: "Report a Problem", description: "Fix, IT help, buy something or raise a concern — one chat" },
+          { href: "/resolve/my-reports", label: "My Reports", description: "Everything you raised — confirm, reopen or rate when it is done" },
+          // Redirects to the PUBLIC /p/track (no login — an anonymous concern
+          // is followed by its link alone). The row is an in-module hop because
           // check:nav resolves every leaf under app/(app); see that page.
-          { href: "/resolve/track", label: "Track Complaint", description: "Follow an anonymous complaint with its tracking link" },
+          { href: "/resolve/track", label: "Track Concern", description: "Follow an anonymous concern with its private link" },
         ],
       },
       {
         kind: "group",
         slug: "work",
         label: "Work",
-        description: "Jobs to fix, the triage queue and who is carrying what",
+        description: "The tickets you work, the queues you sort, and the calls you log",
         children: [
-          { href: "/resolve/my-work", label: "My Work", description: "Jobs assigned to you, in progress, to claim and done" },
-          { href: "/resolve/triage", label: "Triage Queue", description: "Decide, assign and spot-check — sorted by score" },
-          { href: "/resolve/jobs", label: "All Jobs", description: "Every job in this unit, with filters and CSV export" },
-          { href: "/resolve/workload", label: "Workload", description: "Open, blocked and overdue jobs per team and person" },
-          { href: "/resolve/complaints", label: "Complaints", description: "Complaints you handle or sit on the committee for" },
-          { href: "/resolve/requirements", label: "Requirements", description: "Things people asked Stores for — approve, reject and give" },
-        ],
-      },
-      // Stage 3 — the IT Service Desk (doc/resolve/service-desk-plan.md §6).
-      // The hub is `desk-hub`, not `desk`: `/resolve/desk` is the queue itself.
-      {
-        kind: "group",
-        slug: "desk-hub",
-        label: "Service Desk",
-        description: "IT help requests — the desk queue, live dashboard, calls and knowledge base",
-        children: [
-          { href: "/resolve/desk", label: "Desk Queue", description: "Unassigned, mine, team and breaching IT requests, FIFO inside priority" },
-          { href: "/resolve/desk/dashboard", label: "Desk Dashboard", description: "Live counts, technician allocation, trend and escalations" },
+          // One inbox for every lane (2026-10-26) — it replaced My Work,
+          // Requirements and Complaints, whose URLs redirect here.
+          { href: "/resolve/inbox", label: "Inbox", description: "Every ticket you work — Fix, IT, Buy and Concern — in one list" },
+          { href: "/resolve/triage", label: "Triage Queue", description: "Fix jobs to decide, assign and spot-check — sorted by score" },
+          // The hub was `desk-hub` until 2026-10-26: `/resolve/desk` is the queue itself.
+          { href: "/resolve/desk", label: "Desk Queue", description: "IT requests to hand out — urgent first, then priority, then first come" },
           { href: "/resolve/desk/log", label: "Log a Call", description: "Raise a request for a caller on the phone, email, chat or WhatsApp" },
           { href: "/resolve/kb", label: "Knowledge Base", description: "Fixes written from resolved requests, searchable" },
-          { href: "/resolve/desk/performance", label: "Performance", description: "Response, resolution, SLA met and CSAT per technician" },
         ],
       },
-      { kind: "link", href: "/resolve/analytics", label: "Analytics" },
+      {
+        kind: "group",
+        slug: "insights",
+        label: "Reports",
+        description: "How the work is going — live counts, who carries what, and every ticket",
+        children: [
+          { href: "/resolve/analytics", label: "Analytics", description: "Trends, top problems and time to fix" },
+          { href: "/resolve/desk/dashboard", label: "Desk Dashboard", description: "Live IT counts, technician allocation and escalations" },
+          { href: "/resolve/workload", label: "Workload", description: "Open, blocked and overdue jobs per team and person" },
+          { href: "/resolve/desk/performance", label: "Performance", description: "Response, resolution, SLA met and rating per technician" },
+          { href: "/resolve/jobs", label: "All Jobs", description: "Every job in this unit, with filters and CSV export" },
+        ],
+      },
       {
         kind: "group",
         slug: "setup",

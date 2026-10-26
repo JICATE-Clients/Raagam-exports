@@ -71,7 +71,7 @@ const ACTION: Record<string, { verb: string; icon: LucideIcon }> = {
   fulfilled: { verb: "Given", icon: PackageCheck },
 };
 
-function wordsFor(action: string) {
+export function wordsFor(action: string) {
   return ACTION[action] ?? { verb: action.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase()), icon: CircleAlert };
 }
 

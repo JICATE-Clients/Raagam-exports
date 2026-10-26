@@ -15,7 +15,7 @@ export default async function Page() {
   return (
     <div className="space-y-4">
       <PageHeader title="Report a problem" />
-      <AssistLayout replyMinutes={props.replyMinutes}>
+      <AssistLayout>
         <AssistChat {...props} />
       </AssistLayout>
     </div>

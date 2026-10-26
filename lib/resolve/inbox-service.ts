@@ -127,7 +127,8 @@ function blindComplaint<T extends RawTicket>(r: T): T {
 
 /**
  * The resolver's four tabs, in the current unit:
- *   mine   live and mine (assignee, or owner with nobody assigned)
+ *   mine   live and mine (assignee, or owner with nobody assigned), plus the
+ *          live complaints of every category whose committee I sit on
  *   take   Fix / IT, open, nobody on it, on a team I am an active member of
  *   wait   blocked / on hold, and mine
  *   done   finished by me in the last 30 days
@@ -141,7 +142,7 @@ export async function loadInbox(): Promise<InboxLists> {
   const since = new Date(Date.now() - 30 * 86_400_000).toISOString();
   const base = () => s.from("rh_tickets").select(TICKET_COLS).eq("location_id", loc);
 
-  const [mineRes, waitRes, doneRes, teamRes] = await Promise.all([
+  const [mineRes, waitRes, doneRes, teamRes, catRes] = await Promise.all([
     base().in("status", INBOX_LIVE).or(mineOr).limit(JOB_ROW_CAP),
     base().in("status", INBOX_WAITING).or(mineOr).limit(JOB_ROW_CAP),
     base()
@@ -151,6 +152,7 @@ export async function loadInbox(): Promise<InboxLists> {
       .order("updated_at", { ascending: false })
       .limit(200),
     s.from("rh_team_members").select("team_id").eq("profile_id", uid).eq("active", true),
+    s.from("rh_category_members").select("category_id").eq("profile_id", uid),
   ]);
   const teams = uniq(((must(teamRes, "Reading your teams") ?? []) as { team_id: string }[]).map((t) => t.team_id));
   const takeRows = teams.length
@@ -166,7 +168,22 @@ export async function loadInbox(): Promise<InboxLists> {
       ) ?? []) as RawTicket[])
     : [];
 
-  const mineRaw = (must(mineRes, "Reading your tickets") ?? []) as RawTicket[];
+  // A complaint committee member sees their categories' live complaints in
+  // Mine too — the Complaints list they used to open folded into this one.
+  const cats = uniq(((must(catRes, "Reading your committees") ?? []) as { category_id: string }[]).map((c) => c.category_id));
+  const committeeRows = cats.length
+    ? ((must(
+        await base()
+          .eq("kind", "complaint")
+          .in("status", ["open", "assigned", "in_progress", "escalated"])
+          .in("category_id", cats)
+          .limit(JOB_ROW_CAP),
+        "Reading your committees' complaints",
+      ) ?? []) as RawTicket[])
+    : [];
+  const ownRaw = (must(mineRes, "Reading your tickets") ?? []) as RawTicket[];
+  const ownIds = new Set(ownRaw.map((r) => r.id));
+  const mineRaw = [...ownRaw, ...committeeRows.filter((r) => !ownIds.has(r.id))];
   const waitRaw = (must(waitRes, "Reading tickets on hold") ?? []) as RawTicket[];
   const doneRaw = (must(doneRes, "Reading finished tickets") ?? []) as RawTicket[];
   // A ticket I own with nobody on it is already in Mine — never twice.

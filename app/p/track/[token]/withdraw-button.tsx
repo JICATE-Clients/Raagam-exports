@@ -15,14 +15,14 @@ export function WithdrawButton({ token }: { token: string }) {
 
   return (
     <div className="space-y-2">
-      <Button type="button" variant="outline" onClick={() => setOpen(true)} disabled={isPending}>
-        Withdraw this complaint
+      <Button type="button" variant="ghost" size="sm" className="text-danger" onClick={() => setOpen(true)} disabled={isPending}>
+        Withdraw this concern
       </Button>
       {error ? <p className="text-sm text-danger">{error}</p> : null}
       <ConfirmDialog
         open={open}
-        title="Withdraw this complaint?"
-        body="The handler stops working on it and it is closed as withdrawn. This cannot be undone — you would need to send a new complaint."
+        title="Withdraw this concern?"
+        body="It is closed and nobody works on it any more. This cannot be undone — you would need to raise a new one."
         confirmLabel="Withdraw"
         cancelLabel="Keep it"
         tone="danger"

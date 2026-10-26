@@ -8,6 +8,8 @@ import { COMPLAINT_STATUS_LABEL, type TrackedComplaint } from "@/lib/resolve/typ
 import { StatusPill } from "@/components/ui/status-pill";
 import { fmtDateTime } from "@/lib/format";
 import { isTrackingToken } from "@/lib/resolve/token";
+import { LaneTile, StepChain } from "@/components/resolve/inbox/inbox-bits";
+import { stepOf } from "@/components/resolve/inbox/inbox-flow";
 import { WithdrawButton } from "./withdraw-button";
 
 /**
@@ -25,7 +27,7 @@ import { WithdrawButton } from "./withdraw-button";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Complaint status — Raagam Exports",
+  title: "Concern status — Raagam Exports",
   robots: { index: false, follow: false },
   // The token is in this page's URL; never send it on as a Referer.
   referrer: "no-referrer",
@@ -65,7 +67,7 @@ export default async function TrackedComplaintPage({ params }: { params: Promise
           </section>
         ) : !view ? (
           <section className="rounded-lg border border-border bg-surface p-5 text-center">
-            <h1 className="text-base font-semibold">No complaint matches this link</h1>
+            <h1 className="text-base font-semibold">Nothing matches this link</h1>
             <p className="mt-1 text-sm text-muted-foreground">
               Check that the whole link was copied.{" "}
               <Link href="/p/track" className="text-primary underline-offset-2 hover:underline">
@@ -75,52 +77,60 @@ export default async function TrackedComplaintPage({ params }: { params: Promise
             </p>
           </section>
         ) : (
-          <section className="space-y-4 rounded-lg border border-border bg-surface p-5">
-            <div className="space-y-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-mono text-sm text-muted-foreground">{view.ref_no}</span>
-                <StatusPill tone={ticketStatusTone(view.status)}>
-                  {COMPLAINT_STATUS_LABEL[view.status] ?? view.status}
-                </StatusPill>
+          <section className="space-y-4 rounded-xl border border-border bg-surface p-4">
+            <div className="flex items-start gap-2.5">
+              <LaneTile lane="concern" size="md" />
+              <div className="min-w-0 flex-1">
+                <h1 className="text-base font-semibold leading-snug">{view.subject}</h1>
+                <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                  <span className="font-mono">{view.ref_no}</span>
+                  <StatusPill tone={ticketStatusTone(view.status)}>{COMPLAINT_STATUS_LABEL[view.status] ?? view.status}</StatusPill>
+                </p>
               </div>
-              <h1 className="text-lg font-semibold">{view.subject}</h1>
             </div>
 
-            <dl className="space-y-1 text-sm">
-              <div className="flex flex-wrap gap-x-2">
-                <dt className="text-muted-foreground">Sent</dt>
-                <dd>{fmtDateTime(view.created_at)}</dd>
+            {/* Where it is, said once — the same chain the app draws on every ticket. */}
+            <StepChain
+              lane="concern"
+              state={stepOf({ kind: "complaint", status: view.status, assignee_id: view.first_response_at ? "answered" : null })}
+            />
+
+            {view.resolution_message ? (
+              <div className="flex items-start gap-2">
+                <span className="flex size-6 flex-none items-center justify-center rounded-full bg-violet-600 text-[10px] font-bold text-white" aria-hidden="true">
+                  HR
+                </span>
+                <p className="whitespace-pre-line rounded-xl rounded-tl-sm border border-border bg-surface-muted px-3 py-2 text-sm">
+                  {view.resolution_message}
+                </p>
               </div>
-              <div className="flex flex-wrap gap-x-2">
-                <dt className="text-muted-foreground">First response</dt>
-                <dd>{view.first_response_at ? fmtDateTime(view.first_response_at) : "Not yet"}</dd>
-              </div>
+            ) : (
+              <p className="rounded-lg bg-surface-muted px-3 py-2 text-sm text-muted-foreground">
+                {view.first_response_at ? "It is being looked into. The reply will show here." : "Waiting for someone to pick it up."}
+              </p>
+            )}
+
+            <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-sm">
+              <dt className="text-muted-foreground">Raised</dt>
+              <dd>{fmtDateTime(view.created_at)}</dd>
+              <dt className="text-muted-foreground">First reply</dt>
+              <dd>{view.first_response_at ? fmtDateTime(view.first_response_at) : "Not yet"}</dd>
               {view.resolved_at ? (
-                <div className="flex flex-wrap gap-x-2">
-                  <dt className="text-muted-foreground">Resolved</dt>
+                <>
+                  <dt className="text-muted-foreground">Answered</dt>
                   <dd>{fmtDateTime(view.resolved_at)}</dd>
-                </div>
+                </>
               ) : null}
               {view.withdrawn_at ? (
-                <div className="flex flex-wrap gap-x-2">
+                <>
                   <dt className="text-muted-foreground">Withdrawn</dt>
                   <dd>{fmtDateTime(view.withdrawn_at)}</dd>
-                </div>
+                </>
               ) : null}
             </dl>
 
-            {view.resolution_message ? (
-              <div className="space-y-1">
-                <p className="text-xs font-medium text-muted-foreground">The handler&apos;s reply</p>
-                <p className="whitespace-pre-line rounded-md bg-surface-muted p-3 text-sm">{view.resolution_message}</p>
-              </div>
-            ) : null}
-
+            <p className="text-xs text-muted-foreground">Keep this link private — anyone who has it can see this page.</p>
             {open ? <WithdrawButton token={token} /> : null}
-
-            <p className="text-xs text-muted-foreground">
-              Keep this link private — anyone who has it can see this page.
-            </p>
           </section>
         )}
       </div>

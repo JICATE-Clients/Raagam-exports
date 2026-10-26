@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/ui/page-header";
 import { DeskQueueScreen } from "@/components/resolve/desk/desk-queue-screen";
+import { requestNow } from "@/components/resolve/work/queue-clock";
 import { canRh } from "@/lib/resolve/auth";
 import { getShiftSummary, listDeskQueue } from "@/lib/resolve/desk-service";
 import { listPeople } from "@/lib/resolve/service";
@@ -20,7 +21,7 @@ export default async function DeskQueuePage() {
   return (
     <div className="space-y-4">
       <PageHeader title="Desk Queue" description="IT requests — urgent overrides first, then priority, then first come first served" />
-      <DeskQueueScreen lists={lists} shift={shift} people={people} canAssign={canTriage} />
+      <DeskQueueScreen lists={lists} shift={shift} people={people} canAssign={canTriage} nowMs={requestNow()} />
     </div>
   );
 }

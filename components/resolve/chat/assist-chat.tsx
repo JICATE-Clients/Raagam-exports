@@ -12,6 +12,7 @@ import {
   EyeOff,
   LocateFixed,
   MapPin,
+  PencilLine,
   Search,
   ShieldCheck,
   TriangleAlert,
@@ -52,12 +53,14 @@ import { KbSteps } from "@/components/resolve/kb/kb-steps";
 import {
   ANSWER_BAR,
   AnswerCard,
+  AnswerPill,
   AssistHeader,
   Bot,
   Me,
   PRIMARY_LINK,
   ReviewRow,
   ROUTE_LOOK,
+  softLabel,
 } from "./assist";
 import { assistIcon, searchCatalog } from "./assist-icons";
 
@@ -159,6 +162,7 @@ export function AssistChat({
   const [moreItems, setMoreItems] = useState(false);
   const [typingPlace, setTypingPlace] = useState(places.length === 0);
   const [qtyTyping, setQtyTyping] = useState(false);
+  const [detailTyping, setDetailTyping] = useState(false);
   const [note, setNote] = useState("");
   const [photo, setPhoto] = useState<CapturedPhoto | null>(null);
   const [gps, setGps] = useState<{ lat: number; lng: number } | null>(null);
@@ -201,6 +205,7 @@ export function AssistChat({
     });
     setQuery("");
     setMoreItems(false);
+    setDetailTyping(false);
   }
 
   function pickLane(lane: AssistLane) {
@@ -226,6 +231,11 @@ export function AssistChat({
         setS((prev) => (prev.itemId === i.id ? { ...prev, kbHits: res.ok ? res.data.slice(0, 1) : [] } : prev)),
       );
     }
+  }
+  /** "Something else" before any area: the person says it in their own words,
+   *  and the ticket goes to the lane's sorting queue (no catalog item). */
+  function pickOther() {
+    answer({ areaId: OTHER, itemId: OTHER, custom: null, detail: null, kbHits: null, kbDone: false, anonOk: false, anonymous: false });
   }
   function pickPlace(id: string) {
     if (!id) return;
@@ -340,17 +350,18 @@ export function AssistChat({
 
   return (
     <Frame lane={s.lane} replyMinutes={replyMinutes}>
-      <div className="flex min-h-[40dvh] flex-col gap-3 px-3.5 pt-4 pb-3" aria-live="polite">
+      <div className="flex min-h-[40dvh] flex-col gap-2.5 px-3.5 pt-3.5 pb-3 md:min-h-0 md:flex-1 md:overflow-y-auto" aria-live="polite">
         <Bot>
           Hi{firstName ? ` ${firstName}` : ""}! What do you need? Tap one — or search below.
         </Bot>
         {s.lane && look && <Me tone={s.lane}>{look.label}</Me>}
 
         {s.lane && <Bot>{AREA_Q[s.lane]}</Bot>}
+        {s.areaId === OTHER && <Me tone={s.lane ?? undefined}>Something else</Me>}
         {area && <Me tone={s.lane ?? undefined}>{area.label}</Me>}
 
         {area && <Bot>Which one?</Bot>}
-        {s.itemId && <Me tone={s.lane ?? undefined}>{s.itemId === OTHER ? "Something else" : subject}</Me>}
+        {area && s.itemId && <Me tone={s.lane ?? undefined}>{s.itemId === OTHER ? "Something else" : softLabel(subject)}</Me>}
 
         {s.itemId === OTHER && <Bot>Say it in a few words.</Bot>}
         {s.itemId === OTHER && s.custom && <Me tone={s.lane ?? undefined}>{s.custom}</Me>}
@@ -515,11 +526,11 @@ export function AssistChat({
             {s.lane === "concern" && (
               <p className="rounded-xl border border-border bg-surface-muted/60 px-3 py-2.5 text-xs leading-5 text-muted-foreground">
                 {s.anonymous
-                  ? "Anonymous: your name is not stored anywhere, so the handler cannot see or contact you. You get a private tracking link once — keep it safe."
-                  : "With your name: the handler can see who you are and reply, and you can follow it under My Complaints."}{" "}
+                  ? "Anonymous: your name is not stored anywhere, so nobody can see who sent it. You get a private link once to follow it — keep it safe."
+                  : "With your name: the person looking into it can reply to you, and you can follow it under My Reports."}{" "}
                 {s.superior || item?.sensitive
-                  ? "Only the named handler" + (s.superior ? "" : " and its committee") + " can read it."
-                  : "The handler for this kind and your unit's Resolve Hub managers can read it."}
+                  ? "Only the person looking into it" + (s.superior ? "" : " and a small committee") + " can read it."
+                  : "The person looking into it and your unit's managers can read it."}
               </p>
             )}
           </>
@@ -557,7 +568,7 @@ export function AssistChat({
       {/* ── The answers for the current question ─────────────────────────── */}
       <div ref={barRef} className={ANSWER_BAR}>
         {at("lane") && (
-          <div className="grid grid-cols-1 gap-2 min-[380px]:grid-cols-2">
+          <div className="grid grid-cols-2 gap-1.5 md:grid-cols-4">
             {LANES.map((k) => {
               const r = ROUTE_LOOK[k];
               return <AnswerCard key={k} title={r.label} sub={r.sub} icon={r.icon} tile={r.tile} ring={r.ring} onClick={() => pickLane(k)} />;
@@ -566,66 +577,65 @@ export function AssistChat({
         )}
 
         {at("area") && (
-          <div className="grid grid-cols-2 gap-2 min-[560px]:grid-cols-3">
+          <div className="grid grid-cols-2 gap-1.5 md:grid-cols-3">
             {laneAreas.map((a) => (
-              <AnswerCard
+              <AnswerPill
                 key={a.id}
-                title={a.label}
+                label={a.label}
                 icon={assistIcon(a.icon)}
                 tile={look?.tile}
                 ring={look?.ring}
                 onClick={() => answer({ areaId: a.id, itemId: null })}
               />
             ))}
+            <AnswerPill label="Something else" icon={PencilLine} onClick={pickOther} />
           </div>
         )}
 
         {at("item") && area && (
-          <div className="flex flex-col gap-2">
-            <div className="grid grid-cols-1 gap-1.5 min-[420px]:grid-cols-2">
-              {shownItems.map((i) => (
-                // button-shape: exempt -- a one-line answer row, not an action button
-                <button
-                  key={i.id}
-                  type="button"
-                  onClick={() => pickItem(area, i)}
-                  className={cn(
-                    "flex min-h-11 items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2 text-left text-sm font-medium shadow-sm hover:bg-surface-muted focus-visible:outline-2 focus-visible:outline-ring",
-                    look?.ring,
-                  )}
-                >
-                  {i.dangerous && <TriangleAlert className="size-4 flex-none text-red-600" aria-label="Dangerous" />}
-                  <span className="uppercase">{i.label}</span>
-                </button>
-              ))}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {area.items.length > SHOW_ITEMS && !moreItems && (
-                <Button type="button" variant="outline" size="sm" onClick={() => setMoreItems(true)}>
-                  More ({area.items.length - SHOW_ITEMS})
-                </Button>
-              )}
-              <Button type="button" variant="outline" size="sm" onClick={() => pickItem(area, null)}>
-                Something else
-              </Button>
-            </div>
+          <div className="grid grid-cols-2 gap-1.5 md:grid-cols-3">
+            {shownItems.map((i) => (
+              <AnswerPill key={i.id} label={softLabel(i.label)} danger={i.dangerous} ring={look?.ring} onClick={() => pickItem(area, i)} />
+            ))}
+            {area.items.length > SHOW_ITEMS && !moreItems && (
+              <AnswerPill label={`More (${area.items.length - SHOW_ITEMS})`} onClick={() => setMoreItems(true)} />
+            )}
+            <AnswerPill label="Something else" icon={PencilLine} onClick={() => pickItem(area, null)} />
           </div>
         )}
 
-        {(at("area") || at("item")) && (
-          <Button type="button" variant="ghost" size="sm" className="self-start" onClick={() => (at("item") ? answer({ areaId: null }) : restart())}>
-            <ArrowLeft className="size-4" aria-hidden="true" /> Back
-          </Button>
-        )}
-
-        {/* One search over the catalog — the fastest way to any problem */}
+        {/* One search over the catalog — the fastest way to any problem — with
+            Back beside it, so the two never take a row each. */}
         {(at("lane") || at("area") || at("item")) && (
           <div className="flex flex-col gap-1.5">
-            <label htmlFor="assist-search" className="flex items-center gap-1.5 pl-0.5 text-xs font-medium text-muted-foreground">
-              <Search className="size-3.5" aria-hidden="true" /> Search a problem — needle, printer, salary…
-            </label>
-            {/* caps-input: exempt -- a search query, not a stored value */}
-            <Input id="assist-search" value={query} uppercase={false} type="search" onChange={(e) => setQuery(e.target.value)} />
+            <div className="flex items-center gap-1.5">
+              {(at("area") || at("item")) && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-8 flex-none px-0"
+                  aria-label="Back"
+                  title="Back"
+                  onClick={() => (at("item") ? answer({ areaId: null }) : restart())}
+                >
+                  <ArrowLeft aria-hidden="true" />
+                </Button>
+              )}
+              <div className="relative min-w-0 flex-1">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                {/* caps-input: exempt -- a search query, not a stored value */}
+                <Input
+                  id="assist-search"
+                  value={query}
+                  uppercase={false}
+                  type="search"
+                  aria-label="Search a problem — needle, printer, salary"
+                  className="pl-8"
+                  onChange={(e) => setQuery(e.target.value)}
+                />
+              </div>
+            </div>
             {query.trim().length >= 2 && (
               <div className="flex flex-col gap-1">
                 {hits.length === 0 ? (
@@ -637,11 +647,11 @@ export function AssistChat({
                       key={i.id}
                       type="button"
                       onClick={() => pickItem(a, i)}
-                      className="flex min-h-11 items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-left hover:bg-surface-muted focus-visible:outline-2 focus-visible:outline-ring"
+                      className="flex min-h-10 items-center gap-2 rounded-lg border border-border bg-surface px-3 py-1.5 text-left transition hover:-translate-y-px hover:bg-surface-muted hover:shadow-sm focus-visible:outline-2 focus-visible:outline-ring"
                     >
                       <span className={cn("size-2 flex-none rounded-full", ROUTE_LOOK[a.lane].dot)} aria-hidden="true" />
                       <span className="flex flex-col">
-                        <span className="text-sm font-medium uppercase">{i.label}</span>
+                        <span className="text-[13px] font-medium">{softLabel(i.label)}</span>
                         <span className="text-xs text-muted-foreground">
                           {ROUTE_LOOK[a.lane].label} · {a.label}
                         </span>
@@ -668,18 +678,28 @@ export function AssistChat({
           />
         )}
 
-        {at("detail") && area && (
-          <div className="flex flex-wrap gap-2">
-            {(item?.details.length ? item.details : area.items[0]?.details ?? []).map((d) => (
-              <Button key={d} type="button" variant="outline" size="sm" onClick={() => answer({ detail: d.toUpperCase() })}>
-                {d}
-              </Button>
-            ))}
-            <Button type="button" variant="ghost" size="sm" onClick={() => answer({ detail: "" })}>
-              Skip
-            </Button>
-          </div>
-        )}
+        {at("detail") &&
+          (detailTyping ? (
+            <TextAnswer
+              id="assist-detail"
+              label="In your own words"
+              max={200}
+              value={draft}
+              onChange={setDraft}
+              onSend={(t) => {
+                setDraft("");
+                answer({ detail: t.toUpperCase() });
+              }}
+            />
+          ) : (
+            <div className="grid grid-cols-2 gap-1.5 md:grid-cols-3">
+              {(item?.details.length ? item.details : area?.items[0]?.details ?? DETAIL_FALLBACK[s.lane ?? "fix"]).map((d) => (
+                <AnswerPill key={d} label={d} ring={look?.ring} onClick={() => answer({ detail: d.toUpperCase() })} />
+              ))}
+              <AnswerPill label="Other — type it" icon={PencilLine} onClick={() => setDetailTyping(true)} />
+              <AnswerPill label="Skip" onClick={() => answer({ detail: "" })} />
+            </div>
+          ))}
 
         {at("kb") && s.kbHits?.[0] && (
           <div className="grid grid-cols-2 gap-2">
@@ -748,7 +768,7 @@ export function AssistChat({
         )}
 
         {at("impact") && (
-          <div className="flex flex-col gap-2">
+          <div className="grid grid-cols-1 gap-1.5 md:grid-cols-3">
             {IMPACTS.map((o) => (
               <AnswerCard key={o.value} title={o.label} sub={o.sub} icon={TriangleAlert} tile={o.tile} onClick={() => answer({ impact: o.value })} />
             ))}
@@ -773,34 +793,26 @@ export function AssistChat({
               }}
             />
           ) : (
-            <div className="flex flex-wrap gap-2">
+            <div className="grid grid-cols-3 gap-1.5 md:grid-cols-4">
               {QTY_CHIPS.map((n) => (
-                <Button key={n} type="button" variant="outline" size="sm" onClick={() => answer({ qty: n })}>
-                  {n}
-                </Button>
+                <AnswerPill key={n} label={String(n)} ring={look?.ring} onClick={() => answer({ qty: n })} />
               ))}
-              <Button type="button" variant="ghost" size="sm" onClick={() => setQtyTyping(true)}>
-                Other
-              </Button>
+              <AnswerPill label="Other" icon={PencilLine} onClick={() => setQtyTyping(true)} />
             </div>
           ))}
 
         {at("needed") && (
-          <div className="flex flex-wrap gap-2">
+          <div className="grid grid-cols-3 gap-1.5 md:grid-cols-4">
             {NEEDED_BY.map((k) => (
-              <Button key={k} type="button" variant="outline" size="sm" onClick={() => answer({ neededBy: k })}>
-                {NEEDED_BY_LABEL[k]}
-              </Button>
+              <AnswerPill key={k} label={NEEDED_BY_LABEL[k]} ring={look?.ring} onClick={() => answer({ neededBy: k })} />
             ))}
           </div>
         )}
 
         {at("reason") && (
-          <div className="flex flex-wrap gap-2">
+          <div className="grid grid-cols-2 gap-1.5 md:grid-cols-3">
             {RQ_REASONS.map((k) => (
-              <Button key={k} type="button" variant="outline" size="sm" onClick={() => answer({ reason: k })}>
-                {RQ_REASON_LABEL[k]}
-              </Button>
+              <AnswerPill key={k} label={RQ_REASON_LABEL[k]} ring={look?.ring} onClick={() => answer({ reason: k })} />
             ))}
           </div>
         )}
@@ -930,6 +942,14 @@ const AREA_Q: Record<AssistLane, string> = {
   buy: "What do you need?",
   concern: "What is it about? Only the people who handle it will see it.",
 };
+/** "What happened" choices when no catalog item supplies its own — the person
+ *  picked "Something else" before choosing an area. */
+const DETAIL_FALLBACK: Record<AssistLane, string[]> = {
+  fix: ["Just started", "Since yesterday", "Keeps happening"],
+  it: ["Just me", "My whole team", "Since today"],
+  buy: [],
+  concern: ["Happened once", "Keeps happening"],
+};
 const DETAIL_Q: Record<AssistLane, string> = {
   fix: "What's happening?",
   it: "Since when, and who's affected?",
@@ -947,7 +967,12 @@ function SEND_LABEL(lane: AssistLane | null, dangerous: boolean, anonymous: bool
 
 function Frame({ lane, replyMinutes, children }: { lane: AssistLane | null; replyMinutes: number; children: React.ReactNode }) {
   return (
-    <section aria-label="Raagam Assist" className="flex w-full flex-col border-border bg-background md:rounded-2xl md:border md:shadow-sm">
+    // One screen on a desktop: the conversation scrolls inside the frame and
+    // the answers stay docked at its foot, so the page itself never scrolls.
+    <section
+      aria-label="Raagam Assist"
+      className="flex w-full flex-col border-border bg-background md:h-[calc(100dvh-10.5rem)] md:min-h-[30rem] md:rounded-2xl md:border md:shadow-sm"
+    >
       <AssistHeader
         status={
           lane === "it"
