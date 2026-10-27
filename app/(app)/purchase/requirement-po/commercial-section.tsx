@@ -1,7 +1,7 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
-import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { fmtFixed } from "@/lib/format";
@@ -147,20 +147,65 @@ export function CommercialSection({
   ];
 
   const net = chargesNet(value);
-  /** One small box per term — 32px, 13px type, as wide as its value and no wider. */
-  const BOX = "h-8 text-[13px]";
-  const text = (key: TextKey, label: string, w: string) => (
-    <Field key={key} label={label} htmlFor={`rpo-com-${key}`} className={w}>
-      <Input id={`rpo-com-${key}`} className={BOX} value={value[key]} onChange={(e) => set({ [key]: e.target.value })} />
-    </Field>
+  /** A cell you type in, not a box in a cell — the same cell the Items grid uses. */
+  const TCELL =
+    "h-9 w-full min-w-0 rounded-none border-0 bg-transparent px-2 text-[13px] shadow-none hover:bg-[#f2f7fb] focus:bg-white focus-visible:ring-2 focus-visible:ring-inset";
+  const text = (key: TextKey, label: string) => (
+    <Input id={`rpo-com-${key}`} aria-label={label} className={cn(TCELL, "text-ellipsis")} value={value[key]} onChange={(e) => set({ [key]: e.target.value })} />
   );
+  /** The ten terms, in the order the operator reads them. GST is the one required. */
+  const terms_: { key: string; label: string; required?: boolean; cell: ReactNode }[] = [
+    {
+      key: "gst",
+      label: "GST",
+      required: true,
+      cell: (
+        <Select id="rpo-gst" aria-label="GST" required className={TCELL} value={gst} onChange={(e) => onGst(e.target.value)}>
+          {gstOptions.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </Select>
+      ),
+    },
+    {
+      key: "terms",
+      label: "Payment Terms",
+      cell: <Input id="rpo-terms" aria-label="Payment Terms" className={cn(TCELL, "text-ellipsis")} value={terms} onChange={(e) => onTerms(e.target.value)} />,
+    },
+    { key: "pay_mode", label: "Pay Mode", cell: text("pay_mode", "Pay Mode") },
+    { key: "vat_against", label: "VAT/GST Against", cell: text("vat_against", "VAT/GST Against") },
+    { key: "duty_against", label: "Duty Against", cell: text("duty_against", "Duty Against") },
+    { key: "ship_mode", label: "Ship Mode", cell: text("ship_mode", "Ship Mode") },
+    { key: "ship_type", label: "Ship Type", cell: text("ship_type", "Ship Type") },
+    {
+      key: "freight",
+      label: "Freight Type",
+      cell: (
+        <Select
+          id="rpo-com-freight"
+          aria-label="Freight Type"
+          className={TCELL}
+          value={value.freight_type}
+          onChange={(e) => set({ freight_type: e.target.value as CommercialValue["freight_type"] })}
+        >
+          <option value=""></option>
+          <option value="itemwise">Itemwise</option>
+          <option value="consolidated">Consolidated</option>
+        </Select>
+      ),
+    },
+    { key: "place_of_delivery", label: "Place of Delivery", cell: text("place_of_delivery", "Place of Delivery") },
+    { key: "invoice_send_to", label: "Invoice Send To", cell: text("invoice_send_to", "Invoice Send To") },
+  ];
 
   /*
-   * EVERY TERM IN VIEW, EACH ONLY AS WIDE AS ITS VALUE (user 2026-10-26: "reduce
-   * the field widths … all the fields should be visible inside the desktop, fit —
-   * compact the width"; a fold was tried and was not the ask). The 5-column grid
-   * stretched every box to a fifth of the pane (~240px for a "CASH"); now each
-   * takes a width sized to what goes in it, so the ten wrap into two short lines.
+   * THE TERMS ARE ONE TABLE, ONE TERM PER ROW (user 2026-10-27: "single table …
+   * vertical", after ten headings across was tried in mockup 3y7eAYAH4wFUdFwXEYPiz5).
+   * It replaces the wrapping row of labelled boxes, which broke into two uneven lines.
+   * The name on the left, the cell you type in on the right; 30rem wide, so the
+   * charges sit beside it on a desktop and under it on a phone.
    *
    * THE CHARGES PANE IS 27rem BECAUSE THE GRID IS 420px. ChildGrid's table carries
    * `min-w-[420px]`; at 19rem (304px) it scrolled sideways and the Type cell read
@@ -168,43 +213,32 @@ export function CommercialSection({
    */
   return (
     <div className="flex flex-col gap-4 px-4 py-3 lg:flex-row lg:items-start">
-      <section aria-label="Commercial terms" className="min-w-0 flex-1">
+      <section aria-label="Commercial terms" className="w-full min-w-0 lg:w-[30rem] lg:shrink-0">
         <h3 className="mb-1.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">Commercial</h3>
-        <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
-          <Field label="GST" required htmlFor="rpo-gst" className="w-[10rem]">
-            <Select id="rpo-gst" required className={BOX} value={gst} onChange={(e) => onGst(e.target.value)}>
-              {gstOptions.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
+        <div className="overflow-hidden rounded-lg border border-[#dde4eb]">
+          <table className="w-full table-fixed border-collapse text-[13px]">
+            <tbody>
+              {terms_.map((t) => (
+                <tr key={t.key} className="border-b border-[#dde4eb] last:border-b-0">
+                  <th
+                    scope="row"
+                    className="w-[11rem] border-r border-[#dde4eb] bg-[var(--table-head-bg)] px-3 text-left align-middle text-[11px] font-semibold tracking-wide uppercase"
+                  >
+                    {t.label}
+                    {t.required ? (
+                      <span aria-hidden className="text-danger">
+                        *
+                      </span>
+                    ) : null}
+                  </th>
+                  <td className="p-0">{t.cell}</td>
+                </tr>
               ))}
-            </Select>
-          </Field>
-          <Field label="Payment Terms" htmlFor="rpo-terms" className="w-[11rem]">
-            <Input id="rpo-terms" className={BOX} value={terms} onChange={(e) => onTerms(e.target.value)} />
-          </Field>
-          {text("pay_mode", "Pay Mode", "w-[6.5rem]")}
-          {text("vat_against", "VAT/GST Against", "w-[7.5rem]")}
-          {text("duty_against", "Duty Against", "w-[6.5rem]")}
-          {text("ship_mode", "Ship Mode", "w-[6.5rem]")}
-          {text("ship_type", "Ship Type", "w-[6.5rem]")}
-          <Field label="Freight Type" htmlFor="rpo-com-freight" className="w-[8.5rem]">
-            <Select
-              id="rpo-com-freight"
-              className={BOX}
-              value={value.freight_type}
-              onChange={(e) => set({ freight_type: e.target.value as CommercialValue["freight_type"] })}
-            >
-              <option value=""></option>
-              <option value="itemwise">Itemwise</option>
-              <option value="consolidated">Consolidated</option>
-            </Select>
-          </Field>
-          {text("place_of_delivery", "Place of Delivery", "w-[9rem]")}
-          {text("invoice_send_to", "Invoice Send To", "w-[9rem]")}
+            </tbody>
+          </table>
         </div>
       </section>
-      <section aria-label="Additional charges" className="w-full lg:w-[27rem] lg:shrink-0">
+      <section aria-label="Additional charges" className="w-full lg:w-[27rem]">
         <div className="mb-1.5 flex items-baseline justify-between">
           <h3 className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">Add / Less charges</h3>
           {net !== 0 ? (

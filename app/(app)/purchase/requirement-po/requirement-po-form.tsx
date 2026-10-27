@@ -1432,21 +1432,55 @@ export function RequirementPoForm({
   ];
   const sheetGroup = sizeSheet && activeGroup ? (sizeGroupsOf(activeGroup.rows).find((g) => g.key === sizeSheet.key) ?? null) : null;
 
-  const rePane = (g: (typeof groups)[number]) => (
-    // default-row: exempt -- the rows are the order's requirement lines, derived; nothing is added here
-    <ChildGrid<SizeGroup>
-      columns={groupColumns}
-      rows={sizeGroupsOf(g.rows)}
-      flatRows
-      hideAdd
-      hideRemove
-      keepOne={false}
-      onAdd={() => false}
-      onRemove={() => {}}
-      frameless
-      headerClassName={GRID_HEAD}
-    />
-  );
+  /*
+   * A SKIPPED LINE LEAVES THE TABLE (user 2026-10-27: "if skipped can remove it from
+   * table instead strike it out"). It used to stay, struck through, between the lines
+   * being ordered. Now it drops out and is named in this strip under the table — the one
+   * way back, since its ⊘ left with it. Still saved as 0, its balance kept for another PO.
+   */
+  const skippedStrip = (items: readonly { key: string; label: string; members: readonly GridRow[] }[]) =>
+    items.length ? (
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-1 pt-2 text-xs text-muted-foreground">
+        <span>Skipped on this PO — balance kept:</span>
+        {items.map((i) => (
+          <button
+            key={i.key}
+            type="button"
+            aria-label={`Put ${i.label} back on this PO`}
+            title="Put back on this PO"
+            onClick={() => setMembers(i.members, { skip: false })}
+            className="inline-flex max-w-[16rem] items-center gap-1 rounded-control border border-[#dde4eb] bg-surface px-2 py-0.5 font-medium text-foreground hover:border-[#037bb8] hover:text-[#037bb8]"
+          >
+            <Undo2 aria-hidden className="size-3 shrink-0" />
+            <Truncated touch={false} className="min-w-0">
+              {i.label}
+            </Truncated>
+          </button>
+        ))}
+      </div>
+    ) : null;
+
+  const rePane = (g: (typeof groups)[number]) => {
+    const all = sizeGroupsOf(g.rows);
+    return (
+      <>
+        {/* default-row: exempt -- the rows are the order's requirement lines, derived; nothing is added here */}
+        <ChildGrid<SizeGroup>
+          columns={groupColumns}
+          rows={all.filter((x) => !groupSkip(x))}
+          flatRows
+          hideAdd
+          hideRemove
+          keepOne={false}
+          onAdd={() => false}
+          onRemove={() => {}}
+          frameless
+          headerClassName={GRID_HEAD}
+        />
+        {skippedStrip(all.filter(groupSkip).map((x) => ({ key: x.key, label: x.first.item_name, members: x.members })))}
+      </>
+    );
+  };
 
   /* ONE ORDER, ONE LINE (user 2026-10-26, screenshot 2026-10-26 103442: "compact this
      left rail … without scroll … remove Late, No budget … I can see two times the number,
@@ -1873,7 +1907,7 @@ export function RequirementPoForm({
                                   {/* default-row: exempt -- the item's order lines, derived; nothing is added here */}
                                   <ChildGrid<GridRow>
                                     columns={breakupColumns}
-                                    rows={openItem.members}
+                                    rows={openItem.members.filter((m) => !m.row.skip)}
                                     flatRows
                                     hideAdd
                                     hideRemove
@@ -1883,6 +1917,11 @@ export function RequirementPoForm({
                                     frameless
                                     headerClassName={GRID_HEAD}
                                   />
+                                  {skippedStrip(
+                                    openItem.members
+                                      .filter((m) => m.row.skip)
+                                      .map((m) => ({ key: m.key, label: `${m.source_no.split(" · ")[0]}${m.size_name ? ` · ${m.size_name}` : ""}`, members: [m] })),
+                                  )}
                                 </div>
                               ) : null}
                             </div>
