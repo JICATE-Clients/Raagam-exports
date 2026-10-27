@@ -29,6 +29,10 @@ export type PoPrintRow = {
   /** RE / SWO / IWO No the line was ordered against. */
   sourceNo: string | null;
   description: string;
+  /** What the sheet prints, on two lines (user 2026-10-27): the item with its note,
+   *  then the colour / shade beneath it. `description` stays the one-line GRN text. */
+  name: string;
+  spec: string | null;
   /** Empty for an item bought without sizes. */
   sizes: { size: string; qty: number }[];
   qty: number;
@@ -69,6 +73,8 @@ export type PoPrintData = {
   notes: string | null;
   preparedBy: string | null;
   approvedBy: string | null;
+  /** When it was approved — the digital approval stamp's date. */
+  approvedAt: string | null;
 };
 
 const money = (n: number) => Math.round(n * 100) / 100;
@@ -146,6 +152,10 @@ export async function getPoPrint(poId: string): Promise<PoPrintData | null> {
     const description = req
       ? withNote(lineDescription({ item_name: req.item_name, slice_label: foldable ? req.slice_base : req.slice_label, colour: req.colour }), note).toUpperCase()
       : String(l.description ?? "");
+    const spec = req
+      ? lineDescription({ item_name: "", slice_label: foldable ? req.slice_base : req.slice_label, colour: req.colour }).replace(/^ · /, "").toUpperCase() || null
+      : null;
+    const name = req ? withNote(req.item_name, note).toUpperCase() : description;
     const hit = byGroup.get(groupKey);
     if (hit) {
       hit.row.qty += qty;
@@ -163,6 +173,8 @@ export async function getPoPrint(poId: string): Promise<PoPrintData | null> {
         key: groupKey,
         sourceNo: req?.source_no ?? null,
         description,
+        name,
+        spec,
         sizes: foldable && req?.size_name ? [{ size: req.size_name, qty }] : [],
         qty,
         uom: (typeof l.uom_id === "string" ? uomCode.get(l.uom_id) : null) || req?.uom_code || null,
@@ -248,5 +260,6 @@ export async function getPoPrint(poId: string): Promise<PoPrintData | null> {
     notes: str("notes"),
     preparedBy: str("created_by") ? (names.get(str("created_by")!) ?? null) : null,
     approvedBy: str("approved_by") ? (names.get(str("approved_by")!) ?? null) : null,
+    approvedAt: str("approved_at"),
   };
 }

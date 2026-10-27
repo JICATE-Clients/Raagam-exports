@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { can, getAppUser } from "@/lib/auth/server";
 import { refuseReopenedBudget, refuseUnsettledMaterials } from "@/lib/purchase/bom-ceiling-service";
 import { getRequirementLines, getVendorsForClass } from "./service";
+import { notifyPoAboveBudget } from "@/lib/purchase/po-escalation";
 import {
   gstSlab,
   lineDescription,
@@ -277,6 +278,8 @@ export async function savePoFromRequirement(raw: RePoInput, mode: "draft" | "sub
   const fx = input.po_type === "import" ? (input.exchange_rate ?? 0) : 1;
   let aboveCount = 0;
   let unbudgeted = 0;
+  /** Lines that send the PO to the MD — above budget, or with no approved budget. */
+  const escalated = new Set<string>();
   if (mode === "submit") {
     const gateLines = lines.map((l) => ({ sales_order_id: l.req.sales_order_id, iwo_id: l.req.iwo_id, item_id: l.req.item_id }));
     const reopened = await refuseReopenedBudget(gateLines);
@@ -297,6 +300,7 @@ export async function savePoFromRequirement(raw: RePoInput, mode: "draft" | "sub
       );
       aboveCount = flags.filter((f) => f.above).length;
       unbudgeted = flags.filter((f) => !f.hasBudget).length;
+      for (const f of flags) if (f.above || !f.hasBudget) escalated.add(f.key);
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : "The budget check failed" };
     }
@@ -310,6 +314,9 @@ export async function savePoFromRequirement(raw: RePoInput, mode: "draft" | "sub
   const grand = Math.round((totals.total + chargesNet) * 100) / 100;
   const status: "draft" | "approved" | "pending_approval" =
     mode === "draft" ? "draft" : aboveCount > 0 || unbudgeted > 0 ? "pending_approval" : "approved";
+  // The reason is mandatory for the MD (user 2026-10-27) — checked here too, not only on screen.
+  if (status === "pending_approval" && !input.budget_reason?.trim())
+    return { ok: false, error: "A rate is above budget — give the reason before it goes to the MD" };
   const user = await getAppUser();
   const latestDelivery = lines.map((l) => l.delivery_date).sort().at(-1) ?? null;
 
@@ -328,6 +335,8 @@ export async function savePoFromRequirement(raw: RePoInput, mode: "draft" | "sub
       gst_kind: slab.kind,
       gst_amount: totals.gst,
       payment_terms: input.payment_terms,
+      // Only a PO that goes to the MD carries a reason; one inside budget has nothing to explain.
+      ...(status === "pending_approval" && input.budget_reason ? { budget_reason: input.budget_reason } : {}),
       ...(input.commercial ?? {}),
       expected_date: latestDelivery,
       order_date: new Date().toISOString().slice(0, 10),
@@ -392,6 +401,18 @@ export async function savePoFromRequirement(raw: RePoInput, mode: "draft" | "sub
       await s.from("purchase_orders").delete().eq("id", poRow.id);
       return { ok: false, error: `The PO charges could not be saved: ${chErr.message}` };
     }
+  }
+
+  if (status === "pending_approval") {
+    // THE MD'S ALERT (escalation spec §2): which items, the total, the reason.
+    const items = [...new Set(lines.filter((l) => escalated.has(lineKeyOf(l.req))).map((l) => l.req.item_name.toUpperCase()))];
+    await notifyPoAboveBudget({
+      id: poRow.id,
+      code: poRow.code,
+      items,
+      reason: input.budget_reason ?? null,
+      total: `${input.po_type === "import" ? (input.currency_code ?? "") : "₹"} ${grand.toFixed(2)}`,
+    });
   }
 
   revalidatePath("/purchase/orders");

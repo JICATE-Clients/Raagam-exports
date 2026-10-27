@@ -153,28 +153,58 @@ export function FilterPill(props: FilterPillProps) {
   const chosen = options.filter((o) => picked.includes(o.value));
   const set = chosen.length > 0;
 
+  /** A tick was made since the list opened — leaving the pill with the mouse then closes it. */
+  const tickedRef = useRef(false);
   function openList() {
     if (disabled) return;
+    tickedRef.current = false;
     setQuery("");
     const at = Math.max(0, items.findIndex((o) => isOn(o)));
     setHi(enabled(at) ? at : items.findIndex((_, i) => enabled(i)));
     setOpen(true);
   }
-  /** `keepOpen` — Ctrl / ⌘ held on the click: tick several without the list closing. */
+  /** `keepOpen` — a mouse tick, or Space: the list stays open for the next one. */
   function pick(i: number, keepOpen = false) {
     if (!enabled(i)) return;
     const o = items[i];
     if (!props.multiple) {
       props.onChange(o.value);
-      setOpen(false);
+      close();
+      advance();
       return;
     }
     // "Any" clears them all.
     if (o.any) props.onChange([]);
     else props.onChange(picked.includes(o.value) ? picked.filter((v) => v !== o.value) : [...picked, o.value]);
-    // A CHOICE CLOSES THE LIST, ticks included (user 2026-10-27, screenshot 3747: "after
-    // choosing the data also the filter is not closing"). Hold Ctrl / ⌘ to tick several.
-    if (!keepOpen) close();
+    // A MOUSE TICK KEEPS THE LIST OPEN until the pointer leaves the pill (user 2026-10-27,
+    // screenshot 3765: "suddenly close after choosing one value — wait until user moving to
+    // outside of the filter area"; this replaces 3747's close-on-every-tick). Enter, from
+    // the keyboard, where there is no "outside" to move to, still closes and moves on.
+    tickedRef.current = true;
+    if (!keepOpen) {
+      close();
+      advance();
+    }
+  }
+  /**
+   * AUTO-MOVE TO THE NEXT FILTER (user 2026-10-27: "auto move after choosing only in
+   * dropdown"). A choice that closes the list hands the cursor to the next pill in the same
+   * row — PO Type → Order Type → Buyer → Item Class → … — so the row is walked without
+   * the mouse. Only after a CHOICE: Esc, a click outside and Ctrl/Space ticks stay put.
+   * A tick later, because a choice can enable the next pill (Vendor waits for Item Class).
+   * The last pill, or one with nothing enabled after it, keeps the cursor on itself.
+   */
+  function advance() {
+    const me = triggerRef.current;
+    setTimeout(() => {
+      // The row is the nearest ancestor holding more than this pill — a pill may sit in its own wrapper.
+      const sel = "button[data-filter-pill]";
+      let row = wrapRef.current?.parentElement ?? null;
+      while (row && row.querySelectorAll(sel).length < 2) row = row.parentElement;
+      const pills = row ? [...row.querySelectorAll<HTMLButtonElement>(sel)] : [];
+      const next = pills.slice(pills.indexOf(me as HTMLButtonElement) + 1).find((b) => !b.disabled);
+      (next ?? me)?.focus();
+    }, 0);
   }
   function step(dir: 1 | -1) {
     for (let i = hi + dir; i >= 0 && i < items.length; i += dir) {
@@ -228,9 +258,8 @@ export function FilterPill(props: FilterPillProps) {
       e.stopPropagation();
       // Enter picks and closes; Space ticks and keeps the list open, as on a checkbox.
       const keep = e.key === " " && multiple;
+      // A closing pick moves the cursor on (`advance`), which also covers the search box unmounting.
       pick(hi, keep);
-      // The search box unmounts with the list — hand the cursor back to the pill.
-      if (!keep && inBox) triggerRef.current?.focus();
     } else if (e.key === "Tab") {
       if (inBox) {
         // The box is about to unmount; hand the cursor back to the pill it belongs to.
@@ -256,6 +285,14 @@ export function FilterPill(props: FilterPillProps) {
       onBlur={(e) => {
         if (!wrapRef.current?.contains(e.relatedTarget as Node | null)) close();
       }}
+      // The panel is inside this wrapper, so leaving it means leaving the pill AND its list.
+      // Only after a tick — opening a list and drifting off it is not a choice.
+      onMouseLeave={() => {
+        if (open && tickedRef.current) {
+          close();
+          advance();
+        }
+      }}
     >
       <button
         ref={triggerRef}
@@ -268,6 +305,7 @@ export function FilterPill(props: FilterPillProps) {
         aria-activedescendant={open ? `${listId}-${hi}` : undefined}
         aria-label={`${label}: ${chosen.length > 1 ? chosen.map((o) => o.label).join(", ") : shown}`}
         data-field-trigger
+        data-filter-pill
         data-field-empty={set ? "false" : "true"}
         {...hold}
         disabled={disabled}
@@ -369,7 +407,7 @@ export function FilterPill(props: FilterPillProps) {
                 // mousedown, not click: the trigger keeps focus, so the panel does not blur shut first.
                 onMouseDown={(e) => {
                   e.preventDefault();
-                  pick(i, e.ctrlKey || e.metaKey);
+                  pick(i, multiple);
                 }}
                 onMouseEnter={() => !off && setHi(i)}
                 className={cn(

@@ -1,6 +1,6 @@
 import { DocumentPrintStyles } from "@/components/orders/document-print-styles";
 import { SectionCard, SheetLabel, SheetMasthead, SignOff, Td, Th, stripeRow } from "@/components/orders/report-kit";
-import { fmtDate, fmtFixed, fmtNumber } from "@/lib/format";
+import { fmtDate, fmtDateTime, fmtFixed, fmtNumber } from "@/lib/format";
 import type { PoPrintData } from "@/lib/purchase/po-print";
 
 /**
@@ -101,7 +101,9 @@ export function PoPrintSheet({ data }: { data: PoPrintData }) {
                     </Td>
                     <Td mono>{r.sourceNo?.split(" · ")[0] ?? "—"}</Td>
                     <Td>
-                      <div className="font-semibold">{r.description}</div>
+                      <div className="font-semibold">{r.name}</div>
+                      {/* COLOUR / SHADE on its own line under the item (user 2026-10-27). */}
+                      {r.spec ? <div className="mt-0.5 text-[11px] text-[#344054]">{r.spec}</div> : null}
                       {/* THE DETAIL UNDER THE ITEM — sizes, bags, or rolls and dia. */}
                       {r.sizes.length ? (
                         <div className="mt-0.5 text-[11px] text-[#5b6472] tabular-nums">
@@ -211,6 +213,17 @@ export function PoPrintSheet({ data }: { data: PoPrintData }) {
         ) : null}
 
         <div className="po-keep">
+          {/* THE DIGITAL APPROVAL (escalation spec §3): who approved and when, printed on
+              the PO itself — the sheet only ever prints an approved PO. */}
+          {data.approvedBy ? (
+            <p className="mt-6 inline-flex items-center gap-2 rounded-md border border-[#8fc9a8] bg-[#f0faf4] px-3 py-1.5 text-[11.5px] text-[#16643a]">
+              <span className="font-bold tracking-wide uppercase">Digitally approved</span>
+              <span>
+                by <span className="font-semibold">{data.approvedBy}</span>
+                {data.approvedAt ? ` on ${fmtDateTime(data.approvedAt)}` : ""}
+              </span>
+            </p>
+          ) : null}
           <SignOff names={{ prepared: data.preparedBy, approved: data.approvedBy }} />
         </div>
       </article>

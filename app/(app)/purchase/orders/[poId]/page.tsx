@@ -18,6 +18,7 @@ import { PoDetail } from "./po-detail";
 import { PoReview } from "./po-review";
 import { getRequirementLines } from "@/lib/purchase/re-po/service";
 import { statusTone } from "@/lib/ui/status-tone";
+import { getPoBudgetVariance, type PoVariance } from "@/lib/purchase/po-escalation";
 
 const PO_STATUS_TONE_OVERRIDES = {
   // Approved is a step in this document's life, not its end — work still follows it (was info before the shared table, kept).
@@ -52,10 +53,14 @@ export default async function PoDetailPage({
   const poLines = po.lines as unknown as { req_key?: string | null; garment_order_id?: string | null; iwo_id?: string | null }[];
   const raised = poLines.some((l) => l.req_key);
   let sourceNos: Record<string, string> = {};
+  /* BUDGET vs QUOTED, for the MD only (above-budget escalation, 2026-10-27). Read for an
+     approver; anyone else gets null and the screen shows no budget figure (spec point 7). */
+  let variance: PoVariance | null = null;
   if (raised) {
     const ids = [...new Set(poLines.map((l) => l.garment_order_id ?? l.iwo_id).filter((v): v is string => !!v))];
     const req = ids.length ? await getRequirementLines(ids) : [];
     sourceNos = Object.fromEntries(req.map((l) => [l.source_id, l.source_no]));
+    if (canApprove) variance = await getPoBudgetVariance(po.lines as unknown as Parameters<typeof getPoBudgetVariance>[0], req);
   }
 
   return (
@@ -80,7 +85,7 @@ export default async function PoDetailPage({
       />
 
       {raised ? (
-        <PoReview po={po} uoms={uoms} sourceNos={sourceNos} canEdit={canEdit} canApprove={canApprove} />
+        <PoReview po={po} uoms={uoms} sourceNos={sourceNos} canEdit={canEdit} canApprove={canApprove} variance={variance} />
       ) : (
       <PoDetail
         po={po}
