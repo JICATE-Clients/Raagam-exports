@@ -47,12 +47,13 @@ export async function notifyForMessage(args: {
   const s = await createClient();
   const [convR, memR] = await Promise.all([
     s.from("comm_conversations").select("kind, name").eq("id", conversationId).maybeSingle(),
-    s.from("comm_members").select("user_id, muted").eq("conversation_id", conversationId).is("removed_at", null),
+    s.from("comm_members").select("user_id, muted, notify_level").eq("conversation_id", conversationId).is("removed_at", null),
   ]);
   if (convR.error || !convR.data || memR.error) return;
   const conv = convR.data as { kind: "direct" | "group" | "channel"; name: string | null };
-  const members = (memR.data ?? []) as { user_id: string; muted: boolean }[];
-  const active = new Set(members.map((m) => m.user_id));
+  const members = (memR.data ?? []) as { user_id: string; muted: boolean; notify_level?: string | null }[];
+  // 0751: a member who chose "Nothing" is not alerted even when @mentioned.
+  const active = new Set(members.filter((m) => m.notify_level !== "none").map((m) => m.user_id));
 
   const where =
     conv.kind === "channel" ? `in #${conv.name ?? "channel"}` : conv.kind === "group" ? `in ${conv.name?.trim() || "a group"}` : "in a direct message";

@@ -4,8 +4,8 @@ import { useState, type KeyboardEvent } from "react";
 import {
   Bookmark,
   BookmarkCheck,
+  Copy,
   MessageSquareReply,
-  Paperclip,
   Pencil,
   Pin,
   PinOff,
@@ -14,15 +14,19 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { MESSAGE_MAX, mentionToken, type CommAttachment, type CommMessage } from "@/lib/comms/types";
+import { useToast } from "@/components/ui/toast";
+import { MESSAGE_MAX, mentionToken, plainText, type CommAttachment, type CommMessage } from "@/lib/comms/types";
 import { cn } from "@/lib/utils";
-import { MessageBody, clockTime, fileSize, initials } from "./message-body";
-
-export const QUICK_REACTIONS = ["👍", "✅", "👀", "🙏", "😂", "❤️"] as const;
+import { MessageBody, clockTime, initials } from "./message-body";
+import { EmojiPicker } from "./emoji-picker";
+import { MessageAttachments } from "./message-attachments";
+import { emojiName } from "@/lib/comms/emoji";
+import { reactorNames } from "@/lib/comms/reactions";
 
 export type MessageActions = {
   onReply?: (m: CommMessage) => void;
-  onReact?: (m: CommMessage, emoji: string) => void;
+  /** Set the caller's `emoji` on this message to `on` (0760 — a set, not a flip). */
+  onReact?: (m: CommMessage, emoji: string, on: boolean) => void;
   onSave?: (m: CommMessage) => void;
   onPin?: (m: CommMessage) => void;
   onEdit?: (m: CommMessage, body: string) => Promise<boolean>;
@@ -46,6 +50,7 @@ export function MessageItem({
   canAct,
   canDelete,
   actions,
+  highlight = false,
 }: {
   message: CommMessage;
   grouped: boolean;
@@ -55,18 +60,37 @@ export function MessageItem({
   canAct: boolean;
   canDelete: boolean;
   actions: MessageActions;
+  /** 0762: the message a search result or saved item opened — flashed once. */
+  highlight?: boolean;
 }) {
+  const toast = useToast();
   const [editing, setEditing] = useState(false);
   const [reacting, setReacting] = useState(false);
+  const [pickerAnchor, setPickerAnchor] = useState<HTMLSpanElement | null>(null);
+
+  // The text as the reader sees it — @Name, never the <@uuid> token.
+  function copy() {
+    const text = plainText(m.body, names);
+    if (!navigator.clipboard) {
+      toast.error("Copying is not available in this browser.");
+      return;
+    }
+    navigator.clipboard.writeText(text).then(
+      () => toast.success("Message copied."),
+      () => toast.error("The message could not be copied."),
+    );
+  }
   const mine = m.author_id === meId;
   const deleted = !!m.deleted_at;
   const author = m.author_name ?? (m.author_id ? "Former user" : "System");
 
   return (
     <div
+      id={`msg-${m.id}`}
       className={cn(
-        "group relative flex gap-3 rounded-md px-3 hover:bg-surface-muted/60 focus-within:bg-surface-muted/60",
+        "group relative flex scroll-mt-16 gap-3 rounded-md px-3 hover:bg-surface-muted/60 focus-within:bg-surface-muted/60",
         grouped ? "py-0.5" : "pt-2 pb-0.5",
+        highlight && "bg-warning-soft ring-2 ring-warning/60 transition-colors",
       )}
     >
       <div className="w-8 shrink-0">
@@ -112,49 +136,47 @@ export function MessageItem({
           <>
             {m.body && <MessageBody body={m.body} names={names} meId={meId} />}
             {m.edited_at && <span className="text-[11px] text-muted-foreground">(edited)</span>}
+            {/* Your own bookmark, always visible — `saved` is read per person (0737), never anyone else's. */}
+            {m.saved && (
+              <span className="inline-flex items-center gap-0.5 text-[11px] font-medium text-primary">
+                <BookmarkCheck className="h-3 w-3" aria-hidden /> Saved
+              </span>
+            )}
           </>
         )}
 
         {!deleted && m.attachments.length > 0 && (
-          <ul className="mt-1 flex flex-wrap gap-2">
-            {m.attachments.map((a) => (
-              <li key={a.id}>
-                <button
-                  type="button"
-                  onClick={() => actions.onOpenFile(a)}
-                  className="flex max-w-[18rem] items-center gap-2 rounded-md border border-border bg-surface px-2 py-1.5 text-left text-xs hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                  <span className="min-w-0 flex-1 break-all font-medium text-foreground">{a.file_name}</span>
-                  <span className="shrink-0 text-muted-foreground">{fileSize(a.size_bytes)}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
+          <MessageAttachments attachments={m.attachments} onOpenFile={actions.onOpenFile} />
         )}
 
         {!deleted && m.reactions.length > 0 && (
           <ul className="mt-1 flex flex-wrap gap-1" aria-label="Reactions">
-            {m.reactions.map((r) => (
+            {m.reactions.map((r) => {
+              const who = reactorNames(r.users, names, meId);
+              return (
               <li key={r.emoji}>
                 {/* button-shape: exempt -- a reaction chip: one emoji you toggle on or off, a pill not a worded button; there is no group of choices for ToggleGroup to hold */}
                 <button
                   type="button"
                   disabled={!canAct || !actions.onReact}
-                  onClick={() => actions.onReact?.(m, r.emoji)}
+                  onClick={() => actions.onReact?.(m, r.emoji, !r.mine)}
                   aria-pressed={r.mine}
-                  aria-label={`${r.emoji} ${r.count}${r.mine ? ", including you" : ""}`}
+                  title={`${who} reacted with ${emojiName(r.emoji)}`}
+                  aria-label={`${emojiName(r.emoji)}, ${r.count} ${r.count === 1 ? "reaction" : "reactions"}: ${who}${r.mine ? ". Press to remove yours" : ""}`}
                   className={cn(
                     "flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs",
                     r.mine ? "border-primary bg-primary-soft text-primary" : "border-border bg-surface text-foreground",
                     canAct && "hover:border-primary",
                   )}
                 >
-                  <span>{r.emoji}</span>
-                  <span className="tabular-nums">{r.count}</span>
+                  <span aria-hidden>{r.emoji}</span>
+                  <span className="tabular-nums" aria-hidden>
+                    {r.count}
+                  </span>
                 </button>
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
 
@@ -180,32 +202,22 @@ export function MessageItem({
         >
           {canAct && actions.onReact && (
             <div className="relative">
-              <IconAction label="Add reaction" onClick={() => setReacting((v) => !v)}>
-                <SmilePlus className="h-4 w-4" />
-              </IconAction>
+              <span ref={setPickerAnchor} className="inline-flex">
+                <IconAction label="Add reaction" onClick={() => setReacting((v) => !v)}>
+                  <SmilePlus className="h-4 w-4" />
+                </IconAction>
+              </span>
               {reacting && (
-                <div
-                  role="menu"
-                  aria-label="Pick a reaction"
-                  className="absolute right-0 top-full z-20 mt-1 flex gap-0.5 rounded-lg border border-border bg-surface p-1 shadow-lg"
-                  onKeyDown={(e) => e.key === "Escape" && setReacting(false)}
-                >
-                  {QUICK_REACTIONS.map((e) => (
-                    <button
-                      key={e}
-                      type="button"
-                      role="menuitem"
-                      aria-label={`React ${e}`}
-                      onClick={() => {
-                        setReacting(false);
-                        actions.onReact!(m, e);
-                      }}
-                      className="rounded p-1 text-base hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      {e}
-                    </button>
-                  ))}
-                </div>
+                <EmojiPicker
+                  anchor={pickerAnchor?.querySelector("button") ?? null}
+                  onClose={() => setReacting(false)}
+                  onPick={(e) => {
+                    setReacting(false);
+                    // Picking an emoji you already wear is a no-op, not a removal:
+                    // the picker ADDS; the chip is what toggles.
+                    actions.onReact!(m, e, true);
+                  }}
+                />
               )}
             </div>
           )}
@@ -215,13 +227,18 @@ export function MessageItem({
             </IconAction>
           )}
           {actions.onSave && (
-            <IconAction label={m.saved ? "Remove from saved" : "Save message"} onClick={() => actions.onSave!(m)}>
+            <IconAction label={m.saved ? "Remove from saved" : "Save for later"} onClick={() => actions.onSave!(m)}>
               {m.saved ? <BookmarkCheck className="h-4 w-4 text-primary" /> : <Bookmark className="h-4 w-4" />}
             </IconAction>
           )}
           {canAct && actions.onPin && (
             <IconAction label={m.pinned ? "Unpin" : "Pin to conversation"} onClick={() => actions.onPin!(m)}>
               {m.pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
+            </IconAction>
+          )}
+          {!!m.body && (
+            <IconAction label="Copy text" onClick={copy}>
+              <Copy className="h-4 w-4" />
             </IconAction>
           )}
           {mine && canAct && actions.onEdit && (

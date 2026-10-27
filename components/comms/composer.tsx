@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
 import { Link2, Loader2, Paperclip, Send, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -8,7 +8,6 @@ import { createClient } from "@/lib/supabase/client";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import {
   ATTACHMENTS_PER_MESSAGE,
-  COMM_BUCKET,
   MESSAGE_MAX,
   attachmentPath,
   attachmentProblem,
@@ -20,10 +19,27 @@ import {
   type RecordPreview,
 } from "@/lib/comms/types";
 import { cn } from "@/lib/utils";
+import { discardUpload, verifyUpload } from "@/lib/comms/attachment-actions";
+import { ACCEPT_ATTR, ATTACHMENT_TYPES_LABEL } from "@/lib/comms/attachments";
+import { uploadWithProgress } from "@/lib/comms/upload";
 import { fileSize } from "./message-body";
 import { RecordPickerSheet } from "./record-picker-sheet";
 
-type Upload = { key: string; name: string; size: number; status: "uploading" | "done" | "failed"; file?: AttachmentInput; error?: string };
+/**
+ * One pending file: uploading (with progress) -> checking (the server reads its
+ * first bytes, 0761) -> done, or failed with the reason. Only `done` files are
+ * sent; a removed chip deletes its upload.
+ */
+type Upload = {
+  key: string;
+  name: string;
+  size: number;
+  status: "uploading" | "checking" | "done" | "failed";
+  progress: number;
+  path?: string;
+  file?: AttachmentInput;
+  error?: string;
+};
 
 /**
  * The message box.
@@ -91,14 +107,15 @@ export function Composer({
   const [mention, setMention] = useState<{ query: string; start: number } | null>(null);
   const [hi, setHi] = useState(0);
 
-  const uploading = uploads.some((u) => u.status === "uploading");
+  const [dragging, setDragging] = useState(false);
+  const uploading = uploads.some((u) => u.status === "uploading" || u.status === "checking");
   useUnsavedGuard(text.trim().length > 0 || uploads.length > 0 || busy);
 
   const candidates = useMemo(() => {
     if (!mention) return [];
     const q = mention.query.toLowerCase();
     return members
-      .filter((m) => !m.removed_at && m.user_id !== meId && (m.full_name ?? "").toLowerCase().includes(q))
+      .filter((m) => !m.removed_at && m.mentionable !== false && m.user_id !== meId && (m.full_name ?? "").toLowerCase().includes(q))
       .slice(0, 6);
   }, [mention, members, meId]);
 
@@ -149,7 +166,10 @@ export function Composer({
     });
   }
 
-  async function addFiles(files: FileList | null) {
+  const patchUpload = (key: string, next: Partial<Upload>) =>
+    setUploads((u) => u.map((x) => (x.key === key ? { ...x, ...next } : x)));
+
+  async function addFiles(files: FileList | File[] | null) {
     if (!files || files.length === 0) return;
     const list = Array.from(files);
     if (uploads.length + list.length > ATTACHMENTS_PER_MESSAGE) {
@@ -157,33 +177,56 @@ export function Composer({
       return;
     }
     setProblem(null);
-    for (const file of list) {
-      const bad = attachmentProblem(file);
-      if (bad) {
-        setProblem(bad);
-        continue;
-      }
-      const key = crypto.randomUUID();
-      const path = attachmentPath(conversationId, file.name, key);
-      setUploads((u) => [...u, { key, name: file.name, size: file.size, status: "uploading" }]);
-      const { error } = await supabase.storage
-        .from(COMM_BUCKET)
-        .upload(path, file, { upsert: false, contentType: file.type });
-      setUploads((u) =>
-        u.map((x) =>
-          x.key !== key
-            ? x
-            : error
-              ? { ...x, status: "failed", error: "Upload failed." }
-              : {
-                  ...x,
-                  status: "done",
-                  file: { storage_path: path, file_name: file.name, mime_type: file.type, size_bytes: file.size },
-                },
-        ),
-      );
-    }
+    // Files upload side by side; each chip follows its own progress.
+    await Promise.all(
+      list.map(async (file) => {
+        const bad = attachmentProblem(file);
+        if (bad) {
+          setProblem(`${file.name}: ${bad}`);
+          return;
+        }
+        const key = crypto.randomUUID();
+        const path = attachmentPath(conversationId, file.name, key);
+        setUploads((u) => [...u, { key, name: file.name, size: file.size, status: "uploading", progress: 0, path }]);
+        const up = await uploadWithProgress(supabase, path, file, (f) => patchUpload(key, { progress: f }));
+        if (!up.ok) {
+          patchUpload(key, { status: "failed", error: up.error });
+          return;
+        }
+        // The server reads the first bytes before the file may be sent (0761).
+        patchUpload(key, { status: "checking", progress: 1 });
+        const v = await verifyUpload(path);
+        if (!v.ok) {
+          patchUpload(key, { status: "failed", error: v.error, path: undefined });
+          return;
+        }
+        patchUpload(key, {
+          status: "done",
+          file: { storage_path: path, file_name: file.name, mime_type: file.type, size_bytes: file.size },
+        });
+      }),
+    );
     if (fileRef.current) fileRef.current.value = "";
+  }
+
+  function removeUpload(u: Upload) {
+    setUploads((x) => x.filter((y) => y.key !== u.key));
+    // An uploaded file nobody will send is deleted now, not left for the
+    // nightly sweep. The server deletes only the caller's own, unattached file.
+    if (u.path && u.status !== "uploading") void discardUpload(u.path);
+  }
+
+  function onDragOver(e: DragEvent<HTMLDivElement>) {
+    if (!Array.from(e.dataTransfer.types).includes("Files")) return;
+    e.preventDefault();
+    setDragging(true);
+  }
+
+  function onDrop(e: DragEvent<HTMLDivElement>) {
+    if (!e.dataTransfer.files.length) return;
+    e.preventDefault();
+    setDragging(false);
+    void addFiles(e.dataTransfer.files);
   }
 
   async function submit() {
@@ -235,7 +278,17 @@ export function Composer({
   const canSend = !busy && !uploading && (text.trim().length > 0 || uploads.some((u) => u.status === "done"));
 
   return (
-    <div className="relative border-t border-border bg-surface p-3">
+    <div
+      className={cn("relative border-t border-border bg-surface p-3", dragging && "bg-primary-soft/40 ring-2 ring-inset ring-primary")}
+      onDragOver={onDragOver}
+      onDragLeave={() => setDragging(false)}
+      onDrop={onDrop}
+    >
+      {dragging && (
+        <p className="pointer-events-none absolute inset-x-3 top-1 text-center text-xs font-medium text-primary" aria-live="polite">
+          Drop files to attach them
+        </p>
+      )}
       {mention && candidates.length > 0 && (
         <ul
           role="listbox"
@@ -269,16 +322,38 @@ export function Composer({
                 u.status === "failed" ? "border-danger text-danger" : "border-border bg-surface-muted",
               )}
             >
-              {u.status === "uploading" ? (
-                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-label="Uploading" />
+              {u.status === "uploading" || u.status === "checking" ? (
+                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
               ) : (
                 <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
               )}
-              <span className="min-w-0 flex-1 break-all">{u.name}</span>
-              <span className="shrink-0 text-muted-foreground">{u.status === "failed" ? u.error : fileSize(u.size)}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block break-all">{u.name}</span>
+                {u.status === "uploading" && (
+                  <span
+                    role="progressbar"
+                    aria-label={`Uploading ${u.name}`}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={Math.round(u.progress * 100)}
+                    className="mt-0.5 block h-1 overflow-hidden rounded-full bg-border"
+                  >
+                    <span className="block h-full bg-primary transition-[width]" style={{ width: `${Math.round(u.progress * 100)}%` }} />
+                  </span>
+                )}
+              </span>
+              <span className="shrink-0 text-muted-foreground" aria-live="polite">
+                {u.status === "failed"
+                  ? u.error
+                  : u.status === "uploading"
+                    ? `${Math.round(u.progress * 100)}%`
+                    : u.status === "checking"
+                      ? "Checking…"
+                      : fileSize(u.size)}
+              </span>
               <button
                 type="button"
-                onClick={() => setUploads((x) => x.filter((y) => y.key !== u.key))}
+                onClick={() => removeUpload(u)}
                 aria-label={`Remove ${u.name}`}
                 className="shrink-0 text-muted-foreground hover:text-danger"
               >
@@ -294,6 +369,7 @@ export function Composer({
           ref={fileRef}
           type="file"
           multiple
+          accept={ACCEPT_ATTR}
           className="hidden"
           onChange={(e) => void addFiles(e.target.files)}
           aria-hidden
@@ -305,7 +381,7 @@ export function Composer({
           size="icon"
           onClick={() => fileRef.current?.click()}
           aria-label="Attach files"
-          title="Attach files (20 MB each)"
+          title={`Attach files: ${ATTACHMENT_TYPES_LABEL}`}
         >
           <Paperclip className="h-4 w-4" />
         </Button>
@@ -342,7 +418,17 @@ export function Composer({
         </Button>
       </div>
       <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
-        <span>{problem ? <span className="text-danger">{problem}</span> : "Enter to send · Shift+Enter for a new line · @ to mention · 🔗 to link a record"}</span>
+        <span>
+          {problem ? (
+            <span className="text-danger" role="alert">
+              {problem}
+            </span>
+          ) : uploads.length > 0 ? (
+            ATTACHMENT_TYPES_LABEL
+          ) : (
+            "Enter to send · Shift+Enter for a new line · @ to mention · 📎 or drop files to attach · 🔗 to link a record"
+          )}
+        </span>
       </div>
       <RecordPickerSheet open={linking} onClose={() => setLinking(false)} onPick={insertRecord} />
     </div>

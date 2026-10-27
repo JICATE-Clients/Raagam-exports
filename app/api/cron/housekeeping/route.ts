@@ -1,12 +1,13 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { purgeOldNotifications } from "@/lib/jobs/sweeps";
+import { runHousekeeping } from "@/lib/jobs/sweeps";
 import { runJob } from "@/lib/jobs/run";
 
 /**
  * GET /api/cron/housekeeping — the daily cleanup (0677): deletes alerts, alert
  * log rows and job-run rows older than the retention set on Administration ▸
  * System ▸ Notifications ▸ Settings. Before this nothing ever deleted a
- * notification, so the table only grew.
+ * notification, so the table only grew. Since 0761 it also deletes Communication
+ * Hub uploads never attached to a message (lib/comms/orphans.ts).
  *
  * Authenticated exactly as `/api/cron/approval-sla` is, and for its reasons
  * (read that route's header): `proxy.ts` stands down for `/api/cron/`, so the
@@ -35,7 +36,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const result = await runJob("housekeeping", "cron", purgeOldNotifications);
+  const result = await runJob("housekeeping", "cron", runHousekeeping);
   // 200 even on error, with the error in the body — see approval-sla's route.
   return NextResponse.json({ ok: !result.error, ...result });
 }

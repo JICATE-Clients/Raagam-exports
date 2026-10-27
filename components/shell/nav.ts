@@ -12,7 +12,7 @@ import {
   BarChart3,
   LineChart,
   CheckCheck,
-  MessagesSquare,
+  MessageSquareText,
   Database,
   Shield,
   LifeBuoy,
@@ -196,9 +196,9 @@ export const NAV: NavItem[] = [
        grants to every role that existed when it ran. Notifications joined in
        phase 4 (0746) and My Approvals in phase 5 (the existing inbox, reused). */
     href: "/comms",
-    label: "Chats",
+    label: "Pulse", // was "Chats" (user 2026-10-27)
     module: "communication",
-    icon: MessagesSquare,
+    icon: MessageSquareText,
     /* ONE "COLLABORATION" CAPTION HOLDING THE HUB'S FOUR VIEWS (user 2026-10-26:
        "community kulla message channel search saved ithalam venum" — and no
        Order / Sample under it). A group, so ContextSidebar draws it as one
@@ -210,7 +210,7 @@ export const NAV: NavItem[] = [
         href: "/comms/community",
         label: "Huddle",
         children: [
-          { href: "/comms", label: "Chats" },
+          { href: "/comms", label: "Pulse" },
           { href: "/comms/channels", label: "Channels" },
           { href: "/comms/search", label: "Search" },
           { href: "/comms/saved", label: "Saved" },
@@ -219,6 +219,10 @@ export const NAV: NavItem[] = [
           // The EXISTING approval inbox, rendered inside the hub (phase 5) —
           // /approvals stays where it is for everyone who uses it there.
           { href: "/comms/approvals", label: "My Approvals" },
+          // The workspace (0750): its people, and its settings — read-only
+          // for an ordinary member, editable by the workspace's owners/admins.
+          { href: "/comms/people", label: "People" },
+          { href: "/comms/workspace", label: "Workspace" },
         ],
       },
     ],

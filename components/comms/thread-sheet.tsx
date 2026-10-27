@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
-import { loadThread, sendMessage } from "@/lib/comms/actions";
+import { loadThread, sendMessage, setReaction, setSaved } from "@/lib/comms/actions";
+import { applyReaction } from "@/lib/comms/reactions";
 import type { AttachmentInput, CommAttachment, CommMessage, ConversationDetail } from "@/lib/comms/types";
 import { Composer } from "./composer";
 import { MessageItem } from "./message-item";
@@ -25,6 +26,7 @@ export function ThreadSheet({
   canPost,
   onClose,
   onChanged,
+  highlightId = null,
   onOpenFile,
 }: {
   parent: CommMessage | null;
@@ -35,6 +37,8 @@ export function ThreadSheet({
   canPost: boolean;
   onClose: () => void;
   onChanged: () => void;
+  /** 0762: a reply opened from search — scrolled to and flashed once. */
+  highlightId?: string | null;
   onOpenFile: (a: CommAttachment) => void;
 }) {
   const [thread, setThread] = useState<{ parent: CommMessage; replies: CommMessage[] } | null>(null);
@@ -80,6 +84,55 @@ export function ThreadSheet({
   }
 
   const shown = thread && thread.parent.id === parentId ? thread : null;
+  const [flash, setFlash] = useState<string | null>(highlightId);
+  useEffect(() => {
+    if (!flash || !shown?.replies.some((m) => m.id === flash)) return;
+    document.getElementById(`msg-${flash}`)?.scrollIntoView({ block: "center" });
+    const t = setTimeout(() => setFlash(null), 4000);
+    return () => clearTimeout(t);
+  }, [flash, shown]);
+
+  // Reactions in a thread (0760): the same set-then-reconcile as the main
+  // list. Only reacting is offered here; edit / delete / pin stay where they were.
+  function patch(id: string, fn: (m: CommMessage) => CommMessage) {
+    setThread((t) =>
+      t ? { parent: t.parent.id === id ? fn(t.parent) : t.parent, replies: t.replies.map((m) => (m.id === id ? fn(m) : m)) } : t,
+    );
+  }
+  async function react(m: CommMessage, emoji: string, on: boolean) {
+    const before = m.reactions;
+    patch(m.id, (x) => ({ ...x, reactions: applyReaction(x.reactions, emoji, on, meId) }));
+    const r = await setReaction(m.id, emoji, on);
+    if (!r.ok) {
+      patch(m.id, (x) => ({ ...x, reactions: before }));
+      setSendError(r.error);
+      return;
+    }
+    if (r.reactions) {
+      const truth = r.reactions;
+      patch(m.id, (x) => ({ ...x, reactions: truth }));
+    }
+    onChanged();
+  }
+  // Save for later works on a thread's parent and every reply (0763) — a
+  // bookmark is personal, so anyone who can READ the thread may save from it.
+  const saving = useRef(new Set<string>());
+  async function save(m: CommMessage) {
+    if (saving.current.has(m.id)) return;
+    saving.current.add(m.id);
+    const want = !m.saved;
+    const r = await setSaved(m.id, want);
+    saving.current.delete(m.id);
+    if (!r.ok) {
+      setSendError(r.error);
+      return;
+    }
+    patch(m.id, (x) => ({ ...x, saved: want }));
+    onChanged();
+  }
+  const threadActions = canPost
+    ? { onOpenFile, onSave: (m: CommMessage) => void save(m), onReact: (m: CommMessage, e: string, on: boolean) => void react(m, e, on) }
+    : { onOpenFile, onSave: (m: CommMessage) => void save(m) };
 
   return (
     <Sheet open={!!parent} onClose={onClose} title="Thread" size="sm" alignToPane>
@@ -103,9 +156,9 @@ export function ThreadSheet({
                 grouped={false}
                 names={names}
                 meId={meId}
-                canAct={false}
+                canAct={canPost}
                 canDelete={false}
-                actions={{ onOpenFile }}
+                actions={threadActions}
               />
               <p className="px-3 py-1 text-xs font-semibold text-muted-foreground">
                 {shown.replies.length === 0
@@ -119,9 +172,10 @@ export function ThreadSheet({
                   grouped={false}
                   names={names}
                   meId={meId}
-                  canAct={false}
+                  canAct={canPost}
                   canDelete={false}
-                  actions={{ onOpenFile }}
+                  actions={threadActions}
+                  highlight={m.id === flash}
                 />
               ))}
             </>

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isAllowedEmoji } from "./emoji";
 
 // ============================================================================
 // Communication Hub — shared vocabulary (0737, doc/slack.md/slack).
@@ -96,6 +97,9 @@ export interface CommMember {
   removed_at: string | null;
   /** Through `creator_names()`, never an embed — `profiles_read_own` (0001). */
   full_name: string | null;
+  /** 0759: may be offered for @mention here (active login, not deactivated).
+   *  Undefined before 0759 is applied — treated as yes, as before. */
+  mentionable?: boolean;
 }
 
 export interface ConversationDetail {
@@ -108,10 +112,22 @@ export interface ConversationDetail {
   department_name: string | null;
   is_archived: boolean;
   created_at: string;
+  /** 0751. NULL on a group, and on a channel nobody described. */
+  description: string | null;
+  /** 0751. NULL when not archived, and for one archived before 0751. */
+  archived_at: string | null;
   title: string;
   members: CommMember[];
   /** The caller's own row; null when reading a public channel unjoined. */
-  me: { role: MemberRole; muted: boolean; last_read_at: string | null; active: boolean } | null;
+  me: {
+    role: MemberRole;
+    muted: boolean;
+    last_read_at: string | null;
+    active: boolean;
+    /** 0751: the caller's own pin and notification level. */
+    pinned_at: string | null;
+    notify_level: "all" | "mentions" | "none";
+  } | null;
   /** Server-resolved: may rename, archive, add and remove (comm_can_manage). */
   can_manage: boolean;
 }
@@ -129,6 +145,8 @@ export interface CommReaction {
   emoji: string;
   count: number;
   mine: boolean;
+  /** Who reacted, oldest first (0760) — ids; names come from the member list. */
+  users: string[];
 }
 
 export interface CommMessage {
@@ -168,6 +186,8 @@ export interface DirectoryPerson {
 export interface MessageHit {
   message: CommMessage;
   conversation_title: string;
+  /** 0762: what kind of conversation the hit is in (the result's context line). */
+  conversation_kind?: ConversationKind;
 }
 
 /** What `sendMessage` answers. `created: false` = a retry of a send that already landed. */
@@ -223,15 +243,6 @@ export const createGroupInput = z.object({
 });
 export type CreateGroupInput = z.input<typeof createGroupInput>;
 
-export const createChannelInput = z.object({
-  name: z.string().trim().min(1, "A channel needs a name.").max(80),
-  visibility: z.enum(VISIBILITIES),
-  topic: z.string().trim().max(250).nullable().default(null),
-  department_id: uuid.nullable().default(null),
-  member_ids: z.array(uuid).max(500).default([]),
-});
-export type CreateChannelInput = z.input<typeof createChannelInput>;
-
 export const updateConversationInput = z.object({
   conversation_id: uuid,
   name: z.string().trim().max(80).nullable().default(null),
@@ -250,6 +261,19 @@ export const memberRoleInput = z.object({
   user_id: uuid,
   role: z.enum(MEMBER_ROLES),
 });
+
+/**
+ * Set a reaction on or off (0760). ADDING must be an emoji from the catalog
+ * (`isAllowedEmoji`, = comm_allowed_emoji); REMOVING accepts any stored value,
+ * so a reaction saved before the catalog existed can still be taken back.
+ */
+export const setReactionInput = z
+  .object({
+    message_id: uuid,
+    emoji: z.string().min(1).max(32).regex(/^\S+$/u),
+    on: z.boolean(),
+  })
+  .refine((v) => !v.on || isAllowedEmoji(v.emoji), { message: "That reaction cannot be used." });
 
 /** Mirrors the reaction CHECK: 1–32 characters, no whitespace. */
 export const reactionInput = z.object({
@@ -355,6 +379,55 @@ export function recordRefs(body: string | null | undefined): RecordRef[] {
     }
   }
   return out;
+}
+
+/**
+ * Plain text split into text and LINK pieces. Only http(s) URLs become links —
+ * never `javascript:`, `data:` or a bare `www.` — and trailing punctuation that
+ * ends a sentence ("see https://x.com/a.") stays outside the link. The result
+ * is rendered as React text and an <a href> whose scheme was checked here, so
+ * nothing a colleague types can become markup or script on someone's screen.
+ */
+export type LinkPiece = { text: string } | { url: string };
+const URL_RE = /\bhttps?:\/\/[^\s<>"']+/gi;
+export function linkPieces(text: string): LinkPiece[] {
+  const out: LinkPiece[] = [];
+  let at = 0;
+  for (const m of text.matchAll(URL_RE)) {
+    const i = m.index ?? 0;
+    let url = m[0];
+    // Peel sentence punctuation, and a ")" the URL did not open.
+    while (/[.,;:!?)\]]$/.test(url)) {
+      if (url.endsWith(")") && (url.match(/\(/g)?.length ?? 0) >= (url.match(/\)/g)?.length ?? 0)) break;
+      url = url.slice(0, -1);
+    }
+    let safe: URL | null = null;
+    try {
+      safe = new URL(url);
+    } catch {
+      safe = null;
+    }
+    if (!safe || (safe.protocol !== "http:" && safe.protocol !== "https:")) continue;
+    if (i > at) out.push({ text: text.slice(at, i) });
+    out.push({ url });
+    at = i + url.length;
+  }
+  if (at < text.length) out.push({ text: text.slice(at) });
+  return out;
+}
+
+/**
+ * A message as plain text for the clipboard: mentions as @Name (the name the
+ * reader sees, never the uuid token), record links as their token-free label.
+ */
+export function plainText(
+  body: string | null | undefined,
+  names: Map<string, string | null>,
+  recordLabel: (kind: RecordKind) => string = (k) => k.replace(/_/g, " "),
+): string {
+  return bodyPieces(body)
+    .map((p) => ("text" in p ? p.text : "mention" in p ? `@${names.get(p.mention) ?? "someone"}` : `[${recordLabel(p.record.kind)}]`))
+    .join("");
 }
 
 /** A body split into text, mention and record pieces, for a renderer to map over. */

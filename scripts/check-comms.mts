@@ -19,7 +19,7 @@
 //      vectors, including the hostile ones (a cursor is interpolated into a
 //      PostgREST filter, so a malformed one must decode to null).
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   ALLOWED_MIME,
@@ -68,10 +68,16 @@ check(!!fnBody && same(mimes(fnBody[1]), ALLOWED_MIME), "ALLOWED_MIME = comm_all
 check(!!bucketList && same(mimes(bucketList[1]), ALLOWED_MIME), "ALLOWED_MIME = the comm-files bucket's allowed_mime_types");
 check(migration.includes(`${ATTACHMENT_MAX_BYTES}`), `the bucket and the RPC carry the same ${ATTACHMENT_MAX_BYTES}-byte limit`);
 
-const defined = new Set(Array.from(migration.matchAll(/create or replace function public\.(comm_[a-z_]+)/g), (m) => m[1]));
+// Functions may be defined by 0737 or by a later comms migration (0746…0760):
+// a call is fine if ANY of them defines it.
+const commMigrations = readdirSync(resolve(root, "supabase/migrations"))
+  .filter((f) => /^07[4-9]\d_comms_|^0737_communication_hub_core/.test(f))
+  .map((f) => read(`supabase/migrations/${f}`))
+  .join("\n");
+const defined = new Set(Array.from(commMigrations.matchAll(/create or replace function public\.(comm_[a-z_]+)/g), (m) => m[1]));
 const called = Array.from(new Set(Array.from(code.matchAll(/\.rpc\(\s*"(comm_[a-z_]+)"/g), (m) => m[1])));
 const missing = called.filter((f) => !defined.has(f));
-check(called.length >= 15 && missing.length === 0, `every comm RPC the code calls exists in 0737 (${called.length} called${missing.length ? `; missing: ${missing.join(", ")}` : ""})`);
+check(called.length >= 15 && missing.length === 0, `every comm RPC the code calls exists in the comms migrations (${called.length} called${missing.length ? `; missing: ${missing.join(", ")}` : ""})`);
 
 const raised = Array.from(new Set(Array.from(migration.matchAll(/errcode = '(\d{5})'/g), (m) => m[1])));
 const silenced = raised.filter((c) => commErrorText({ code: c, message: "reason" }, "fallback") !== "reason");

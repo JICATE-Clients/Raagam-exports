@@ -1,5 +1,5 @@
 import { fmtTime } from "@/lib/format";
-import { bodyPieces } from "@/lib/comms/types";
+import { bodyPieces, linkPieces } from "@/lib/comms/types";
 import { cn } from "@/lib/utils";
 import { RecordChip } from "./record-chip";
 
@@ -15,7 +15,9 @@ import { RecordChip } from "./record-chip";
  * exists to prevent (AGENTS.md "Created Date / Created User").
  *
  * Plain text only — no HTML, no markdown — so nothing a colleague types can
- * inject markup into anyone else's screen.
+ * inject markup into anyone else's screen. http(s) URLs become links
+ * (`linkPieces`, which refuses every other scheme), opened in a new tab with
+ * no opener and no referrer, so a link cannot reach back into the ERP tab.
  */
 export function MessageBody({
   body,
@@ -35,7 +37,23 @@ export function MessageBody({
     <p className={cn("whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground", className)}>
       {bodyPieces(body).map((p, i) =>
         "text" in p ? (
-          <span key={i}>{p.text}</span>
+          <span key={i}>
+            {linkPieces(p.text).map((l, j) =>
+              "url" in l ? (
+                <a
+                  key={j}
+                  href={l.url}
+                  target="_blank"
+                  rel="noopener noreferrer nofollow"
+                  className="break-all text-primary underline underline-offset-2 hover:text-primary-hover"
+                >
+                  {l.url}
+                </a>
+              ) : (
+                <span key={j}>{l.text}</span>
+              ),
+            )}
+          </span>
         ) : "record" in p ? (
           <RecordChip key={i} kind={p.record.kind} id={p.record.id} link={recordLinks} />
         ) : (
