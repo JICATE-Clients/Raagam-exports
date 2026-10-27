@@ -23,7 +23,7 @@ import { focusField } from "@/lib/focus";
 import { cn } from "@/lib/utils";
 import { today } from "@/lib/calendar";
 import { fmtDate, fmtFixed, fmtNumber } from "@/lib/format";
-import { checkRatesAgainstBudget, getLastPurchases, savePoFromRequirement } from "@/lib/purchase/re-po/actions";
+import { checkRatesAgainstBudget, getLastPurchases, getLastRates, savePoFromRequirement } from "@/lib/purchase/re-po/actions";
 import { CommercialSection, blankCommercial, chargesNet, chargesToSave, type CommercialValue } from "./commercial-section";
 import {
   BUDGET_STATES,
@@ -61,6 +61,7 @@ import {
   type BudgetFlag,
   type ClassVendor,
   type LastPurchase,
+  type LastRate,
   type RequirementLine,
 } from "@/lib/purchase/re-po/types";
 
@@ -212,6 +213,10 @@ export function RequirementPoForm({
     rows: LastPurchase[] | null;
     error: string | null;
   } | null>(null);
+  /** The last rate each item was bought at, by item id — pre-fills an untouched Rate box. */
+  const [lastRates, setLastRates] = useState<Record<string, LastRate>>({});
+  /** Items bought on an earlier PO — the only ones that get the Show Last PO icon. */
+  const [boughtIds, setBoughtIds] = useState<ReadonlySet<string>>(() => new Set());
   /* ITEM-WISE (client via user 2026-10-23: "multi order, multiple item — we are missing
      the multiple item concept"). The same item needed by several orders is ONE line to
      the vendor — offered once two orders are ticked. One item's breakup open at a time. */
@@ -344,7 +349,8 @@ export function RequirementPoForm({
         ...l,
         key,
         supplied: !!vendorId,
-        row: rows[key] ?? { qty: String(l.balance_qty), rate: "", date: "" },
+        // An untouched line opens at the item's last rate (user 2026-10-27); once edited, the operator's rate stands.
+        row: rows[key] ?? { qty: String(l.balance_qty), rate: lastRates[l.item_id] ? String(lastRates[l.item_id].rate) : "", date: "" },
       };
     });
 
@@ -355,6 +361,31 @@ export function RequirementPoForm({
   const fx = poType === "import" ? num(exRate) : 1;
   const isActive = (r: GridRow) => r.supplied && !r.row.skip && num(r.row.qty) > 0;
   const active = gridRows.filter(isActive);
+
+  /* LAST RATE (user 2026-10-27: "for same item fetch and show the last entered rate").
+     Asked once per set of items × vendor × currency — the chosen vendor's own last rate
+     outranks anyone else's, so a vendor change asks again. */
+  const rateCurrency = poType === "import" ? currency : "INR";
+  const rateItemsSig = [...new Set(gridRows.map((r) => r.item_id).filter(Boolean))].sort().join(",");
+  useEffect(() => {
+    if (!rateItemsSig) return;
+    let live = true;
+    void getLastRates(rateItemsSig.split(","), vendorId || null, rateCurrency).then((res) => {
+      if (!live || !res.ok) return;
+      setLastRates(res.rates);
+      setBoughtIds(new Set(res.bought));
+    });
+    return () => {
+      live = false;
+    };
+  }, [rateItemsSig, vendorId, rateCurrency]);
+  /** "Last ₹ 1.20 · VENDOR · PO/… · 12/10/2026" — the Rate box's tooltip. */
+  const lastRateTitle = (itemId: string | null | undefined) => {
+    const l = itemId ? lastRates[itemId] : undefined;
+    if (!l) return "No earlier PO for this item";
+    const sym = l.currency === "INR" ? "₹" : l.currency;
+    return `Last rate ${sym} ${fmtFixed(l.rate, 2)}${l.sameVendor ? " from this vendor" : ""} · ${[l.vendor, l.code, l.orderDate ? fmtDate(l.orderDate) : null].filter(Boolean).join(" · ")}`;
+  };
   const unpriced = active.filter((r) => num(r.row.rate) <= 0).length;
   const undated = active.filter((r) => !(r.row.date || defaultFor(r.delivery_date))).length;
   const slab = gstSlab(gst);
@@ -601,8 +632,10 @@ export function RequirementPoForm({
       </div>
       {/* SHOW LAST PO (user 2026-10-26, Task 3): the rate this item was last bought at, from
           whom and when — a benchmark to negotiate with, asked only when the icon is pressed.
-          A button, so Tab (fields only) passes over it; it stays in screen-reader order. */}
-      {itemId ? (
+          A button, so Tab (fields only) passes over it; it stays in screen-reader order.
+          ONLY WHERE THERE IS ONE (user 2026-10-27): an item never bought before has no
+          icon, rather than one that opens onto "no earlier PO". */}
+      {itemId && boughtIds.has(itemId) ? (
         <button
           type="button"
           aria-label={`Show last PO, ${name}${describe ? ` ${describe}` : ""}`}
@@ -787,7 +820,13 @@ export function RequirementPoForm({
       id={id}
       aria-label={`GST %, ${label}`}
       title={slab.kind === "igst" ? "IGST" : "CGST + SGST, split in half"}
-      className={cn(CELL_INPUT, "pr-6 tabular-nums")}
+      // THE WHOLE CELL OPENS THE LIST (user 2026-10-27, screenshot 3743). The cell look used to
+      // go through `className`, which `Select` also puts on the Combobox's WRAPPER — its `pr-6`
+      // padded the wrapper, so the box shrank to a sliver that hid the value and the ▼ sat
+      // outside it, where a click opened nothing. Wrapper: width only; box: the cell look.
+      className="w-full"
+      inputClassName={cn(CELL_INPUT, "tabular-nums")}
+      compact
       disabled={disabled}
       value={value == null ? "" : String(value)}
       onChange={(e) => set(Number(e.target.value))}
@@ -865,6 +904,7 @@ export function RequirementPoForm({
           id={rateId(r.key)}
           aria-label={`Rate per ${r.uom_code ?? "unit"}, ${lineDescription(r)}`}
           className={cn(CELL_INPUT, "text-right tabular-nums")}
+          title={lastRateTitle(r.item_id)}
           disabled={r.row.skip}
           value={r.row.rate}
           onChange={(e) => setRow(r, { rate: e.target.value })}
@@ -1067,6 +1107,7 @@ export function RequirementPoForm({
           className={cn(CELL_INPUT, "text-right tabular-nums")}
           // MIXED: the orders were priced apart in the breakup — typing here sets them all again.
           placeholder={g.mixedRate ? "mixed" : undefined}
+          title={lastRateTitle(g.members[0]?.item_id)}
           disabled={!g.supplied}
           value={g.rate}
           onChange={(e) => setMembers(g.members, { rate: e.target.value })}
@@ -1265,6 +1306,7 @@ export function RequirementPoForm({
             aria-label={`Rate per ${g.first.uom_code ?? "unit"}, ${g.first.item_name} ${describeGroup(g)}${g.sized ? ", every size" : ""}`}
             className={cn(CELL_INPUT, "text-right tabular-nums")}
             placeholder={rate == null ? "mixed" : undefined}
+            title={lastRateTitle(g.first.item_id)}
             disabled={groupSkip(g)}
             value={rate ?? ""}
             onChange={(e) => setMembers(g.members, { rate: e.target.value })}
@@ -1355,7 +1397,9 @@ export function RequirementPoForm({
      the four the spec names, each in its own column (the pop-up has the room the order
      grid does not). 72 + 112 + 112 + 144 + 40 = 480, inside `md`'s ~1,100px. */
   const sizeColumns: ChildGridColumn<GridRow>[] = [
-    { header: "Size", width: FIELD_WIDTH_CSS.num, cell: (r) => <span className="text-sm font-semibold">{r.size_name ?? "—"}</span> },
+    // Size `hug` and Order PO `term` (not num / code): the table must be 528px so it FILLS the
+    // pop-up (see its Sheet) — a narrower table left a gap, and a narrower pop-up drops to cards.
+    { header: "Size", width: FIELD_WIDTH_CSS.hug, cell: (r) => <span className="text-sm font-semibold">{r.size_name ?? "—"}</span> },
     {
       header: QTY.required,
       width: FIELD_WIDTH_CSS.range,
@@ -1377,7 +1421,7 @@ export function RequirementPoForm({
     },
     {
       header: QTY.po,
-      width: FIELD_WIDTH_CSS.code,
+      width: FIELD_WIDTH_CSS.term,
       cell: (r) => (
         <div className="flex items-center gap-1">
           {qtyInput(r, `rpo-sqty-${r.key}`)}
@@ -1562,7 +1606,8 @@ export function RequirementPoForm({
           {/* THE FILTER ROW (canvas v6). PO Type, Item Class and Vendor are required pills;
               the rest only narrow the tick list below. Counts are "what this choice would
               leave", so a greyed choice is one that would empty the list. */}
-          <div className="flex flex-wrap items-center gap-1 border-t border-[#dde4eb] bg-[#fafbfc] px-4 py-2">
+          {/* ONE ROW from md up (screenshot 3744): the pills shrink to fit instead of wrapping. */}
+          <div className="flex flex-wrap items-center gap-1 border-t border-[#dde4eb] bg-[#fafbfc] px-4 py-2 md:flex-nowrap">
             {/* PO TYPE LEADS THE ROW (user 2026-10-26: "type local/import also as filter,
                 move it before item class"). Always set, so it never holds the cursor. */}
             <FilterPill
@@ -1682,7 +1727,7 @@ export function RequirementPoForm({
                 setVendorPick(v);
               }}
             />
-            <span aria-hidden className="mx-0.5 hidden h-5 w-px bg-[#dde4eb] sm:block" />
+            <span aria-hidden className="mx-0.5 hidden h-5 w-px shrink-0 bg-[#dde4eb] sm:block" />
             <FilterPill
               label="Order by"
               wide
@@ -2083,10 +2128,17 @@ export function RequirementPoForm({
       {/* THE SIZE BREAKUP POP-UP — a sub-detail of the open PO (AGENTS, A sub-detail Sheet's
           size): `md` because it carries a ChildGrid, centred on the pane, grown out of the
           Qty button, and no Save of its own — the sizes are written by the PO's Save. */}
+      {/* AS WIDE AS ITS TABLE (user 2026-10-27, screenshots 3745 · 3746: "blank space …
+          compact it", then "still some gap on right side"). The table is # 40 + Size 88 +
+          Required 112 + To Order 112 + Order PO 176 = 528px; the card is 528 + px-5 (40) +
+          border (2) + 2 spare = 572px. It cannot go narrower: under a 512px container
+          ChildGrid drops the table for header-less cards — which is why the columns grew
+          to meet the card rather than the card shrinking to the old 480px table. */}
       <Sheet
         open={!!sheetGroup}
         onClose={() => setSizeSheet(null)}
         size="md"
+        maxWidthClass="max-w-[572px]"
         alignToPane
         origin={sizeSheet?.origin ?? null}
         title={sheetGroup ? `Size breakup — ${sheetGroup.first.item_name}${describeGroup(sheetGroup) ? ` · ${describeGroup(sheetGroup)}` : ""}` : "Size breakup"}

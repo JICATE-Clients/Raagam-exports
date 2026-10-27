@@ -267,6 +267,21 @@ export type LastPurchase = {
   uom: string | null;
 };
 
+/**
+ * THE LAST RATE AN ITEM WAS BOUGHT AT — pre-fills the Rate box (user 2026-10-27: "while
+ * putting PO for second time for same item fetch and show the last entered rate"). The
+ * chosen vendor's own last rate when it has one (`sameVendor`), else the latest from any
+ * vendor. Only in the PO's currency — an INR rate is no starting point for a USD PO.
+ */
+export type LastRate = {
+  rate: number;
+  currency: string;
+  sameVendor: boolean;
+  vendor: string | null;
+  code: string | null;
+  orderDate: string | null;
+};
+
 /** What the hidden budget check tells the screen — never the budget figure. */
 export type BudgetFlag = { key: string; hasBudget: boolean; above: boolean };
 

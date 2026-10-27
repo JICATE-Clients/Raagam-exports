@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useRef, useState, type KeyboardEvent } from "react";
-import { Check, ChevronDown, X } from "lucide-react";
+import { Check, ChevronDown, Search, X } from "lucide-react";
 import { useRequiredHold } from "@/components/ui/field";
 import { Truncated } from "@/components/ui/truncated";
 import { cn } from "@/lib/utils";
@@ -34,6 +34,14 @@ import { cn } from "@/lib/utils";
  * "Any" clears every tick; the pill reads "RE +1". Enter / Space tick the
  * highlighted row the same way, Escape or Tab close. A required multi pill holds
  * the cursor until at least one is ticked.
+ *
+ * **A LONG LIST CARRIES A SEARCH BOX** (user 2026-10-27: "add search option for the
+ * filters"). Past `SEARCH_FROM` choices the panel opens with a box over the list;
+ * typing — in the box, or straight on the trigger while the list is open — narrows
+ * the choices by label and second line. "Any" and every ticked choice stay in the
+ * list whatever is typed, so a search never hides what is set. ↑ ↓ Enter work from
+ * the box exactly as from the trigger; Tab and Escape close and hand focus back.
+ * `searchable` forces it on or off for one pill.
  *
  * Not a modal: the list is an absolutely placed panel, it registers nothing with
  * `lib/reload-guard.ts`, and a click anywhere outside closes it.
@@ -88,7 +96,12 @@ type FilterPillCommon = {
   wide?: boolean;
   /** A 0 count still picks — the count is information, not a gate (Raise PO's Item Class, 2026-10-26). */
   zeroPickable?: boolean;
+  /** Search box over the list. Default: on past `SEARCH_FROM` choices. */
+  searchable?: boolean;
 };
+
+/** A list longer than this opens with a search box — six fit on screen without one. */
+const SEARCH_FROM = 6;
 export type FilterPillProps =
   | (FilterPillCommon & { multiple?: false; value: string; onChange: (value: string) => void })
   | (FilterPillCommon & { multiple: true; value: string[]; onChange: (value: string[]) => void });
@@ -109,6 +122,7 @@ export function FilterPill(props: FilterPillProps) {
     wide = false,
     zeroPickable = false,
   } = props;
+  const searchable = props.searchable ?? options.length > SEARCH_FROM;
   const multiple = props.multiple === true;
   /** What is chosen, as a list whichever shape the caller holds. */
   const picked: string[] = props.multiple ? props.value : props.value ? [props.value] : [];
@@ -118,25 +132,36 @@ export function FilterPill(props: FilterPillProps) {
   const listId = `${triggerId}-list`;
   const [open, setOpen] = useState(false);
   const [hi, setHi] = useState(0);
+  const [query, setQuery] = useState("");
   const wrapRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const hold = useRequiredHold(required && picked.length === 0, { required, label });
 
+  const isOn = (o: FilterPillOption & { any?: boolean }) => (o.any ? picked.length === 0 : picked.includes(o.value));
+  // A choice that would leave nothing is HIDDEN, not greyed (user 2026-10-27, screenshot 3742:
+  // "non used category … don't need to show it"). One already picked stays, so it can be unticked;
+  // a `zeroPickable` pill keeps every choice because there a 0 still picks.
+  const q = searchable ? query.trim().toLowerCase() : "";
+  const visible = (zeroPickable ? options : options.filter((o) => o.count !== 0 || picked.includes(o.value))).filter(
+    (o) => !q || picked.includes(o.value) || `${o.label} ${o.sublabel ?? ""}`.toLowerCase().includes(q),
+  );
   // The list: "Any" first on an optional pill, then the options.
   const items: (FilterPillOption & { any?: boolean })[] = required
-    ? options
-    : [{ value: "", label: anyLabel, count: anyCount, any: true }, ...options];
-  const isOn = (o: FilterPillOption & { any?: boolean }) => (o.any ? picked.length === 0 : picked.includes(o.value));
+    ? visible
+    : [{ value: "", label: anyLabel, count: anyCount, any: true }, ...visible];
   const enabled = (i: number) => items[i] && (zeroPickable || !(items[i].count === 0 && !isOn(items[i])));
   const chosen = options.filter((o) => picked.includes(o.value));
   const set = chosen.length > 0;
 
   function openList() {
     if (disabled) return;
+    setQuery("");
     const at = Math.max(0, items.findIndex((o) => isOn(o)));
     setHi(enabled(at) ? at : items.findIndex((_, i) => enabled(i)));
     setOpen(true);
   }
-  function pick(i: number) {
+  /** `keepOpen` — Ctrl / ⌘ held on the click: tick several without the list closing. */
+  function pick(i: number, keepOpen = false) {
     if (!enabled(i)) return;
     const o = items[i];
     if (!props.multiple) {
@@ -144,16 +169,45 @@ export function FilterPill(props: FilterPillProps) {
       setOpen(false);
       return;
     }
-    // A tick, not a choice: the list stays open for the next one. "Any" clears them all.
+    // "Any" clears them all.
     if (o.any) props.onChange([]);
     else props.onChange(picked.includes(o.value) ? picked.filter((v) => v !== o.value) : [...picked, o.value]);
+    // A CHOICE CLOSES THE LIST, ticks included (user 2026-10-27, screenshot 3747: "after
+    // choosing the data also the filter is not closing"). Hold Ctrl / ⌘ to tick several.
+    if (!keepOpen) close();
   }
   function step(dir: 1 | -1) {
     for (let i = hi + dir; i >= 0 && i < items.length; i += dir) {
       if (enabled(i)) return setHi(i);
     }
   }
-  function onKeyDown(e: KeyboardEvent<HTMLButtonElement>) {
+  /** A new query moves the highlight to the first choice it leaves. */
+  function search(next: string) {
+    setQuery(next);
+    const nq = next.trim().toLowerCase();
+    const left = (zeroPickable ? options : options.filter((o) => o.count !== 0 || picked.includes(o.value))).filter(
+      (o) => !nq || picked.includes(o.value) || `${o.label} ${o.sublabel ?? ""}`.toLowerCase().includes(nq),
+    );
+    const first = left.findIndex((o) => zeroPickable || o.count !== 0 || picked.includes(o.value));
+    setHi(first < 0 ? 0 : first + (required ? 0 : 1));
+  }
+  function close() {
+    setOpen(false);
+    setQuery("");
+  }
+  function onKeyDown(e: KeyboardEvent<HTMLElement>) {
+    const inBox = e.currentTarget instanceof HTMLInputElement;
+    if (open && searchable && !inBox && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      // Typing on the trigger while the list is open is typing into the search.
+      if (e.key.length === 1 && (e.key !== " " || query !== "")) {
+        e.preventDefault();
+        return search(query + e.key);
+      }
+      if (e.key === "Backspace") {
+        e.preventDefault();
+        return search(query.slice(0, -1));
+      }
+    }
     if (!open) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -164,16 +218,27 @@ export function FilterPill(props: FilterPillProps) {
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
-      setOpen(false);
+      close();
+      if (inBox) triggerRef.current?.focus();
     } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       step(e.key === "ArrowDown" ? 1 : -1);
-    } else if (e.key === "Enter" || e.key === " ") {
+    } else if (e.key === "Enter" || (e.key === " " && !inBox)) {
       e.preventDefault();
       e.stopPropagation();
-      pick(hi);
+      // Enter picks and closes; Space ticks and keeps the list open, as on a checkbox.
+      const keep = e.key === " " && multiple;
+      pick(hi, keep);
+      // The search box unmounts with the list — hand the cursor back to the pill.
+      if (!keep && inBox) triggerRef.current?.focus();
     } else if (e.key === "Tab") {
-      setOpen(false);
+      if (inBox) {
+        // The box is about to unmount; hand the cursor back to the pill it belongs to.
+        e.preventDefault();
+        e.stopPropagation();
+        triggerRef.current?.focus();
+      }
+      close();
     }
   }
 
@@ -182,12 +247,18 @@ export function FilterPill(props: FilterPillProps) {
   return (
     <div
       ref={wrapRef}
-      className="relative inline-flex"
+      // min-w-0 + the cap HERE, not on the button (user 2026-10-27, screenshot 3744: picking
+      // a Buyer and an Order pushed Budget and Progress onto a second row). A flex item will
+      // not shrink below its content without min-w-0, so a set pill's longer value + ✕ grew
+      // the row past its width; now the row can squeeze the widest pills, whose value
+      // truncates (full text on hover) while the label beside it stays whole.
+      className="relative inline-flex max-w-[11rem] min-w-0"
       onBlur={(e) => {
-        if (!wrapRef.current?.contains(e.relatedTarget as Node | null)) setOpen(false);
+        if (!wrapRef.current?.contains(e.relatedTarget as Node | null)) close();
       }}
     >
       <button
+        ref={triggerRef}
         id={triggerId}
         type="button"
         role="combobox"
@@ -200,14 +271,14 @@ export function FilterPill(props: FilterPillProps) {
         data-field-empty={set ? "false" : "true"}
         {...hold}
         disabled={disabled}
-        onClick={() => (open ? setOpen(false) : openList())}
+        onClick={() => (open ? close() : openList())}
         onKeyDown={onKeyDown}
         className={cn(
           // 32px, the dense-bar height (One button shape): a whole filter set fits ONE row (user 2026-10-26).
           // 12px and 8px sides (screenshot 3719): ten pills on one row, Progress no longer wrapping alone.
           // 11rem, not 13 (screenshot 3730): with Orders added, Progress wrapped alone again. Only a long
           // Item Class / Vendor ever reaches the cap, and its full name still shows on hover (Truncated).
-          "inline-flex h-8 max-w-[11rem] items-center gap-1 rounded-control border bg-surface pl-2 text-xs whitespace-nowrap transition-colors",
+          "inline-flex h-8 max-w-full min-w-0 items-center gap-1 rounded-control border bg-surface pl-2 text-xs whitespace-nowrap transition-colors",
           "hover:border-[#037bb8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
           set && !required ? "pr-6" : "pr-1.5",
           required && !set && NEEDED.box,
@@ -216,7 +287,7 @@ export function FilterPill(props: FilterPillProps) {
           ((!required && !set) || (required && set)) && IDLE.box,
         )}
       >
-        <span className={cn(IDLE.text, !required && set && (tone === "danger" ? SET_RED.text : SET_BLUE.text))}>
+        <span className={cn("shrink-0", IDLE.text, !required && set && (tone === "danger" ? SET_RED.text : SET_BLUE.text))}>
           {label}
           {required ? <span aria-hidden className="text-danger">*</span> : null}
         </span>
@@ -259,7 +330,32 @@ export function FilterPill(props: FilterPillProps) {
         >
           <div className="px-2 pt-1 pb-1.5 text-[11px] font-bold tracking-wide text-muted-foreground uppercase">{label}</div>
           {note ? <div className="px-2 pb-2 text-xs text-muted-foreground">{note}</div> : null}
-          {items.length === 0 ? <div className="px-2 py-2 text-sm text-muted-foreground">{emptyText}</div> : null}
+          {searchable ? (
+            <div className="sticky -top-1.5 z-10 -mx-1.5 mb-1 border-b bg-surface px-1.5 pt-0.5 pb-1.5">
+              <div className="flex h-8 items-center gap-1.5 rounded-control border border-[#8090a1] px-2 focus-within:ring-2 focus-within:ring-ring">
+                <Search aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+                {/* caps-input: exempt -- a search query is not a stored value */}
+                <input
+                  type="search"
+                  value={query}
+                  onChange={(e) => search(e.target.value)}
+                  onKeyDown={onKeyDown}
+                  placeholder={`Search ${label.toLowerCase()}`}
+                  aria-label={`Search ${label}`}
+                  aria-controls={listId}
+                  autoComplete="off"
+                  data-1p-ignore
+                  data-lpignore="true"
+                  data-form-type="other"
+                  className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                />
+              </div>
+            </div>
+          ) : null}
+          {searchable && q && visible.length === 0 ? (
+            <div className="px-2 py-2 text-sm text-muted-foreground">Nothing matches “{query.trim()}”</div>
+          ) : null}
+          {items.length === 0 && !q ? <div className="px-2 py-2 text-sm text-muted-foreground">{emptyText}</div> : null}
           {items.map((o, i) => {
             const on = isOn(o);
             const off = !enabled(i);
@@ -273,11 +369,11 @@ export function FilterPill(props: FilterPillProps) {
                 // mousedown, not click: the trigger keeps focus, so the panel does not blur shut first.
                 onMouseDown={(e) => {
                   e.preventDefault();
-                  pick(i);
+                  pick(i, e.ctrlKey || e.metaKey);
                 }}
                 onMouseEnter={() => !off && setHi(i)}
                 className={cn(
-                  "grid cursor-pointer grid-cols-[14px_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-2 py-1.5 text-sm",
+                  "grid cursor-pointer grid-cols-[14px_minmax(0,1fr)] items-center gap-2 rounded-md px-2 py-1.5 text-sm",
                   i === hi && !off && "bg-surface-muted",
                   off && "cursor-default text-muted-foreground/60",
                 )}
@@ -309,11 +405,9 @@ export function FilterPill(props: FilterPillProps) {
                     </Truncated>
                   ) : null}
                 </span>
-                {o.count != null ? (
-                  <span className={cn("text-xs font-semibold tabular-nums text-muted-foreground", o.tone === "danger" && !off && "text-danger")}>
-                    {o.count}
-                  </span>
-                ) : null}
+                {/* NO NUMBER BESIDE AN OPTION (user 2026-10-27, screenshot 3740: "no need number
+                    behind the filter … for all filters"). `count` still decides which choices are
+                    greyed (0 = would empty the list); it is just no longer printed. */}
               </div>
             );
           })}

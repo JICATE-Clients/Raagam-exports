@@ -16,6 +16,7 @@ import {
   rePoInput,
   type BudgetFlag,
   type LastPurchase,
+  type LastRate,
   type RePoInput,
   type RequirementLine,
 } from "./types";
@@ -104,6 +105,67 @@ export async function getLastPurchases(
     } satisfies LastPurchase;
   });
   return { ok: true, rows };
+}
+
+/**
+ * LAST RATE PER ITEM (user 2026-10-27) — one round trip for every item on the grid, so
+ * the Rate box opens pre-filled on a second PO for the same item. Same rules as Show Last
+ * PO: drafts and cancelled POs are not a purchase. Per item, the chosen vendor's newest PO
+ * wins; with none, the newest from anyone. A PO that priced the item's sizes apart gives
+ * its lowest rate — the figure to negotiate down from, never up.
+ */
+export async function getLastRates(
+  itemIds: readonly string[],
+  vendorId: string | null,
+  currency: string,
+): Promise<{ ok: true; rates: Record<string, LastRate>; bought: string[] } | { ok: false; error: string }> {
+  const ids = [...new Set(itemIds.filter(Boolean))];
+  if (ids.length === 0) return { ok: true, rates: {}, bought: [] };
+  if (!(await can("materials_purchase", "view"))) return { ok: false, error: "You cannot see purchase orders" };
+  const s = await createClient();
+  const { data, error } = await s
+    .from("purchase_orders")
+    .select(
+      "id, code, order_date, created_at, status, master_vendor_id, currency_code, foreign_currency_code, po_type, master_vendors!master_vendor_id(name), po_line_items!inner(item_id, unit_price)",
+    )
+    .in("po_line_items.item_id", ids)
+    .not("status", "in", "(draft,cancelled)")
+    .order("order_date", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false })
+    .limit(500);
+  if (error) return { ok: false, error: `Could not read the last rates: ${error.message}` };
+  type Row = {
+    code: string | null;
+    order_date: string | null;
+    master_vendor_id: string | null;
+    currency_code: string | null;
+    foreign_currency_code: string | null;
+    po_type: string | null;
+    master_vendors: { name: string | null } | null;
+    po_line_items: { item_id: string; unit_price: number | string }[];
+  };
+  const rates: Record<string, LastRate> = {};
+  // Every item on ANY real PO, whatever its currency or vendor — what decides whether the
+  // grid offers Show Last PO at all (user 2026-10-27: "only show if that item have the data").
+  const bought = new Set<string>();
+  for (const p of (data ?? []) as unknown as Row[]) {
+    for (const l of p.po_line_items) bought.add(l.item_id);
+    const cur = (p.po_type === "import" ? p.foreign_currency_code : null) ?? p.currency_code ?? "INR";
+    if (cur !== currency) continue;
+    const same = !!vendorId && p.master_vendor_id === vendorId;
+    const byItem = new Map<string, number>();
+    for (const l of p.po_line_items) {
+      const r = Number(l.unit_price) || 0;
+      if (r > 0) byItem.set(l.item_id, Math.min(byItem.get(l.item_id) ?? r, r));
+    }
+    for (const [itemId, rate] of byItem) {
+      const had = rates[itemId];
+      // Newest first, so the first hit stands — unless it was another vendor's and this is ours.
+      if (had && (had.sameVendor || !same)) continue;
+      rates[itemId] = { rate, currency: cur, sameVendor: same, vendor: p.master_vendors?.name ?? null, code: p.code, orderDate: p.order_date };
+    }
+  }
+  return { ok: true, rates, bought: [...bought] };
 }
 
 export async function checkRatesAgainstBudget(
