@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ArrowRight, Ban, Boxes, Check, ChevronRight, History, Layers, Lock, Package, Ruler, Undo2, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, Ban, Boxes, Check, ChevronRight, Clock, FileText, History, Layers, LayoutGrid, Lock, Package, Ruler, Store, Tag, TrendingUp, Truck, Undo2, User, Wallet, X } from "lucide-react";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { Button } from "@/components/ui/button";
 import { Field, FIELD_WIDTH_CSS } from "@/components/ui/field";
@@ -1657,12 +1657,14 @@ export function RequirementPoForm({
               the rest only narrow the tick list below. Counts are "what this choice would
               leave", so a greyed choice is one that would empty the list. */}
           {/* ONE ROW from md up (screenshot 3744): the pills shrink to fit instead of wrapping. */}
-          <div className="flex flex-wrap items-center gap-1 border-t border-[#dde4eb] bg-[#fafbfc] px-4 py-2 md:flex-nowrap">
+          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-3 border-t border-[#dde4eb] bg-[#fafbfc] px-4 pt-4 pb-2.5 md:flex-nowrap">
             {/* PO TYPE LEADS THE ROW (user 2026-10-26: "type local/import also as filter,
                 move it before item class"). Always set, so it never holds the cursor. */}
             <FilterPill
               id="rpo-type"
               label="PO Type"
+              family="vendor"
+              icon={Truck}
               required
               options={[
                 { value: "local", label: "Local" },
@@ -1680,6 +1682,8 @@ export function RequirementPoForm({
             <FilterPill
               // "Order Type", not "Type": PO Type (Local / Import) leads the same row.
               label="Order Type"
+              family="order"
+              icon={LayoutGrid}
               options={KIND_OPTIONS.map((k) => ({ ...k, count: count("kind", k.value) }))}
               anyCount={anyCount("kind")}
               multiple
@@ -1688,6 +1692,8 @@ export function RequirementPoForm({
             />
             <FilterPill
               label="Buyer"
+              family="order"
+              icon={User}
               wide
               options={buyerOptions}
               anyCount={anyCount("buyer")}
@@ -1698,6 +1704,8 @@ export function RequirementPoForm({
             <FilterPill
               id="rpo-class"
               label="Item Class"
+              family="item"
+              icon={Layers}
               required
               options={classOptions}
               multiple
@@ -1735,6 +1743,8 @@ export function RequirementPoForm({
             <FilterPill
               id="rpo-order"
               label="Orders"
+              family="order"
+              icon={FileText}
               wide
               disabled={!hasClass}
               options={facts.map((o) => ({ value: o.id, label: o.no.split(" · ")[0], count: count("order", o.id) }))}
@@ -1750,6 +1760,8 @@ export function RequirementPoForm({
             {classIds.length > 1 ? (
             <FilterPill
               label="Category"
+              family="item"
+              icon={Tag}
               disabled={categoryOptions.length === 0}
               options={categoryOptions}
               anyCount={anyCount("category")}
@@ -1761,6 +1773,8 @@ export function RequirementPoForm({
             <FilterPill
               id="rpo-vendor"
               label="Vendor"
+              family="vendor"
+              icon={Store}
               required
               wide
               placeholder="Choose vendor"
@@ -1787,6 +1801,8 @@ export function RequirementPoForm({
             <span aria-hidden className="mx-0.5 hidden h-5 w-px shrink-0 bg-[#dde4eb] sm:block" />
             <FilterPill
               label="Order by"
+              family="status"
+              icon={Clock}
               wide
               disabled={!hasClass}
               note={leadNote}
@@ -1799,6 +1815,8 @@ export function RequirementPoForm({
             />
             <FilterPill
               label="Budget"
+              family="status"
+              icon={Wallet}
               disabled={!hasClass}
               options={BUDGET_STATES.map((b) => ({ ...b, count: count("budget", b.value) }))}
               anyCount={anyCount("budget")}
@@ -1808,6 +1826,8 @@ export function RequirementPoForm({
             />
             <FilterPill
               label="Progress"
+              family="status"
+              icon={TrendingUp}
               disabled={!hasClass}
               options={PROGRESS_STATES.map((p) => ({ ...p, count: count("progress", p.value) }))}
               anyCount={anyCount("progress")}

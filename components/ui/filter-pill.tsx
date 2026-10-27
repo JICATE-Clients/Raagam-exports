@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useRef, useState, type KeyboardEvent } from "react";
-import { Check, ChevronDown, Search, X } from "lucide-react";
+import { Check, ChevronDown, Search, X, type LucideIcon } from "lucide-react";
 import { useRequiredHold } from "@/components/ui/field";
 import { Truncated } from "@/components/ui/truncated";
 import { cn } from "@/lib/utils";
@@ -66,7 +66,6 @@ export type FilterPillOption = {
  * link blue / danger / amber on their own pale grounds, ≥ 4.5:1 each, and nothing
  * re-points them.
  */
-const SET_BLUE = { box: "border-[#037bb8] bg-[#e8f3fb]", text: "text-[#035c8c]" };
 const SET_RED = { box: "border-[#d92d20] bg-[#fdecea]", text: "text-[#b42318]" };
 const NEEDED = { box: "border-[#d9a400] bg-[#fff7e0]", text: "text-[#8a5800]" };
 /**
@@ -77,6 +76,22 @@ const NEEDED = { box: "border-[#d9a400] bg-[#fff7e0]", text: "text-[#8a5800]" };
  * label steps up from muted grey to slate, and a 1px shadow lifts it off the band.
  */
 const IDLE = { box: "border-[#8090a1] bg-surface shadow-[0_1px_1px_rgba(16,24,40,0.06)]", text: "text-[#475467]" };
+/**
+ * A FLOATING-LABEL FIELD, COLOURED BY WHAT IT FILTERS (user 2026-10-27, design 3 of
+ * mockup 4vBfEL5RrE6v2acTEcJkqM: "the third one is okay apply it"). The label sits in
+ * the box's top border and the icon beside the value, both in the filter's FAMILY
+ * colour, so a group is found by colour before a word is read. A picked filter takes
+ * that colour as its border with a soft glow; a must-pick stays amber; "Any" is grey.
+ * Fixed values for the same reason as SET_RED above — a skin cannot re-point them.
+ */
+export type FilterFamily = "order" | "item" | "vendor" | "status";
+const FAMILY: Record<FilterFamily, { text: string; set: string }> = {
+  order: { text: "text-[#2f6fdb]", set: "border-[#2f6fdb] shadow-[0_0_0_3px_rgba(47,111,219,0.15)]" },
+  item: { text: "text-[#0f8a7e]", set: "border-[#0f8a7e] shadow-[0_0_0_3px_rgba(15,138,126,0.15)]" },
+  vendor: { text: "text-[#7c3fd0]", set: "border-[#7c3fd0] shadow-[0_0_0_3px_rgba(124,63,208,0.15)]" },
+  status: { text: "text-[#c2541c]", set: "border-[#c2541c] shadow-[0_0_0_3px_rgba(194,84,28,0.15)]" },
+};
+const NO_FAMILY = { text: "text-[#475467]", set: "border-[#037bb8] shadow-[0_0_0_3px_rgba(3,123,184,0.15)]" };
 
 type FilterPillCommon = {
   id?: string;
@@ -98,6 +113,10 @@ type FilterPillCommon = {
   zeroPickable?: boolean;
   /** Search box over the list. Default: on past `SEARCH_FROM` choices. */
   searchable?: boolean;
+  /** Colour group — the label, icon and picked border take it. */
+  family?: FilterFamily;
+  /** What the filter is, at a glance; drawn in the family colour. */
+  icon?: LucideIcon;
 };
 
 /** A list longer than this opens with a search box — six fit on screen without one. */
@@ -121,7 +140,10 @@ export function FilterPill(props: FilterPillProps) {
     tone,
     wide = false,
     zeroPickable = false,
+    family,
+    icon: Icon,
   } = props;
+  const fam = family ? FAMILY[family] : NO_FAMILY;
   const searchable = props.searchable ?? options.length > SEARCH_FROM;
   const multiple = props.multiple === true;
   /** What is chosen, as a list whichever shape the caller holds. */
@@ -312,34 +334,42 @@ export function FilterPill(props: FilterPillProps) {
         onClick={() => (open ? close() : openList())}
         onKeyDown={onKeyDown}
         className={cn(
-          // 32px, the dense-bar height (One button shape): a whole filter set fits ONE row (user 2026-10-26).
-          // 12px and 8px sides (screenshot 3719): ten pills on one row, Progress no longer wrapping alone.
-          // 11rem, not 13 (screenshot 3730): with Orders added, Progress wrapped alone again. Only a long
-          // Item Class / Vendor ever reaches the cap, and its full name still shows on hover (Truncated).
-          "inline-flex h-8 max-w-full min-w-0 items-center gap-1 rounded-control border bg-surface pl-2 text-xs whitespace-nowrap transition-colors",
-          "hover:border-[#037bb8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
-          set && !required ? "pr-6" : "pr-1.5",
+          // A FIELD, NOT A PILL (design 3, 2026-10-27): 40px, 8px corners, the label in the
+          // top border. Still one row — the wrapper's 11rem cap and min-w-0 let the widest
+          // shrink, the value truncates (full text on hover) and the label stays whole.
+          "relative inline-flex h-10 max-w-full min-w-0 items-center gap-1.5 rounded-control border-[1.5px] bg-surface pl-2.5 text-[13px] whitespace-nowrap transition-[border-color,box-shadow]",
+          "hover:border-[#037bb8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-45",
+          set && !required ? "pr-7" : "pr-2",
           required && !set && NEEDED.box,
-          !required && set && (tone === "danger" ? SET_RED.box : SET_BLUE.box),
+          !required && set && (tone === "danger" ? `${SET_RED.box} shadow-[0_0_0_3px_rgba(217,45,32,0.15)]` : `bg-surface ${fam.set}`),
           // A required pill once chosen rests like any other — set, but nothing more to do.
           ((!required && !set) || (required && set)) && IDLE.box,
         )}
       >
-        <span className={cn("shrink-0", IDLE.text, !required && set && (tone === "danger" ? SET_RED.text : SET_BLUE.text))}>
+        {/* The label rides the top border; its ground matches the box's so the line breaks under it. */}
+        <span
+          className={cn(
+            "pointer-events-none absolute -top-[9px] left-2 max-w-[calc(100%-1rem)] truncate px-1 text-[10.5px] leading-4 font-semibold",
+            required && !set
+              ? `bg-[linear-gradient(#fafbfc_50%,#fff7e0_50%)] ${NEEDED.text}`
+              : `bg-[linear-gradient(#fafbfc_50%,var(--surface)_50%)] ${tone === "danger" && set ? SET_RED.text : fam.text}`,
+          )}
+        >
           {label}
           {required ? <span aria-hidden className="text-danger">*</span> : null}
         </span>
+        {Icon ? <Icon aria-hidden className={cn("size-3.5 shrink-0", required && !set ? NEEDED.text : fam.text)} /> : null}
         <Truncated
           touch={false}
           className={cn(
-            "min-w-0 font-semibold",
-            required && !set && NEEDED.text,
-            !required && set && (tone === "danger" ? SET_RED.text : SET_BLUE.text),
+            "min-w-0 flex-1",
+            set ? "font-semibold text-foreground" : required ? cn("font-semibold", NEEDED.text) : "text-muted-foreground",
+            !required && set && tone === "danger" && SET_RED.text,
           )}
         >
           {shown}
         </Truncated>
-        {set && !required ? null : <ChevronDown aria-hidden className={cn("size-3 shrink-0", IDLE.text)} />}
+        {set && !required ? null : <ChevronDown aria-hidden className={cn("size-3.5 shrink-0", IDLE.text)} />}
       </button>
       {set && !required ? (
         <button
@@ -349,7 +379,7 @@ export function FilterPill(props: FilterPillProps) {
           onClick={clear}
           className={cn(
             "absolute top-1/2 right-1 grid size-4.5 -translate-y-1/2 place-items-center rounded hover:bg-surface",
-            tone === "danger" ? SET_RED.text : SET_BLUE.text,
+            tone === "danger" ? SET_RED.text : fam.text,
           )}
         >
           <X aria-hidden className="size-3.5" />
