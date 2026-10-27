@@ -16,7 +16,7 @@ export function ConversationList({ conversations }: { conversations: Conversatio
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
-        <h1 className="text-sm font-semibold text-heading">Chats</h1>
+        <h1 className="text-sm font-semibold text-heading">Pulse</h1>
         <Link href="/comms?new=1" className={buttonClasses({ size: "sm" })}>
           <PenSquare className="h-4 w-4" aria-hidden /> New
         </Link>

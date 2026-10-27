@@ -65,7 +65,7 @@ export const JOBS = {
   },
   housekeeping: {
     label: "Clean up old alerts",
-    does: "Deletes alerts, alert-log rows and job-run rows older than the times set on Notifications ▸ Settings.",
+    does: "Deletes alerts, alert-log rows and job-run rows older than the times set on Notifications ▸ Settings, and chat uploads never attached to a message after a day.",
     schedule: "30 21 * * *",
     when: "Daily at 3:00 am",
     everyMinutes: 1440,

@@ -6,7 +6,12 @@
  * checks to run after it, because that is the entire fix — "something went
  * wrong" would send the operator to whoever built this.
  */
-export function CommsNotInstalled() {
+export function CommsNotInstalled({
+  migrations = ["supabase/migrations/0737_communication_hub_core.sql"],
+}: {
+  /** The migration(s) this view needs. 0737 for the hub; 0750 for the workspace screens. */
+  migrations?: string[];
+} = {}) {
   return (
     <div className="mx-auto max-w-2xl space-y-3 p-4">
       <h1 className="text-lg font-semibold text-heading">Messages</h1>
@@ -19,7 +24,9 @@ export function CommsNotInstalled() {
           needed:
         </p>
         <ul className="mt-2 list-disc pl-5 font-mono text-xs text-foreground">
-          <li>supabase/migrations/0737_communication_hub_core.sql</li>
+          {migrations.map((m) => (
+            <li key={m}>{m}</li>
+          ))}
         </ul>
         <p className="mt-3 text-sm text-muted-foreground">Then check it from the SQL editor:</p>
         <ul className="mt-1 list-disc pl-5 font-mono text-xs text-foreground">

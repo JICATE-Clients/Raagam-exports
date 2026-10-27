@@ -3,13 +3,18 @@
 import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
-import { can, getAppUser } from "@/lib/auth/server";
+import { getAppUser } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
 import { allow } from "@/lib/rate-limit";
 import { notifyForMessage } from "./notify";
+import { createChannelInput, type CreateChannelInput } from "./channels";
 import { resolveRecords, searchRecords } from "./records";
 import {
   getMessages,
+  getMessagesByIds,
+  getSavedPage,
+  type SavedItem,
+  type SavedQuery,
   getPinned,
   getThread,
   searchDirectory,
@@ -18,18 +23,18 @@ import {
 import {
   COMM_BUCKET,
   commErrorText,
-  createChannelInput,
   createGroupInput,
   editMessageInput,
   memberIdsInput,
   memberRoleInput,
   reactionInput,
+  setReactionInput,
   recordRefInput,
   isRecordKind,
   sendMessageInput,
   updateConversationInput,
   type CommMessage,
-  type CreateChannelInput,
+  type CommReaction,
   type CreateGroupInput,
   type DirectoryPerson,
   type MessageHit,
@@ -109,8 +114,12 @@ export async function createGroup(input: CreateGroupInput): Promise<Result> {
   return { ok: true, id: data as string };
 }
 
+/**
+ * Create a channel (0751). No `can()` pre-check here: a workspace owner/admin
+ * may create one without communication:create, and only the RPC knows both
+ * halves. `create_key` makes a retried submit return the first channel.
+ */
 export async function createChannel(input: CreateChannelInput): Promise<Result> {
-  if (!(await can("communication", "create"))) return fail("You do not have permission to create channels.");
   const parsed = createChannelInput.safeParse(input);
   if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Check the channel details.");
   const d = parsed.data;
@@ -121,6 +130,8 @@ export async function createChannel(input: CreateChannelInput): Promise<Result> 
     p_topic: d.topic,
     p_department_id: d.department_id,
     p_member_ids: d.member_ids,
+    p_description: d.description,
+    p_create_key: d.create_key,
   });
   if (error || !data) return fail(commErrorText(error, "The channel could not be created."));
   await writeAudit({
@@ -308,14 +319,17 @@ export async function sendMessage(input: SendMessageInput): Promise<SendResult> 
 export async function editMessage(messageId: string, body: string): Promise<Result> {
   const parsed = editMessageInput.safeParse({ message_id: messageId, body });
   if (!parsed.success) return fail("That message could not be read.");
+  const me = await getAppUser();
+  if (!me) return fail("You are signed out.");
+  // Same abuse guard as a send: an edit rewrites a message every reader sees.
+  if (!allow(`comm-edit:${me.id}`, 30, 10_000)) return fail("You are editing too fast. Wait a moment.");
   const s = await createClient();
   const { data, error } = await s.rpc("comm_edit_message", { p_message: parsed.data.message_id, p_body: parsed.data.body });
   if (error) return fail(commErrorText(error, "The message could not be edited."));
   // An edit that ADDS a mention tells only the person just added (the RPC
   // returns newly mentioned ids alone); the message-id key stops a repeat.
   const added = ((data as { mentioned?: string[] } | null)?.mentioned ?? []).filter((u) => typeof u === "string");
-  const me = added.length > 0 ? await getAppUser() : null;
-  if (me) {
+  if (added.length > 0) {
     after(async () => {
       const { data: row } = await s.from("comm_messages").select("conversation_id").eq("id", parsed.data.message_id).maybeSingle();
       const conversationId = (row as { conversation_id?: string } | null)?.conversation_id;
@@ -360,6 +374,62 @@ export async function deleteMessage(messageId: string): Promise<Result> {
   return { ok: true };
 }
 
+/**
+ * Put the caller's reaction into the state they asked for (0760). Idempotent,
+ * so a double click or a retry cannot flip it back; the answer carries the
+ * message's reactions as the DATABASE now holds them, so the optimistic chip
+ * is replaced by the truth, whichever way the race went.
+ */
+export async function setReaction(
+  messageId: string,
+  emoji: string,
+  on: boolean,
+): Promise<Result & { changed?: boolean; reactions?: CommReaction[] }> {
+  const parsed = setReactionInput.safeParse({ message_id: messageId, emoji, on });
+  if (!parsed.success) return fail("That reaction cannot be used.");
+  const me = await getAppUser();
+  if (!me) return fail("You are signed out.");
+  if (!allow(`comm-react:${me.id}`, 60, 10_000)) return fail("You are reacting too fast. Wait a moment.");
+  const s = await createClient();
+  const { data, error } = await s.rpc("comm_set_reaction", {
+    p_message: parsed.data.message_id,
+    p_emoji: parsed.data.emoji,
+    p_on: parsed.data.on,
+  });
+  if (error) return fail(commErrorText(error, "The reaction was not saved."));
+  const changed = (data as { changed?: boolean } | null)?.changed === true;
+  const now = await s.rpc("comm_message_reactions", { p_message: parsed.data.message_id });
+  if (now.error) return { ok: true, changed };
+  const reactions = ((now.data ?? []) as { emoji: string; count: number; mine: boolean; user_ids: string[] }[]).map(
+    (r) => ({ emoji: r.emoji, count: r.count, mine: r.mine, users: r.user_ids ?? [] }),
+  );
+  return { ok: true, changed, reactions };
+}
+
+/** The next page of the Saved list, or the list under new filters (0763). */
+export async function loadSaved(query: SavedQuery): Promise<{ ok: true; items: SavedItem[]; next: string | null } | Fail> {
+  const kinds = ["channel", "direct", "group", "thread"];
+  if (query.kind && !kinds.includes(query.kind)) return fail("Unknown conversation type.");
+  if ((query.q ?? "").length > 200) return fail("Keep the search to 200 characters.");
+  try {
+    return { ok: true, ...(await getSavedPage(query)) };
+  } catch {
+    return fail("Saved messages could not be loaded.");
+  }
+}
+
+/** Re-read named messages after Realtime reported a change to them. */
+export async function loadMessagesById(
+  conversationId: string,
+  ids: string[],
+): Promise<{ ok: true; messages: CommMessage[] } | Fail> {
+  try {
+    return { ok: true, messages: await getMessagesByIds(conversationId, ids) };
+  } catch {
+    return fail("Messages could not be refreshed.");
+  }
+}
+
 export async function toggleReaction(messageId: string, emoji: string): Promise<Result & { on?: boolean }> {
   const parsed = reactionInput.safeParse({ message_id: messageId, emoji });
   if (!parsed.success) return fail("That reaction cannot be used.");
@@ -381,8 +451,12 @@ export async function setPinned(messageId: string, pinned: boolean): Promise<Res
 
 /** Saved messages are your own bookmarks — the one direct-write table (0737). */
 export async function setSaved(messageId: string, saved: boolean): Promise<Result> {
+  if (typeof messageId !== "string" || !/^[0-9a-f-]{36}$/i.test(messageId) || typeof saved !== "boolean") {
+    return fail("That message could not be found.");
+  }
   const me = await getAppUser();
   if (!me) return fail("You are signed out.");
+  if (!allow(`comm-save:${me.id}`, 60, 10_000)) return fail("You are saving too fast. Wait a moment.");
   const s = await createClient();
   const { error } = saved
     ? await s.from("comm_saved").upsert({ user_id: me.id, message_id: messageId }, { onConflict: "user_id,message_id", ignoreDuplicates: true })

@@ -7,6 +7,7 @@ import { sweepApprovalLinks } from "@/lib/ta/approval-links-sweep";
 import { drainOutbox } from "@/lib/resolve/outbox";
 import { sweepResolveEscalation } from "@/lib/resolve/escalation";
 import { sweepResolveDesk } from "@/lib/resolve/desk-sweep";
+import { purgeOrphanCommFiles } from "@/lib/comms/orphans";
 import type { JobKey } from "./registry";
 
 /**
@@ -34,13 +35,24 @@ export async function purgeOldNotifications(): Promise<{
   };
 }
 
+/**
+ * The daily housekeeping run: old alerts and log rows (0677), then Communication
+ * Hub uploads that were never attached (0761). One job, so one schedule, one
+ * "Run now" and one row in Scheduled Jobs.
+ */
+export async function runHousekeeping(): Promise<Record<string, unknown> & { error?: string }> {
+  const [alerts, files] = await Promise.all([purgeOldNotifications(), purgeOrphanCommFiles()]);
+  const error = [alerts.error, files.error].filter(Boolean).join("; ") || undefined;
+  return { ...alerts, ...files, ...(error ? { error } : {}) };
+}
+
 /** Each job's sweep — what "Run now" runs. The cron routes call the same functions. */
 export const JOB_SWEEPS: Record<JobKey, () => Promise<{ error?: string } & Record<string, unknown>>> = {
   "approval-sla": () => sweepSla(),
   "work-flow": sweepWorkFlow,
   "order-risk": sweepOrderRisk,
   "approval-links": sweepApprovalLinks,
-  housekeeping: purgeOldNotifications,
+  housekeeping: runHousekeeping,
   "resolve-escalation": sweepResolveEscalation,
   "resolve-outbox": () => drainOutbox({ limit: 200 }),
   "resolve-desk": sweepResolveDesk,

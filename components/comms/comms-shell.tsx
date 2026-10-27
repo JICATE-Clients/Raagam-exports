@@ -25,8 +25,10 @@ import { NewConversationSheet } from "./new-conversation-sheet";
  * (unread counts come from the database, never counted in the browser). A tab
  * returning to view or the network coming back refreshes too, which is what
  * covers an event missed while disconnected.
+ *
+ * `top` is the workspace bar (0750), drawn by the server layout above every view.
  */
-export function CommsShell({ children }: { children: ReactNode }) {
+export function CommsShell({ children, top }: { children: ReactNode; top?: ReactNode }) {
   const router = useRouter();
   const user = useAppUser();
   const instance = useId().replace(/[^A-Za-z0-9]/g, "");
@@ -72,6 +74,7 @@ export function CommsShell({ children }: { children: ReactNode }) {
       data-focus-scope="off"
       className="@container/comms flex min-h-[30rem] flex-1 flex-col overflow-hidden rounded-lg border border-border bg-surface"
     >
+      {top}
       {children}
       <NewConversationSheet open={composing} meId={user.id} onClose={() => setComposing(false)} />
     </div>

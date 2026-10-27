@@ -193,6 +193,25 @@ export function WorkspaceTabsBar() {
   // Resolved from the route on screen, not the store's `activeId`, which can
   // lag one route behind on a hub page (nothing registers a tab there).
   const currentTab = openTabs.find((t) => t.href === pathname);
+  /* THE DESKTOP STRIP SHOWS ONE TAB ONLY (user 2026-10-27: "only the module
+     containing the last submodule or screen the user accessed should be
+     displayed"): the screen on view, or — on a hub page that registers no
+     tab — the most recently seen one. Home appears only while it is the
+     current route. The store still holds every open screen, and the phone
+     switcher still lists them. */
+  /* LEAVING A MODULE MID-WORK (user 2026-10-27): off a screen — on Home or a
+     hub page — the strip keeps the screen the operator left, so one click
+     resumes it. A screen with unsaved edits (`dirty`) wins; otherwise the
+     most recently seen one, which is the saved screen they finished on. */
+  const recency = (t: { seenAt?: number }) => t.seenAt ?? 0;
+  const lastTab =
+    currentTab ??
+    openTabs.reduce<(typeof openTabs)[number] | undefined>((best, t) => {
+      if (!best) return t;
+      if (!!t.dirty !== !!best.dirty) return t.dirty ? t : best;
+      return recency(t) >= recency(best) ? t : best;
+    }, undefined);
+  const shownTabs = lastTab ? [lastTab] : [];
   const label = (t: { href: string; title: string }) => navLabel(user, t.href, t.title);
   const goHome = () => openTab({ href: "/", title: "Home" });
 
@@ -345,7 +364,8 @@ export function WorkspaceTabsBar() {
       </button>
 
       {/* ---- DESKTOP (md and up): Notepad's tab strip ---- */}
-      {showHome && (
+      {showHome && (isHomeActive || shownTabs.length === 0) && (
+        /* Home shows while it is the route (beside the resume tab) or when nothing is open. */
         <button
           type="button"
           tabIndex={-1}
@@ -375,12 +395,12 @@ export function WorkspaceTabsBar() {
       {/* THE STRIP. `h-full items-end` so each tab sits on the bar's bottom
           edge; no scrollbar, the arrows are the way along it. */}
       <div ref={stripRef} className="scrollbar-none flex h-full min-w-0 items-end overflow-x-auto max-md:hidden">
-        {openTabs.map((tab, i) => {
+        {shownTabs.map((tab, i) => {
           const active = tab.href === pathname;
           const Icon = iconForPath(tab.href, modules);
           const name = label(tab);
           /* No hairline on the open tab, nor on the one just before it. */
-          const divider = !active && openTabs[i + 1]?.href !== pathname;
+          const divider = !active && shownTabs[i + 1]?.href !== pathname;
           return (
             <button
               key={tab.id}

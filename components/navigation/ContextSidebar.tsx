@@ -8,6 +8,8 @@ import type { StoreNavLink } from "@/components/shell/sidebar-types";
 import { cn } from "@/lib/utils";
 import { useRecent } from "@/lib/use-recent";
 import { useAccordion } from "@/lib/ui/use-accordion";
+import { hasPermission } from "@/lib/auth/types";
+import { SidebarChannels } from "@/components/comms/sidebar-channels";
 import {
   activeChildHref,
   activeModule,
@@ -23,6 +25,9 @@ interface SidebarBlock {
   key: string;
   label?: string;
   rows: { href: string; label: string }[];
+  /** Live content drawn INSTEAD of `rows` — the comms Channels list (0751),
+   *  which is data, not registry. Still one fold of the same accordion. */
+  content?: ReactNode;
 }
 
 /**
@@ -90,6 +95,27 @@ export function ContextSidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
    */
   const blocks = toBlocks(children);
   const leaves = blocks.flatMap((b) => b.rows);
+  // THE CALLER'S CHANNELS (0751) — a fold of the SAME accordion as the hub's
+  // registry group, so "one open at a time" (AGENTS.md "Folds are accordions")
+  // holds across both. Appended after `leaves` is taken: its rows are records,
+  // not screens, and must not compete for the screen highlight.
+  if (mod.href === "/comms") {
+    blocks.push({
+      key: "comms:channels",
+      label: "Channels",
+      rows: [],
+      content: (
+        <SidebarChannels
+          pathname={pathname}
+          canCreate={hasPermission(user, "communication", "create")}
+          navigate={(href, title) => (e) => {
+            e.preventDefault();
+            openTab({ href, title });
+          }}
+        />
+      ),
+    });
+  }
   const activeHref = activeChildHref(pathname, leaves);
   // The group to open: the one holding the screen in view, else the first
   // captioned group (a module's root page sits in no group).
@@ -256,7 +282,7 @@ function FoldingGroups({
               : undefined
           }
         >
-          {block.rows.map(renderRow)}
+          {block.content ?? block.rows.map(renderRow)}
         </SidebarSection>
       ))}
     </>

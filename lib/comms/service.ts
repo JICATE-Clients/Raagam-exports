@@ -3,6 +3,15 @@ import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { getAppUser } from "@/lib/auth/server";
 import { isInactive } from "@/lib/masters/inactive";
+import { foldReactions } from "./reactions";
+import {
+  SEARCH_PAGE,
+  decodeSearchCursor,
+  encodeSearchCursor,
+  parseQuery,
+  searchTerms,
+  type SearchInput,
+} from "./search";
 import {
   MESSAGE_PAGE,
   conversationTitle,
@@ -220,26 +229,35 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
   if (!UUID_RE.test(id)) return null;
   const s = await createClient();
   const me = await myId();
-  const [convR, memR, manageR] = await Promise.all([
-    s
-      .from("comm_conversations")
-      .select("id, kind, name, topic, visibility, department_id, is_archived, created_at")
-      .eq("id", id)
-      .maybeSingle(),
-    s
-      .from("comm_members")
-      .select("user_id, role, joined_at, removed_at, muted, last_read_at")
-      .eq("conversation_id", id)
-      .order("joined_at"),
+  // 0751's columns, with 0737's as the fallback: the code lands with a pull and
+  // the columns when someone applies 0751, and every conversation must keep
+  // opening in between (42703 = undefined column). The fallback rows simply
+  // lack description / pin / level, which the types allow.
+  const conversationRead = (cols: string) => s.from("comm_conversations").select(cols).eq("id", id).maybeSingle();
+  const membersRead = (cols: string) => s.from("comm_members").select(cols).eq("conversation_id", id).order("joined_at");
+  const [conv0, mem0, manageR] = await Promise.all([
+    conversationRead("id, kind, name, topic, description, visibility, department_id, is_archived, archived_at, created_at"),
+    membersRead("user_id, role, joined_at, removed_at, muted, last_read_at, pinned_at, notify_level"),
     s.rpc("comm_can_manage", { p_conv: id }),
   ]);
+  let convR = conv0;
+  let memR = mem0;
+  if (convR.error?.code === "42703") convR = await conversationRead("id, kind, name, topic, visibility, department_id, is_archived, created_at");
+  if (memR.error?.code === "42703") memR = await membersRead("user_id, role, joined_at, removed_at, muted, last_read_at");
   if (convR.error) fail("the conversation", convR.error);
   if (!convR.data) return null;
   if (memR.error) fail("members", memR.error);
   if (manageR.error) fail("the conversation's permissions", manageR.error);
 
-  const conv = convR.data as Omit<ConversationDetail, "title" | "members" | "me" | "can_manage" | "department_name">;
-  const rows = (memR.data ?? []) as (Omit<CommMember, "full_name"> & { muted: boolean; last_read_at: string | null })[];
+  const raw = convR.data as unknown as Omit<ConversationDetail, "title" | "members" | "me" | "can_manage" | "department_name" | "description" | "archived_at"> &
+    Partial<Pick<ConversationDetail, "description" | "archived_at">>;
+  const conv = { ...raw, description: raw.description ?? null, archived_at: raw.archived_at ?? null };
+  const rows = (memR.data ?? []) as unknown as (Omit<CommMember, "full_name"> & {
+    muted: boolean;
+    last_read_at: string | null;
+    pinned_at: string | null;
+    notify_level: "all" | "mentions" | "none";
+  })[];
   const [names, depts] = await Promise.all([
     resolveNames(s, rows.map((r) => r.user_id)),
     departmentNames(s, [conv.department_id]),
@@ -251,6 +269,14 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
     removed_at: r.removed_at,
     full_name: names.get(r.user_id) ?? null,
   }));
+  // 0759: who the composer may offer for @mention. Before 0759 the read fails
+  // and everyone stays offered, as before (the server still drops a mention of
+  // anyone it should not).
+  const { data: mentionable, error: mentionErr } = await s.rpc("comm_mentionable_members", { p_conv: id });
+  if (!mentionErr) {
+    const ok = new Set((mentionable ?? []) as string[]);
+    for (const m of members) m.mentionable = ok.has(m.user_id);
+  }
   const mine = rows.find((r) => r.user_id === me);
   const others = members.filter((m) => m.user_id !== me && !m.removed_at).map((m) => m.full_name);
 
@@ -260,7 +286,14 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
     title: conversationTitle(conv, others),
     members,
     me: mine
-      ? { role: mine.role, muted: mine.muted, last_read_at: mine.last_read_at, active: !mine.removed_at }
+      ? {
+          role: mine.role,
+          muted: mine.muted,
+          last_read_at: mine.last_read_at,
+          active: !mine.removed_at,
+          pinned_at: mine.pinned_at ?? null,
+          notify_level: mine.notify_level ?? (mine.muted ? "mentions" : "all"),
+        }
       : null,
     can_manage: manageR.data === true,
   };
@@ -276,12 +309,12 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
 const MESSAGE_SELECT =
   "id, conversation_id, author_id, kind, body, parent_id, reply_count, last_reply_at, edited_at, deleted_at, created_at, " +
   "comm_attachments!message_id(id, file_name, storage_path, mime_type, size_bytes), " +
-  "comm_reactions!message_id(emoji, user_id), " +
+  "comm_reactions!message_id(emoji, user_id, created_at), " +
   "comm_pins!message_id(message_id)";
 
 type RawMessage = Omit<CommMessage, "author_name" | "pinned" | "saved" | "attachments" | "reactions"> & {
   comm_attachments: CommMessage["attachments"] | null;
-  comm_reactions: { emoji: string; user_id: string }[] | null;
+  comm_reactions: { emoji: string; user_id: string; created_at: string }[] | null;
   comm_pins: { message_id: string } | { message_id: string }[] | null;
 };
 
@@ -298,13 +331,6 @@ async function hydrate(s: Sb, rows: RawMessage[], me: string | null): Promise<Co
   const saved = new Set(((savedR.data ?? []) as { message_id: string }[]).map((r) => r.message_id));
 
   return rows.map((r) => {
-    const byEmoji = new Map<string, { count: number; mine: boolean }>();
-    for (const x of r.comm_reactions ?? []) {
-      const e = byEmoji.get(x.emoji) ?? { count: 0, mine: false };
-      e.count += 1;
-      if (x.user_id === me) e.mine = true;
-      byEmoji.set(x.emoji, e);
-    }
     const pins = r.comm_pins;
     return {
       id: r.id,
@@ -322,7 +348,7 @@ async function hydrate(s: Sb, rows: RawMessage[], me: string | null): Promise<Co
       pinned: Array.isArray(pins) ? pins.length > 0 : !!pins,
       saved: saved.has(r.id),
       attachments: r.comm_attachments ?? [],
-      reactions: Array.from(byEmoji, ([emoji, v]) => ({ emoji, ...v })),
+      reactions: foldReactions(r.comm_reactions ?? [], me),
     };
   });
 }
@@ -365,6 +391,26 @@ export async function getMessages(
   const last = page[page.length - 1];
   const messages = (await hydrate(s, page, me)).reverse();
   return { messages, next_cursor: more && last ? encodeCursor(last.created_at, last.id) : null };
+}
+
+/**
+ * Specific messages of one conversation, re-read after a Realtime UPDATE names
+ * them (a reaction, an edit, a delete) — so a change to a message the reader
+ * scrolled back to arrives too, not only one on the newest page. RLS decides,
+ * as everywhere: an id the caller may not read simply does not come back.
+ */
+export async function getMessagesByIds(conversationId: string, ids: string[]): Promise<CommMessage[]> {
+  const wanted = Array.from(new Set(ids.filter((v) => UUID_RE.test(v)))).slice(0, 100);
+  if (!UUID_RE.test(conversationId) || wanted.length === 0) return [];
+  const s = await createClient();
+  const me = await myId();
+  const { data, error } = await s
+    .from("comm_messages")
+    .select(MESSAGE_SELECT)
+    .eq("conversation_id", conversationId)
+    .in("id", wanted);
+  if (error) fail("messages", error);
+  return hydrate(s, (data ?? []) as unknown as RawMessage[], me);
 }
 
 /** A thread: its first message and every reply, oldest first. */
@@ -418,8 +464,218 @@ async function withTitles(s: Sb, messages: CommMessage[], me: string | null): Pr
   if (convIds.length === 0) return [];
   const { data, error } = await s.from("comm_conversations").select("id, kind, name").in("id", convIds);
   if (error) fail("conversations", error);
-  const titles = await titlesFor(s, (data ?? []) as { id: string; kind: ConversationKind; name: string | null }[], me);
-  return messages.map((m) => ({ message: m, conversation_title: titles.get(m.conversation_id) ?? "Conversation" }));
+  const convs = (data ?? []) as { id: string; kind: ConversationKind; name: string | null }[];
+  const titles = await titlesFor(s, convs, me);
+  const kinds = new Map(convs.map((c) => [c.id, c.kind]));
+  return messages.map((m) => ({
+    message: m,
+    conversation_title: titles.get(m.conversation_id) ?? "Conversation",
+    conversation_kind: kinds.get(m.conversation_id),
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// Search (0762)
+// ---------------------------------------------------------------------------
+
+export type SearchOutcome = {
+  hits: MessageHit[];
+  next: string | null;
+  /** Operator values that could not be used, in the operator's words. */
+  problems: string[];
+  terms: string[];
+  /** Names the operators resolved to, for the active-filter chips. */
+  resolved: { author: { id: string; name: string } | null; conversation: { id: string; name: string } | null };
+};
+
+/**
+ * `from:name` → one person the CALLER's directory shows (comm_directory, which
+ * already hides the deactivated). Exact name or employee code first; a single
+ * partial match next; anything else is reported, never guessed.
+ */
+async function resolvePerson(s: Sb, name: string): Promise<{ id: string; name: string } | string> {
+  const { data, error } = await s.rpc("comm_directory", { p_q: name, p_limit: 10 });
+  if (error) return `from:${name} could not be looked up.`;
+  const rows = (data ?? []) as DirectoryPerson[];
+  const n = name.toLowerCase();
+  const exact = rows.filter((p) => (p.full_name ?? "").toLowerCase() === n || (p.employee_code ?? "").toLowerCase() === n);
+  const pick = exact.length === 1 ? exact[0] : exact.length === 0 && rows.length === 1 ? rows[0] : null;
+  if (pick) return { id: pick.id, name: pick.full_name ?? name };
+  if (rows.length === 0) return `No one called "${name}" — check the spelling.`;
+  return `from:${name} matches ${rows.length} people (${rows.slice(0, 3).map((p) => p.full_name).join(", ")}…). Use the full name in quotes, e.g. from:"${rows[0].full_name}".`;
+}
+
+/**
+ * `in:name` → one channel the CALLER can see (comm_discover_channels: public
+ * ones and private ones they are in — a private channel they are not in is
+ * "not found", exactly like one that does not exist).
+ */
+async function resolveChannel(s: Sb, name: string): Promise<{ id: string; name: string } | string> {
+  const n = name.toLowerCase().replace(/^#/, "");
+  for (const scope of ["active", "archived"] as const) {
+    const { data, error } = await s.rpc("comm_discover_channels", { p_q: n, p_scope: scope, p_limit: 50, p_offset: 0 });
+    if (error) return `in:${name} could not be looked up.`;
+    const hit = ((data ?? []) as { id: string; name: string }[]).find((c) => c.name.toLowerCase() === n);
+    if (hit) return { id: hit.id, name: hit.name };
+  }
+  return `No channel you can see is called #${n}.`;
+}
+
+/**
+ * Message search (0762). The query's operators are resolved into ids through
+ * what the caller may see; the filter bar's values arrive as ids already.
+ * Both NARROW the search (an operator and a filter that disagree find
+ * nothing, and say why). comm_search_messages runs as the caller, so RLS
+ * decides every row; this function then loads the page's messages in ONE
+ * select and their titles in one more — never a query per result.
+ */
+export async function searchHuddle(input: SearchInput & { cursor?: string | null }): Promise<SearchOutcome> {
+  const s = await createClient();
+  const me = await myId();
+  const parsed = parseQuery(input.q ?? "");
+  const problems = [...parsed.problems];
+  const terms = searchTerms(parsed.text);
+  const empty: SearchOutcome = { hits: [], next: null, problems, terms, resolved: { author: null, conversation: null } };
+
+  let author = input.author ?? null;
+  let authorName: { id: string; name: string } | null = null;
+  for (const f of parsed.from.slice(0, 1)) {
+    const r = await resolvePerson(s, f);
+    if (typeof r === "string") problems.push(r);
+    else if (author && author !== r.id) problems.push(`from:${f} and the Sender filter name different people.`);
+    else {
+      author = r.id;
+      authorName = r;
+    }
+  }
+  let conversation = input.conversation ?? null;
+  let convName: { id: string; name: string } | null = null;
+  for (const c of parsed.in.slice(0, 1)) {
+    const r = await resolveChannel(s, c);
+    if (typeof r === "string") problems.push(r);
+    else if (conversation && conversation !== r.id) problems.push(`in:${c} and the Channel filter name different channels.`);
+    else {
+      conversation = r.id;
+      convName = r;
+    }
+  }
+  if (parsed.from.length > 1 || parsed.in.length > 1) problems.push("Use one from: and one in: at a time.");
+  // An operator that could not be resolved must not quietly widen the search.
+  if (problems.length > 0) return { ...empty, problems };
+
+  const later = (a: string | null | undefined, b: string | null) => (a && b ? (a > b ? a : b) : a ?? b);
+  const earlier = (a: string | null | undefined, b: string | null) => (a && b ? (a < b ? a : b) : a ?? b);
+  const fromDay = later(input.fromDay, parsed.fromDay);
+  const toDay = earlier(input.toDay, parsed.toDay);
+  const kind = parsed.thread ? "thread" : input.kind ?? null;
+  const cur = decodeSearchCursor(input.cursor ?? null);
+
+  const { data, error } = await s.rpc("comm_search_messages", {
+    p_text: parsed.text || null,
+    p_by_person: author,
+    p_conversation: conversation,
+    p_from_day: fromDay,
+    p_to_day: toDay,
+    p_has_file: !!(input.hasFile || parsed.hasFile),
+    p_kind: kind,
+    p_sort: input.sort ?? "relevance",
+    p_after_rank: cur?.r ?? null,
+    p_after_at: cur?.t ?? null,
+    p_after_id: cur?.i ?? null,
+    p_limit: SEARCH_PAGE,
+  });
+  if (error) {
+    if (error.code === "22023" || error.code === "42501") return { ...empty, problems: [error.message] };
+    fail("search results", error);
+  }
+  const rows = (data ?? []) as { id: string; created_at: string; rank: number }[];
+  const page = rows.slice(0, SEARCH_PAGE);
+  const last = page[page.length - 1];
+  const next =
+    rows.length > SEARCH_PAGE && last
+      ? encodeSearchCursor({ r: (input.sort ?? "relevance") === "relevance" && parsed.text ? last.rank : null, t: last.created_at, i: last.id })
+      : null;
+  if (page.length === 0) return { ...empty, resolved: { author: authorName, conversation: convName } };
+
+  const { data: msgs, error: mErr } = await s.from("comm_messages").select(MESSAGE_SELECT).in("id", page.map((r) => r.id));
+  if (mErr) fail("search results", mErr);
+  const order = new Map(page.map((r, i) => [r.id, i]));
+  const ordered = ((msgs ?? []) as unknown as RawMessage[]).sort((a, b) => order.get(a.id)! - order.get(b.id)!);
+  const hits = await withTitles(s, await hydrate(s, ordered, me), me);
+  return { hits, next, problems, terms, resolved: { author: authorName, conversation: convName } };
+}
+
+// ---------------------------------------------------------------------------
+// Saved (0763)
+// ---------------------------------------------------------------------------
+
+export const SAVED_PAGE = 30;
+
+/** One saved row as the Saved page shows it. `hit` is null when the message
+ *  is no longer readable by the caller: nothing about it is returned. */
+export type SavedItem = { message_id: string; saved_at: string; hit: MessageHit | null };
+
+export type SavedQuery = {
+  q?: string | null;
+  conversation?: string | null;
+  kind?: "channel" | "direct" | "group" | "thread" | null;
+  hasFile?: boolean;
+  cursor?: string | null;
+};
+
+const SAVED_CURSOR_RE = /^(\d{4}-\d{2}-\d{2}T[0-9:.]+(?:Z|[+-]\d{2}:\d{2}))\|([0-9a-f-]{36})$/i;
+function encodeSavedCursor(at: string, id: string): string {
+  return Buffer.from(`${at}|${id}`, "utf8").toString("base64url");
+}
+function decodeSavedCursor(c: string | null | undefined): { at: string; id: string } | null {
+  if (!c || c.length > 200) return null;
+  try {
+    const m = SAVED_CURSOR_RE.exec(Buffer.from(c, "base64url").toString("utf8"));
+    return m && UUID_RE.test(m[2]) ? { at: m[1], id: m[2] } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The caller's saved messages, newest save first, a page at a time (0763).
+ * comm_my_saved runs AS THE CALLER, so only their own rows come back and a
+ * message they can no longer read comes back as unavailable — with nothing
+ * about it. The available messages then load in ONE select, with names and
+ * conversation titles in one call each: never a query per saved item.
+ */
+export async function getSavedPage(query: SavedQuery = {}): Promise<{ items: SavedItem[]; next: string | null }> {
+  const s = await createClient();
+  const me = await myId();
+  if (!me) return { items: [], next: null };
+  const cur = decodeSavedCursor(query.cursor);
+  const { data, error } = await s.rpc("comm_my_saved", {
+    p_text: query.q?.trim() || null,
+    p_conversation: query.conversation && UUID_RE.test(query.conversation) ? query.conversation : null,
+    p_kind: query.kind ?? null,
+    p_has_file: !!query.hasFile,
+    p_before_at: cur?.at ?? null,
+    p_before_id: cur?.id ?? null,
+    p_limit: SAVED_PAGE,
+  });
+  if (error) fail("saved messages", error);
+  const rows = (data ?? []) as { message_id: string; saved_at: string; available: boolean }[];
+  const page = rows.slice(0, SAVED_PAGE);
+  const last = page[page.length - 1];
+  const next = rows.length > SAVED_PAGE && last ? encodeSavedCursor(last.saved_at, last.message_id) : null;
+
+  const ids = page.filter((r) => r.available).map((r) => r.message_id);
+  let hits = new Map<string, MessageHit>();
+  if (ids.length > 0) {
+    const { data: msgs, error: mErr } = await s.from("comm_messages").select(MESSAGE_SELECT).in("id", ids);
+    if (mErr) fail("saved messages", mErr);
+    const list = await withTitles(s, await hydrate(s, (msgs ?? []) as unknown as RawMessage[], me), me);
+    hits = new Map(list.map((h) => [h.message.id, h]));
+  }
+  return {
+    items: page.map((r) => ({ message_id: r.message_id, saved_at: r.saved_at, hit: hits.get(r.message_id) ?? null })),
+    next,
+  };
 }
 
 /**

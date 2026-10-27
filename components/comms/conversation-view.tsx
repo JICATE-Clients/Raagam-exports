@@ -19,11 +19,16 @@ import {
   sendMessage,
   setPinned,
   setSaved,
-  toggleReaction,
+  setReaction,
+  loadMessagesById,
 } from "@/lib/comms/actions";
 import type { AttachmentInput, CommAttachment, CommMessage, ConversationDetail, MessagePage } from "@/lib/comms/types";
 import { Composer } from "./composer";
 import { DetailsSheet } from "./details-sheet";
+import { ChannelDetailsSheet } from "./channel-details-sheet";
+import { announceChannelsChanged } from "./sidebar-channels";
+import type { ChannelAbilities } from "@/lib/comms/channels";
+import { applyReaction } from "@/lib/comms/reactions";
 import { MessageItem, type MessageActions } from "./message-item";
 import { MessageBody, dayKey } from "./message-body";
 import { PinnedSheet } from "./pinned-sheet";
@@ -81,12 +86,18 @@ export function ConversationView({
   initialPage,
   meId,
   canModerate,
+  abilities = null,
+  focus = null,
 }: {
   conversation: ConversationDetail;
   initialPage: MessagePage;
   meId: string;
   /** communication:delete — may delete anyone's message in a channel. */
   canModerate: boolean;
+  /** 0751: what the caller may do on this CHANNEL; null on a DM or group. */
+  abilities?: ChannelAbilities | null;
+  /** 0762: open AT a message (?m=) — and, for a thread reply, its thread (?t=). */
+  focus?: { messageId: string; threadParentId: string | null } | null;
 }) {
   const router = useRouter();
   const { error: toastError } = useToast();
@@ -135,18 +146,33 @@ export function ConversationView({
     const supabase = createClient();
     let timer: ReturnType<typeof setTimeout> | undefined;
     let dropped = false;
+    // UPDATE events name the message (a reaction, an edit, a delete bumps its
+    // updated_at — 0737 / 0760). Those ids are re-read individually, so a
+    // change to a message scrolled far above the newest page arrives too.
+    const changed = new Set<string>();
     const ring = () => {
       clearTimeout(timer);
       timer = setTimeout(() => {
         void refreshLatest();
         setThreadVersion((v) => v + 1);
+        const ids = Array.from(changed);
+        changed.clear();
+        if (ids.length) {
+          void loadMessagesById(id, ids).then((r) => {
+            if (r.ok) setMessages((prev) => merge(prev, r.messages));
+          });
+        }
       }, 250);
+    };
+    const onUpdate = (payload: { new?: { id?: unknown } }) => {
+      if (typeof payload.new?.id === "string") changed.add(payload.new.id);
+      ring();
     };
     const filter = `conversation_id=eq.${id}`;
     const channel = supabase
       .channel(`comm:${id}:${instance}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "comm_messages", filter }, ring)
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "comm_messages", filter }, ring)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "comm_messages", filter }, onUpdate)
       .subscribe((status) => {
         if (status === "SUBSCRIBED") {
           setConnected(true);
@@ -194,6 +220,52 @@ export function ConversationView({
       el.scrollTop = el.scrollHeight;
     }
   }, [messages, pending]);
+
+  // ---- Open at a message (a search result, a saved item, an alert) ------------
+  // The message is looked for in what is loaded, then up to TEN older pages
+  // (400 messages) are read until it appears; it is then scrolled into view
+  // and flashed. A thread reply opens its thread with the reply flashed there.
+  // Every read is RLS-scoped, so a message the caller cannot read is simply
+  // never found — the conversation opens as normal.
+  const [flashId, setFlashId] = useState<string | null>(null);
+  const savingIds = useRef(new Set<string>());
+  const [focusNote, setFocusNote] = useState<string | null>(null);
+  const focusDone = useRef(false);
+  useEffect(() => {
+    if (!focus || focusDone.current) return;
+    focusDone.current = true;
+    let live = true;
+    const target = focus.threadParentId ?? focus.messageId;
+    void (async () => {
+      let loaded = messages;
+      let cur = cursor;
+      for (let i = 0; i < 10 && !loaded.some((m) => m.id === target) && cur; i++) {
+        const r = await loadMessages(id, cur);
+        if (!live || !r.ok) break;
+        loaded = merge(r.page.messages, loaded);
+        cur = r.page.next_cursor;
+        stick.current = false;
+        setMessages(loaded);
+        setCursor(cur);
+      }
+      if (!live) return;
+      const found = loaded.find((m) => m.id === target);
+      if (!found) {
+        setFocusNote("That message is further back than the last 400 — scroll up to reach it.");
+        return;
+      }
+      setFlashId(found.id);
+      requestAnimationFrame(() => document.getElementById(`msg-${found.id}`)?.scrollIntoView({ block: "center" }));
+      if (focus.threadParentId) setThreadOf(found);
+      setTimeout(() => live && setFlashId(null), 4000);
+    })();
+    return () => {
+      live = false;
+    };
+    // Runs once per opened conversation (the view is keyed by id); `messages`
+    // and `cursor` are read as they were at that moment on purpose.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus, id]);
 
   async function loadOlder() {
     if (!cursor || loadingOlder) return;
@@ -248,15 +320,36 @@ export function ConversationView({
   const actions: MessageActions = {
     onOpenFile: (a) => void openFile(a),
     onReply: (m) => setThreadOf(m),
-    onReact: async (m, emoji) => {
-      const r = await toggleReaction(m.id, emoji);
-      if (!r.ok) toastError(r.error);
-      else void refreshLatest();
+    // OPTIMISTIC, THEN THE TRUTH: the chip moves at once; the server's answer
+    // (the message's reactions as stored) replaces it either way, and a refusal
+    // puts back exactly what was there. A set, never a flip, so a double click
+    // cannot undo itself. The Realtime echo of our own change only re-reads
+    // the same rows, so it cannot double a count.
+    onReact: async (m, emoji, on) => {
+      const before = m.reactions;
+      const patch = (fn: (x: CommMessage) => CommMessage) =>
+        setMessages((prev) => prev.map((x) => (x.id === m.id ? fn(x) : x)));
+      patch((x) => ({ ...x, reactions: applyReaction(x.reactions, emoji, on, meId) }));
+      const r = await setReaction(m.id, emoji, on);
+      if (!r.ok) {
+        patch((x) => ({ ...x, reactions: before }));
+        toastError(r.error);
+      } else if (r.reactions) {
+        const truth = r.reactions;
+        patch((x) => ({ ...x, reactions: truth }));
+      }
     },
+    // Personal: only this person's row changes, and nothing is broadcast. One
+    // request per message at a time, so a double click cannot save and then
+    // immediately unsave; the bookmark flips when the server has confirmed.
     onSave: async (m) => {
-      const r = await setSaved(m.id, !m.saved);
+      if (savingIds.current.has(m.id)) return;
+      savingIds.current.add(m.id);
+      const want = !m.saved;
+      const r = await setSaved(m.id, want);
+      savingIds.current.delete(m.id);
       if (!r.ok) toastError(r.error);
-      else setMessages((prev) => prev.map((x) => (x.id === m.id ? { ...x, saved: !m.saved } : x)));
+      else setMessages((prev) => prev.map((x) => (x.id === m.id ? { ...x, saved: want } : x)));
     },
     onPin: async (m) => {
       const r = await setPinned(m.id, !m.pinned);
@@ -292,7 +385,10 @@ export function ConversationView({
     startJoin(async () => {
       const r = await joinChannel(id);
       if (!r.ok) toastError(r.error);
-      else router.refresh();
+      else {
+        announceChannelsChanged();
+        router.refresh();
+      }
     });
   }
 
@@ -300,6 +396,7 @@ export function ConversationView({
   const activeCount = conversation.members.filter((m) => !m.removed_at).length;
   const subtitle =
     conversation.topic ??
+    conversation.description ??
     (conversation.kind === "direct"
       ? "Direct message"
       : `${activeCount} ${activeCount === 1 ? "member" : "members"}${conversation.department_name ? ` · ${conversation.department_name}` : ""}`);
@@ -391,6 +488,7 @@ export function ConversationView({
                 canAct={canPost}
                 canDelete={mayDelete(m)}
                 actions={actions}
+                highlight={m.id === flashId}
               />
             </div>
           );
@@ -430,6 +528,11 @@ export function ConversationView({
             </div>
           ))}
 
+        {focusNote && (
+          <p className="py-2 text-center text-xs text-muted-foreground" role="status">
+            {focusNote}
+          </p>
+        )}
         {liveError && (
           <p className="flex items-center justify-center gap-2 py-2 text-xs text-danger" role="alert">
             {liveError}
@@ -478,6 +581,7 @@ export function ConversationView({
         canPost={canPost}
         onClose={() => setThreadOf(null)}
         onChanged={() => void refreshLatest()}
+        highlightId={focus?.threadParentId ? focus.messageId : null}
         onOpenFile={(a) => void openFile(a)}
       />
       <PinnedSheet
@@ -488,7 +592,17 @@ export function ConversationView({
         onClose={() => setPinnedOpen(false)}
         onOpenFile={(a) => void openFile(a)}
       />
-      <DetailsSheet open={detailsOpen} conversation={conversation} meId={meId} onClose={() => setDetailsOpen(false)} />
+      {conversation.kind === "channel" && abilities ? (
+        <ChannelDetailsSheet
+          open={detailsOpen}
+          conversation={conversation}
+          abilities={abilities}
+          meId={meId}
+          onClose={() => setDetailsOpen(false)}
+        />
+      ) : (
+        <DetailsSheet open={detailsOpen} conversation={conversation} meId={meId} onClose={() => setDetailsOpen(false)} />
+      )}
       <ConfirmDialog
         open={!!confirmDelete}
         title="Delete this message?"
