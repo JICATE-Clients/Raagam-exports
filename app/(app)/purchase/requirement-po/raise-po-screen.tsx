@@ -2,6 +2,7 @@
 
 import { useMemo, useState, type ComponentProps } from "react";
 import { useRouter } from "next/navigation";
+import { Printer } from "lucide-react";
 import { MasterListShell } from "@/components/masters/master-list-shell";
 import { StatusSegment, type QuickCounts, type QuickWord } from "@/components/orders/bom-queue";
 import type { Column } from "@/components/ui/data-table";
@@ -188,7 +189,24 @@ export function RaisePoScreen({ raised, form }: { raised: RaisedPo[]; form: Form
       searchText={(r) => [r.no, r.party, r.refs].filter(Boolean).join(" ")}
       searchPlaceholder={isPendingView ? "Search RE No, buyer or class…" : "Search PO No, vendor or RE No…"}
       columns={columns}
-      actions={{ onEdit: open }}
+      actions={{
+        onEdit: open,
+        /* PRINT PO (user 2026-10-27) — an icon on a raised PO's row, never a ⋮ (AGENTS, Row
+           actions). Greyed until the PO is approved, saying why, rather than hidden: the
+           row is the same PO either way, only its state differs. */
+        menuAs: "icons",
+        menu: (r) =>
+          r.word === "pending"
+            ? []
+            : [
+                {
+                  label: r.status === "approved" ? "Print PO" : "Print opens after approval",
+                  icon: Printer,
+                  disabled: r.status !== "approved",
+                  onClick: () => router.push(`/purchase/orders/${r.id}/print`),
+                },
+              ],
+      }}
       rowLabel={(r) => r.no}
       empty={
         rows.length === 0

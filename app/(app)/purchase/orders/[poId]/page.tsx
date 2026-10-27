@@ -1,4 +1,7 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Printer } from "lucide-react";
+import { buttonClasses } from "@/components/ui/button";
 import { requirePermission, can } from "@/lib/auth/server";
 import {
   getPurchaseOrder,
@@ -61,9 +64,18 @@ export default async function PoDetailPage({
         title={po.code ?? "Purchase Order"}
         description={`Vendor: ${po.vendor_name ?? "—"} · Order date: ${fmtDate(po.order_date)}`}
         actions={
-          <StatusPill tone={poStatusTone(po.status)}>
-            {PO_STATUS_LABELS[po.status]}
-          </StatusPill>
+          <div className="flex items-center gap-2">
+            <StatusPill tone={poStatusTone(po.status)}>
+              {PO_STATUS_LABELS[po.status]}
+            </StatusPill>
+            {/* The vendor copy (user 2026-10-27) — only once approved (spec point 8). */}
+            {po.status === "approved" ? (
+              <Link href={`/purchase/orders/${po.id}/print`} className={buttonClasses({ variant: "outline", size: "md" })}>
+                <Printer aria-hidden className="size-4" />
+                Print PO
+              </Link>
+            ) : null}
+          </div>
         }
       />
 
