@@ -129,7 +129,11 @@ export function orderFacts(
         held: hold ? { code: hold.code, by: hold.by } : null,
       } satisfies OrderFacts;
     })
-    .sort((a, b) => (a.shipDate ?? "9999").localeCompare(b.shipDate ?? "9999") || a.no.localeCompare(b.no));
+    // NUMBER ORDER (user 2026-10-27, screenshot 3762: "order number is showing in mixed
+    // format … make properly aligned number wise listing"). It was ship date first, so
+    // RE/0002 sat above RE/0001. Numeric collation reads 0002 < 0010 < 0100 even unpadded;
+    // the "Order by" filter is still how the urgent ones are found.
+    .sort((a, b) => a.no.localeCompare(b.no, undefined, { numeric: true, sensitivity: "base" }));
 }
 
 const dayNo = (iso: string) => Math.floor(Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)) / 86_400_000);

@@ -220,6 +220,8 @@ export const rePoInput = z
     exchange_rate: z.number().positive().nullable(),
     gst: z.string(),
     payment_terms: z.string().trim().max(200).nullable(),
+    /* Why a rate is above the approved budget (0761) — optional, for the MD. */
+    budget_reason: z.string().trim().max(300).toUpperCase().nullable().optional(),
     /* The Commercial section (user 2026-10-26: before the MD, not after). Optional so
        a caller that predates it still saves; text is stored in capitals (AGENTS CAPITALS). */
     commercial: z

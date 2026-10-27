@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can, getAppUser } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
+import { notifyPoDecided } from "./po-escalation";
 import {
   vendorInput,
   rfqInput,
@@ -739,6 +740,7 @@ export async function approvePo(poId: string): Promise<ActionResult> {
     entityId: poId,
     metadata: { total_amount: poRow.total_amount },
   });
+  await notifyPoDecided(poId, "approved", null);
 
   revalidatePurchase(`/purchase/orders/${poId}`, "/purchase/orders");
   return { ok: true };
@@ -780,6 +782,7 @@ export async function rejectPo(
     entityId: poId,
     metadata: { note: note ?? null },
   });
+  await notifyPoDecided(poId, "revise", note ?? null);
 
   revalidatePurchase(`/purchase/orders/${poId}`, "/purchase/orders");
   return { ok: true };
@@ -818,6 +821,7 @@ export async function declinePo(poId: string, reason: string): Promise<ActionRes
     entityId: poId,
     metadata: { reason: why },
   });
+  await notifyPoDecided(poId, "rejected", why);
 
   revalidatePurchase(`/purchase/orders/${poId}`, "/purchase/orders", "/purchase/requirement-po");
   return { ok: true };

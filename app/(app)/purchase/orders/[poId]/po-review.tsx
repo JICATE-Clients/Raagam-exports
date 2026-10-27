@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { approvePo, declinePo, rejectPo, submitPo } from "@/lib/purchase/po-actions";
 import type { PoWithDetails } from "@/lib/purchase/po-service";
+import type { PoVariance } from "@/lib/purchase/po-escalation";
 import { PO_STATUS_LABELS, type PoLineItem } from "@/lib/purchase/types";
 import type { Uom } from "@/lib/masters/types";
 import { Button } from "@/components/ui/button";
@@ -69,6 +70,7 @@ export function PoReview({
   sourceNos,
   canEdit,
   canApprove,
+  variance = null,
 }: {
   po: PoWithDetails;
   uoms: Uom[];
@@ -76,6 +78,8 @@ export function PoReview({
   sourceNos: Record<string, string>;
   canEdit: boolean;
   canApprove: boolean;
+  /** Line id → budget rate in RUPEES (null: no approved budget). Null: not an approver. */
+  variance?: PoVariance | null;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -105,6 +109,19 @@ export function PoReview({
   const received = lines.some((l) => Number(l.received_qty) > 0);
   const commercial = COMMERCIAL.filter((c) => raw[c.key as string]);
 
+  /* BUDGET vs QUOTED (above-budget escalation, user 2026-10-27). The budget is in rupees;
+     an import line's rate is in its own currency, so the budget is shown in the PO's
+     currency and the money it costs is counted in rupees. Every rupee a line pays above
+     its budget rate comes straight off the order's profit, so that sum IS the impact. */
+  const fx = isImport ? Number(po.exchange_rate ?? 0) || 1 : 1;
+  const budgetOf = (l: ReviewLine) => (variance ? (variance[l.id] ?? null) : null);
+  const overLines = variance ? lines.filter((l) => budgetOf(l) != null && Number(l.unit_price) * fx > budgetOf(l)! + 1e-9) : [];
+  const unbudgetedLines = variance ? lines.filter((l) => budgetOf(l) == null && Number(l.quantity) > 0) : [];
+  const profitHit = overLines.reduce((a, l) => a + (Number(l.unit_price) * fx - budgetOf(l)!) * Number(l.quantity), 0);
+  const budgetedSpend = overLines.reduce((a, l) => a + budgetOf(l)! * Number(l.quantity), 0);
+  const overPct = budgetedSpend > 0 ? (profitHit / budgetedSpend) * 100 : 0;
+  const reason = typeof raw.budget_reason === "string" && raw.budget_reason.trim() ? raw.budget_reason : null;
+
   const columns: Column<ReviewLine>[] = [
     { header: "#", align: "right", cell: (r) => <span className="tabular-nums text-xs text-muted-foreground">{lineNo.get(r.id)}</span> },
     {
@@ -120,6 +137,38 @@ export function PoReview({
     { header: "Qty", align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtNumber(r.quantity)}</span> },
     { header: "UOM", cell: (r) => <span className="text-xs text-muted-foreground">{(r.uom_id && uomCode[r.uom_id]) || "—"}</span> },
     { header: `Rate (${cur})`, align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtFixed(r.unit_price, 2)}</span> },
+    ...(variance
+      ? [
+          {
+            header: `Budget (${cur})`,
+            align: "right" as const,
+            cell: (r: ReviewLine) => {
+              const b = budgetOf(r);
+              return b == null ? (
+                <span className="text-xs font-semibold text-[#b54708]">No budget</span>
+              ) : (
+                <span className="tabular-nums text-sm text-muted-foreground">{fmtFixed(b / fx, 2)}</span>
+              );
+            },
+          },
+          {
+            header: "Over by",
+            align: "right" as const,
+            cell: (r: ReviewLine) => {
+              const b = budgetOf(r);
+              if (b == null) return <span className="text-xs text-muted-foreground">—</span>;
+              const diff = Number(r.unit_price) - b / fx;
+              return diff > 1e-9 ? (
+                <span className="tabular-nums text-sm font-semibold text-danger">
+                  +{fmtFixed(diff, 2)} <span className="text-xs font-normal">({fmtFixed((diff / (b / fx)) * 100, 1)}%)</span>
+                </span>
+              ) : (
+                <span className="text-xs text-success">Within</span>
+              );
+            },
+          },
+        ]
+      : []),
     { header: `Amount (${cur})`, align: "right", cell: (r) => <span className="tabular-nums text-sm font-semibold">{fmtFixed(r.amount, 2)}</span> },
     ...(received
       ? [{ header: "Received", align: "right" as const, cell: (r: ReviewLine) => <span className="tabular-nums text-sm">{fmtNumber(r.received_qty)}</span> }]
@@ -154,6 +203,37 @@ export function PoReview({
           </Fact>
         ))}
       </dl>
+
+      {/* WHY THIS PO IS WITH THE MD (escalation spec §2) — the items above budget, what
+          they take off the order's profit, and the Purchase Manager's reason. */}
+      {variance && (overLines.length > 0 || unbudgetedLines.length > 0) ? (
+        <div className="border-t border-[#f5d9a8] bg-[#fffaf0] px-4 py-3 text-sm">
+          <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
+            <span className="text-[11px] font-bold tracking-wide text-[#b54708] uppercase">Above budget</span>
+            {overLines.length > 0 ? (
+              <span>
+                <span className="font-semibold">{overLines.length}</span> line{overLines.length === 1 ? "" : "s"} above the budget rate ·{" "}
+                <span className="font-semibold text-danger tabular-nums">profit falls by ₹ {fmtFixed(profitHit, 2)}</span>
+                <span className="text-muted-foreground tabular-nums"> ({fmtFixed(overPct, 1)}% over budget on those lines)</span>
+              </span>
+            ) : null}
+            {unbudgetedLines.length > 0 ? (
+              <span className="text-[#b54708]">
+                {unbudgetedLines.length} line{unbudgetedLines.length === 1 ? " has" : "s have"} no approved budget
+              </span>
+            ) : null}
+          </div>
+          {overLines.length > 0 ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {[...new Set(overLines.map((l) => l.description.split(" · ")[0]))].join(", ")}
+            </p>
+          ) : null}
+          <p className="mt-1.5">
+            <span className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">Purchase Manager&apos;s reason </span>
+            {reason ?? <span className="text-muted-foreground">None given</span>}
+          </p>
+        </div>
+      ) : null}
 
       {/* THE ITEMS — the PO is a document, so every line shows (no pager). */}
       <div className="border-t border-[#dde4eb]">

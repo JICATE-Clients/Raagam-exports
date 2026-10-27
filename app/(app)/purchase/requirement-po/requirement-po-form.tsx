@@ -34,7 +34,6 @@ import {
   hasFilters,
   ORDER_BY_BANDS,
   PROGRESS_STATES,
-  addDays,
   countFor,
   daysToOrder,
   orderByBand,
@@ -144,6 +143,10 @@ function sizeGroupsOf(rows: readonly GridRow[]): SizeGroup[] {
   });
 }
 
+/** Why a rate outruns its budget (user 2026-10-27) — the reasons the Purchase Manager picks
+ *  from before an above-budget PO goes to the MD. OTHER takes their own words. */
+const BUDGET_REASONS = ["MARKET PRICE INCREASE", "SUPPLIER NON-NEGOTIABLE", "MOQ / WHOLE BAG ROUNDING"] as const;
+
 export function RequirementPoForm({
   lines,
   vendorsByClass,
@@ -191,6 +194,11 @@ export function RequirementPoForm({
   const [exRate, setExRate] = useState("");
   const [gst, setGst] = useState<string>("c12");
   const [paymentTerms, setPaymentTerms] = useState("30 DAYS FROM GRN");
+  /** Why a rate is above budget — MANDATORY when Submit goes to the MD (0761). One of the
+   *  common reasons, or OTHER with the Purchase Manager's own words. */
+  const [reasonPick, setReasonPick] = useState("");
+  const [reasonText, setReasonText] = useState("");
+  const budgetReason = reasonPick === "OTHER" ? reasonText.trim() : reasonPick;
   /* The Commercial terms, typed BEFORE the MD sees the PO (user 2026-10-26) — commercial-section.tsx. */
   const [commercial, setCommercial] = useState<CommercialValue>(blankCommercial);
   // In an initialiser, not the render: `today()` reads the clock.
@@ -285,12 +293,15 @@ export function RequirementPoForm({
   const setFilter = (k: FilterKey, v: string[]) => setFilters((f) => ({ ...f, [k]: v }));
 
   const categoryOptions: FilterPillOption[] = (() => {
-    const byCat = new Map<string, string>();
-    // Two classes can share a category name (COTTON is a Yarn and a Fabric), so with
-    // several classes ticked each category says whose it is (Cascading filters).
-    for (const l of classLines)
-      if (l.category_id) byCat.set(l.category_id, classIds.length > 1 ? `${l.item_class ?? "—"} · ${l.category ?? "—"}` : (l.category ?? "—"));
+    // THE CATEGORY NAME ONLY (user 2026-10-27, screenshot 3767: "just show category").
+    // The class comes back on a name two ticked classes share — COTTON is a Yarn and a
+    // Fabric — so two identical choices never sit side by side (Cascading filters).
+    const byCat = new Map<string, { name: string; cls: string }>();
+    for (const l of classLines) if (l.category_id) byCat.set(l.category_id, { name: l.category ?? "—", cls: l.item_class ?? "—" });
+    const seen = new Map<string, number>();
+    for (const c of byCat.values()) seen.set(c.name.toUpperCase(), (seen.get(c.name.toUpperCase()) ?? 0) + 1);
     return [...byCat.entries()]
+      .map(([id, c]): [string, string] => [id, (seen.get(c.name.toUpperCase()) ?? 0) > 1 ? `${c.name} (${c.cls})` : c.name])
       .sort((a, b) => a[1].localeCompare(b[1]))
       .map(([value, label]) => ({ value, label, count: count("category", value) }));
   })();
@@ -317,26 +328,16 @@ export function RequirementPoForm({
     : inClassOrders;
 
   /**
-   * A LINE'S DEFAULT DELIVERY, and why (V7 point 6). The chosen vendor's lead days
-   * when it has them — PO date + lead. WITHOUT them (user 2026-10-26, screenshot 3720:
-   * "why not enabled for sending to MD" — a vendor with no lead days left all 9 lines
-   * blank and Submit locked), the latest the material can arrive and still be in time:
-   * the order's ship date less the inspection days, never before the PO date. Blank
-   * only when there is neither — then the line must be typed.
+   * A LINE'S DEFAULT DELIVERY: TODAY (user 2026-10-27, spec "Promised Delivery Date …
+   * default to Today's Date", option "Today only"). Every line opens at the PO date and
+   * the operator types the vendor's promised date over it. This REPLACES the earlier
+   * default (V7 point 6 — PO date + the vendor's lead days, else the order's ship date
+   * less inspection days); the lead days still drive the Order by bands, not this date.
+   * Never blank, so no line can hold Submit for want of a date.
    */
   type DeliveryDefault = { date: string; why: string };
-  const defaultFor = (shipDate: string | null): DeliveryDefault | null => {
-    if (vendor && vendor.lead_days != null)
-      return { date: addDays(poDate, vendor.lead_days), why: `PO date + ${vendor.lead_days} days lead (${vendor.name})` };
-    if (shipDate) {
-      const byShip = addDays(shipDate, -INSPECTION_DAYS);
-      return {
-        date: byShip < poDate ? poDate : byShip,
-        why: byShip < poDate ? "As soon as possible — the order is already late" : `Ship date ${fmtDate(shipDate)} less ${INSPECTION_DAYS} days inspection`,
-      };
-    }
-    return null;
-  };
+  // The ship date is no longer read; the parameter stays so the four callers are unchanged.
+  const defaultFor = (_shipDate: string | null): DeliveryDefault => ({ date: poDate, why: "Today — the PO date" });
   /** Ship dates of several lines → the earliest, for an item-wise row. */
   const earliest = (ds: (string | null)[]) => ds.filter((d): d is string => !!d).sort()[0] ?? null;
 
@@ -521,6 +522,7 @@ export function RequirementPoForm({
           exchange_rate: poType === "import" ? num(exRate) || null : null,
           gst,
           payment_terms: paymentTerms.trim() || null,
+          budget_reason: goesToMd ? budgetReason || null : null,
           commercial: {
             pay_mode: commercial.pay_mode.trim() || null,
             ship_mode: commercial.ship_mode.trim() || null,
@@ -621,14 +623,24 @@ export function RequirementPoForm({
     );
   };
 
-  /* THE ITEM CELL IS THE NAME ONLY (user 2026-10-26: "in item field item name after you
-     descripting the color, size no need there remove it"). Size lives in the Size Breakup
-     now, and the colour / slice is the hover — so two rows of one item in two colours can
-     still be told apart without either being printed in the cell. */
-  const itemCell = (name: string, describe: string, struck = false, itemId?: string) => (
+  /* THE ITEM CELL IS TWO LINES (user 2026-10-27): the name, and under it in grey the
+     colour / shade — "SEWING THREAD 3-PLY" over "DTM NAVY BLUE", no icon. This REVERSES the
+     2026-10-26 "name only" (the colour was a hover then) on the later instruction: on
+     its own line it no longer pushes the Qty and Rate columns sideways, which is what
+     the inline version did. Size still lives in the Size Breakup, never here. */
+  /* AND ITS CATEGORY, ONLY ACROSS CLASSES (user 2026-10-27): with two or more Item
+     Classes ticked the second line leads with the category — "SEWING THREAD · DTM NAVY
+     BLUE" — so a thread and a label are told apart at a glance. With one class every
+     line shares the class and the header already says it, so it is left off. */
+  const itemCell = (name: string, colourSpec: string, struck = false, itemId?: string, category?: string | null) => {
+    const describe = [classIds.length > 1 ? category?.trim() : "", colourSpec].filter(Boolean).join(" · ");
+    return (
     <div className="flex min-w-0 items-center gap-1">
-      <div title={describe ? `${name} · ${describe}` : name} className={cn("min-w-0 flex-1", struck && "text-muted-foreground line-through")}>
-        <Truncated className="min-w-0 text-sm font-medium">{name}</Truncated>
+      <div title={describe ? `${name} · ${describe}` : name} className={cn("min-w-0 flex-1 py-0.5", struck && "text-muted-foreground line-through")}>
+        <Truncated className="min-w-0 text-sm leading-tight font-medium">{name}</Truncated>
+        {describe ? (
+          <Truncated className="min-w-0 text-[11px] leading-tight text-[#667085]">{describe}</Truncated>
+        ) : null}
       </div>
       {/* SHOW LAST PO (user 2026-10-26, Task 3): the rate this item was last bought at, from
           whom and when — a benchmark to negotiate with, asked only when the icon is pressed.
@@ -647,7 +659,8 @@ export function RequirementPoForm({
         </button>
       ) : null}
     </div>
-  );
+    );
+  };
   /** Open Show Last PO and ask the server — a newer request replaces an older answer. */
   function openLastPo(itemId: string, title: string, el: HTMLElement) {
     setLastPo({ itemId, title, origin: el.getBoundingClientRect(), rows: null, error: null });
@@ -678,7 +691,9 @@ export function RequirementPoForm({
       max={r.balance_qty}
       inputMode="decimal"
       aria-label={`${QTY.po}, ${lineDescription(r)}${r.size_name ? `, size ${r.size_name}` : ""}, at most ${r.balance_qty} ${r.uom_code ?? ""}`}
-      title={`At most ${fmtNumber(r.balance_qty)} ${r.uom_code ?? ""}: ${fmtNumber(r.required_qty)} on the requirement sheet${r.ordered_qty > 0 ? `, less ${fmtNumber(r.ordered_qty)} already on other POs` : ""}`}
+      // NO `title` (user 2026-10-27, screenshot 3763: two messages on one box). The black
+      // Req · To order tooltip around the cell already says it; the browser's own bubble
+      // ("At most … on the requirement sheet") repeated it underneath.
       className={cn(CELL_INPUT, "min-w-0 flex-1 text-right tabular-nums")}
       disabled={r.row.skip}
       value={r.row.skip ? "0" : r.row.qty}
@@ -870,7 +885,7 @@ export function RequirementPoForm({
       header: "Item",
       width: FIELD_WIDTH_CSS.party,
       cell: (r) =>
-        itemCell(r.item_name, lineDescription({ item_name: "", slice_label: r.slice_label, colour: r.colour }).replace(/^ · /, ""), r.row.skip, r.item_id),
+        itemCell(r.item_name, lineDescription({ item_name: "", slice_label: r.slice_label, colour: r.colour }).replace(/^ · /, ""), r.row.skip, r.item_id, r.category),
     },
     {
       /* NOTE / REMARK (user 2026-10-26): the Purchase Manager's instruction for THIS item —
@@ -1047,7 +1062,7 @@ export function RequirementPoForm({
     {
       header: "Item",
       width: FIELD_WIDTH_CSS.party,
-      cell: (g) => itemCell(g.item_name, g.spec, false, g.members[0]?.item_id),
+      cell: (g) => itemCell(g.item_name, g.spec, false, g.members[0]?.item_id, g.members[0]?.category),
     },
     {
       header: "Note / Remark",
@@ -1170,7 +1185,8 @@ export function RequirementPoForm({
 
   const canSave =
     !isPending && hasClass && orderIds.length > 0 && !!vendorId && active.length > 0 && undated === 0 && (poType === "local" || num(exRate) > 0);
-  const canSubmit = canSave && unpriced === 0;
+  // Above budget → the reason is mandatory before it can go to the MD (user 2026-10-27).
+  const canSubmit = canSave && unpriced === 0 && (!goesToMd || !!budgetReason);
   const hint = !hasClass
     ? "Choose the item class."
     : orderIds.length === 0
@@ -1180,7 +1196,7 @@ export function RequirementPoForm({
           ? classIds.length > 1
             ? "No bought-item vendor is mapped to every class ticked — untick one, or map a vendor in Master Data ▸ Vendors."
             : `No bought-item vendor is mapped to ${classOptions.find((c) => c.value === classIds[0])?.label ?? "this class"} — add one in Master Data ▸ Vendors.`
-          : "Choose the vendor. Its lead days set each line's delivery."
+          : "Choose the vendor."
         : active.length === 0
           ? "Every line is skipped or 0 — there is nothing to order."
           : undated > 0
@@ -1190,7 +1206,7 @@ export function RequirementPoForm({
               : unpriced > 0
                 ? "Submit opens once every rate is typed."
                 : goesToMd
-                  ? `Above Approved Budget on ${above} line(s)${unbudgeted ? `, no approved budget on ${unbudgeted}` : ""} — Submit saves the PO and sends it to the MD; printing stays locked.`
+                  ? `More than Budget on ${above} line(s)${unbudgeted ? `, no approved budget on ${unbudgeted}` : ""} — ${budgetReason ? "Submit sends it to the MD; printing stays locked." : "give the reason, then Submit to MD."}`
                   : "Every rate is within budget — Submit approves the PO by rule.";
   /* THE BAR'S MESSAGE IS A STATUS CHIP (user 2026-10-26: "make it better, single row,
      better colouring"): amber = something still to do, red = Submit goes to the MD,
@@ -1231,7 +1247,7 @@ export function RequirementPoForm({
    * so Tab lands on it like a field (AGENTS, Tab lands on fields) and ↓ is the way in.
    */
   const groupColumns: ChildGridColumn<SizeGroup>[] = [
-    { header: "Item", width: FIELD_WIDTH_CSS.party, cell: (g) => itemCell(g.first.item_name, describeGroup(g), groupSkip(g), g.first.item_id) },
+    { header: "Item", width: FIELD_WIDTH_CSS.party, cell: (g) => itemCell(g.first.item_name, describeGroup(g), groupSkip(g), g.first.item_id, g.first.category) },
     {
       header: "Note / Remark",
       width: FIELD_WIDTH_CSS.range,
@@ -1432,21 +1448,55 @@ export function RequirementPoForm({
   ];
   const sheetGroup = sizeSheet && activeGroup ? (sizeGroupsOf(activeGroup.rows).find((g) => g.key === sizeSheet.key) ?? null) : null;
 
-  const rePane = (g: (typeof groups)[number]) => (
-    // default-row: exempt -- the rows are the order's requirement lines, derived; nothing is added here
-    <ChildGrid<SizeGroup>
-      columns={groupColumns}
-      rows={sizeGroupsOf(g.rows)}
-      flatRows
-      hideAdd
-      hideRemove
-      keepOne={false}
-      onAdd={() => false}
-      onRemove={() => {}}
-      frameless
-      headerClassName={GRID_HEAD}
-    />
-  );
+  /*
+   * A SKIPPED LINE LEAVES THE TABLE (user 2026-10-27: "if skipped can remove it from
+   * table instead strike it out"). It used to stay, struck through, between the lines
+   * being ordered. Now it drops out and is named in this strip under the table — the one
+   * way back, since its ⊘ left with it. Still saved as 0, its balance kept for another PO.
+   */
+  const skippedStrip = (items: readonly { key: string; label: string; members: readonly GridRow[] }[]) =>
+    items.length ? (
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-1 pt-2 text-xs text-muted-foreground">
+        <span>Skipped on this PO — balance kept:</span>
+        {items.map((i) => (
+          <button
+            key={i.key}
+            type="button"
+            aria-label={`Put ${i.label} back on this PO`}
+            title="Put back on this PO"
+            onClick={() => setMembers(i.members, { skip: false })}
+            className="inline-flex max-w-[16rem] items-center gap-1 rounded-control border border-[#dde4eb] bg-surface px-2 py-0.5 font-medium text-foreground hover:border-[#037bb8] hover:text-[#037bb8]"
+          >
+            <Undo2 aria-hidden className="size-3 shrink-0" />
+            <Truncated touch={false} className="min-w-0">
+              {i.label}
+            </Truncated>
+          </button>
+        ))}
+      </div>
+    ) : null;
+
+  const rePane = (g: (typeof groups)[number]) => {
+    const all = sizeGroupsOf(g.rows);
+    return (
+      <>
+        {/* default-row: exempt -- the rows are the order's requirement lines, derived; nothing is added here */}
+        <ChildGrid<SizeGroup>
+          columns={groupColumns}
+          rows={all.filter((x) => !groupSkip(x))}
+          flatRows
+          hideAdd
+          hideRemove
+          keepOne={false}
+          onAdd={() => false}
+          onRemove={() => {}}
+          frameless
+          headerClassName={GRID_HEAD}
+        />
+        {skippedStrip(all.filter(groupSkip).map((x) => ({ key: x.key, label: x.first.item_name, members: x.members })))}
+      </>
+    );
+  };
 
   /* ONE ORDER, ONE LINE (user 2026-10-26, screenshot 2026-10-26 103442: "compact this
      left rail … without scroll … remove Late, No budget … I can see two times the number,
@@ -1669,7 +1719,9 @@ export function RequirementPoForm({
                 setFilters((f) => ({
                   ...f,
                   order: f.order.filter((id) => lines.some((l) => l.source_id === id && inV(l))),
-                  category: f.category.filter((c) => lines.some((l) => l.category_id === c && inV(l))),
+                  // One class or none hides Category (below), so a pick it held is dropped
+                  // rather than left filtering out of sight.
+                  category: v.length > 1 ? f.category.filter((c) => lines.some((l) => l.category_id === c && inV(l))) : [],
                 }));
               }}
             />
@@ -1692,15 +1744,20 @@ export function RequirementPoForm({
               emptyText="No order of this class has anything left to buy"
               onChange={(v) => setFilter("order", v)}
             />
+            {/* CATEGORY ONLY ACROSS CLASSES (user 2026-10-27): hidden with one Item Class
+                ticked — the class already narrows the lines — and shown once two or more
+                are, to pick out e.g. Sewing Thread from Woven Label. */}
+            {classIds.length > 1 ? (
             <FilterPill
               label="Category"
-              disabled={!hasClass || categoryOptions.length === 0}
+              disabled={categoryOptions.length === 0}
               options={categoryOptions}
               anyCount={anyCount("category")}
               multiple
               value={filters.category}
               onChange={(v) => setFilter("category", v)}
             />
+            ) : null}
             <FilterPill
               id="rpo-vendor"
               label="Vendor"
@@ -1873,7 +1930,7 @@ export function RequirementPoForm({
                                   {/* default-row: exempt -- the item's order lines, derived; nothing is added here */}
                                   <ChildGrid<GridRow>
                                     columns={breakupColumns}
-                                    rows={openItem.members}
+                                    rows={openItem.members.filter((m) => !m.row.skip)}
                                     flatRows
                                     hideAdd
                                     hideRemove
@@ -1883,6 +1940,11 @@ export function RequirementPoForm({
                                     frameless
                                     headerClassName={GRID_HEAD}
                                   />
+                                  {skippedStrip(
+                                    openItem.members
+                                      .filter((m) => m.row.skip)
+                                      .map((m) => ({ key: m.key, label: `${m.source_no.split(" · ")[0]}${m.size_name ? ` · ${m.size_name}` : ""}`, members: [m] })),
+                                  )}
                                 </div>
                               ) : null}
                             </div>
@@ -2224,6 +2286,47 @@ export function RequirementPoForm({
             <Truncated className="min-w-0">{hint}</Truncated>
           </span>
         </div>
+        {/* WHY ABOVE BUDGET — MANDATORY (user 2026-10-27, escalation spec: "prompts them to
+            enter a mandatory remark/reason"). The three reasons a rate outruns its budget, or
+            OTHER with the Purchase Manager's own words; Submit to MD stays shut until given.
+            Carried on the PO to the MD's review screen and alert. */}
+        {goesToMd && !isPending ? (
+          <>
+            <Select
+              id="rpo-budget-reason"
+              aria-label="Reason above budget"
+              className="w-56"
+              required
+              value={reasonPick}
+              onChange={(e) => {
+                setReasonPick(e.target.value);
+                setDirty(true);
+              }}
+            >
+              <option value="">Reason above budget *</option>
+              {BUDGET_REASONS.map((r) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+              <option value="OTHER">OTHER (TYPE IT)</option>
+            </Select>
+            {reasonPick === "OTHER" ? (
+              <Input
+                aria-label="Reason above budget, in your words"
+                placeholder="Type the reason"
+                className="h-9 w-56"
+                required
+                maxLength={300}
+                value={reasonText}
+                onChange={(e) => {
+                  setReasonText(e.target.value);
+                  setDirty(true);
+                }}
+              />
+            ) : null}
+          </>
+        ) : null}
         {unpriced > 0 && groups.some((g) => g.toPrice.length > 0) ? (
           <Button
             type="button"
