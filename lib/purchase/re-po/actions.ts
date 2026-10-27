@@ -6,15 +6,16 @@ import { can, getAppUser } from "@/lib/auth/server";
 import { refuseReopenedBudget, refuseUnsettledMaterials } from "@/lib/purchase/bom-ceiling-service";
 import { getRequirementLines, getVendorsForClass } from "./service";
 import {
-  capQty,
   gstSlab,
   lineDescription,
   lineGst,
   lineKeyOf,
+  qtyAllowed,
   withNote,
   poTotals,
   rePoInput,
   type BudgetFlag,
+  type LastPurchase,
   type RePoInput,
   type RequirementLine,
 } from "./types";
@@ -48,6 +49,63 @@ async function budgetFlags(lines: readonly CheckLine[]): Promise<BudgetFlag[]> {
  * "is this above the approved budget?" and gets a yes or no. The figure stays
  * inside `po_budget_check`.
  */
+/**
+ * SHOW LAST PO (user 2026-10-26, Task 3) — the most recent purchase orders that bought
+ * this item, newest first: rate, vendor, PO No and date, quantity and unit. Asked when
+ * the row's pop-up opens, not for every line on load.
+ *
+ * Drafts and cancelled POs are not "a purchase": a draft is nobody's agreed rate yet,
+ * and a cancelled one never happened. The many-to-one embeds name their FK column —
+ * `purchase_orders` already has two FKs to `vendors` (AGENTS, A second FK breaks every
+ * existing embed); `po_line_items` has one FK to `purchase_orders`, so `!inner` alone.
+ */
+export async function getLastPurchases(
+  itemId: string,
+  limit = 3,
+): Promise<{ ok: true; rows: LastPurchase[] } | { ok: false; error: string }> {
+  if (!(await can("materials_purchase", "view"))) return { ok: false, error: "You cannot see purchase orders" };
+  const s = await createClient();
+  const { data, error } = await s
+    .from("purchase_orders")
+    .select(
+      "id, code, order_date, created_at, status, currency_code, foreign_currency_code, po_type, master_vendors!master_vendor_id(name), po_line_items!inner(item_id, quantity, unit_price, uoms!uom_id(code))",
+    )
+    .eq("po_line_items.item_id", itemId)
+    .not("status", "in", "(draft,cancelled)")
+    .order("order_date", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false })
+    .limit(Math.min(Math.max(limit, 1), 10));
+  // A failed query is an error, not "never bought" — that would read as a real answer.
+  if (error) return { ok: false, error: `Could not read the earlier POs: ${error.message}` };
+  type Row = {
+    id: string;
+    code: string | null;
+    order_date: string | null;
+    status: string;
+    currency_code: string | null;
+    foreign_currency_code: string | null;
+    po_type: string | null;
+    master_vendors: { name: string | null } | null;
+    po_line_items: { quantity: number | string; unit_price: number | string; uoms: { code: string | null } | null }[];
+  };
+  const rows = ((data ?? []) as unknown as Row[]).map((p) => {
+    const rates = p.po_line_items.map((l) => Number(l.unit_price) || 0).filter((r) => r > 0);
+    return {
+      poId: p.id,
+      code: p.code,
+      orderDate: p.order_date,
+      status: p.status,
+      vendor: p.master_vendors?.name ?? null,
+      currency: (p.po_type === "import" ? p.foreign_currency_code : null) ?? p.currency_code ?? "INR",
+      rateMin: rates.length ? Math.min(...rates) : 0,
+      rateMax: rates.length ? Math.max(...rates) : 0,
+      qty: p.po_line_items.reduce((a, l) => a + (Number(l.quantity) || 0), 0),
+      uom: p.po_line_items[0]?.uoms?.code ?? null,
+    } satisfies LastPurchase;
+  });
+  return { ok: true, rows };
+}
+
 export async function checkRatesAgainstBudget(
   lines: readonly CheckLine[],
 ): Promise<{ ok: true; flags: BudgetFlag[] } | { ok: false; error: string }> {
@@ -93,18 +151,45 @@ export async function savePoFromRequirement(raw: RePoInput, mode: "draft" | "sub
   }
 
   const byKey = new Map(requirement.map((r) => [lineKeyOf(r), r]));
-  const lines: { req: RequirementLine; qty: number; rate: number | null; delivery_date: string; note: string | null; gst_pct: number | null }[] = [];
+  const lines: {
+    req: RequirementLine;
+    qty: number;
+    rate: number | null;
+    delivery_date: string;
+    note: string | null;
+    gst_pct: number | null;
+    bags: number | null;
+    bag_weight: number | null;
+    rolls: number | null;
+    dia: string | null;
+  }[] = [];
   for (const l of input.lines) {
     if (l.qty <= 0) continue; // qty 0 = "not ordered on this PO"
     const req = byKey.get(lineKeyOf(l));
     if (!req) return { ok: false, error: "A line is no longer on that RE's requirement sheet — reload the screen" };
-    if (capQty(l.qty, req.balance_qty) < l.qty) {
+    // Bags and their weight travel together, and a bag line's qty IS bags × weight (0758).
+    if ((l.bags == null) !== (l.bag_weight == null) || (l.bags != null && l.bag_weight != null && Math.abs(l.qty - l.bags * l.bag_weight) >= 1e-3)) {
+      return { ok: false, error: `${lineDescription(req)} (${req.source_no}): the weight must be the bags × the bag weight — reload the screen` };
+    }
+    // Never above what is left — except by whole bags, and then by less than one (0758).
+    if (!qtyAllowed(l.qty, req.balance_qty, l.bags, l.bag_weight)) {
       return {
         ok: false,
         error: `${lineDescription(req)} (${req.source_no}): only ${req.balance_qty} ${req.uom_code ?? ""} is left to buy — excess quantity is not allowed`,
       };
     }
-    lines.push({ req, qty: l.qty, rate: l.rate, delivery_date: l.delivery_date, note: l.note ?? null, gst_pct: l.gst_pct ?? null });
+    lines.push({
+      req,
+      qty: l.qty,
+      rate: l.rate,
+      delivery_date: l.delivery_date,
+      note: l.note ?? null,
+      gst_pct: l.gst_pct ?? null,
+      bags: l.bags ?? null,
+      bag_weight: l.bag_weight ?? null,
+      rolls: l.rolls ?? null,
+      dia: l.dia ?? null,
+    });
   }
   if (lines.length === 0) return { ok: false, error: "Every line has quantity 0 — there is nothing to order" };
 
@@ -204,6 +289,11 @@ export async function savePoFromRequirement(raw: RePoInput, mode: "draft" | "sub
       // Stored as the slab that APPLIED — the default written out, so a line never needs its header to be read.
       gst_pct: l.gst_pct ?? slab.pct,
       gst_amount: lineGst({ qty: l.qty, rate: l.rate ?? 0, gstPct: l.gst_pct }, slab.pct),
+      // Yarn bags / fabric rolls & dia (0758); rolls is a 0-default int column from 0359.
+      bags: l.bags,
+      bag_weight: l.bag_weight,
+      rolls: l.rolls ?? 0,
+      dia: l.dia,
       quantity: l.qty,
       uom_id: l.req.uom_id,
       unit_price: l.rate ?? 0,
