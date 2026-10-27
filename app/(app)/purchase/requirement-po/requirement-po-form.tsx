@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ArrowRight, Ban, Boxes, Check, ChevronRight, Lock, Ruler, Undo2, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, Ban, Boxes, Check, ChevronRight, History, Layers, Lock, Package, Ruler, Undo2, X } from "lucide-react";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { Button } from "@/components/ui/button";
-import { FIELD_WIDTH_CSS } from "@/components/ui/field";
+import { Field, FIELD_WIDTH_CSS } from "@/components/ui/field";
 import { FilterPill, type FilterPillOption } from "@/components/ui/filter-pill";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -13,6 +13,8 @@ import { Tabs } from "@/components/ui/tabs";
 import { Sheet, type SheetOrigin } from "@/components/ui/sheet";
 import { SubSheetFooter } from "@/components/orders/sub-sheet-footer";
 import { StatusPill } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
+import { Tooltip } from "@/components/ui/tooltip";
 import { Truncated } from "@/components/ui/truncated";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
@@ -21,7 +23,7 @@ import { focusField } from "@/lib/focus";
 import { cn } from "@/lib/utils";
 import { today } from "@/lib/calendar";
 import { fmtDate, fmtFixed, fmtNumber } from "@/lib/format";
-import { checkRatesAgainstBudget, savePoFromRequirement } from "@/lib/purchase/re-po/actions";
+import { checkRatesAgainstBudget, getLastPurchases, getLastRates, savePoFromRequirement } from "@/lib/purchase/re-po/actions";
 import { CommercialSection, blankCommercial, chargesNet, chargesToSave, type CommercialValue } from "./commercial-section";
 import {
   BUDGET_STATES,
@@ -52,10 +54,14 @@ import {
   gstSlab,
   lineDescription,
   lineKeyOf,
+  lineKindOf,
+  maxBags,
   withNote,
   poTotals,
   type BudgetFlag,
   type ClassVendor,
+  type LastPurchase,
+  type LastRate,
   type RequirementLine,
 } from "@/lib/purchase/re-po/types";
 
@@ -85,7 +91,21 @@ import {
  */
 
 /** `note` — the item-level instruction to the vendor (0755), appended to the line's description on save. */
-type RowState = { qty: string; rate: string; date: string; skip?: boolean; note?: string; /** own GST % (0756); unset = the header's */ gst?: number };
+type RowState = {
+  qty: string;
+  rate: string;
+  date: string;
+  skip?: boolean;
+  note?: string;
+  /** own GST % (0756); unset = the header's */
+  gst?: number;
+  /** Yarn (0758): whole bags and the kg in one — qty is their product. */
+  bags?: string;
+  bagWt?: string;
+  /** Fabric (0758). */
+  rolls?: string;
+  dia?: string;
+};
 
 /**
  * THE GRID HEADER IN THE ORDERS TABLE BAND (user 2026-10-23, screenshot 3697): the
@@ -183,6 +203,20 @@ export function RequirementPoForm({
   const [activeKey, setActiveKey] = useState(initialOrderId ?? "");
   /** The open Size Breakup — which item row, and the button it grows out of. */
   const [sizeSheet, setSizeSheet] = useState<{ key: string; origin: SheetOrigin } | null>(null);
+  /** The open Yarn bags / Fabric rolls pop-up — which line, and the cell it grows out of. */
+  const [qtySheet, setQtySheet] = useState<{ key: string; origin: SheetOrigin } | null>(null);
+  /** Show Last PO — the item asked about, and its earlier POs once they arrive (null = loading). */
+  const [lastPo, setLastPo] = useState<{
+    itemId: string;
+    title: string;
+    origin: SheetOrigin;
+    rows: LastPurchase[] | null;
+    error: string | null;
+  } | null>(null);
+  /** The last rate each item was bought at, by item id — pre-fills an untouched Rate box. */
+  const [lastRates, setLastRates] = useState<Record<string, LastRate>>({});
+  /** Items bought on an earlier PO — the only ones that get the Show Last PO icon. */
+  const [boughtIds, setBoughtIds] = useState<ReadonlySet<string>>(() => new Set());
   /* ITEM-WISE (client via user 2026-10-23: "multi order, multiple item — we are missing
      the multiple item concept"). The same item needed by several orders is ONE line to
      the vendor — offered once two orders are ticked. One item's breakup open at a time. */
@@ -315,7 +349,8 @@ export function RequirementPoForm({
         ...l,
         key,
         supplied: !!vendorId,
-        row: rows[key] ?? { qty: String(l.balance_qty), rate: "", date: "" },
+        // An untouched line opens at the item's last rate (user 2026-10-27); once edited, the operator's rate stands.
+        row: rows[key] ?? { qty: String(l.balance_qty), rate: lastRates[l.item_id] ? String(lastRates[l.item_id].rate) : "", date: "" },
       };
     });
 
@@ -326,6 +361,31 @@ export function RequirementPoForm({
   const fx = poType === "import" ? num(exRate) : 1;
   const isActive = (r: GridRow) => r.supplied && !r.row.skip && num(r.row.qty) > 0;
   const active = gridRows.filter(isActive);
+
+  /* LAST RATE (user 2026-10-27: "for same item fetch and show the last entered rate").
+     Asked once per set of items × vendor × currency — the chosen vendor's own last rate
+     outranks anyone else's, so a vendor change asks again. */
+  const rateCurrency = poType === "import" ? currency : "INR";
+  const rateItemsSig = [...new Set(gridRows.map((r) => r.item_id).filter(Boolean))].sort().join(",");
+  useEffect(() => {
+    if (!rateItemsSig) return;
+    let live = true;
+    void getLastRates(rateItemsSig.split(","), vendorId || null, rateCurrency).then((res) => {
+      if (!live || !res.ok) return;
+      setLastRates(res.rates);
+      setBoughtIds(new Set(res.bought));
+    });
+    return () => {
+      live = false;
+    };
+  }, [rateItemsSig, vendorId, rateCurrency]);
+  /** "Last ₹ 1.20 · VENDOR · PO/… · 12/10/2026" — the Rate box's tooltip. */
+  const lastRateTitle = (itemId: string | null | undefined) => {
+    const l = itemId ? lastRates[itemId] : undefined;
+    if (!l) return "No earlier PO for this item";
+    const sym = l.currency === "INR" ? "₹" : l.currency;
+    return `Last rate ${sym} ${fmtFixed(l.rate, 2)}${l.sameVendor ? " from this vendor" : ""} · ${[l.vendor, l.code, l.orderDate ? fmtDate(l.orderDate) : null].filter(Boolean).join(" · ")}`;
+  };
   const unpriced = active.filter((r) => num(r.row.rate) <= 0).length;
   const undated = active.filter((r) => !(r.row.date || defaultFor(r.delivery_date))).length;
   const slab = gstSlab(gst);
@@ -482,6 +542,7 @@ export function RequirementPoForm({
             delivery_date: r.row.date || defaultFor(r.delivery_date)?.date || poDate,
             note: r.row.note?.trim() || null,
             gst_pct: r.row.gst ?? null,
+            ...materialPayload(r),
           })),
         },
         mode,
@@ -564,11 +625,43 @@ export function RequirementPoForm({
      descripting the color, size no need there remove it"). Size lives in the Size Breakup
      now, and the colour / slice is the hover — so two rows of one item in two colours can
      still be told apart without either being printed in the cell. */
-  const itemCell = (name: string, describe: string, struck = false) => (
-    <div title={describe ? `${name} · ${describe}` : name} className={cn("min-w-0", struck && "text-muted-foreground line-through")}>
-      <Truncated className="min-w-0 text-sm font-medium">{name}</Truncated>
+  const itemCell = (name: string, describe: string, struck = false, itemId?: string) => (
+    <div className="flex min-w-0 items-center gap-1">
+      <div title={describe ? `${name} · ${describe}` : name} className={cn("min-w-0 flex-1", struck && "text-muted-foreground line-through")}>
+        <Truncated className="min-w-0 text-sm font-medium">{name}</Truncated>
+      </div>
+      {/* SHOW LAST PO (user 2026-10-26, Task 3): the rate this item was last bought at, from
+          whom and when — a benchmark to negotiate with, asked only when the icon is pressed.
+          A button, so Tab (fields only) passes over it; it stays in screen-reader order.
+          ONLY WHERE THERE IS ONE (user 2026-10-27): an item never bought before has no
+          icon, rather than one that opens onto "no earlier PO". */}
+      {itemId && boughtIds.has(itemId) ? (
+        <button
+          type="button"
+          aria-label={`Show last PO, ${name}${describe ? ` ${describe}` : ""}`}
+          title="Last PO — rate, vendor, date"
+          onClick={(e) => openLastPo(itemId, describe ? `${name} · ${describe}` : name, e.currentTarget)}
+          className="grid size-6 shrink-0 place-items-center rounded text-muted-foreground hover:bg-[#eef4f9] hover:text-[#037bb8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <History aria-hidden className="size-3.5" />
+        </button>
+      ) : null}
     </div>
   );
+  /** Open Show Last PO and ask the server — a newer request replaces an older answer. */
+  function openLastPo(itemId: string, title: string, el: HTMLElement) {
+    setLastPo({ itemId, title, origin: el.getBoundingClientRect(), rows: null, error: null });
+    void getLastPurchases(itemId).then((res) =>
+      setLastPo((cur) =>
+        cur && cur.itemId === itemId ? { ...cur, rows: res.ok ? res.rows : [], error: res.ok ? null : res.error } : cur,
+      ),
+    );
+  }
+  /** "₹ 1.20", "USD 0.85 – 0.90". */
+  const rateText = (p: LastPurchase) => {
+    const sym = p.currency === "INR" ? "₹" : p.currency;
+    return p.rateMin === p.rateMax ? `${sym} ${fmtFixed(p.rateMin, 2)}` : `${sym} ${fmtFixed(p.rateMin, 2)} – ${fmtFixed(p.rateMax, 2)}`;
+  };
   /* THE QUANTITY WORDS FOLLOW WHAT IS BOUGHT (user 2026-10-26): yarn and fabric are bought
      by weight, so a grid holding only those reads Weight (Kg); anything else — or a mix,
      now that Item Class is multi-select — reads Qty, with the UOM column beside it. */
@@ -597,35 +690,127 @@ export function RequirementPoForm({
     />
   );
   /** A line's Qty cell: the box and its unit on ONE line; Required · To Order float under it on focus. */
-  const qtyBox = (r: GridRow) => (
-    <div className="group/qty relative flex items-center gap-1">
-      {qtyInput(r)}
-      {/* The Purchase UOM rides inside the quantity — it is what the number is counted in. */}
-      <span className="w-10 shrink-0 truncate text-[11px] font-semibold text-muted-foreground uppercase">{r.uom_code ?? ""}</span>
-      {qtyFacts(r.required_qty, r.balance_qty, r.ordered_qty)}
-    </div>
-  );
+  const qtyBox = (r: GridRow) => (lineKindOf(r.item_class) === "general" ? qtyBoxPlain(r) : materialCell(r));
+  const qtyBoxPlain = (r: GridRow) =>
+    qtyFacts(
+      r.required_qty,
+      r.balance_qty,
+      r.ordered_qty,
+      <>
+        {qtyInput(r)}
+        {/* The Purchase UOM rides inside the quantity — it is what the number is counted in. */}
+        <Truncated className="w-10 shrink-0 text-[11px] font-semibold text-muted-foreground uppercase">{r.uom_code ?? ""}</Truncated>
+      </>,
+    );
+  /*
+   * YARN BAGS · FABRIC ROLLS (user 2026-10-26, Task 2; 0758). The same pattern as the
+   * size breakup — the cell is the total, an icon says it opens, and the detail is in a
+   * small pop-up — so the grid keeps one width and one line per row.
+   *
+   * YARN: the Purchase Manager types the Bag Weight and the No. of Bags; the PO weight
+   * is their product and is never typed. Whole bags may round the line UP past To
+   * Order, but by less than one bag (user decision 2026-10-26) — `maxBags` caps the
+   * count, and the save and `po_line_requirement_cap` apply the same rule. Before a bag
+   * weight is typed the weight box works as on any other line (capped at To Order).
+   *
+   * FABRIC: the weight is typed as usual, with the No. of Rolls and the Dia beside it.
+   */
+  const round3 = (n: number) => Number(n.toFixed(3));
+  function setBags(r: GridRow, bagsTyped: string, bagWtTyped: string) {
+    const bw = num(bagWtTyped);
+    if (!(bw > 0) || bagsTyped === "") {
+      setRow(r, { bags: bagsTyped, bagWt: bagWtTyped });
+      return;
+    }
+    const most = maxBags(r.balance_qty, bw);
+    const b = Math.min(Math.max(0, Math.floor(num(bagsTyped))), most);
+    setRow(r, { bags: String(b), bagWt: bagWtTyped, qty: String(round3(b * bw)) });
+  }
+  /** A yarn line is "in bags" once both are typed — then its weight is theirs, not the box's. */
+  const bagsOf = (r: GridRow) => {
+    const bw = num(r.row.bagWt ?? "");
+    const b = r.row.bags ?? "";
+    return lineKindOf(r.item_class) === "yarn" && bw > 0 && b !== "" ? { bags: Math.floor(num(b)), bagWeight: bw } : null;
+  };
+  /** What goes up to the save for this line's bags / rolls / dia (0758). */
+  const materialPayload = (r: GridRow) => {
+    const kind = lineKindOf(r.item_class);
+    const inBags = bagsOf(r);
+    return {
+      bags: inBags?.bags ?? null,
+      bag_weight: inBags?.bagWeight ?? null,
+      rolls: kind === "fabric" && (r.row.rolls ?? "") !== "" ? Math.max(0, Math.floor(num(r.row.rolls ?? ""))) : null,
+      dia: kind === "fabric" ? (r.row.dia ?? "").trim() || null : null,
+    };
+  };
+  /** How much a bag line goes over To Order (0 when it does not). */
+  const overBy = (r: GridRow) => Math.max(0, round3(num(r.row.qty) - r.balance_qty));
+  /** The cell: icon + the weight, drawn like every other quantity; click or ↓ opens the pop-up. */
+  const materialCell = (r: GridRow) => {
+    const kind = lineKindOf(r.item_class);
+    const inBags = bagsOf(r);
+    const over = overBy(r);
+    const summary =
+      kind === "yarn"
+        ? inBags
+          ? `${inBags.bags} bag${inBags.bags === 1 ? "" : "s"} × ${inBags.bagWeight} kg`
+          : "Set the bags"
+        : [r.row.rolls ? `${r.row.rolls} rolls` : "", r.row.dia ? `Dia ${r.row.dia}` : ""].filter(Boolean).join(" · ") || "Set the rolls and dia";
+    const Icon = kind === "yarn" ? Package : Layers;
+    const open = (el: HTMLElement) => setQtySheet({ key: r.key, origin: el.getBoundingClientRect() });
+    return qtyFacts(
+      r.required_qty,
+      r.balance_qty,
+      r.ordered_qty,
+      <>
+        <button
+          type="button"
+          data-field-trigger
+          aria-haspopup="dialog"
+          aria-label={`${kind === "yarn" ? "Yarn bags" : "Fabric rolls and dia"}, ${lineDescription(r)} — ${num(r.row.qty)} ${r.uom_code ?? ""}, ${summary}. Press down arrow to open.`}
+          title={`${summary} — open`}
+          disabled={r.row.skip}
+          onClick={(e) => open(e.currentTarget)}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowDown") {
+              e.preventDefault();
+              open(e.currentTarget);
+            }
+          }}
+          className="flex h-8 min-w-0 flex-1 items-center pr-2.5 pl-2 text-sm tabular-nums hover:bg-[#f2f7fb] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:opacity-50"
+        >
+          <Icon aria-hidden className="size-4 shrink-0 text-[#037bb8]" />
+          {/* Amber when whole bags took it over To Order — allowed, and said. */}
+          <span className={cn("ml-auto", over > 0 && "font-semibold text-[#8a5800]")}>{r.row.skip ? 0 : num(r.row.qty)}</span>
+        </button>
+        <Truncated className="w-10 shrink-0 text-[11px] font-semibold text-muted-foreground uppercase">{r.uom_code ?? ""}</Truncated>
+      </>,
+    );
+  };
+  const qtySheetRow = qtySheet ? (gridRows.find((r) => r.key === qtySheet.key) ?? null) : null;
+
   /*
    * REQUIRED · TO ORDER ON DEMAND (user 2026-10-26, screenshot 3736: "for all same like
    * that … if the field is clicked they can see that details, like compact it"). Printed
    * under every box they made each row two lines tall and ran into the Rate column; now
    * they are a small tag that floats under the box while it has the cursor (or the
    * pointer), over the row beneath rather than pushing it down — so nothing jumps. The
-   * parent carries `group/qty relative`. A sized row has no tag: its pop-up shows both.
+   * A sized row has no tag: its pop-up shows both.
+   *
+   * PORTALED, NOT `absolute` (user 2026-10-27, screenshot 3739: "qty details are
+   * hidden"). The grid scrolls sideways, and `overflow-x: auto` forces the vertical
+   * axis to clip too — so a tag hanging under the LAST row was cut off by the table's
+   * own edge and only grew a scrollbar. `Tooltip` is fixed-positioned in a portal,
+   * the same answer `DropdownMenu` gives for a row control inside `DataTable`.
    */
-  const qtyFacts = (required: number, toOrder: number, ordered: number) => (
-    <div
-      role="note"
-      className="pointer-events-none absolute top-full right-0 z-20 mt-0.5 hidden gap-2 rounded-md border border-[#dde4eb] bg-white px-2 py-0.5 text-[11px] leading-4 whitespace-nowrap text-muted-foreground tabular-nums shadow-md group-focus-within/qty:flex group-hover/qty:flex"
+  const qtyFacts = (required: number, toOrder: number, ordered: number, children: ReactNode) => (
+    <Tooltip
+      side="bottom"
+      className="flex w-full items-center gap-1"
+      label={`Req ${fmtNumber(required)} · To order ${fmtNumber(toOrder)}${ordered > 0 ? ` · ${fmtNumber(ordered)} on other POs` : ""}`}
     >
-      <span>
-        Req <span className="font-semibold text-foreground">{fmtNumber(required)}</span>
-      </span>
-      <span>
-        To order <span className="font-semibold text-foreground">{fmtNumber(toOrder)}</span>
-      </span>
-      {ordered > 0 ? <span>· {fmtNumber(ordered)} on other POs</span> : null}
-    </div>
+      {children}
+    </Tooltip>
   );
   /* GST % PER LINE (user 2026-10-26, 0756). A line follows the header's slab until it is
      changed here, so the header box still sets every untouched line at once. CGST+SGST vs
@@ -635,7 +820,13 @@ export function RequirementPoForm({
       id={id}
       aria-label={`GST %, ${label}`}
       title={slab.kind === "igst" ? "IGST" : "CGST + SGST, split in half"}
-      className={cn(CELL_INPUT, "pr-6 tabular-nums")}
+      // THE WHOLE CELL OPENS THE LIST (user 2026-10-27, screenshot 3743). The cell look used to
+      // go through `className`, which `Select` also puts on the Combobox's WRAPPER — its `pr-6`
+      // padded the wrapper, so the box shrank to a sliver that hid the value and the ▼ sat
+      // outside it, where a click opened nothing. Wrapper: width only; box: the cell look.
+      className="w-full"
+      inputClassName={cn(CELL_INPUT, "tabular-nums")}
+      compact
       disabled={disabled}
       value={value == null ? "" : String(value)}
       onChange={(e) => set(Number(e.target.value))}
@@ -679,7 +870,7 @@ export function RequirementPoForm({
       header: "Item",
       width: FIELD_WIDTH_CSS.party,
       cell: (r) =>
-        itemCell(r.item_name, lineDescription({ item_name: "", slice_label: r.slice_label, colour: r.colour }).replace(/^ · /, ""), r.row.skip),
+        itemCell(r.item_name, lineDescription({ item_name: "", slice_label: r.slice_label, colour: r.colour }).replace(/^ · /, ""), r.row.skip, r.item_id),
     },
     {
       /* NOTE / REMARK (user 2026-10-26): the Purchase Manager's instruction for THIS item —
@@ -713,6 +904,7 @@ export function RequirementPoForm({
           id={rateId(r.key)}
           aria-label={`Rate per ${r.uom_code ?? "unit"}, ${lineDescription(r)}`}
           className={cn(CELL_INPUT, "text-right tabular-nums")}
+          title={lastRateTitle(r.item_id)}
           disabled={r.row.skip}
           value={r.row.rate}
           onChange={(e) => setRow(r, { rate: e.target.value })}
@@ -855,7 +1047,7 @@ export function RequirementPoForm({
     {
       header: "Item",
       width: FIELD_WIDTH_CSS.party,
-      cell: (g) => itemCell(g.item_name, g.spec),
+      cell: (g) => itemCell(g.item_name, g.spec, false, g.members[0]?.item_id),
     },
     {
       header: "Note / Remark",
@@ -891,17 +1083,16 @@ export function RequirementPoForm({
     {
       header: QTY.po,
       width: FIELD_WIDTH_CSS.code,
-      cell: (g) => (
-        <div className="group/qty relative flex h-8 items-center justify-end gap-1 px-2 text-sm font-medium tabular-nums">
-          {g.qty > 0 ? fmtNumber(g.qty) : "—"}
-          <span className="w-10 shrink-0 truncate text-left text-[11px] font-semibold text-muted-foreground uppercase">{g.uom_code ?? ""}</span>
-          {qtyFacts(
-            g.members.reduce((a, m) => a + m.required_qty, 0),
-            g.members.reduce((a, m) => a + m.balance_qty, 0),
-            g.members.reduce((a, m) => a + m.ordered_qty, 0),
-          )}
-        </div>
-      ),
+      cell: (g) =>
+        qtyFacts(
+          g.members.reduce((a, m) => a + m.required_qty, 0),
+          g.members.reduce((a, m) => a + m.balance_qty, 0),
+          g.members.reduce((a, m) => a + m.ordered_qty, 0),
+          <div className="flex h-8 w-full items-center justify-end gap-1 px-2 text-sm font-medium tabular-nums">
+            {g.qty > 0 ? fmtNumber(g.qty) : "—"}
+            <Truncated className="w-10 shrink-0 text-left text-[11px] font-semibold text-muted-foreground uppercase">{g.uom_code ?? ""}</Truncated>
+          </div>,
+        ),
     },
     {
       header: `Rate ${cur}`,
@@ -916,6 +1107,7 @@ export function RequirementPoForm({
           className={cn(CELL_INPUT, "text-right tabular-nums")}
           // MIXED: the orders were priced apart in the breakup — typing here sets them all again.
           placeholder={g.mixedRate ? "mixed" : undefined}
+          title={lastRateTitle(g.members[0]?.item_id)}
           disabled={!g.supplied}
           value={g.rate}
           onChange={(e) => setMembers(g.members, { rate: e.target.value })}
@@ -1039,7 +1231,7 @@ export function RequirementPoForm({
    * so Tab lands on it like a field (AGENTS, Tab lands on fields) and ↓ is the way in.
    */
   const groupColumns: ChildGridColumn<SizeGroup>[] = [
-    { header: "Item", width: FIELD_WIDTH_CSS.party, cell: (g) => itemCell(g.first.item_name, describeGroup(g), groupSkip(g)) },
+    { header: "Item", width: FIELD_WIDTH_CSS.party, cell: (g) => itemCell(g.first.item_name, describeGroup(g), groupSkip(g), g.first.item_id) },
     {
       header: "Note / Remark",
       width: FIELD_WIDTH_CSS.range,
@@ -1093,7 +1285,7 @@ export function RequirementPoForm({
                 <Ruler aria-hidden className="size-4 shrink-0 text-[#037bb8]" />
                 <span className="ml-auto">{Number(groupQty(g).toFixed(3))}</span>
               </button>
-            <span className="w-10 shrink-0 truncate text-[11px] font-semibold text-muted-foreground uppercase">{g.first.uom_code ?? ""}</span>
+            <Truncated className="w-10 shrink-0 text-[11px] font-semibold text-muted-foreground uppercase">{g.first.uom_code ?? ""}</Truncated>
             {/* NO Req · To order HERE (user 2026-10-26, screenshot 3735): the pop-up shows both per size. */}
           </div>
         );
@@ -1114,6 +1306,7 @@ export function RequirementPoForm({
             aria-label={`Rate per ${g.first.uom_code ?? "unit"}, ${g.first.item_name} ${describeGroup(g)}${g.sized ? ", every size" : ""}`}
             className={cn(CELL_INPUT, "text-right tabular-nums")}
             placeholder={rate == null ? "mixed" : undefined}
+            title={lastRateTitle(g.first.item_id)}
             disabled={groupSkip(g)}
             value={rate ?? ""}
             onChange={(e) => setMembers(g.members, { rate: e.target.value })}
@@ -1204,7 +1397,9 @@ export function RequirementPoForm({
      the four the spec names, each in its own column (the pop-up has the room the order
      grid does not). 72 + 112 + 112 + 144 + 40 = 480, inside `md`'s ~1,100px. */
   const sizeColumns: ChildGridColumn<GridRow>[] = [
-    { header: "Size", width: FIELD_WIDTH_CSS.num, cell: (r) => <span className="text-sm font-semibold">{r.size_name ?? "—"}</span> },
+    // Size `hug` and Order PO `term` (not num / code): the table must be 528px so it FILLS the
+    // pop-up (see its Sheet) — a narrower table left a gap, and a narrower pop-up drops to cards.
+    { header: "Size", width: FIELD_WIDTH_CSS.hug, cell: (r) => <span className="text-sm font-semibold">{r.size_name ?? "—"}</span> },
     {
       header: QTY.required,
       width: FIELD_WIDTH_CSS.range,
@@ -1226,11 +1421,11 @@ export function RequirementPoForm({
     },
     {
       header: QTY.po,
-      width: FIELD_WIDTH_CSS.code,
+      width: FIELD_WIDTH_CSS.term,
       cell: (r) => (
         <div className="flex items-center gap-1">
           {qtyInput(r, `rpo-sqty-${r.key}`)}
-          <span className="w-10 shrink-0 truncate text-[11px] font-semibold text-muted-foreground uppercase">{r.uom_code ?? ""}</span>
+          <Truncated className="w-10 shrink-0 text-[11px] font-semibold text-muted-foreground uppercase">{r.uom_code ?? ""}</Truncated>
         </div>
       ),
     },
@@ -1411,7 +1606,8 @@ export function RequirementPoForm({
           {/* THE FILTER ROW (canvas v6). PO Type, Item Class and Vendor are required pills;
               the rest only narrow the tick list below. Counts are "what this choice would
               leave", so a greyed choice is one that would empty the list. */}
-          <div className="flex flex-wrap items-center gap-1 border-t border-[#dde4eb] bg-[#fafbfc] px-4 py-2">
+          {/* ONE ROW from md up (screenshot 3744): the pills shrink to fit instead of wrapping. */}
+          <div className="flex flex-wrap items-center gap-1 border-t border-[#dde4eb] bg-[#fafbfc] px-4 py-2 md:flex-nowrap">
             {/* PO TYPE LEADS THE ROW (user 2026-10-26: "type local/import also as filter,
                 move it before item class"). Always set, so it never holds the cursor. */}
             <FilterPill
@@ -1480,13 +1676,16 @@ export function RequirementPoForm({
             {/* ORDERS (user 2026-10-26: "add the new filter option after the item class Orders
                 which will list order number"). The numbers the pills before it leave, nearest
                 ship date first — the tick list's own order — and one picked narrows that list
-                to it. A ticked order still stays pinned: a filter never takes a line off the PO. */}
+                to it. A ticked order still stays pinned: a filter never takes a line off the PO.
+                THE ORDER NUMBER ONLY (user 2026-10-27, screenshot 3741: "no need to show buyer
+                … just show order no is enough") — no buyer line, and a sample's "SWO · SIW"
+                cut to its SWO, as the tick list beside it already draws it. */}
             <FilterPill
               id="rpo-order"
               label="Orders"
               wide
               disabled={!hasClass}
-              options={facts.map((o) => ({ value: o.id, label: o.no, sublabel: o.note ?? undefined, count: count("order", o.id) }))}
+              options={facts.map((o) => ({ value: o.id, label: o.no.split(" · ")[0], count: count("order", o.id) }))}
               anyCount={anyCount("order")}
               multiple
               value={filters.order}
@@ -1528,7 +1727,7 @@ export function RequirementPoForm({
                 setVendorPick(v);
               }}
             />
-            <span aria-hidden className="mx-0.5 hidden h-5 w-px bg-[#dde4eb] sm:block" />
+            <span aria-hidden className="mx-0.5 hidden h-5 w-px shrink-0 bg-[#dde4eb] sm:block" />
             <FilterPill
               label="Order by"
               wide
@@ -1735,13 +1934,211 @@ export function RequirementPoForm({
           )}
 
 
+      {/* SHOW LAST PO — read-only, so `sm` with no footer: there is nothing to save. The newest
+          purchase leads in its own box (the benchmark); the two before it sit under it, so a
+          rate that has crept up is visible at a glance. The budget rate is never here. */}
+      <Sheet
+        open={!!lastPo}
+        onClose={() => setLastPo(null)}
+        size="sm"
+        alignToPane
+        origin={lastPo?.origin ?? null}
+        title={lastPo ? `Last PO — ${lastPo.title}` : "Last PO"}
+      >
+        {!lastPo ? null : lastPo.rows === null ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">Looking up earlier POs…</p>
+        ) : lastPo.error ? (
+          <p className="rounded-md border border-[#f5b8b0] bg-[#fdecea] px-3 py-2 text-sm text-[#b42318]">{lastPo.error}</p>
+        ) : lastPo.rows.length === 0 ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">This item has not been bought on a PO yet.</p>
+        ) : (
+          <div className="space-y-3">
+            {(() => {
+              const p = lastPo.rows[0];
+              return (
+                <div className="rounded-lg border border-[#b9d6ea] bg-[#f2f8fc] p-3">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">Last purchase rate</span>
+                    <StatusPill tone={statusTone(p.status)}>{p.status.replace(/_/g, " ")}</StatusPill>
+                  </div>
+                  <div className="mt-0.5 text-2xl font-bold tabular-nums text-[#035c8c]">
+                    {rateText(p)}
+                    {p.uom ? <span className="ml-1 text-sm font-medium text-muted-foreground">/ {p.uom}</span> : null}
+                  </div>
+                  <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 text-sm">
+                    <div className="col-span-2">
+                      <dt className="text-xs text-muted-foreground">Vendor</dt>
+                      <dd className="font-medium">{p.vendor ?? "—"}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-muted-foreground">PO No · date</dt>
+                      <dd className="font-mono text-[13px] tabular-nums">
+                        {p.code ?? "—"} · {p.orderDate ? fmtDate(p.orderDate) : "—"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-muted-foreground">Quantity</dt>
+                      <dd className="tabular-nums">
+                        {fmtNumber(p.qty)} {p.uom ?? ""}
+                      </dd>
+                    </div>
+                  </dl>
+                </div>
+              );
+            })()}
+            {lastPo.rows.length > 1 ? (
+              <div>
+                <div className="mb-1 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">Before that</div>
+                <ul className="divide-y divide-[#e8edf2] rounded-md border border-[#dde4eb] text-sm">
+                  {lastPo.rows.slice(1).map((p) => (
+                    <li key={p.poId} className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 px-3 py-1.5">
+                      <span className="min-w-0">
+                        <Truncated className="font-medium">{p.vendor ?? "—"}</Truncated>
+                        <span className="font-mono text-xs text-muted-foreground tabular-nums">
+                          {p.code ?? "—"} · {p.orderDate ? fmtDate(p.orderDate) : "—"} · {fmtNumber(p.qty)} {p.uom ?? ""}
+                        </span>
+                      </span>
+                      <span className="self-center font-semibold tabular-nums">{rateText(p)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
+        )}
+      </Sheet>
+
+      {/* YARN BAGS / FABRIC ROLLS POP-UP — a sub-detail with no grid, so `sm` (AGENTS, A
+          sub-detail Sheet's size), centred on the pane, grown from the Qty cell, no Save of
+          its own: the bags, rolls and dia are written by the PO's Save. */}
+      <Sheet
+        open={!!qtySheetRow}
+        onClose={() => setQtySheet(null)}
+        size="sm"
+        alignToPane
+        origin={qtySheet?.origin ?? null}
+        title={
+          qtySheetRow
+            ? `${lineKindOf(qtySheetRow.item_class) === "yarn" ? "Yarn bags" : "Fabric rolls"} — ${qtySheetRow.item_name}`
+            : "Quantity"
+        }
+        footer={<SubSheetFooter onDone={() => setQtySheet(null)} />}
+      >
+        {qtySheetRow
+          ? (() => {
+              const r = qtySheetRow;
+              const kind = lineKindOf(r.item_class);
+              const inBags = bagsOf(r);
+              const over = overBy(r);
+              const bw = num(r.row.bagWt ?? "");
+              return (
+                <div className="space-y-4">
+                  {/* What it is typed against — read, never typed. */}
+                  <dl className="grid grid-cols-2 gap-3 rounded-md border border-[#dde4eb] bg-[#fafbfc] px-3 py-2 text-sm tabular-nums">
+                    <div>
+                      <dt className="text-xs text-muted-foreground">{QTY.required}</dt>
+                      <dd className="font-semibold">
+                        {fmtNumber(r.required_qty)} {r.uom_code ?? ""}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-muted-foreground">{QTY.toOrder}</dt>
+                      <dd className="font-semibold">
+                        {fmtNumber(r.balance_qty)} {r.uom_code ?? ""}
+                      </dd>
+                    </div>
+                  </dl>
+                  {kind === "yarn" ? (
+                    <>
+                      <div className="grid grid-cols-2 gap-3">
+                        <Field label="Bag weight (kg)" htmlFor={`rpo-bw-${r.key}`}>
+                          <Input
+                            id={`rpo-bw-${r.key}`}
+                            type="number"
+                            min={0}
+                            inputMode="decimal"
+                            value={r.row.bagWt ?? ""}
+                            onChange={(e) => setBags(r, r.row.bags ?? "", e.target.value)}
+                          />
+                        </Field>
+                        <Field label="No. of bags" htmlFor={`rpo-bags-${r.key}`}>
+                          <Input
+                            id={`rpo-bags-${r.key}`}
+                            type="number"
+                            min={0}
+                            step={1}
+                            max={bw > 0 ? maxBags(r.balance_qty, bw) : undefined}
+                            inputMode="numeric"
+                            disabled={!(bw > 0)}
+                            title={bw > 0 ? `At most ${maxBags(r.balance_qty, bw)} — one bag past To Order is the limit` : "Type the bag weight first"}
+                            value={r.row.bags ?? ""}
+                            onChange={(e) => setBags(r, e.target.value, r.row.bagWt ?? "")}
+                          />
+                        </Field>
+                      </div>
+                      <div className="flex items-baseline justify-between rounded-md border border-[#dde4eb] px-3 py-2">
+                        <span className="text-sm text-muted-foreground">PO weight = bags × bag weight</span>
+                        {inBags ? (
+                          <span className={cn("text-base font-bold tabular-nums", over > 0 && "text-[#8a5800]")}>
+                            {num(r.row.qty)} kg
+                          </span>
+                        ) : (
+                          // No bags yet: the weight is typed as on any line (capped at To Order).
+                          <div className="flex w-36 items-center gap-1">{qtyInput(r, `rpo-yqty-${r.key}`)}</div>
+                        )}
+                      </div>
+                      {over > 0 ? (
+                        <p className="rounded-md border border-[#f1d48a] bg-[#fff7e0] px-3 py-1.5 text-sm text-[#8a5800]">
+                          {over} kg over To Order — whole bags. Allowed up to one bag.
+                        </p>
+                      ) : null}
+                    </>
+                  ) : (
+                    <div className="grid grid-cols-3 gap-3">
+                      <Field label="PO weight (kg)" htmlFor={`rpo-fqty-${r.key}`}>
+                        <div className="flex items-center rounded-md border border-border">{qtyInput(r, `rpo-fqty-${r.key}`)}</div>
+                      </Field>
+                      <Field label="No. of rolls" htmlFor={`rpo-rolls-${r.key}`}>
+                        <Input
+                          id={`rpo-rolls-${r.key}`}
+                          type="number"
+                          min={0}
+                          step={1}
+                          inputMode="numeric"
+                          value={r.row.rolls ?? ""}
+                          onChange={(e) => setRow(r, { rolls: e.target.value })}
+                        />
+                      </Field>
+                      <Field label="Dia" htmlFor={`rpo-dia-${r.key}`}>
+                        <Input
+                          id={`rpo-dia-${r.key}`}
+                          maxLength={20}
+                          value={r.row.dia ?? ""}
+                          onChange={(e) => setRow(r, { dia: e.target.value })}
+                        />
+                      </Field>
+                    </div>
+                  )}
+                </div>
+              );
+            })()
+          : null}
+      </Sheet>
+
       {/* THE SIZE BREAKUP POP-UP — a sub-detail of the open PO (AGENTS, A sub-detail Sheet's
           size): `md` because it carries a ChildGrid, centred on the pane, grown out of the
           Qty button, and no Save of its own — the sizes are written by the PO's Save. */}
+      {/* AS WIDE AS ITS TABLE (user 2026-10-27, screenshots 3745 · 3746: "blank space …
+          compact it", then "still some gap on right side"). The table is # 40 + Size 88 +
+          Required 112 + To Order 112 + Order PO 176 = 528px; the card is 528 + px-5 (40) +
+          border (2) + 2 spare = 572px. It cannot go narrower: under a 512px container
+          ChildGrid drops the table for header-less cards — which is why the columns grew
+          to meet the card rather than the card shrinking to the old 480px table. */}
       <Sheet
         open={!!sheetGroup}
         onClose={() => setSizeSheet(null)}
         size="md"
+        maxWidthClass="max-w-[572px]"
         alignToPane
         origin={sizeSheet?.origin ?? null}
         title={sheetGroup ? `Size breakup — ${sheetGroup.first.item_name}${describeGroup(sheetGroup) ? ` · ${describeGroup(sheetGroup)}` : ""}` : "Size breakup"}

@@ -116,6 +116,34 @@ export const gstSlab = (id: string) => GST_SLABS.find((g) => g.id === id) ?? GST
  */
 export const LINE_GST_PCTS = [0, 5, 12, 18] as const;
 
+/**
+ * WHAT A LINE IS BOUGHT IN (user 2026-10-26, Task 2). Yarn comes in whole bags, fabric
+ * by weight with its rolls and dia; anything else is counted. Read off the item class's
+ * NAME — the same test the screen's "Wt (Kg)" wording uses.
+ */
+export type LineKind = "yarn" | "fabric" | "general";
+export function lineKindOf(itemClass: string | null | undefined): LineKind {
+  if (/\byarn\b/i.test(itemClass ?? "")) return "yarn";
+  if (/\bfabric\b/i.test(itemClass ?? "")) return "fabric";
+  return "general";
+}
+
+/**
+ * WHOLE BAGS ROUND UP — BY LESS THAN ONE BAG (user decision 2026-10-26; 0758 enforces
+ * the same in `po_line_requirement_cap`). To Order 115 kg in 50 kg bags → at most 3.
+ */
+export function maxBags(balance: number, bagWeight: number): number {
+  return bagWeight > 0 ? Math.max(0, Math.ceil(balance / bagWeight - 1e-9)) : 0;
+}
+
+/** May this quantity be ordered against `balance`? Over only by whole bags, and by less than one. */
+export function qtyAllowed(qty: number, balance: number, bags: number | null, bagWeight: number | null): boolean {
+  if (qty <= balance + 1e-4) return true;
+  return (
+    bagWeight != null && bagWeight > 0 && bags != null && Math.abs(qty - bags * bagWeight) < 1e-3 && qty - balance < bagWeight - 1e-4
+  );
+}
+
 /** Spec point 6: never above the balance, never below nothing. */
 export function capQty(typed: number, balance: number): number {
   if (!Number.isFinite(typed) || typed < 0) return 0;
@@ -145,6 +173,18 @@ export const rePoLineInput = z.object({
   qty: z.number().min(0),
   rate: z.number().min(0).nullable(),
   delivery_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Delivery date is required"),
+  /** Yarn (0758): whole bags and the kg in one; qty is their product. Both or neither. */
+  bags: z.number().int().min(0).nullish().transform((v) => v ?? null),
+  bag_weight: z.number().positive().nullish().transform((v) => v ?? null),
+  /** Fabric (0758): rolls and dia. */
+  rolls: z.number().int().min(0).nullish().transform((v) => v ?? null),
+  dia: z
+    .string()
+    .trim()
+    .max(20, "Dia is at most 20 characters")
+    .toUpperCase()
+    .nullish()
+    .transform((v) => v || null),
   /** This line's GST % (0756); null / absent = the PO's default slab. */
   gst_pct: z
     .number()
@@ -206,6 +246,41 @@ export const rePoInput = z
   });
 export type RePoInput = z.infer<typeof rePoInput>;
 export type RePoLineInput = z.infer<typeof rePoLineInput>;
+
+/**
+ * ONE EARLIER PURCHASE OF AN ITEM — Show Last PO (user 2026-10-26, Task 3). What the
+ * Purchase Manager negotiates against: the rate agreed, with whom, when, and how much.
+ * Never the budget figure — that stays hidden (spec point 7).
+ */
+export type LastPurchase = {
+  poId: string;
+  code: string | null;
+  orderDate: string | null;
+  status: string;
+  vendor: string | null;
+  /** The PO's currency — INR, or the import PO's foreign currency the rate is in. */
+  currency: string;
+  /** The rate on that PO; when its lines (sizes) were priced apart, the lowest and highest. */
+  rateMin: number;
+  rateMax: number;
+  qty: number;
+  uom: string | null;
+};
+
+/**
+ * THE LAST RATE AN ITEM WAS BOUGHT AT — pre-fills the Rate box (user 2026-10-27: "while
+ * putting PO for second time for same item fetch and show the last entered rate"). The
+ * chosen vendor's own last rate when it has one (`sameVendor`), else the latest from any
+ * vendor. Only in the PO's currency — an INR rate is no starting point for a USD PO.
+ */
+export type LastRate = {
+  rate: number;
+  currency: string;
+  sameVendor: boolean;
+  vendor: string | null;
+  code: string | null;
+  orderDate: string | null;
+};
 
 /** What the hidden budget check tells the screen — never the budget figure. */
 export type BudgetFlag = { key: string; hasBudget: boolean; above: boolean };
