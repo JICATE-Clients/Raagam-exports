@@ -1188,6 +1188,25 @@ export function enterInGrid(p: GridEnterProbe): GridEnter {
  * still move rows from that cell, so no capability was traded away. Alt+↓ still
  * works as an alias. Returns true when it consumed the key.
  */
+/**
+ * A FILLED PICKER IN A GRID ROW: ↓ MOVES, IT DOES NOT OPEN (client 2026-10-27,
+ * screenshot 3771, Order Entry ▸ Quantities: "the data is already in cell why its
+ * again listing drop down"). ↓ opening a grid picker (2026-07-28) is how an EMPTY
+ * cell gets filled from the keyboard, and it stays so. On a cell that already holds
+ * its answer, ↓ is the operator walking down the column, and a list springing open
+ * over the next row is in the way. Alt+↓, Space and a click still open it to change
+ * the value. Read by `gridKeyNav` (which then moves the row) and by `DataPicker`
+ * (which then leaves the key alone) — one test, so the two cannot disagree.
+ */
+export function isFilledGridPicker(el: Element | null): boolean {
+  return (
+    el instanceof HTMLElement &&
+    el.matches(FIELD_TRIGGER) &&
+    el.getAttribute("data-field-empty") === "false" &&
+    !!el.closest("[data-grid-row]")
+  );
+}
+
 export function arrowOpensPicker(e: NavKeyEvent): boolean {
   if (e.defaultPrevented) return false;
   if (e.key !== "ArrowDown") return false;

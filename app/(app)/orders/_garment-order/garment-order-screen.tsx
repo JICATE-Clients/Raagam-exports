@@ -13095,6 +13095,18 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
    * exporting a predicate from a `"use server"` file, which the screen cannot
    * import.
    */
+  /*
+   * A DATE THE ROW WAS BORN WITH IS NOT A START (client 2026-10-27, screenshot 3770:
+   * "this destination: Country is required" on an order whose two lines were both
+   * complete). `blankQuantity` pre-fills Delivery Dt and Earlier Shipment Dt from Order
+   * Info, so the blank end row the grid keeps (`tailRow`) held two dates and this test
+   * called it started — Save was refused for a row nobody had touched, while the save
+   * itself (`quantityBlank`) would have dropped it. A date counts only once it differs
+   * from the one the factory stamps; an operator who changes it has started the row.
+   */
+  const dateTyped = (q: QuantityRow) =>
+    (!!q.delivery_date && q.delivery_date !== form.delivery_date) ||
+    (!!q.earlier_shipment_date && q.earlier_shipment_date !== weekBefore(form.delivery_date));
   const destinationStarted = (q: QuantityRow): boolean =>
     !!(
       q.style_ref_no.trim() ||
@@ -13103,8 +13115,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
       q.assortment_type_id ||
       q.po_no.trim() ||
       q.po_qty.trim() ||
-      q.delivery_date ||
-      q.earlier_shipment_date ||
+      dateTyped(q) ||
       q.warehouse_id ||
       q.discharge_port_id ||
       q.pack_type.trim() ||
