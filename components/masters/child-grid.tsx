@@ -9,7 +9,7 @@ import { LABEL_METRICS } from "@/components/ui/label";
 import { Truncated } from "@/components/ui/truncated";
 import { PaginationBar } from "@/components/ui/pagination";
 import { usePagination } from "@/lib/use-pagination";
-import { atCaretEdge, enterInGrid, focusField, isOffTabPath, landOnAddedRow } from "@/lib/focus";
+import { atCaretEdge, enterInGrid, focusField, isFilledGridPicker, isOffTabPath, landOnAddedRow } from "@/lib/focus";
 import { fmtNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -907,7 +907,9 @@ export function gridKeyNav(e: React.KeyboardEvent<HTMLElement>) {
   // was already visible inside a single row — a Combobox cell opens on ↓ (it
   // consumes the key itself, so this handler never sees it) while the picker
   // beside it moved a row instead (client 2026-07-28).
-  if (isTrigger && e.key === "ArrowDown") return;
+  // …EXCEPT A FILLED ONE (client 2026-10-27): its answer is in, so ↓ walks down the
+  // column like any other cell. `isFilledGridPicker` (lib/focus.ts) says why.
+  if (isTrigger && e.key === "ArrowDown" && !isFilledGridPicker(el)) return;
   // Same rule the Sheet's Enter-advance follows: don't COMMIT out of a field
   // that is currently invalid. gridKeyNav stopPropagations, so without this the
   // validation gate was bypassed inside every grid.

@@ -40,6 +40,7 @@ import {
   FieldAffordance,
 } from "@/components/ui/field-affordance";
 import { hint } from "@/lib/ui/placeholders";
+import { isFilledGridPicker } from "@/lib/focus";
 
 /** One selectable record. `sublabel` renders muted beside the label. */
 export type PickerRow = {
@@ -742,6 +743,9 @@ export function DataPicker({
         // ↑ bubbles: it means "the field above", never "open this list". A list
         // you can enter with either arrow is a one-way door.
         if (e.key === "ArrowUp") return;
+        // A filled cell in a grid: ↓ is the row below, handed to `gridKeyNav`.
+        // Alt+↓ still opens it to change the value (`isFilledGridPicker`).
+        if (!e.altKey && isFilledGridPicker(e.currentTarget)) return;
         e.preventDefault();
         e.stopPropagation();
         return openList();
@@ -1362,12 +1366,34 @@ export function DataPicker({
                on focus makes every Tab across a form flash a panel. ↓ / click /
                typing open it — combobox.tsx calls this `openOnFocus={false}`. */
           }}
-          onClick={() => {
-            if (!open) openList();
+          onClick={(e) => {
+            if (open) return;
+            // Touch has no typing in the field — a tap opens its sheet, as before.
+            if (!fine) return openList();
+            /* TYPE TO LIST, LIKE THE COSTING SHEET (client 2026-10-27, screenshot
+               3772: "in costing sheet we have one mechanism in the cell — instead
+               of listing directly, while typing the drop down will list data").
+               A click on the TEXT only puts the caret in the box; typing opens the
+               list already filtered (`onChange` below), the way `TypeOrPick` works
+               on the cost sheet. A click on the ▼ at the right edge still opens the
+               whole list, so the mouse keeps a way to browse; ↓ still opens it too.
+               The ▼ is `pointer-events-none` (field-affordance.tsx), so its click
+               lands here and is told apart by where it fell. */
+            const box = e.currentTarget.getBoundingClientRect();
+            if (e.clientX >= box.right - (compact ? 24 : 32)) openList();
           }}
           onChange={(e) => {
             if (!fine) return; // touch types into the sheet's own search box
-            const q = e.target.value;
+            let q = e.target.value;
+            /* A FILLED, CLOSED CELL STARTS A FRESH SEARCH. With the list no longer
+               opening on click, the box still shows the stored name when the first
+               letter lands — "PIECES" + "T" would search "PIECEST" and match
+               nothing. So the search is just what was typed into it. */
+            if (!open && triggerText && q.length > triggerText.length) {
+              let i = 0;
+              while (i < triggerText.length && triggerText[i] === q[i]) i++;
+              q = q.slice(i, i + q.length - triggerText.length);
+            }
             setQuery(q);
             // The TOP MATCH of the new query, not of the stale `filtered` — so
             // Enter straight after typing picks what the operator can see is

@@ -840,7 +840,7 @@ export function RequirementPoForm({
       // padded the wrapper, so the box shrank to a sliver that hid the value and the ▼ sat
       // outside it, where a click opened nothing. Wrapper: width only; box: the cell look.
       className="w-full"
-      inputClassName={cn(CELL_INPUT, "tabular-nums")}
+      inputClassName={cn(CELL_INPUT, "pl-2 tabular-nums")}
       compact
       disabled={disabled}
       value={value == null ? "" : String(value)}
@@ -865,7 +865,7 @@ export function RequirementPoForm({
   // ---------- grid ----------
   /*
    * A TIGHT TABLE (user 2026-10-24, screenshot 3704). Item 200 + Note 112 + Qty 144 +
-   * Rate 88 + GST 72 + Delivery 144 + Amount 88 + 72 = 920, + 40 chrome = 960 — inside
+   * Rate 88 + GST 88 + Delivery 144 + Amount 88 + 72 = 936, + 40 chrome = 976 — inside
    * the ~1,060px pane beside the order list (1920 screen at 125%), so no sideways scroll.
    * Every row is ONE line: Required · To Order float under the Qty box on focus (`qtyFacts`).
    * ChildGrid's DEFAULT switch (a table from a 512px pane, cards below it on a phone). No
@@ -928,7 +928,9 @@ export function RequirementPoForm({
     },
     {
       header: "GST %",
-      width: FIELD_WIDTH_CSS.num,
+      // 88, not 72 (user 2026-10-27, screenshot 3769): at 72 the ▼ and padding left the
+      // value ~22px and "12%" read "1…".
+      width: FIELD_WIDTH_CSS.hug,
       cell: (r) => gstCell(`rpo-gst-${r.key}`, lineDescription(r), r.row.gst ?? slab.pct, !!r.row.skip, (pct) => setRow(r, { gst: pct })),
     },
     {
@@ -1052,8 +1054,8 @@ export function RequirementPoForm({
   const openItem = itemGroups.find((g) => g.key === itemFold.openKey) ?? null;
 
   /*
-   * Item 200 + Note 88 + Orders 88 + Qty 144 + Rate 88 + GST 72 + Delivery 144 + Amount 88
-   * + Budget 112 = 1024, + 40 chrome = 1064 — about the pane beside the order list; the unit
+   * Item 200 + Note 88 + Orders 88 + Qty 144 + Rate 88 + GST 88 + Delivery 144 + Amount 88
+   * + Budget 112 = 1040, + 40 chrome = 1080 — about the pane beside the order list; the unit
    * rides inside Qty, as on the order grid. Same default switch as the order grid (see its note). The note, rate, GST
    * and delivery typed here go to every order line under the item; the breakup below edits
    * one order at a time.
@@ -1131,7 +1133,9 @@ export function RequirementPoForm({
     },
     {
       header: "GST %",
-      width: FIELD_WIDTH_CSS.num,
+      // 88, not 72 (user 2026-10-27, screenshot 3769): at 72 the ▼ and padding left the
+      // value ~22px and "12%" read "1…".
+      width: FIELD_WIDTH_CSS.hug,
       cell: (g) =>
         gstCell(`rpo-igst-${g.key}`, `${g.item_name} ${g.spec}, for all ${g.orders} orders`, g.gst, !g.supplied, (pct) =>
           setMembers(g.members, { gst: pct }),
@@ -1241,7 +1245,7 @@ export function RequirementPoForm({
   const openSizes = (g: SizeGroup, el: HTMLElement) => setSizeSheet({ key: g.key, origin: el.getBoundingClientRect() });
 
   /*
-   * The order grid on size rows. Same widths as `poLineColumns` (920 + 40 = 960). The
+   * The order grid on size rows. Same widths as `poLineColumns` (936 + 40 = 976). The
    * Qty cell of a sized row is a BUTTON showing the total — click it, or ↓ on it (the
    * key that opens any list here), for the per-size quantities. It is `data-field-trigger`
    * so Tab lands on it like a field (AGENTS, Tab lands on fields) and ↓ is the way in.
@@ -1332,7 +1336,9 @@ export function RequirementPoForm({
     },
     {
       header: "GST %",
-      width: FIELD_WIDTH_CSS.num,
+      // 88, not 72 (user 2026-10-27, screenshot 3769): at 72 the ▼ and padding left the
+      // value ~22px and "12%" read "1…".
+      width: FIELD_WIDTH_CSS.hug,
       cell: (g) =>
         gstCell(
           `rpo-gst-${g.first.key}`,
