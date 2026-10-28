@@ -51,7 +51,6 @@ import {
   LINE_GST_PCTS,
   budgetWords,
   capQty,
-  withGst,
   gstSlab,
   lineDescription,
   lineKeyOf,
@@ -111,6 +110,10 @@ type RowState = {
   /** Fabric (0758). */
   rolls?: string;
   dia?: string;
+  /** Fabric construction typed on the PO (0762, user 2026-10-28); unset = the Fabric BOM's. */
+  gsm?: string;
+  gauge?: string;
+  loop?: string;
 };
 
 /**
@@ -153,11 +156,11 @@ function sizeGroupsOf(rows: readonly GridRow[]): SizeGroup[] {
 /** Why a rate outruns its budget (user 2026-10-27) — the reasons the Purchase Manager picks
  *  from before an above-budget PO goes to the MD. OTHER takes their own words. */
 const BUDGET_REASONS = ["MARKET PRICE INCREASE", "SUPPLIER NON-NEGOTIABLE", "MOQ / WHOLE BAG ROUNDING"] as const;
-/** On the Budget control's hover — the one comparison, said once (2026-10-28: budgets include GST). */
+/** On the Budget control's hover — the one comparison, said once (2026-10-28: budgets are ex-GST). */
 const GST_RULE =
-  "Each line's rate plus its own GST is compared with the approved budget, which includes GST. Printing stays locked until the MD approves.";
+  "Each line's rate is compared with the approved budget rate, both without GST. Printing stays locked until the MD approves.";
 /** A line with NO approved budget is not "above" anything — it has its own reasons (2026-10-28). */
-const NO_BUDGET_REASONS = ["BUDGET NOT APPROVED YET", "SAMPLE / IWO — NO ORDER BUDGET"] as const;
+const NO_BUDGET_REASONS = ["ITEM NOT IN APPROVED BUDGET"] as const;
 
 export function RequirementPoForm({
   lines,
@@ -460,13 +463,11 @@ export function RequirementPoForm({
     none: { dot: "bg-[#d9a400]", text: "text-[#8a5800]", word: "No budget" },
     within: { dot: "bg-[#14803f]", text: "text-[#14803f]", word: "Within" },
   };
-  const budgetWhy = (m: BudgetMark, rs: readonly GridRow[]) =>
+  const budgetWhy = (m: BudgetMark) =>
     m === "above"
       ? "Above Approved Budget — rate + GST is above the approved budget"
       : m === "none"
-        ? rs.every((r) => r.source_kind !== "re")
-          ? "No budget — a sample / IWO order has no order budget"
-          : "No budget — this order's budget is not approved yet"
+        ? "No budget — this item is not in the order's approved budget"
         : "Within budget — rate + GST is within the approved budget";
   /** A line's reason as the MD reads it — "" while unpicked, or OTHER still untyped. */
   const reasonOf = (r: GridRow) => {
@@ -499,7 +500,7 @@ export function RequirementPoForm({
   const budgetCell = (rs: readonly GridRow[], apply: (p: Partial<RowState>) => void) => {
     const mark = budgetMarkOf(rs);
     if (!mark) return null;
-    const why = `${budgetWhy(mark, rs)}. ${GST_RULE}`;
+    const why = `${budgetWhy(mark)}. ${GST_RULE}`;
     if (mark === "within")
       return (
         <span title={why} className={cn("inline-flex items-center gap-1.5 px-1 text-xs font-semibold", BUDGET_MARK.within.text)}>
@@ -512,8 +513,21 @@ export function RequirementPoForm({
     const v = vals.length === 1 ? vals[0] : "";
     const tone = mark === "above" ? "border-[#f5b8b0] bg-[#fdecea] text-[#b42318]" : "border-[#f1d48a] bg-[#fff7e0] text-[#8a5800]";
     const word = BUDGET_MARK[mark].word;
+    /* THE ASK SITS ON THE BOX (user 2026-10-28, screenshot 3808): the empty option's
+       "● No budget *" is a placeholder, and placeholders are blanked app-wide (`hint`), so
+       the box read as an empty yellow dropdown while the footer said "Give the reason …"
+       and was cut off. The state and, while unpicked, the ask are a visible line above. */
+    const asking = !(v.startsWith("OTHER") ? v.replace(/^OTHER:?/, "").trim() : v);
+    const label = (
+      <span className={cn("mb-0.5 flex items-center gap-1 whitespace-nowrap text-[11px] font-semibold leading-tight", BUDGET_MARK[mark].text)} title={why}>
+        <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", BUDGET_MARK[mark].dot)} />
+        {asking ? `${word} · reason *` : word}
+      </span>
+    );
     if (v.startsWith("OTHER"))
       return (
+        <div className="min-w-0">
+        {label}
         <Input
           aria-label={`${word} — reason, in your words`}
           title={why}
@@ -527,9 +541,12 @@ export function RequirementPoForm({
             if (!e.target.value.trim()) apply({ reason: "" });
           }}
         />
+        </div>
       );
     const options: readonly string[] = mark === "above" ? BUDGET_REASONS : NO_BUDGET_REASONS;
     return (
+      <div className="min-w-0">
+      {label}
       <Select
         aria-label={`${word} — reason`}
         title={why}
@@ -546,6 +563,7 @@ export function RequirementPoForm({
         ))}
         <option value="OTHER">OTHER (TYPE IT)</option>
       </Select>
+      </div>
     );
   };
 
@@ -624,7 +642,7 @@ export function RequirementPoForm({
   // ---------- the hidden budget check: asked per priced line, 400 ms after typing stops ----------
   const checkSignature = budgetLines
     .filter((r) => num(r.row.rate) > 0)
-    .map((r) => `${r.key}=${r.row.rate}@${r.row.gst ?? slab.pct}`)
+    .map((r) => `${r.key}=${r.row.rate}`)
     .join("|") + `|fx=${fx}`;
   useEffect(() => {
     const priced = budgetLines.filter((r) => num(r.row.rate) > 0);
@@ -638,8 +656,8 @@ export function RequirementPoForm({
           uom_id: r.uom_id,
           slice_label: r.slice_label,
           colour: r.colour,
-          // The budget includes GST, so the line's own GST goes on first (withGst).
-          rate: withGst(num(r.row.rate) * fx, r.row.gst ?? slab.pct),
+          // Ex-GST budget: the basic rate, as typed (re-po/types.ts, 2026-10-28).
+          rate: num(r.row.rate) * fx,
         })),
       ).then((res) => {
         if (!res.ok) return toastError(res.error);
@@ -647,7 +665,7 @@ export function RequirementPoForm({
       });
     }, 400);
     return () => clearTimeout(t);
-    // The signature is the dependency: it changes exactly when a priced line, its GST or the rate of exchange does.
+    // The signature is the dependency: it changes exactly when a priced line or the rate of exchange does.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checkSignature]);
 
@@ -837,7 +855,7 @@ export function RequirementPoForm({
      now that Item Class is multi-select — reads Qty, with the UOM column beside it. */
   const byWeight = gridRows.length > 0 && gridRows.every((r) => /\b(yarn|fabric)\b/i.test(r.item_class ?? ""));
   const QTY = byWeight
-    ? { required: "Required Wt", toOrder: "To Order Wt", po: "Order PO Wt (Kg)" }
+    ? { required: "Required Wt", toOrder: "To Order Wt", po: "PO Wt (kg)" }
     : { required: "Required Qty", toOrder: "To Order Qty", po: "Order PO Qty" };
   /** The Order PO box itself — capped at To Order (spec 6). Shared by the row and the Size Breakup. */
   const qtyInput = (r: GridRow, id?: string) => (
@@ -880,8 +898,8 @@ export function RequirementPoForm({
    * small pop-up — so the grid keeps one width and one line per row.
    *
    * YARN: the Purchase Manager types the Bag Weight, the No. of Bags fills itself rounded
-   * up to cover To Order, and can be stepped down; the PO weight is their product and is
-   * never typed. Whole bags may round the line UP past To
+   * up to cover To Order, and can be stepped down; the PO weight is their product, and may
+   * be typed lower for a part-filled last bag (`setBagQty`). Whole bags may round the line UP past To
    * Order, but by less than one bag (user decision 2026-10-26) — `maxBags` caps the
    * count, and the save and `po_line_requirement_cap` apply the same rule. Before a bag
    * weight is typed the weight box works as on any other line (capped at To Order).
@@ -910,6 +928,19 @@ export function RequirementPoForm({
     const bw = num(bagWtTyped);
     setBags(r, bw > 0 ? String(maxBags(r.balance_qty, bw)) : "", bagWtTyped);
   }
+  /**
+   * THE PO WEIGHT IS TYPED TOO, IN BAGS (user 2026-10-28, screenshot 3814). Up to To Order any
+   * weight goes — the last bag part-filled, 259.88 kg in 5 × 60 kg. Above To Order only as
+   * WHOLE bags (bags × bag weight, 0758's rule, which the DB and the save hold too), so any
+   * other figure past To Order comes back to To Order.
+   */
+  function setBagQty(r: GridRow, typed: string) {
+    const inBags = bagsOf(r);
+    if (!inBags || typed === "") return setRow(r, { qty: typed });
+    const v = Math.max(0, num(typed));
+    const whole = round3(inBags.bags * inBags.bagWeight);
+    setRow(r, { qty: v <= r.balance_qty + 1e-4 || Math.abs(v - whole) < 1e-3 ? typed : String(round3(r.balance_qty)) });
+  }
   /** A yarn line is "in bags" once both are typed — then its weight is theirs, not the box's. */
   const bagsOf = (r: GridRow) => {
     const bw = num(r.row.bagWt ?? "");
@@ -925,6 +956,10 @@ export function RequirementPoForm({
       bag_weight: inBags?.bagWeight ?? null,
       rolls: kind === "fabric" && (r.row.rolls ?? "") !== "" ? Math.max(0, Math.floor(num(r.row.rolls ?? ""))) : null,
       dia: kind === "fabric" ? (r.row.dia ?? "").trim() || null : null,
+      // Sent only once typed — unset leaves the Fabric BOM's value to the save.
+      ...(kind === "fabric" && r.row.gsm !== undefined ? { gsm: num(r.row.gsm) > 0 ? num(r.row.gsm) : null } : {}),
+      ...(kind === "fabric" && r.row.gauge !== undefined ? { gauge: r.row.gauge.trim() || null } : {}),
+      ...(kind === "fabric" && r.row.loop !== undefined ? { loop_length: num(r.row.loop) > 0 ? num(r.row.loop) : null } : {}),
     };
   };
   /** How much a bag line goes over To Order (0 when it does not). */
@@ -967,7 +1002,10 @@ export function RequirementPoForm({
           {/* Amber when whole bags took it over To Order — allowed, and said. */}
           <span className={cn("ml-auto", over > 0 && "font-semibold text-[#8a5800]")}>{r.row.skip ? 0 : num(r.row.qty)}</span>
         </button>
-        <Truncated className="w-10 shrink-0 text-[11px] font-semibold text-muted-foreground uppercase">{r.uom_code ?? ""}</Truncated>
+        {/* NO UNIT WHEN THE HEADER SAYS IT (user 2026-10-28, screenshot 3816): icon + figure +
+            "KGS" in 112px overlapped, and "PO Wt (kg)" above already names it. A mixed grid's
+            header reads "Order PO Qty", so the unit stays there. */}
+        {byWeight ? null : <Truncated className="w-10 shrink-0 text-[11px] font-semibold text-muted-foreground uppercase">{r.uom_code ?? ""}</Truncated>}
       </>,
     );
   };
@@ -1034,7 +1072,7 @@ export function RequirementPoForm({
   // ---------- grid ----------
   /*
    * A TIGHT TABLE (user 2026-10-24, screenshot 3704). Item 200 + Note 88 + Qty 112 +
-   * Rate 88 + GST 88 + Delivery 112 + Amount 88 + Budget·Skip 144 = 920, + 40 chrome = 960 — inside
+   * Rate 88 + GST 88 + Delivery 112 + Amount 112 + Budget·Skip 176 = 976, + 40 chrome = 1,016 — inside
    * the ~1,060px pane beside the order list (1920 screen at 125%), so no sideways scroll.
    * Every row is ONE line: Required · To Order float under the Qty box on focus (`qtyFacts`).
    * ChildGrid's DEFAULT switch (a table from a 512px pane, cards below it on a phone). No
@@ -1060,7 +1098,7 @@ export function RequirementPoForm({
       /* NOTE / REMARK (user 2026-10-26): the Purchase Manager's instruction for THIS item —
          "PROCESS: CUT & SEAL", "SHADE 402". Saved onto the line's description as
          "ITEM (NOTE)", which is what the print, GRN and store logs read. */
-      header: "Note / Remark",
+      header: "Note",
       width: FIELD_WIDTH_CSS.hug,
       cell: (r) => (
         <Input
@@ -1115,7 +1153,7 @@ export function RequirementPoForm({
          the approved budget is red with a warning mark, a skipped line says so, a line at
          0 is a dash. The spec's exact "Above Approved Budget" is the title and the bar. */
       header: "Amount",
-      width: FIELD_WIDTH_CSS.hug,
+      width: FIELD_WIDTH_CSS.range,
       align: "right",
       cell: (r) => {
         if (r.row.skip)
@@ -1134,9 +1172,11 @@ export function RequirementPoForm({
         if (a <= 0) return null;
         const mark = budgetMarkOf([r]);
         return (
-          <span className={cn("inline-flex items-center gap-1.5 text-sm font-medium tabular-nums", mark === "above" && "font-semibold text-[#b42318]")}>
-            {fmtFixed(a, 2)}
-          </span>
+          // Truncated (user 2026-10-28, screenshot 3810): a long figure spilled into Budget.
+          <Truncated
+            text={fmtFixed(a, 2)}
+            className={cn("block text-sm font-medium tabular-nums", mark === "above" && "font-semibold text-[#b42318]")}
+          />
         );
       },
     },
@@ -1146,7 +1186,7 @@ export function RequirementPoForm({
          place — the row greys and the icon turns to Undo. A button, so it is off the Tab path
          like every row action. */
       header: "Budget",
-      width: FIELD_WIDTH_CSS.code,
+      width: FIELD_WIDTH_CSS.term,
       cell: (r) => (
         <div className="flex items-center gap-1">
         <div className="min-w-0 flex-1">{budgetCell([r], (p) => setRow(r, p))}</div>
@@ -1236,7 +1276,7 @@ export function RequirementPoForm({
       cell: (g) => itemCell(g.item_name, g.spec, false, g.members[0]?.item_id, g.members[0]?.category),
     },
     {
-      header: "Note / Remark",
+      header: "Note",
       width: FIELD_WIDTH_CSS.hug,
       cell: (g) => (
         <Input
@@ -1325,13 +1365,13 @@ export function RequirementPoForm({
     },
     {
       header: "Amount",
-      width: FIELD_WIDTH_CSS.hug,
+      width: FIELD_WIDTH_CSS.range,
       align: "right",
-      cell: (g) => <span className="text-sm font-medium tabular-nums">{g.amount > 0 ? fmtFixed(g.amount, 2) : ""}</span>,
+      cell: (g) => (g.amount > 0 ? <Truncated text={fmtFixed(g.amount, 2)} className="block text-sm font-medium tabular-nums" /> : null),
     },
     {
       header: "Budget",
-      width: FIELD_WIDTH_CSS.code,
+      width: FIELD_WIDTH_CSS.term,
       // The order grid's own control; the reason goes to every order line under the item.
       cell: (g) => budgetCell(g.members, (p) => setMembers(g.members, p)),
     },
@@ -1376,7 +1416,7 @@ export function RequirementPoForm({
                 ? "Submit opens once every rate is typed."
                 : goesToMd
                   ? unreasoned
-                    ? `Give the reason on ${unreasoned} line${unreasoned === 1 ? "" : "s"} — in its Budget box`
+                    ? `Pick ${unreasoned} budget reason${unreasoned === 1 ? "" : "s"}`
                     : `${budgetWords(above, unbudgeted)} — Submit sends it to the MD`
                   : "Every rate is within budget — Submit approves the PO by rule.";
   /* THE BAR'S MESSAGE IS A STATUS CHIP (user 2026-10-26: "make it better, single row,
@@ -1420,7 +1460,7 @@ export function RequirementPoForm({
   const groupColumns: ChildGridColumn<SizeGroup>[] = [
     { header: "Item", width: FIELD_WIDTH_CSS.party, cell: (g) => itemCell(g.first.item_name, describeGroup(g), groupSkip(g), g.first.item_id, g.first.category) },
     {
-      header: "Note / Remark",
+      header: "Note",
       width: FIELD_WIDTH_CSS.hug,
       cell: (g) => {
         const note = common(g.members.map((m) => (m.row.note ?? "").trim()));
@@ -1530,7 +1570,7 @@ export function RequirementPoForm({
     },
     {
       header: "Amount",
-      width: FIELD_WIDTH_CSS.hug,
+      width: FIELD_WIDTH_CSS.range,
       align: "right",
       cell: (g) => {
         if (groupSkip(g))
@@ -1550,16 +1590,18 @@ export function RequirementPoForm({
         if (a <= 0) return null;
         const mark = budgetMarkOf(live);
         return (
-          <span className={cn("inline-flex items-center gap-1.5 text-sm font-medium tabular-nums", mark === "above" && "font-semibold text-[#b42318]")}>
-            {fmtFixed(a, 2)}
-          </span>
+          // Truncated (user 2026-10-28, screenshot 3810): a long figure spilled into Budget.
+          <Truncated
+            text={fmtFixed(a, 2)}
+            className={cn("block text-sm font-medium tabular-nums", mark === "above" && "font-semibold text-[#b42318]")}
+          />
         );
       },
     },
     {
       // BUDGET · SKIP, as on the order grid; the reason goes to every size under the row.
       header: "Budget",
-      width: FIELD_WIDTH_CSS.code,
+      width: FIELD_WIDTH_CSS.term,
       cell: (g) => {
         const skip = groupSkip(g);
         const what = `${g.first.item_name} ${describeGroup(g)}${g.sized ? " (every size)" : ""}`;
@@ -2261,16 +2303,20 @@ export function RequirementPoForm({
 
       {/* YARN BAGS / FABRIC ROLLS POP-UP — a sub-detail with no grid, so `sm` (AGENTS, A
           sub-detail Sheet's size), centred on the pane, grown from the Qty cell, no Save of
-          its own: the bags, rolls and dia are written by the PO's Save. */}
+          its own: the bags, rolls and dia are written by the PO's Save.
+          FABRIC IS ONE ROW OF SIX (user 2026-10-28: "in single row") — PO weight · Rolls · Dia ·
+          GSM · Gauge · Loop length, 6 × 112 + 5 × 12 gaps = 732 + px-5 (40) + border = ~780px,
+          so it opens wider than `sm`; yarn's three boxes stay `sm`. */}
       <Sheet
         open={!!qtySheetRow}
         onClose={() => setQtySheet(null)}
-        size="sm"
+        size={qtySheetRow && lineKindOf(qtySheetRow.item_class) === "fabric" ? "md" : "sm"}
+        maxWidthClass={qtySheetRow && lineKindOf(qtySheetRow.item_class) === "fabric" ? "max-w-[780px]" : undefined}
         alignToPane
         origin={qtySheet?.origin ?? null}
         title={
           qtySheetRow
-            ? `${lineKindOf(qtySheetRow.item_class) === "yarn" ? "Yarn bags" : "Fabric rolls"} — ${qtySheetRow.item_name}`
+            ? qtySheetRow.item_name
             : "Quantity"
         }
         footer={<SubSheetFooter onDone={() => setQtySheet(null)} />}
@@ -2282,37 +2328,59 @@ export function RequirementPoForm({
               const inBags = bagsOf(r);
               const over = overBy(r);
               const bw = num(r.row.bagWt ?? "");
+              const unit = (r.uom_code ?? "kg").toLowerCase();
+              /* ONE LAYOUT FOR BOTH, EVERY BOX THE SAME (user 2026-10-28, screenshot 3815: "clean,
+                 aligned, remove duplicate words"). Three boxes on one row, the unit said once in
+                 each label, the item only in the title, one muted line under the row. The weight
+                 was a borderless grid cell inside a hand-drawn border, so it stood shorter and
+                 differently boxed than Rolls and Dia beside it. */
+              const weightBox = (
+                <Field label={`PO weight (${unit})`} htmlFor={`rpo-sqty-${r.key}`}>
+                  <Input
+                    id={`rpo-sqty-${r.key}`}
+                    type="number"
+                    min={0}
+                    inputMode="decimal"
+                    className={cn("text-right tabular-nums", over > 0 && "font-semibold text-[#8a5800]")}
+                    disabled={r.row.skip}
+                    value={r.row.skip ? "0" : r.row.qty}
+                    onChange={(e) => {
+                      if (inBags) return setBagQty(r, e.target.value);
+                      const typed = num(e.target.value);
+                      // Spec 6: excess is never possible — a figure above the balance snaps back to it.
+                      setRow(r, { qty: e.target.value === "" ? "" : typed > r.balance_qty ? String(capQty(typed, r.balance_qty)) : e.target.value });
+                    }}
+                  />
+                </Field>
+              );
+              const fact = (label: string, value: ReactNode) => (
+                <div>
+                  <dt className="text-xs text-muted-foreground">{label}</dt>
+                  <dd className="font-semibold tabular-nums">{value}</dd>
+                </div>
+              );
               return (
                 <div className="space-y-4">
                   {/* What it is typed against — read, never typed. */}
-                  <dl className="grid grid-cols-2 gap-3 rounded-md border border-[#dde4eb] bg-[#fafbfc] px-3 py-2 text-sm tabular-nums">
-                    <div>
-                      <dt className="text-xs text-muted-foreground">{QTY.required}</dt>
-                      <dd className="font-semibold">
-                        {fmtNumber(r.required_qty)} {r.uom_code ?? ""}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-xs text-muted-foreground">{QTY.toOrder}</dt>
-                      <dd className="font-semibold">
-                        {fmtNumber(r.balance_qty)} {r.uom_code ?? ""}
-                      </dd>
-                    </div>
+                  <dl className="grid grid-cols-3 gap-3 rounded-md border border-[#dde4eb] bg-[#fafbfc] px-3 py-2 text-sm">
+                    {fact(`Required (${unit})`, fmtNumber(r.required_qty))}
+                    {fact(`To order (${unit})`, fmtNumber(r.balance_qty))}
                   </dl>
                   {kind === "yarn" ? (
-                    <>
-                      <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <div className="grid grid-cols-3 gap-3">
                         <Field label="Bag weight (kg)" htmlFor={`rpo-bw-${r.key}`}>
                           <Input
                             id={`rpo-bw-${r.key}`}
                             type="number"
                             min={0}
                             inputMode="decimal"
+                            className="text-right tabular-nums"
                             value={r.row.bagWt ?? ""}
                             onChange={(e) => setBagWeight(r, e.target.value)}
                           />
                         </Field>
-                        <Field label="No. of bags" htmlFor={`rpo-bags-${r.key}`}>
+                        <Field label="Bags" htmlFor={`rpo-bags-${r.key}`}>
                           <Input
                             id={`rpo-bags-${r.key}`}
                             type="number"
@@ -2320,77 +2388,78 @@ export function RequirementPoForm({
                             step={1}
                             max={bw > 0 ? maxBags(r.balance_qty, bw) : undefined}
                             inputMode="numeric"
+                            className="text-right tabular-nums"
                             disabled={!(bw > 0)}
-                            title={bw > 0 ? `At most ${maxBags(r.balance_qty, bw)} — one bag past To Order is the limit` : "Type the bag weight first"}
+                            title={bw > 0 ? `At most ${maxBags(r.balance_qty, bw)}` : "Type the bag weight first"}
                             value={r.row.bags ?? ""}
                             onChange={(e) => setBags(r, e.target.value, r.row.bagWt ?? "")}
                           />
                         </Field>
+                        {weightBox}
                       </div>
-                      <div className="flex items-baseline justify-between rounded-md border border-[#dde4eb] px-3 py-2">
-                        <span className="text-sm text-muted-foreground">PO weight = bags × bag weight</span>
-                        {inBags ? (
-                          <span className={cn("text-base font-bold tabular-nums", over > 0 && "text-[#8a5800]")}>
-                            {num(r.row.qty)} kg
-                          </span>
-                        ) : (
-                          // No bags yet: the weight is typed as on any line (capped at To Order).
-                          <div className="flex w-36 items-center gap-1">{qtyInput(r, `rpo-yqty-${r.key}`)}</div>
-                        )}
-                      </div>
-                      {over > 0 ? (
-                        <p className="rounded-md border border-[#f1d48a] bg-[#fff7e0] px-3 py-1.5 text-sm text-[#8a5800]">
-                          {over} kg over To Order — whole bags. Allowed up to one bag.
-                        </p>
-                      ) : null}
-                    </>
+                      <p className={cn("text-xs", over > 0 ? "text-[#8a5800]" : "text-muted-foreground")}>
+                        {over > 0
+                          ? `${over} ${unit} over To order — allowed, up to one bag.`
+                          : "Bags × bag weight. Type less for a part-filled last bag."}
+                      </p>
+                    </div>
                   ) : (
-                    <div className="grid grid-cols-3 gap-3">
-                      <Field label="PO weight (kg)" htmlFor={`rpo-fqty-${r.key}`}>
-                        <div className="flex items-center rounded-md border border-border">{qtyInput(r, `rpo-fqty-${r.key}`)}</div>
-                      </Field>
-                      <Field label="No. of rolls" htmlFor={`rpo-rolls-${r.key}`}>
+                    <div className="space-y-1.5">
+                    <div className="grid grid-cols-6 gap-3">
+                      {weightBox}
+                      <Field label="Rolls" htmlFor={`rpo-rolls-${r.key}`}>
                         <Input
                           id={`rpo-rolls-${r.key}`}
                           type="number"
                           min={0}
                           step={1}
                           inputMode="numeric"
+                          className="text-right tabular-nums"
                           value={r.row.rolls ?? ""}
                           onChange={(e) => setRow(r, { rolls: e.target.value })}
                         />
                       </Field>
                       <Field label="Dia" htmlFor={`rpo-dia-${r.key}`}>
-                        <Input
-                          id={`rpo-dia-${r.key}`}
-                          maxLength={20}
-                          value={r.row.dia ?? ""}
-                          onChange={(e) => setRow(r, { dia: e.target.value })}
-                        />
+                        <Input id={`rpo-dia-${r.key}`} maxLength={20} value={r.row.dia ?? ""} onChange={(e) => setRow(r, { dia: e.target.value })} />
                       </Field>
+                  {/* THE CLOTH'S CONSTRUCTION (0762) — TYPED ON THE PO (user 2026-10-28: "allow
+                      user input"). Each box opens on the Fabric BOM's value (GSM off the order's
+                      colourway, Gauge and Loop Length off Fabric BOM ▸ Manual entry); what is typed
+                      goes on THIS PO line only and is printed — the BOM is never written. */}
+                        <Field label="GSM" htmlFor={`rpo-gsm-${r.key}`}>
+                          <Input
+                            id={`rpo-gsm-${r.key}`}
+                            type="number"
+                            min={0}
+                            inputMode="decimal"
+                            className="text-right tabular-nums"
+                            value={r.row.gsm ?? (r.gsm != null ? String(r.gsm) : "")}
+                            onChange={(e) => setRow(r, { gsm: e.target.value })}
+                          />
+                        </Field>
+                        <Field label="Gauge (GG)" htmlFor={`rpo-gauge-${r.key}`}>
+                          <Input
+                            id={`rpo-gauge-${r.key}`}
+                            maxLength={20}
+                            value={r.row.gauge ?? r.gauge ?? ""}
+                            onChange={(e) => setRow(r, { gauge: e.target.value })}
+                          />
+                        </Field>
+                        <Field label="Loop length (mm)" htmlFor={`rpo-loop-${r.key}`}>
+                          <Input
+                            id={`rpo-loop-${r.key}`}
+                            type="number"
+                            min={0}
+                            inputMode="decimal"
+                            className="text-right tabular-nums"
+                            value={r.row.loop ?? (r.loop_length != null ? String(r.loop_length) : "")}
+                            onChange={(e) => setRow(r, { loop: e.target.value })}
+                          />
+                        </Field>
+                    </div>
+                    <p className="text-xs text-muted-foreground">GSM, Gauge and Loop length are filled from the Fabric BOM — a change here is for this PO only.</p>
                     </div>
                   )}
-                  {/* THE CLOTH'S CONSTRUCTION (user 2026-10-28, 0762) — read from planning,
-                      never typed here: GSM off the order's colourway, Gauge and Loop Length
-                      off the Fabric BOM ▸ Manual entry. The save copies them for the print.
-                      A dash means planning has not stated it; the fix is on the Fabric BOM. */}
-                  {kind === "fabric" ? (
-                    <dl className="grid grid-cols-3 gap-3 rounded-md border border-[#dde4eb] bg-[#fafbfc] px-3 py-2 text-sm tabular-nums">
-                      <div>
-                        <dt className="text-xs text-muted-foreground">GSM</dt>
-                        <dd className="font-semibold">{r.gsm ?? "—"}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-xs text-muted-foreground">Gauge (GG)</dt>
-                        <dd className="font-semibold">{r.gauge ?? "—"}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-xs text-muted-foreground">Loop length (mm)</dt>
-                        <dd className="font-semibold">{r.loop_length ?? "—"}</dd>
-                      </div>
-                      <p className="col-span-3 text-xs text-muted-foreground">From the order&apos;s Fabric BOM — change them there.</p>
-                    </dl>
-                  ) : null}
                 </div>
               );
             })()

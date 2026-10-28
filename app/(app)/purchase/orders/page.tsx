@@ -97,6 +97,15 @@ export default async function PurchaseOrdersPage() {
       can("materials_purchase", "create"),
     ]);
 
+  const table = (
+    <DataTable
+      columns={withCreatedColumns(columns, orders)}
+      rows={orders}
+      getKey={(r) => r.id}
+      empty="No purchase orders yet."
+    />
+  );
+
   return (
     <div className="space-y-4">
       <PageHeader
@@ -104,7 +113,7 @@ export default async function PurchaseOrdersPage() {
         description="PO tracker — create from budget, approve, track receipt balance."
       />
 
-      {canCreate && (
+      {canCreate ? (
         <NewPoForm
           vendors={vendors}
           budgets={budgets}
@@ -113,15 +122,11 @@ export default async function PurchaseOrdersPage() {
           items={items}
           orders={salesOrders}
           iwos={iwos}
+          list={table}
         />
+      ) : (
+        table
       )}
-
-      <DataTable
-        columns={withCreatedColumns(columns, orders)}
-        rows={orders}
-        getKey={(r) => r.id}
-        empty="No purchase orders yet. Create one above."
-      />
     </div>
   );
 }

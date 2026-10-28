@@ -23,6 +23,12 @@ export interface SidebarItemProps {
   trailing?: ReactNode;
   /** Extra classes for one use of the row (the hover flyout's roomier rows). */
   className?: string;
+  /** How the active row is marked. `solid` (default) is the filled primary
+   *  pill. `hue` leaves the row unfilled — the caller marks it with the
+   *  module's own colour (the icon rail, option C, user 2026-10-28) — and
+   *  drops `data-active`, so the appearance presets' pill gloss
+   *  (lib/appearance.ts) does not paint a solid pill back over it. */
+  tone?: "solid" | "hue";
 }
 
 /**
@@ -40,7 +46,9 @@ export function SidebarItem({
   onClick,
   trailing,
   className,
+  tone = "solid",
 }: SidebarItemProps) {
+  const solid = active && tone === "solid";
   function handleClick(e: MouseEvent<HTMLAnchorElement>) {
     if (!isPlainLeftClick(e)) return;
     onClick?.(e);
@@ -53,7 +61,8 @@ export function SidebarItem({
       onClick={handleClick}
       // Surface-style hook (lib/appearance.ts STYLES): Pearl / Frost gloss the
       // active pill like a solid button.
-      data-active={active ? "" : undefined}
+      data-active={solid ? "" : undefined}
+      aria-current={active ? "page" : undefined}
       className={cn(
         // `text-[13px]`, not `text-sm` (14px) — matches the workspace tab
         // bar's own label size (workspace-tabs-bar.tsx) exactly, client
@@ -82,9 +91,11 @@ export function SidebarItem({
         // compile here, and `--primary-soft` is too dark under text in dark
         // mode — see globals.css). A hover is a row state, not a surface, so
         // the "no tinted column" decision above is untouched.
-        active
+        solid
           ? "bg-primary font-semibold text-primary-foreground shadow-elev hover:bg-primary-hover"
-          : "text-muted-foreground hover:bg-[var(--cell-active)] hover:text-foreground",
+          : active
+            ? "font-semibold text-foreground"
+            : "text-muted-foreground hover:bg-[var(--cell-active)] hover:text-foreground",
         className,
       )}
     >

@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can, getAppUser } from "@/lib/auth/server";
 import { refuseReopenedBudget, refuseUnsettledMaterials } from "@/lib/purchase/bom-ceiling-service";
-import { getRequirementLines, getVendorsForClass } from "./service";
+import { getRequirementLines, getVendorsForClass, withApprovedBudgets } from "./service";
 import { notifyPoAboveBudget } from "@/lib/purchase/po-escalation";
 import { startApproval } from "@/lib/approvals/actions";
 import { WORKFLOWS } from "@/lib/approvals/workflows";
@@ -12,7 +12,6 @@ import { poItemClasses } from "@/lib/purchase/po-routing";
 import {
   budgetWords,
   gstSlab,
-  withGst,
   lineDescription,
   lineGst,
   lineKeyOf,
@@ -230,14 +229,18 @@ export async function savePoFromRequirement(raw: RePoInput, mode: "draft" | "sub
     bag_weight: number | null;
     rolls: number | null;
     dia: string | null;
+    gsm?: number | null;
+    gauge?: string | null;
+    loop_length?: number | null;
   }[] = [];
   for (const l of input.lines) {
     if (l.qty <= 0) continue; // qty 0 = "not ordered on this PO"
     const req = byKey.get(lineKeyOf(l));
     if (!req) return { ok: false, error: "A line is no longer on that RE's requirement sheet — reload the screen" };
-    // Bags and their weight travel together, and a bag line's qty IS bags × weight (0758).
-    if ((l.bags == null) !== (l.bag_weight == null) || (l.bags != null && l.bag_weight != null && Math.abs(l.qty - l.bags * l.bag_weight) >= 1e-3)) {
-      return { ok: false, error: `${lineDescription(req)} (${req.source_no}): the weight must be the bags × the bag weight — reload the screen` };
+    // Bags and their weight travel together (0758). The weight may be typed below bags × bag
+    // weight (a part-filled last bag, 2026-10-28); above To Order, qtyAllowed holds it to whole bags.
+    if ((l.bags == null) !== (l.bag_weight == null)) {
+      return { ok: false, error: `${lineDescription(req)} (${req.source_no}): the bags need their bag weight — reload the screen` };
     }
     // Never above what is left — except by whole bags, and then by less than one (0758).
     if (!qtyAllowed(l.qty, req.balance_qty, l.bags, l.bag_weight)) {
@@ -257,9 +260,23 @@ export async function savePoFromRequirement(raw: RePoInput, mode: "draft" | "sub
       bag_weight: l.bag_weight ?? null,
       rolls: l.rolls ?? null,
       dia: l.dia ?? null,
+      gsm: l.gsm,
+      gauge: l.gauge === undefined ? undefined : l.gauge || null,
+      loop_length: l.loop_length,
     });
   }
   if (lines.length === 0) return { ok: false, error: "Every line has quantity 0 — there is nothing to order" };
+
+  // Only an order with an approved budget is bought for (withApprovedBudgets, 2026-10-28) —
+  // asked again here, so a tab opened before a budget went back to draft cannot raise one.
+  try {
+    const { lines: allowed } = await withApprovedBudgets(lines.map((l) => l.req));
+    const ok = new Set(allowed.map(lineKeyOf));
+    const blocked = lines.find((l) => !ok.has(lineKeyOf(l.req)));
+    if (blocked) return { ok: false, error: `${blocked.req.source_no}: its order budget is not approved — a PO can be raised only after the MD approves it` };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Could not read the order budgets" };
+  }
 
   /* THE VENDOR SUPPLIES EVERY CLASS ON THE PO (spec point 2). The class is the line's
      (2026-10-23 — it left the header), so the check is per class: the vendor must be a
@@ -301,8 +318,8 @@ export async function savePoFromRequirement(raw: RePoInput, mode: "draft" | "sub
           uom_id: l.req.uom_id,
           slice_label: l.req.slice_label,
           colour: l.req.colour,
-          // GST-inclusive budget: compare the rate with this line's GST on (withGst).
-          rate: l.rate == null ? null : withGst(l.rate * fx, l.gst_pct ?? slab.pct),
+          // Ex-GST budget: the basic rate, as typed (re-po/types.ts, 2026-10-28).
+          rate: l.rate == null ? null : l.rate * fx,
         })),
       );
       aboveCount = flags.filter((f) => f.above).length;
@@ -372,11 +389,11 @@ export async function savePoFromRequirement(raw: RePoInput, mode: "draft" | "sub
       bag_weight: l.bag_weight,
       rolls: l.rolls ?? 0,
       dia: l.dia,
-      // The cloth's construction, COPIED FROM PLANNING here and never from the browser
-      // (0762): the vendor's PO keeps what the BOM said the day it was raised.
-      gsm: l.req.gsm,
-      gauge: l.req.gauge,
-      loop_length: l.req.loop_length,
+      // The cloth's construction (0762): the Fabric BOM's, unless the Purchase Manager typed
+      // this PO's own (user 2026-10-28) — the PO keeps it; the BOM is never written.
+      gsm: l.gsm === undefined ? l.req.gsm : l.gsm,
+      gauge: l.gauge === undefined ? l.req.gauge : l.gauge,
+      loop_length: l.loop_length === undefined ? l.req.loop_length : l.loop_length,
       quantity: l.qty,
       uom_id: l.req.uom_id,
       unit_price: l.rate ?? 0,

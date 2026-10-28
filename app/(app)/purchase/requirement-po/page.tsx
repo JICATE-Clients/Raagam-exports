@@ -1,13 +1,13 @@
 import { requirePermission } from "@/lib/auth/server";
 import { PageHeader } from "@/components/ui/page-header";
 import {
-  getBudgetedLineKeys,
   getDraftHolds,
   getItemClasses,
   getRequirementLines,
   getVendorsByClass,
   listRaisedPos,
   peekPoNumber,
+  withApprovedBudgets,
 } from "@/lib/purchase/re-po/service";
 import { RaisePoScreen } from "./raise-po-screen";
 
@@ -25,13 +25,14 @@ export default async function RequirementPoPage() {
   await requirePermission("materials_purchase", "create");
   // Every item class (the pill lists them all, 2026-10-26) does not wait on the lines.
   const [all, nextPoNo, itemClasses] = await Promise.all([getRequirementLines(), peekPoNumber(), getItemClasses()]);
-  const lines = all.filter((l) => l.balance_qty > 0);
-  // One round for the three: the vendors, which lines have an approved budget (the
-  // Budget filter — asked with no rate, so no figure reaches the page), and the draft
-  // POs already holding a balance.
-  const [vendorsByClass, budgetedKeys, draftHolds, raised] = await Promise.all([
-    getVendorsByClass(lines.map((l) => l.item_class_id).filter((v): v is string => !!v)),
-    getBudgetedLineKeys(lines),
+  // Only orders whose budget is approved (withApprovedBudgets); the budgeted keys are the
+  // Budget filter — asked with no rate, so no figure reaches the page.
+  // Vendors are read for every class with a balance, not only the approved orders' — one
+  // round instead of two; a class nobody lists is never looked up.
+  const open = all.filter((l) => l.balance_qty > 0);
+  const [{ lines, budgetedKeys }, vendorsByClass, draftHolds, raised] = await Promise.all([
+    withApprovedBudgets(open),
+    getVendorsByClass(open.map((l) => l.item_class_id).filter((v): v is string => !!v)),
     getDraftHolds(),
     // The Updated / Draft lists (user 2026-10-26: Save stays on Raise PO).
     listRaisedPos(),

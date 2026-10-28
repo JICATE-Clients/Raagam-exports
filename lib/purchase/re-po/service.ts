@@ -128,6 +128,24 @@ export async function getBudgetedLineKeys(lines: readonly RequirementLine[]): Pr
 }
 
 /**
+ * ONLY AN ORDER WITH AN APPROVED BUDGET IS BOUGHT FOR (user 2026-10-28, screenshot 3810).
+ * An RE whose budget is not approved yet is left out of Raise PO altogether — read by the
+ * page AND by the save, so a stale tab cannot raise one either. An order counts as approved
+ * when any of its lines has an approved budget line; a line of it that the budget does not
+ * cover still shows "No budget" and takes its reason. EVERY kind of order — RE, IWO, SWO
+ * (user 2026-10-28: "not only RE, all kind type") — so a line with no order budget behind
+ * it (no `garment_order_id`) is not listed.
+ */
+export async function withApprovedBudgets(
+  lines: readonly RequirementLine[],
+): Promise<{ lines: RequirementLine[]; budgetedKeys: string[] }> {
+  const budgetedKeys = await getBudgetedLineKeys(lines);
+  const keys = new Set(budgetedKeys);
+  const approved = new Set(lines.filter((l) => l.garment_order_id && keys.has(lineKeyOf(l))).map((l) => l.garment_order_id));
+  return { lines: lines.filter((l) => !!l.garment_order_id && approved.has(l.garment_order_id)), budgetedKeys };
+}
+
+/**
  * DRAFT POs HOLDING A BALANCE (2026-10-26). A draft counts as ordered (0748's
  * `ord`), so an order a colleague drafted and forgot shows less left to buy with
  * nothing on screen saying why — the list names the draft instead. Two plain

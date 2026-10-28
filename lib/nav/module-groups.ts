@@ -1074,6 +1074,8 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           // doc/purchase/puchase.md (2026-10-23): RE numbers in, requirement lines out, the manager types the rate.
           // First in the group (user 2026-10-26): a PO starts from the requirement, then is worked on Purchase Orders.
           { href: "/purchase/requirement-po", label: "Raise PO", description: "Pick RE numbers; what they still need lists itself; type the rate" },
+          // The approver's queue of POs raised on Raise PO — Orders ▸ Approval's shape (user 2026-10-28).
+          { href: "/purchase/po-approval", label: "PO Approval", description: "Approve, send back or reject a PO raised on Raise PO" },
           { href: "/purchase/orders", label: "Purchase Orders", description: "Create from budget, submit and approve" },
           { href: "/purchase/rfq", label: "RFQ", description: "Request quotes from vendors and award" },
           { href: "/purchase/indents", label: "Indents", description: "Department indents and their lines" },

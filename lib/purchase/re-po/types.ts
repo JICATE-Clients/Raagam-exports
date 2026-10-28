@@ -194,6 +194,11 @@ export const rePoLineInput = z.object({
     .toUpperCase()
     .nullish()
     .transform((v) => v || null),
+  /** Fabric construction (0762), typed on the PO (user 2026-10-28). ABSENT = the Fabric BOM's
+   *  value; null = cleared on purpose. Only this PO line changes — never the BOM. */
+  gsm: z.number().positive().max(2000, "GSM is at most 2000").nullable().optional(),
+  gauge: z.string().trim().max(20, "Gauge is at most 20 characters").toUpperCase().nullable().optional(),
+  loop_length: z.number().positive().max(100, "Loop length is at most 100 mm").nullable().optional(),
   /** This line's GST % (0756); null / absent = the PO's default slab. */
   gst_pct: z
     .number()
@@ -329,44 +334,37 @@ export function budgetWords(above: number, unbudgeted: number): string {
     .join(", ");
 }
 
-/**
- * AN ORDER BUDGET'S RATE INCLUDES GST (user 2026-10-28: the Project Manager confirmed
- * merchandisers enter the budget rate GST-inclusive). A PO's typed rate is the BASIC
- * rate, its GST added per line (0756). So the two compare only after the PO rate has
- * its own line's GST put on — 4.40 + 12% = 4.928 against a budget of 4.50 is above.
- * `po_budget_check` compares `rate > budget_rate` and knows nothing of GST, so every
- * caller sends `withGst(...)`; the MD's review reads the other half, `basicCeiling`.
+/*
+ * THE BUDGET RATE IS EX-GST, AND SO IS THE PO RATE IT IS COMPARED WITH (user 2026-10-28,
+ * screenshot 3811 — reversing the same morning's "budgets include GST"). A washcare label
+ * budgeted at 0.50 and bought at 0.50 + 12% read ABOVE, because 0.56 > 0.50, and went to the
+ * MD. GST on bought items is recoverable input credit, not a cost to the order, so the
+ * typed basic rate is compared with the budget rate as entered, and GST only goes on the
+ * PO's totals. `po_budget_check` compares `rate > budget_rate` — send the basic rate (× fx).
  */
-export const withGst = (rate: number, gstPct: number) => rate * (1 + gstPct / 100);
-/** The basic rate a GST-inclusive budget allows at this GST % — 4.50 at 12% is 4.018. */
-export const basicCeiling = (budgetRate: number, gstPct: number) => budgetRate / (1 + gstPct / 100);
 
 /**
  * WHAT A PO'S RATES COST THE ORDER, AGAINST ITS BUDGET — the MD's figure. One function
  * for the PO page's review and the My Approvals card (0764), so the two never print
  * different impacts for one PO.
  *
- * `variance` is line id → budget rate in RUPEES, GST included (`getPoBudgetVariance`),
+ * `variance` is line id → budget rate in RUPEES, ex-GST (`getPoBudgetVariance`),
  * null where the line has no approved budget. An import line's rate is in its own
  * currency, so it is put into rupees with `fx`. Every rupee a line pays above its
  * budget comes straight off the order's profit, so that sum IS the impact — counted
- * in the budget's own terms, GST included, since that is what the order was costed at.
+ * ex-GST, as the order was costed (GST on bought items is recoverable).
  */
 export function poBudgetImpact<L extends { id: string; unit_price: number | string; quantity: number | string; gst_pct?: number | string | null }>(
   lines: readonly L[],
   variance: Readonly<Record<string, number | null>>,
-  opts: { fx: number; headerGstPct: number },
+  opts: { fx: number },
 ) {
-  const gstOf = (l: L) => Number(l.gst_pct ?? opts.headerGstPct);
-  // The budget less this line's GST, so it compares with the basic Rate beside it.
-  const budgetOf = (l: L) => {
-    const b = variance[l.id] ?? null;
-    return b == null ? null : basicCeiling(b, gstOf(l));
-  };
+  // Ex-GST, as the basic Rate beside it (see above).
+  const budgetOf = (l: L) => variance[l.id] ?? null;
   const over = lines.filter((l) => budgetOf(l) != null && Number(l.unit_price) * opts.fx > budgetOf(l)! + 1e-9);
   const unbudgeted = lines.filter((l) => budgetOf(l) == null && Number(l.quantity) > 0);
-  const profitHit = over.reduce((a, l) => a + withGst(Number(l.unit_price) * opts.fx - budgetOf(l)!, gstOf(l)) * Number(l.quantity), 0);
-  const budgetedSpend = over.reduce((a, l) => a + withGst(budgetOf(l)!, gstOf(l)) * Number(l.quantity), 0);
+  const profitHit = over.reduce((a, l) => a + (Number(l.unit_price) * opts.fx - budgetOf(l)!) * Number(l.quantity), 0);
+  const budgetedSpend = over.reduce((a, l) => a + budgetOf(l)! * Number(l.quantity), 0);
   return {
     budgetOf,
     over,

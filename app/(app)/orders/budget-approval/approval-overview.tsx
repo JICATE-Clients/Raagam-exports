@@ -460,7 +460,7 @@ const STEP_WORD: Record<EventAction, string> = {
  * step, what happened, who and when; a step's comment shows under it. Compact
  * on purpose (user 2026-09-30: "compact the approval step section").
  */
-function ApprovalTrail({
+export function ApprovalTrail({
   rows,
   names,
   submitted,

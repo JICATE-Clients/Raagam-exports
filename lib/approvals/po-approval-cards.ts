@@ -95,7 +95,7 @@ export async function loadPoApprovalCards(poIds: readonly string[]): Promise<Rec
     const mine = lines.filter((l) => l.purchase_order_id === h.id);
     const isImport = h.po_type === "import";
     const fx = isImport ? Number(h.exchange_rate ?? 0) || 1 : 1;
-    const impact = variance ? poBudgetImpact(mine, variance, { fx, headerGstPct: Number(h.gst_pct ?? 0) }) : null;
+    const impact = variance ? poBudgetImpact(mine, variance, { fx }) : null;
     const cur = isImport ? (h.foreign_currency_code ?? "") : "₹";
     out[h.id] = {
       poId: h.id,
