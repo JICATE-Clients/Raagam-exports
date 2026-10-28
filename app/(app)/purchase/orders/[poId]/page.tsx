@@ -16,6 +16,7 @@ import { PO_STATUS_LABELS } from "@/lib/purchase/types";
 import type { PoStatus } from "@/lib/purchase/types";
 import { PoDetail } from "./po-detail";
 import { PoReview } from "./po-review";
+import { PoTabTitle } from "./po-tab-title";
 import { getRequirementLines } from "@/lib/purchase/re-po/service";
 import { statusTone } from "@/lib/ui/status-tone";
 import { getPoBudgetVariance, type PoVariance } from "@/lib/purchase/po-escalation";
@@ -70,9 +71,12 @@ export default async function PoDetailPage({
         description={`Vendor: ${po.vendor_name ?? "—"} · Order date: ${fmtDate(po.order_date)}`}
         actions={
           <div className="flex items-center gap-2">
-            <StatusPill tone={poStatusTone(po.status)}>
-              {PO_STATUS_LABELS[po.status]}
-            </StatusPill>
+            {/* A Raise PO review carries its status on its own title line (screenshot 3818). */}
+            {raised ? null : (
+              <StatusPill tone={poStatusTone(po.status)}>
+                {PO_STATUS_LABELS[po.status]}
+              </StatusPill>
+            )}
             {/* The vendor copy (user 2026-10-27) — only once approved (spec point 8). */}
             {po.status === "approved" ? (
               <Link href={`/purchase/orders/${po.id}/print`} className={buttonClasses({ variant: "outline", size: "md" })}>
@@ -84,8 +88,18 @@ export default async function PoDetailPage({
         }
       />
 
+      {/* The tab reads the PO number, not the route's uuid (screenshot 3818). */}
+      <PoTabTitle href={`/purchase/orders/${po.id}`} title={po.code ?? "Purchase Order"} />
       {raised ? (
-        <PoReview po={po} uoms={uoms} sourceNos={sourceNos} canEdit={canEdit} canApprove={canApprove} variance={variance} />
+        <PoReview
+          po={po}
+          uoms={uoms}
+          sourceNos={sourceNos}
+          canEdit={canEdit}
+          canApprove={canApprove}
+          variance={variance}
+          statusPill={<StatusPill tone={poStatusTone(po.status)}>{PO_STATUS_LABELS[po.status]}</StatusPill>}
+        />
       ) : (
       <PoDetail
         po={po}

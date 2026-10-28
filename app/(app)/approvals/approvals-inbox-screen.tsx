@@ -27,6 +27,7 @@ import type { RevisionCompare } from "@/lib/approvals/revision-compare";
 import { BudgetBreakdownChart } from "@/components/orders/budget-breakdown-chart";
 import type { OrderApprovalCard as OrderCardData } from "@/lib/approvals/order-approval-cards";
 import { OrderApprovalCard } from "@/components/approvals/order-approval-card";
+import type { PoApprovalCard } from "@/lib/approvals/po-approval-cards";
 
 /** A queue row with the two keys `withCreators` / `withCreatedColumns` read. */
 export type QueueRow = QueueItem & {
@@ -77,6 +78,7 @@ export function ApprovalsInboxScreen({
   stranded,
   canViewAll,
   budgets,
+  pos = {},
   verdicts,
 }: {
   rows: QueueRow[];
@@ -84,6 +86,8 @@ export function ApprovalsInboxScreen({
   canViewAll: boolean;
   /** Keyed by `subject_id`. Empty for every non-budget workflow. */
   budgets: Record<string, BudgetCard>;
+  /** Purchase Orders (0764), keyed by `subject_id` — total, variance, profit impact. */
+  pos?: Record<string, PoApprovalCard>;
   /** Keyed by `run_id`, and present ONLY where the server said yes. */
   verdicts: Record<string, CanActVerdict>;
 }) {
@@ -141,6 +145,7 @@ export function ApprovalsInboxScreen({
    *  budget submitted before `submitted_summary` existed. */
   const kpis = decideRow ? (budgets[decideRow.subject_id]?.kpis ?? null) : null;
   const decideCard = decideRow ? budgets[decideRow.subject_id] : undefined;
+  const decidePo = decideRow ? pos[decideRow.subject_id] : undefined;
   const decideRevision = decideCard?.revision ?? null;
 
   const filtered = useMemo(() => {
@@ -183,13 +188,24 @@ export function ApprovalsInboxScreen({
       className: HUG,
       cell: (r) => {
         const href = hrefFor(r);
-        const label = workflowLabel(r.workflow_key);
-        return href ? (
+        const po = pos[r.subject_id];
+        // A PO names itself and what it costs the order (0764).
+        const label = po?.code ? `PO ${po.code}` : workflowLabel(r.workflow_key);
+        const link = href ? (
           <Link href={href} className="text-xs font-medium text-primary hover:underline">
             {label}
           </Link>
         ) : (
           <span className="text-xs font-medium">{label}</span>
+        );
+        if (!po) return link;
+        return (
+          <span className="flex flex-col">
+            {link}
+            <span className="text-[11px] text-muted-foreground tabular-nums">
+              {[po.vendor, po.total, poImpactLine(po)].filter(Boolean).join(" · ")}
+            </span>
+          </span>
         );
       },
     },
@@ -408,13 +424,17 @@ export function ApprovalsInboxScreen({
              the MD knows the order by — then the customer and style under it.
              Every other workflow keeps its label. */
           title={(r) =>
-            budgets[r.subject_id] ? (
+            pos[r.subject_id]?.code ? (
+              <span className="font-mono">PO {pos[r.subject_id].code}</span>
+            ) : budgets[r.subject_id] ? (
               <span className="font-mono">{reOf(budgets[r.subject_id]) ?? workflowLabel(r.workflow_key)}</span>
             ) : (
               workflowLabel(r.workflow_key)
             )
           }
           subtitle={(r) => {
+            const po = pos[r.subject_id];
+            if (po) return po.vendor ? <Truncated>{po.vendor}</Truncated> : null;
             const b = budgets[r.subject_id];
             if (!b) return null;
             const line = [b.customer, b.styles].filter(Boolean).join(" · ");
@@ -431,7 +451,7 @@ export function ApprovalsInboxScreen({
           meta={(r) =>
             `${budgets[r.subject_id] ? `${workflowLabel(r.workflow_key)} · ` : ""}Step ${r.step_order} · ${r.step_label} · waiting ${waited(r.waiting_hours)}`
           }
-          stats={(r) => cardStats(budgets[r.subject_id])}
+          stats={(r) => (pos[r.subject_id] ? poStats(pos[r.subject_id]) : cardStats(budgets[r.subject_id]))}
           /* TAP THE CARD TO DECIDE. `onEdit` is the primitive's tap slot; the
              word is historical (it opens a record) and this opens the sheet
              that holds the figures and the three buttons. A card with no
@@ -461,7 +481,9 @@ export function ApprovalsInboxScreen({
               ? `${reOf(decideCard) ?? "Revision"}${decideRevision.revNo ? ` · Rev #${decideRevision.revNo}` : ""}`
               : decideCard?.budgetCode
                 ? `${workflowLabel(decideRow.workflow_key)} · ${decideCard.budgetCode}`
-                : workflowLabel(decideRow.workflow_key)
+                : decidePo?.code
+                  ? `PO ${decidePo.code}`
+                  : workflowLabel(decideRow.workflow_key)
           }
         >
           <div className="space-y-4 p-4">
@@ -525,7 +547,38 @@ export function ApprovalsInboxScreen({
               * the layout skill's governing rule, and `--check screen-grid`
               * flags the alternative.
               */}
-            {kpis ? (
+            {/* A PURCHASE ORDER (0764): the money, the lines above or without a budget,
+                what they cost the order, and the Purchase Manager's reason — then the
+                PO itself, one tap away, for every line. */}
+            {decidePo ? (
+              <>
+                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+                  <dt className="text-muted-foreground">Vendor</dt>
+                  <dd>{decidePo.vendor ?? "—"}</dd>
+                  <dt className="text-muted-foreground">Total</dt>
+                  <dd className="tabular-nums">{decidePo.total}</dd>
+                  <dt className="text-muted-foreground">Lines</dt>
+                  <dd className="tabular-nums">
+                    {decidePo.lineCount}
+                    {decidePo.overCount != null ? ` · ${decidePo.overCount} above budget` : ""}
+                    {decidePo.unbudgetedCount ? ` · ${decidePo.unbudgetedCount} without a budget` : ""}
+                  </dd>
+                  <dt className="text-muted-foreground">Profit impact</dt>
+                  <dd className={decidePo.profitHit ? "font-semibold text-danger tabular-nums" : "tabular-nums"}>
+                    {poImpactLine(decidePo) ?? "—"}
+                  </dd>
+                </dl>
+                <div className="rounded-md border border-warning/40 bg-warning/5 p-2.5 text-xs">
+                  <span className="font-semibold">Reason: </span>
+                  {decidePo.reason ?? <span className="text-muted-foreground">None given</span>}
+                </div>
+                {hrefFor(decideRow) ? (
+                  <Link href={hrefFor(decideRow)!} className="text-xs font-medium text-primary hover:underline">
+                    Open the PO (every line, budget vs rate, Reject for good)
+                  </Link>
+                ) : null}
+              </>
+            ) : kpis ? (
               <>
                 <dl className="flex flex-wrap items-stretch gap-2.5">
                   <HighlightTile w="code" tone="sales" label="Gross sales" value={kpis.total_income} />
@@ -585,7 +638,10 @@ export function ApprovalsInboxScreen({
               subjectPath="/approvals"
               /* An order budget reads Approve · Request Rework (client
                  2026-09-29); every other workflow keeps its three buttons. */
-              rework={decideRow.workflow_key === WORKFLOWS.order_budget.key}
+              rework={
+                decideRow.workflow_key === WORKFLOWS.order_budget.key ||
+                decideRow.workflow_key === WORKFLOWS.purchase_order.key
+              }
             />
           </div>
         </Sheet>
@@ -607,6 +663,25 @@ export function ApprovalsInboxScreen({
  * percent), and `CardStat.value` is a node precisely so that sentence can go
  * where the number would — never a dash, and never a zero an MD might approve.
  */
+/** "−₹ 12,345.00 profit (8.2% over)" — or null when nothing is above budget / unknown. */
+function poImpactLine(po: PoApprovalCard): string | null {
+  if (po.profitHit == null) return null;
+  if (po.profitHit <= 0) return po.unbudgetedCount ? "No budget to compare" : "Within budget";
+  return `−₹ ${fmtNumber(po.profitHit)} profit (${fmtNumber(po.overPct ?? 0)}% over)`;
+}
+
+/** A PO's card stats (0764): the impact leads, as Profit leads on a budget. */
+function poStats(po: PoApprovalCard): CardStat[] {
+  return [
+    { label: "Total", value: po.total },
+    {
+      label: "Above budget",
+      value: po.overCount == null ? "—" : `${po.overCount} of ${po.lineCount}${po.unbudgetedCount ? ` · ${po.unbudgetedCount} no budget` : ""}`,
+    },
+    { label: "Profit impact", value: poImpactLine(po) ?? "—", lead: true },
+  ];
+}
+
 function cardStats(b: BudgetCard | undefined): CardStat[] {
   const k = b?.kpis;
   if (!k) return [];

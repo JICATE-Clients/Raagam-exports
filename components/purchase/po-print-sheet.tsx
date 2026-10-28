@@ -120,6 +120,14 @@ export function PoPrintSheet({ data }: { data: PoPrintData }) {
                           {[r.rolls != null ? `${r.rolls} roll${r.rolls === 1 ? "" : "s"}` : null, r.dia ? `Dia ${r.dia}` : null].filter(Boolean).join(" · ")}
                         </div>
                       ) : null}
+                      {/* THE CLOTH'S CONSTRUCTION for the knitter (0762) — as planning stated it. */}
+                      {r.gsm != null || r.gauge || r.loopLength != null ? (
+                        <div className="mt-0.5 text-[11px] text-[#5b6472] tabular-nums">
+                          {[r.gsm != null ? `${r.gsm} GSM` : null, r.gauge ? `Gauge ${r.gauge}` : null, r.loopLength != null ? `LL ${r.loopLength} mm` : null]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </div>
+                      ) : null}
                     </Td>
                     <Td right>
                       {fmtNumber(r.qty)} <span className="text-[10.5px] text-[#7b8594]">{r.uom ?? ""}</span>
@@ -224,7 +232,7 @@ export function PoPrintSheet({ data }: { data: PoPrintData }) {
               </span>
             </p>
           ) : null}
-          <SignOff names={{ prepared: data.preparedBy, approved: data.approvedBy }} />
+          <SignOff names={{ prepared: data.preparedBy, approved: data.approvedBy }} approvedSignature={data.approverSignature} />
         </div>
       </article>
     </>

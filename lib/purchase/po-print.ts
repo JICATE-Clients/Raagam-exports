@@ -1,5 +1,5 @@
 import "server-only";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { letterheadLogoOf, registeredAddressOf } from "@/lib/orders/fabric-bom/letterhead";
 import { getPurchaseOrder } from "@/lib/purchase/po-service";
 import { getRequirementLines } from "@/lib/purchase/re-po/service";
@@ -47,6 +47,10 @@ export type PoPrintRow = {
   /** Fabric (0758). */
   rolls: number | null;
   dia: string | null;
+  /** Fabric construction (0762) — copied from planning when the PO was raised. */
+  gsm: number | null;
+  gauge: string | null;
+  loopLength: number | null;
 };
 
 export type PoPrintData = {
@@ -71,6 +75,9 @@ export type PoPrintData = {
   /** INR total of an import PO (the header's figure). */
   totalInr: number | null;
   notes: string | null;
+  /** The approver's signature as frozen on the PO when they approved (0764) — a
+   *  10-minute signed URL into the private `signatures` bucket; null without one. */
+  approverSignature: string | null;
   preparedBy: string | null;
   approvedBy: string | null;
   /** When it was approved — the digital approval stamp's date. */
@@ -145,7 +152,7 @@ export async function getPoPrint(poId: string): Promise<PoPrintData | null> {
     const bags = l.bags == null ? null : num(l.bags);
     // A sized line folds; a yarn line in bags or a fabric line with rolls stays its own row,
     // because its bags / rolls belong to it alone.
-    const foldable = !!req?.size_name && bags == null && !num(l.rolls);
+    const foldable = !!req?.size_name && bags == null && !num(l.rolls) && l.gsm == null && l.gauge == null && l.loop_length == null;
     const groupKey = foldable
       ? [src, req!.item_id, req!.slice_base.toUpperCase(), (req!.colour ?? "").toUpperCase(), l.uom_id, rate, note ?? "", gstPct].join("|")
       : String(l.id);
@@ -186,6 +193,9 @@ export async function getPoPrint(poId: string): Promise<PoPrintData | null> {
         bagWeight: l.bag_weight == null ? null : num(l.bag_weight),
         rolls: l.rolls == null || !num(l.rolls) ? null : num(l.rolls),
         dia: (l.dia as string | null) ?? null,
+        gsm: l.gsm == null ? null : num(l.gsm),
+        gauge: (l.gauge as string | null) ?? null,
+        loopLength: l.loop_length == null ? null : num(l.loop_length),
       },
       sizeOrder: foldable && req?.size_name ? [req.size_sort ?? 1e9] : [],
     });
@@ -261,5 +271,23 @@ export async function getPoPrint(poId: string): Promise<PoPrintData | null> {
     preparedBy: str("created_by") ? (names.get(str("created_by")!) ?? null) : null,
     approvedBy: str("approved_by") ? (names.get(str("approved_by")!) ?? null) : null,
     approvedAt: str("approved_at"),
+    approverSignature: await signatureUrl(str("approver_signature_path")),
   };
+}
+
+/**
+ * A signed URL for a frozen signature path (0764). The bucket is private and each
+ * login may read only its own folder, so the Purchase Manager printing the MD's
+ * approval reads it with the service client — the print page has already checked
+ * `materials_purchase:view` and that the PO is approved. Null on any failure: a
+ * missing image prints the name alone rather than failing the print.
+ */
+async function signatureUrl(path: string | null): Promise<string | null> {
+  if (!path) return null;
+  try {
+    const { data } = await createAdminClient().storage.from("signatures").createSignedUrl(path, 600);
+    return data?.signedUrl ?? null;
+  } catch {
+    return null;
+  }
 }

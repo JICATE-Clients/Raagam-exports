@@ -1,21 +1,25 @@
 import {
+  // Module icons, one per module and no two alike (user 2026-10-28: "think
+  // better icons"). Planning and Analytics both drew LineChart before; Sample
+  // is a garment-sample module, so a shirt says it faster than a shopping bag.
   LayoutDashboard,
-  ShoppingBag,
+  Shirt,
   ClipboardList,
-  Package,
+  ChartGantt,
+  ShoppingCart,
   Warehouse,
   Factory,
-  Users,
+  UsersRound,
   Ship,
-  Landmark,
-  ArrowLeftRight,
-  BarChart3,
-  LineChart,
-  CheckCheck,
-  MessageSquareText,
+  Wallet,
+  Cable,
+  FileChartColumn,
+  ChartNoAxesCombined,
+  BadgeCheck,
+  MessagesSquare,
   Database,
-  Shield,
-  LifeBuoy,
+  ShieldCheck,
+  Headset,
   type LucideIcon,
 } from "lucide-react";
 import type { Module } from "@/lib/auth/types";
@@ -78,7 +82,7 @@ export const NAV: NavItem[] = [
     href: "/sales",
     label: "Sample",
     module: "sales",
-    icon: ShoppingBag,
+    icon: Shirt,
     // GROUPED LIKE ORDERS since 2026-10-14 — Sample Management · Sample
     // Planning, declared in lib/nav/module-groups.ts. The nine screens' history
     // (Sample Entry 0683, PD Request 0719, Costing 0688, Grouping 0702, the two
@@ -97,14 +101,14 @@ export const NAV: NavItem[] = [
     href: "/planning",
     label: "Planning",
     module: "planning",
-    icon: LineChart,
+    icon: ChartGantt,
     children: moduleNavChildren("/planning"),
   },
   {
     href: "/purchase",
     label: "Purchase",
     module: "materials_purchase",
-    icon: Package,
+    icon: ShoppingCart,
     children: moduleNavChildren("/purchase"),
   },
   {
@@ -126,7 +130,7 @@ export const NAV: NavItem[] = [
     href: "/hr",
     label: "HR & Payroll",
     module: "hr_payroll",
-    icon: Users,
+    icon: UsersRound,
     children: moduleNavChildren("/hr"),
   },
   {
@@ -140,21 +144,21 @@ export const NAV: NavItem[] = [
     href: "/finance",
     label: "Finance",
     module: "finance",
-    icon: Landmark,
+    icon: Wallet,
     children: moduleNavChildren("/finance"),
   },
   {
     href: "/integration",
     label: "Integration",
     module: "integration",
-    icon: ArrowLeftRight,
+    icon: Cable,
     children: [{ href: "/integration/tally", label: "Tally Export" }],
   },
   {
     href: "/reports",
     label: "Reports",
     module: "reports",
-    icon: BarChart3,
+    icon: FileChartColumn,
     // Derived from the catalog so a new report can never appear in the landing
     // grid but go missing from the nav (they used to be two hand-edited lists).
     // No "All Reports" child: the module label already navigates to /reports,
@@ -165,7 +169,7 @@ export const NAV: NavItem[] = [
     href: "/analytics",
     label: "Analytics",
     module: "reports",
-    icon: LineChart,
+    icon: ChartNoAxesCombined,
   },
   {
     /* APPROVALS — the engine's own two screens (0500–0503).
@@ -179,14 +183,14 @@ export const NAV: NavItem[] = [
     href: "/approvals",
     label: "Approvals",
     module: "approvals",
-    icon: CheckCheck,
+    icon: BadgeCheck,
     children: [{ href: "/approvals/flows", label: "Approval Flows" }],
   },
   {
     href: "/resolve",
     label: "Resolve Hub",
     module: "resolve",
-    icon: LifeBuoy,
+    icon: Headset,
     children: moduleNavChildren("/resolve"),
   },
   {
@@ -198,7 +202,7 @@ export const NAV: NavItem[] = [
     href: "/comms",
     label: "Pulse", // was "Chats" (user 2026-10-27)
     module: "communication",
-    icon: MessageSquareText,
+    icon: MessagesSquare,
     /* ONE "COLLABORATION" CAPTION HOLDING THE HUB'S FOUR VIEWS (user 2026-10-26:
        "community kulla message channel search saved ithalam venum" — and no
        Order / Sample under it). A group, so ContextSidebar draws it as one
@@ -250,7 +254,7 @@ export const NAV: NavItem[] = [
     href: "/admin",
     label: "Administration",
     module: "system_admin",
-    icon: Shield,
+    icon: ShieldCheck,
     children: moduleNavChildren("/admin"),
   },
 ];
@@ -311,7 +315,6 @@ export const SECTION_ACTIONS: Record<string, string[]> = {
   "/purchase/rfq": ["New RFQ"],
   "/purchase/grn": ["New GRN"],
   "/purchase/dc": ["New Delivery Challan"],
-  "/purchase/vendors": ["New Vendor"],
 
   "/stores/opening-stock": ["New Opening Stock", "Import"],
   "/stores/requisitions": ["New MRS"],

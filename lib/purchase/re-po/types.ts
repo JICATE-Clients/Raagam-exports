@@ -50,6 +50,15 @@ export type RequirementLine = {
   size_sort: number | null;
   /** The slice without its size ("WHITE · L" → "WHITE") — Raise PO groups sizes on it. */
   slice_base: string;
+  /**
+   * THE CLOTH'S CONSTRUCTION (user 2026-10-28, `po_fabric_specs` 0762) — RE fabric lines
+   * only, NULL on everything else. Read from planning and never typed here: GSM off the
+   * order's colourway, Gauge and Loop Length off the Fabric BOM ▸ Manual entry. The save
+   * copies them onto the PO line for the vendor print.
+   */
+  gsm: number | null;
+  gauge: string | null;
+  loop_length: number | null;
 };
 
 /** A bought-item vendor of one item class (`po_vendors_for_class`, 0737). */
@@ -185,6 +194,11 @@ export const rePoLineInput = z.object({
     .toUpperCase()
     .nullish()
     .transform((v) => v || null),
+  /** Fabric construction (0762), typed on the PO (user 2026-10-28). ABSENT = the Fabric BOM's
+   *  value; null = cleared on purpose. Only this PO line changes — never the BOM. */
+  gsm: z.number().positive().max(2000, "GSM is at most 2000").nullable().optional(),
+  gauge: z.string().trim().max(20, "Gauge is at most 20 characters").toUpperCase().nullable().optional(),
+  loop_length: z.number().positive().max(100, "Loop length is at most 100 mm").nullable().optional(),
   /** This line's GST % (0756); null / absent = the PO's default slab. */
   gst_pct: z
     .number()
@@ -302,3 +316,60 @@ export type RaisedPo = {
   created_at: string | null;
   created_by: string | null;
 };
+
+/**
+ * WHY A PO GOES TO THE MD, IN TWO HALVES (user 2026-10-28: "More than Budget" shown on
+ * a rate below the planned one). A line with NO approved budget has nothing to be above,
+ * yet it also goes to the MD — and the two used to be counted as one "above budget".
+ * On 2026-10-28 one order in the database had an approved budget, so nearly every line
+ * read "More than Budget" whatever rate was typed. Say each half by its own name.
+ */
+export function budgetWords(above: number, unbudgeted: number): string {
+  const s = (n: number) => `${n} line${n === 1 ? "" : "s"}`;
+  return [
+    above ? `More than Budget on ${s(above)}` : "",
+    unbudgeted ? `No approved budget on ${s(unbudgeted)}` : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
+
+/*
+ * THE BUDGET RATE IS EX-GST, AND SO IS THE PO RATE IT IS COMPARED WITH (user 2026-10-28,
+ * screenshot 3811 — reversing the same morning's "budgets include GST"). A washcare label
+ * budgeted at 0.50 and bought at 0.50 + 12% read ABOVE, because 0.56 > 0.50, and went to the
+ * MD. GST on bought items is recoverable input credit, not a cost to the order, so the
+ * typed basic rate is compared with the budget rate as entered, and GST only goes on the
+ * PO's totals. `po_budget_check` compares `rate > budget_rate` — send the basic rate (× fx).
+ */
+
+/**
+ * WHAT A PO'S RATES COST THE ORDER, AGAINST ITS BUDGET — the MD's figure. One function
+ * for the PO page's review and the My Approvals card (0764), so the two never print
+ * different impacts for one PO.
+ *
+ * `variance` is line id → budget rate in RUPEES, ex-GST (`getPoBudgetVariance`),
+ * null where the line has no approved budget. An import line's rate is in its own
+ * currency, so it is put into rupees with `fx`. Every rupee a line pays above its
+ * budget comes straight off the order's profit, so that sum IS the impact — counted
+ * ex-GST, as the order was costed (GST on bought items is recoverable).
+ */
+export function poBudgetImpact<L extends { id: string; unit_price: number | string; quantity: number | string; gst_pct?: number | string | null }>(
+  lines: readonly L[],
+  variance: Readonly<Record<string, number | null>>,
+  opts: { fx: number },
+) {
+  // Ex-GST, as the basic Rate beside it (see above).
+  const budgetOf = (l: L) => variance[l.id] ?? null;
+  const over = lines.filter((l) => budgetOf(l) != null && Number(l.unit_price) * opts.fx > budgetOf(l)! + 1e-9);
+  const unbudgeted = lines.filter((l) => budgetOf(l) == null && Number(l.quantity) > 0);
+  const profitHit = over.reduce((a, l) => a + (Number(l.unit_price) * opts.fx - budgetOf(l)!) * Number(l.quantity), 0);
+  const budgetedSpend = over.reduce((a, l) => a + budgetOf(l)! * Number(l.quantity), 0);
+  return {
+    budgetOf,
+    over,
+    unbudgeted,
+    profitHit,
+    overPct: budgetedSpend > 0 ? (profitHit / budgetedSpend) * 100 : 0,
+  };
+}

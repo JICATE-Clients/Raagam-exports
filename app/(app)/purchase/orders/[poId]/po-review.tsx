@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { approvePo, declinePo, rejectPo, submitPo } from "@/lib/purchase/po-actions";
 import type { PoWithDetails } from "@/lib/purchase/po-service";
 import type { PoVariance } from "@/lib/purchase/po-escalation";
+import { poBudgetImpact } from "@/lib/purchase/re-po/types";
 import { PO_STATUS_LABELS, type PoLineItem } from "@/lib/purchase/types";
 import type { Uom } from "@/lib/masters/types";
 import { Button } from "@/components/ui/button";
@@ -54,12 +55,13 @@ const COMMERCIAL: { key: keyof PoWithDetails; label: string }[] = [
   { key: "freight_type", label: "Freight Type" },
 ];
 
-/** One label-over-value pair; the strip's only shape, so every fact reads alike. */
-function Fact({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
+/** One fact on the facts LINE — a muted label and its value, inline (user 2026-10-28,
+ *  screenshot 3818: label-over-value pairs took two tall rows for five facts). */
+function Fact({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className={cn("min-w-0", className)}>
-      <dt className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">{label}</dt>
-      <dd className="truncate text-sm font-medium">{children}</dd>
+    <div className="flex min-w-0 items-baseline gap-1.5">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="text-sm font-medium">{children}</dd>
     </div>
   );
 }
@@ -71,6 +73,7 @@ export function PoReview({
   canEdit,
   canApprove,
   variance = null,
+  statusPill,
 }: {
   po: PoWithDetails;
   uoms: Uom[];
@@ -80,6 +83,8 @@ export function PoReview({
   canApprove: boolean;
   /** Line id → budget rate in RUPEES (null: no approved budget). Null: not an approver. */
   variance?: PoVariance | null;
+  /** The status, drawn by the page (its tone table) and placed on the card's title line. */
+  statusPill?: React.ReactNode;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -114,12 +119,14 @@ export function PoReview({
      currency and the money it costs is counted in rupees. Every rupee a line pays above
      its budget rate comes straight off the order's profit, so that sum IS the impact. */
   const fx = isImport ? Number(po.exchange_rate ?? 0) || 1 : 1;
-  const budgetOf = (l: ReviewLine) => (variance ? (variance[l.id] ?? null) : null);
-  const overLines = variance ? lines.filter((l) => budgetOf(l) != null && Number(l.unit_price) * fx > budgetOf(l)! + 1e-9) : [];
-  const unbudgetedLines = variance ? lines.filter((l) => budgetOf(l) == null && Number(l.quantity) > 0) : [];
-  const profitHit = overLines.reduce((a, l) => a + (Number(l.unit_price) * fx - budgetOf(l)!) * Number(l.quantity), 0);
-  const budgetedSpend = overLines.reduce((a, l) => a + budgetOf(l)! * Number(l.quantity), 0);
-  const overPct = budgetedSpend > 0 ? (profitHit / budgetedSpend) * 100 : 0;
+  /* THE BUDGET RATE IS EX-GST (user 2026-10-28, re-po/types.ts): it stands beside the basic
+     Rate column as entered, and the same lines read "above" here as on Raise PO. */
+  // One calculation with the My Approvals card (`poBudgetImpact`, 0764).
+  const impact = poBudgetImpact(lines, variance ?? {}, { fx });
+  const budgetOf = (l: ReviewLine) => (variance ? impact.budgetOf(l) : null);
+  const overLines = variance ? impact.over : [];
+  const unbudgetedLines = variance ? impact.unbudgeted : [];
+  const { profitHit, overPct } = impact;
   const reason = typeof raw.budget_reason === "string" && raw.budget_reason.trim() ? raw.budget_reason : null;
 
   const columns: Column<ReviewLine>[] = [
@@ -131,15 +138,33 @@ export function PoReview({
         return <span className="font-mono text-xs">{(src && sourceNos[src]) || "—"}</span>;
       },
     },
-    { header: "Item", cell: (r) => <Truncated>{r.description}</Truncated> },
-    { header: "Class", cell: (r) => <span className="text-xs text-muted-foreground">{r.item_class ?? "—"}</span> },
+    {
+      // The class rides under the item (user 2026-10-28): a column of PACKING ACCESSORIES on
+      // every line was a column of one word.
+      header: "Item",
+      cell: (r) => (
+        <div className="min-w-0">
+          <Truncated className="block text-sm">{r.description}</Truncated>
+          {r.item_class ? <span className="block text-xs text-muted-foreground">{r.item_class}</span> : null}
+        </div>
+      ),
+    },
     { header: "Delivery", cell: (r) => <span className="tabular-nums text-sm">{fmtDate(r.delivery_date)}</span> },
-    { header: "Qty", align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtNumber(r.quantity)}</span> },
-    { header: "UOM", cell: (r) => <span className="text-xs text-muted-foreground">{(r.uom_id && uomCode[r.uom_id]) || "—"}</span> },
+    {
+      // The unit beside its number, not a column of its own.
+      header: "Qty",
+      align: "right",
+      cell: (r) => (
+        <span className="whitespace-nowrap tabular-nums text-sm">
+          {fmtNumber(r.quantity)} <span className="text-xs text-muted-foreground">{(r.uom_id && uomCode[r.uom_id]) || ""}</span>
+        </span>
+      ),
+    },
     { header: `Rate (${cur})`, align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtFixed(r.unit_price, 2)}</span> },
     ...(variance
       ? [
           {
+            // Ex-GST, as the Rate column beside it.
             header: `Budget (${cur})`,
             align: "right" as const,
             cell: (r: ReviewLine) => {
@@ -159,8 +184,9 @@ export function PoReview({
               if (b == null) return <span className="text-xs text-muted-foreground">—</span>;
               const diff = Number(r.unit_price) - b / fx;
               return diff > 1e-9 ? (
-                <span className="tabular-nums text-sm font-semibold text-danger">
-                  +{fmtFixed(diff, 2)} <span className="text-xs font-normal">({fmtFixed((diff / (b / fx)) * 100, 1)}%)</span>
+                <span className="block whitespace-nowrap tabular-nums text-sm font-semibold text-danger">
+                  +{fmtFixed(diff, 2)}
+                  <span className="block text-xs font-normal">{fmtFixed((diff / (b / fx)) * 100, 1)}%</span>
                 </span>
               ) : (
                 <span className="text-xs text-success">Within</span>
@@ -185,18 +211,53 @@ export function PoReview({
     });
   }
 
+  const money = (
+    <dl className="grid grid-cols-[auto_auto] gap-x-6 gap-y-0.5 text-sm tabular-nums">
+      <dt className="text-muted-foreground">Taxable</dt>
+      <dd className="text-right">{cur} {fmtFixed(taxable, 2)}</dd>
+      <dt className="text-muted-foreground">{gstKind} {gstPct}%</dt>
+      <dd className="text-right">{cur} {fmtFixed(gst, 2)}</dd>
+      {charges.map((c) => (
+        <div key={c.id} className="contents">
+          <dt className="text-muted-foreground">
+            {c.charge_type === "less" ? "Less" : "Add"} · {c.label}
+          </dt>
+          <dd className={cn("text-right", c.charge_type === "less" && "text-danger")}>
+            {c.charge_type === "less" ? "−" : ""}{cur} {fmtFixed(fgn(c), 2)}
+          </dd>
+        </div>
+      ))}
+      <dt className="border-t border-[#dde4eb] pt-1 font-bold">Total</dt>
+      <dd className="border-t border-[#dde4eb] pt-1 text-right text-base font-bold">{cur} {fmtFixed(total, 2)}</dd>
+      {isImport ? (
+        <>
+          <dt className="text-xs text-muted-foreground">In rupees</dt>
+          <dd className="text-right text-xs text-muted-foreground">₹ {fmtFixed(po.total_amount, 2)}</dd>
+        </>
+      ) : null}
+    </dl>
+  );
+
+  /* COMPACT, ONE CARD (user 2026-10-28, screenshot 3818, plan agreed): title line → facts
+     line → one budget line → the items → remarks beside the money, buttons under it. As
+     wide as its content (~70rem), not the pane. */
   return (
-    <div className="max-w-[88rem] rounded-xl border border-[#dde4eb] bg-white">
-      {/* THE PO'S FACTS — one strip. */}
-      <dl className="grid grid-cols-2 gap-x-6 gap-y-3 px-4 py-3 sm:grid-cols-3 lg:grid-cols-6">
-        <Fact label="Vendor" className="col-span-2">{po.vendor_name ?? "—"}</Fact>
-        <Fact label="PO Date">{fmtDate(po.order_date)}</Fact>
-        <Fact label="Deliver By">{fmtDate(po.expected_date)}</Fact>
+    <div className="max-w-[70rem] rounded-xl border border-[#dde4eb] bg-white">
+      {/* TITLE — the PO number, its status and the vendor on one line. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 pt-3">
+        <h2 className="font-mono text-base font-bold">{po.code ?? "Purchase Order"}</h2>
+        {statusPill}
+        <span className="ml-auto truncate text-sm font-semibold">{po.vendor_name ?? "—"}</span>
+      </div>
+      {/* FACTS — one line, wrapping only when the commercial terms are many. */}
+      <dl className="flex flex-wrap gap-x-5 gap-y-1 px-4 pt-1.5 pb-3">
+        <Fact label="PO date">{fmtDate(po.order_date)}</Fact>
+        <Fact label="Deliver by">{fmtDate(po.expected_date)}</Fact>
         <Fact label="Type">
           {isImport ? `Import · ${po.foreign_currency_code ?? ""} @ ₹${fmtFixed(po.exchange_rate ?? 0, 2)}` : "Local"}
         </Fact>
         <Fact label="GST">{gstPct ? `${gstPct}% · ${gstKind}` : "—"}</Fact>
-        <Fact label="Payment Terms" className="col-span-2">{po.payment_terms ?? "—"}</Fact>
+        <Fact label="Payment">{po.payment_terms ?? "—"}</Fact>
         {commercial.map((c) => (
           <Fact key={c.key as string} label={c.label}>
             <span className="uppercase">{String(raw[c.key as string])}</span>
@@ -204,34 +265,30 @@ export function PoReview({
         ))}
       </dl>
 
-      {/* WHY THIS PO IS WITH THE MD (escalation spec §2) — the items above budget, what
-          they take off the order's profit, and the Purchase Manager's reason. */}
+      {/* WHY THIS PO IS WITH THE MD (escalation spec §2) — ONE line: how many lines, what
+          they take off the order's profit, and the Purchase Manager's reason. The lines
+          themselves are the red ones in the table, so they are not listed again. */}
       {variance && (overLines.length > 0 || unbudgetedLines.length > 0) ? (
-        <div className="border-t border-[#f5d9a8] bg-[#fffaf0] px-4 py-3 text-sm">
-          <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
-            <span className="text-[11px] font-bold tracking-wide text-[#b54708] uppercase">Above budget</span>
-            {overLines.length > 0 ? (
-              <span>
-                <span className="font-semibold">{overLines.length}</span> line{overLines.length === 1 ? "" : "s"} above the budget rate ·{" "}
-                <span className="font-semibold text-danger tabular-nums">profit falls by ₹ {fmtFixed(profitHit, 2)}</span>
-                <span className="text-muted-foreground tabular-nums"> ({fmtFixed(overPct, 1)}% over budget on those lines)</span>
-              </span>
-            ) : null}
-            {unbudgetedLines.length > 0 ? (
-              <span className="text-[#b54708]">
-                {unbudgetedLines.length} line{unbudgetedLines.length === 1 ? " has" : "s have"} no approved budget
-              </span>
-            ) : null}
-          </div>
+        <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-t border-[#f5d9a8] bg-[#fffaf0] px-4 py-2 text-sm">
           {overLines.length > 0 ? (
-            <p className="mt-1 text-xs text-muted-foreground">
-              {[...new Set(overLines.map((l) => l.description.split(" · ")[0]))].join(", ")}
-            </p>
+            <span>
+              <span className="font-semibold text-[#b54708]">
+                ▲ {overLines.length} line{overLines.length === 1 ? "" : "s"} above budget
+              </span>
+              {" · "}
+              <span className="font-semibold text-danger tabular-nums">profit −₹ {fmtFixed(profitHit, 2)}</span>
+              <span className="text-muted-foreground tabular-nums"> ({fmtFixed(overPct, 1)}%)</span>
+            </span>
           ) : null}
-          <p className="mt-1.5">
-            <span className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">Purchase Manager&apos;s reason </span>
-            {reason ?? <span className="text-muted-foreground">None given</span>}
-          </p>
+          {unbudgetedLines.length > 0 ? (
+            <span className="font-semibold text-[#b54708]">
+              {unbudgetedLines.length} line{unbudgetedLines.length === 1 ? "" : "s"} with no approved budget
+            </span>
+          ) : null}
+          <span>
+            <span className="text-muted-foreground">Reason: </span>
+            {reason ?? <span className="text-muted-foreground">none given</span>}
+          </span>
         </div>
       ) : null}
 
@@ -240,90 +297,66 @@ export function PoReview({
         <DataTable paginate={false} bare columns={columns} rows={lines} getKey={(r) => r.id} empty="This PO has no lines." />
       </div>
 
-      {/* THE MONEY, right-aligned under the Amount column. */}
-      <div className="flex justify-end border-t border-[#dde4eb] px-4 py-3">
-        <dl className="grid min-w-64 grid-cols-[1fr_auto] gap-x-6 gap-y-1 text-sm tabular-nums">
-          <dt className="text-muted-foreground">Taxable</dt>
-          <dd className="text-right">{cur} {fmtFixed(taxable, 2)}</dd>
-          <dt className="text-muted-foreground">{gstKind} {gstPct}%</dt>
-          <dd className="text-right">{cur} {fmtFixed(gst, 2)}</dd>
-          {charges.map((c) => (
-            <div key={c.id} className="contents">
-              <dt className="text-muted-foreground">
-                {c.charge_type === "less" ? "Less" : "Add"} · {c.label}
-              </dt>
-              <dd className={cn("text-right", c.charge_type === "less" && "text-danger")}>
-                {c.charge_type === "less" ? "−" : ""}{cur} {fmtFixed(fgn(c), 2)}
-              </dd>
-            </div>
-          ))}
-          <dt className="border-t border-[#dde4eb] pt-1 font-bold">Total</dt>
-          <dd className="border-t border-[#dde4eb] pt-1 text-right text-base font-bold">{cur} {fmtFixed(total, 2)}</dd>
-          {isImport ? (
-            <>
-              <dt className="text-xs text-muted-foreground">In rupees</dt>
-              <dd className="text-right text-xs text-muted-foreground">₹ {fmtFixed(po.total_amount, 2)}</dd>
-            </>
-          ) : null}
-        </dl>
-      </div>
-
       {po.notes ? (
         <div className="border-t border-[#dde4eb] px-4 py-2 text-sm">
-          <span className="text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">History </span>
+          <span className="text-xs text-muted-foreground">History </span>
           <span className="whitespace-pre-wrap">{po.notes}</span>
         </div>
       ) : null}
 
-      {/* THE DECISION — the bottom bar, as on Raise PO. */}
+      {/* THE DECISION — remarks on the left, the money on the right with the buttons under it. */}
       <div
         data-focus-region="footer"
-        className="sticky bottom-0 z-10 flex flex-wrap items-end gap-3 rounded-b-xl border-t border-[#dde4eb] bg-white px-4 py-2.5 md:-bottom-6"
+        className="sticky bottom-0 z-10 flex flex-wrap items-end gap-x-6 gap-y-3 rounded-b-xl border-t border-[#dde4eb] bg-white px-4 py-3 md:-bottom-6"
       >
-        {pendingMd && canApprove ? (
-          <>
-            <Field label="Remarks (needed to Revise or Reject)" w="name" htmlFor="po-md-note" className="min-w-0 flex-1">
-              <Textarea id="po-md-note" rows={1} value={note} onChange={(e) => setNote(e.target.value)} />
+        <div className="min-w-64 flex-1">
+          {pendingMd && canApprove ? (
+            <Field label="Remarks — needed to Revise or Reject" htmlFor="po-md-note">
+              <Textarea id="po-md-note" rows={2} value={note} onChange={(e) => setNote(e.target.value)} />
             </Field>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={isPending || !note.trim()}
-              title={note.trim() ? undefined : "Write what to change in the remarks"}
-              onClick={() => run(() => rejectPo(po.id, note.trim()), "Sent back for revision")}
-            >
-              Revise
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="text-danger"
-              disabled={isPending || !note.trim()}
-              title={note.trim() ? undefined : "Write the reason in the remarks"}
-              onClick={() => run(() => declinePo(po.id, note), "Purchase order rejected")}
-            >
-              Reject
-            </Button>
-            <Button type="button" disabled={isPending} onClick={() => run(() => approvePo(po.id), "Purchase order approved")}>
-              Approve
-            </Button>
-          </>
-        ) : (
-          <>
-            <p className="min-w-0 flex-1 text-sm text-muted-foreground">
+          ) : (
+            <p className="text-sm text-muted-foreground">
               {pendingMd
                 ? "Waiting for MD approval."
                 : isDraft
                   ? "Draft — not sent yet."
                   : `${PO_STATUS_LABELS[po.status]}${po.approved_at ? ` on ${fmtDate(po.approved_at)}` : ""}.`}
             </p>
-            {isDraft && canEdit ? (
-              <Button type="button" disabled={isPending} onClick={() => run(() => submitPo(po.id), "Sent for approval")}>
-                Submit for approval
+          )}
+        </div>
+        <div className="flex flex-col items-end gap-2.5">
+          {money}
+          {pendingMd && canApprove ? (
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isPending || !note.trim()}
+                title={note.trim() ? undefined : "Write what to change in the remarks"}
+                onClick={() => run(() => rejectPo(po.id, note.trim()), "Sent back for revision")}
+              >
+                Revise
               </Button>
-            ) : null}
-          </>
-        )}
+              <Button
+                type="button"
+                variant="outline"
+                className="text-danger"
+                disabled={isPending || !note.trim()}
+                title={note.trim() ? undefined : "Write the reason in the remarks"}
+                onClick={() => run(() => declinePo(po.id, note), "Purchase order rejected")}
+              >
+                Reject
+              </Button>
+              <Button type="button" disabled={isPending} onClick={() => run(() => approvePo(po.id), "Purchase order approved")}>
+                Approve
+              </Button>
+            </div>
+          ) : isDraft && canEdit ? (
+            <Button type="button" disabled={isPending} onClick={() => run(() => submitPo(po.id), "Sent for approval")}>
+              Submit for approval
+            </Button>
+          ) : null}
+        </div>
       </div>
     </div>
   );

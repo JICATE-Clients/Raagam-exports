@@ -42,6 +42,11 @@ export function criteriaMatches(
           case 'in':
             if (!Array.isArray(operand) || !operand.some((o) => o === ctx)) return false;
             break;
+          case 'any':
+            // 0765: a LIST context; fails closed on a scalar, like the SQL.
+            if (!Array.isArray(operand) || !Array.isArray(ctx) || !ctx.some((c) => operand.includes(c)))
+              return false;
+            break;
           case 'ne':
             if (ctx === operand) return false;
             break;
@@ -88,6 +93,7 @@ export function resolveFlowPreview(
 
 const OPERATOR_WORDS: Record<string, string> = {
   in: 'is one of',
+  any: 'includes any of',
   ne: 'is not',
   gt: 'is more than',
   gte: 'is at least',

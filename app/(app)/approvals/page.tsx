@@ -2,6 +2,7 @@ import { requireUser, can } from "@/lib/auth/server";
 import { getMyQueue, getStrandedRuns, canAct } from "@/lib/approvals/service";
 import { WORKFLOWS } from "@/lib/approvals/workflows";
 import { loadOrderApprovalCards } from "@/lib/approvals/order-approval-cards";
+import { loadPoApprovalCards, type PoApprovalCard } from "@/lib/approvals/po-approval-cards";
 import type { CanActVerdict } from "@/lib/approvals/types";
 import { withCreators } from "@/lib/created-by";
 import { ifInstalled } from "@/lib/approvals/install";
@@ -114,6 +115,7 @@ export default async function ApprovalsPage() {
       stranded={stranded}
       canViewAll={viewAll}
       budgets={await budgetCards(rows)}
+      pos={await poCards(rows)}
       verdicts={await queueVerdicts(rows)}
     />
   );
@@ -148,6 +150,21 @@ async function budgetCards(rows: QueueRow[]): Promise<Record<string, BudgetCard>
     return await loadOrderApprovalCards(ids);
   } catch (e) {
     console.error("[approvals] order cards:", e instanceof Error ? e.message : e);
+    return {};
+  }
+}
+
+/**
+ * A PURCHASE ORDER'S CARD (0764) — its total, the lines above or without a budget,
+ * and what they take off the order's profit. Same contract as the budget cards: an
+ * enrichment, so a failure returns an empty map and the row still opens the PO.
+ */
+async function poCards(rows: QueueRow[]): Promise<Record<string, PoApprovalCard>> {
+  const ids = rows.filter((r) => r.workflow_key === WORKFLOWS.purchase_order.key).map((r) => r.subject_id);
+  try {
+    return await loadPoApprovalCards(ids);
+  } catch (e) {
+    console.error("[approvals] PO cards:", e instanceof Error ? e.message : e);
     return {};
   }
 }

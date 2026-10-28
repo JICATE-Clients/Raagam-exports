@@ -79,7 +79,9 @@ export const WORKFLOWS: Record<WorkflowKey, WorkflowDecl> = {
     key: "purchase_order",
     subjectTable: "purchase_orders",
     label: "Purchase Order",
-    href: "/purchase/orders",
+    /* 0764 — started by Raise PO (above budget / unbudgeted) and the PO screen's
+       Submit; decided in `purchase_order_apply_decision`. The row opens that PO. */
+    href: "/purchase/orders/:id",
   },
   /* 0629 — a staff fine / salary deduction (doc/order/punishment fine.md). The
      run is started INSIDE `hr_fine_submit` (SQL), in the same transaction as

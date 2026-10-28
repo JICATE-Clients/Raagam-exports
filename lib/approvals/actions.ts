@@ -19,6 +19,7 @@ import {
 } from "./service";
 import type { ApprovalFlowDraft, RunAction } from "./types";
 import { notifyCurrentApprovers, notifyRequesterOfDecision } from "./notify";
+import { preApproveRefusal } from "./pre-approve";
 
 /**
  * Raagam's server-action skin over the approval service.
@@ -144,6 +145,11 @@ export async function actOnRun(params: {
 }): Promise<Result> {
   if (!(await can("approvals", "approve"))) return fail("Forbidden");
   try {
+    // The document's own "not yet" (0764) — a PO whose budget reopened since it was sent.
+    if (params.action === "approve") {
+      const refusal = await preApproveRefusal(params.runId);
+      if (refusal) return fail(refusal);
+    }
     const run = await svcAct({
       runId: params.runId,
       action: params.action,

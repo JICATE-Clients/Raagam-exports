@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useRef, useState, useTransition, type ReactNode } from "react";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
 import {
@@ -59,6 +59,7 @@ export function NewPoForm({
   items,
   orders,
   iwos,
+  list,
 }: {
   vendors: VendorForPicker[];
   budgets: BudgetForPicker[];
@@ -68,6 +69,9 @@ export function NewPoForm({
   orders: OrderForPicker[];
   /** Work orders at this unit a purchase can be raised for (0586). */
   iwos: IwoForPicker[];
+  /** The PO listing — shown only while the form is closed, so raising a PO is
+   *  a screen of its own rather than a form with the register under it. */
+  list: ReactNode;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -294,11 +298,14 @@ export function NewPoForm({
 
   if (!show) {
     return (
-      <div className="flex justify-end">
-        <Button size="sm" onClick={() => setShow(true)}>
-          + New PO
-        </Button>
-      </div>
+      <>
+        <div className="flex justify-end">
+          <Button size="sm" onClick={() => setShow(true)}>
+            + New PO
+          </Button>
+        </div>
+        {list}
+      </>
     );
   }
 

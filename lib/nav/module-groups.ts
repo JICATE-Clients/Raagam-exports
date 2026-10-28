@@ -1074,6 +1074,8 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           // doc/purchase/puchase.md (2026-10-23): RE numbers in, requirement lines out, the manager types the rate.
           // First in the group (user 2026-10-26): a PO starts from the requirement, then is worked on Purchase Orders.
           { href: "/purchase/requirement-po", label: "Raise PO", description: "Pick RE numbers; what they still need lists itself; type the rate" },
+          // The approver's queue of POs raised on Raise PO — Orders ▸ Approval's shape (user 2026-10-28).
+          { href: "/purchase/po-approval", label: "PO Approval", description: "Approve, send back or reject a PO raised on Raise PO" },
           { href: "/purchase/orders", label: "Purchase Orders", description: "Create from budget, submit and approve" },
           { href: "/purchase/rfq", label: "RFQ", description: "Request quotes from vendors and award" },
           { href: "/purchase/indents", label: "Indents", description: "Department indents and their lines" },
@@ -1098,15 +1100,20 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         label: "Approvals & Amendments",
         description: "Rate, price and budget changes, cancellation and completion",
         children: [
+          // 0765 — who approves a PO, by item class / above budget, on one screen
+          // (user 2026-10-28). Edits the purchase_order approval flows.
+          { href: "/purchase/po-approval-routing", label: "PO Approval Routing", description: "Who approves a PO — by item class, above budget, and the rest" },
           { href: "/purchase/over-budget", label: "Over-budget Confirmation", description: "Budget versus quoted rate with variance" },
           { href: "/purchase/rate-amendments", label: "Rate Amendments", description: "Revise a PO line rate and recompute the total" },
           { href: "/purchase/price-confirmations", label: "Price Confirmation", description: "Confirm agreed purchase prices" },
           { href: "/purchase/po-cancellations", label: "Cancel PO", description: "Cancel a purchase order with a logged reason" },
           { href: "/purchase/completions", label: "PO Completions", description: "Close out a completed purchase order" },
+          // Was a loose row under this group and read as one of its screens (user 2026-10-28: move it in).
+          { href: "/purchase/lab", label: "Lab / QC", description: "Test standards and in-house / outside-lab test reports" },
         ],
       },
-      { kind: "link", href: "/purchase/vendors", label: "Vendors" },
-      { kind: "link", href: "/purchase/lab", label: "Lab / QC" },
+      // Vendors row removed (user 2026-10-28): Raise PO picks from the Master Data vendor (0737),
+      // so /purchase/vendors redirects there — see REDIRECTED in check-module-groups.mts.
     ],
   },
 

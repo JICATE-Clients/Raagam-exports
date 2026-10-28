@@ -159,6 +159,11 @@ export interface FabricBomManualEntry {
   /** Legacy's "EndBit Loss %" on the same row (0522) — a second allowance,
    *  beside `wastage_pct` rather than replacing it. */
   endbit_loss_pct: number | null;
+  /** The knitting gauge this cloth is knitted on (0762) — the Gauge master
+   *  (`config_lookups` kind 'gauge'). Read, never retyped, by the knitter's PO. */
+  gauge_id: string | null;
+  /** Loop length in mm (0762). Read, never retyped, by the knitter's PO. */
+  loop_length: number | null;
   /** Legacy's "Assort Color wise" checkbox on the same row (0522). */
   assort_color_wise: boolean;
   /** Legacy's "Size Wise" toggle (0523) — TRUE gives every size its own row.
@@ -636,6 +641,10 @@ export const fabricBomManualEntryInput = z.object({
   /* Legacy's "EndBit Loss %", beside the process loss above rather than
      replacing it: the fabric row carries BOTH allowances (0522). */
   endbit_loss_pct: z.coerce.number().min(0).max(100).nullable().default(0),
+  /* The cloth's construction for the knitter's PO (0762). Optional: every BOM
+     saved before 0762 has neither, and the PO simply prints nothing for them. */
+  gauge_id: uuidN,
+  loop_length: z.coerce.number().positive().nullable().default(null),
   /* Legacy's "Assort Color wise" checkbox on the same row (0522). */
   assort_color_wise: z.coerce.boolean().default(false),
   /* Legacy's "Size Wise" toggle (0523). TRUE gives every size its own row;

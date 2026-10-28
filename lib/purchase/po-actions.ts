@@ -5,6 +5,10 @@ import { createClient } from "@/lib/supabase/server";
 import { can, getAppUser } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
 import { notifyPoDecided } from "./po-escalation";
+import { actOnSubject, startApproval } from "@/lib/approvals/actions";
+import { WORKFLOWS } from "@/lib/approvals/workflows";
+import { poApproveRefusal } from "./po-approval-gate";
+import { poItemClasses } from "./po-routing";
 import {
   vendorInput,
   rfqInput,
@@ -672,11 +676,32 @@ export async function submitPo(poId: string): Promise<ActionResult> {
   );
   if (submitYarnGate) return { ok: false, error: submitYarnGate };
 
-  const { error } = await supabase
+  const { data: sent, error } = await supabase
     .from("purchase_orders")
     .update({ status: "pending_approval" })
-    .eq("id", poId);
+    .eq("id", poId)
+    .select("code, total_amount, budget_reason")
+    .single();
   if (error) return { ok: false, error: error.message };
+
+  /* INTO MY APPROVALS (0764) — the same run Raise PO starts. Without a flow that can
+     take it, the PO still waits on the PO page's own Approve, as before 0764. */
+  const sentRow = sent as { code: string | null; total_amount: number | null; budget_reason: string | null };
+  const started = await startApproval({
+    workflowKey: WORKFLOWS.purchase_order.key,
+    subjectTable: WORKFLOWS.purchase_order.subjectTable,
+    subjectId: poId,
+    context: {
+      po_code: sentRow.code,
+      total: `₹ ${Number(sentRow.total_amount ?? 0).toFixed(2)}`,
+      /* Routed like Raise PO's (0765). This door does not re-run the budget check,
+         so "above budget" is what the PO carries: Raise PO stores a reason only on
+         a PO it escalated. */
+      above_budget: !!sentRow.budget_reason?.trim(),
+      item_classes: await poItemClasses(poId),
+    },
+  });
+  if (!started.ok) console.error(`[po] ${sentRow.code}: not routed to My Approvals — ${started.error}`);
 
   revalidatePurchase(`/purchase/orders/${poId}`, "/purchase/orders");
   return { ok: true };
@@ -700,39 +725,53 @@ export async function approvePo(poId: string): Promise<ActionResult> {
     return { ok: false, error: "Purchase order is not pending approval" };
   }
 
-  /*
-   * THE TBA GATE, ONE LAST TIME (Advised Items, 2026-09-19). A PO drafted and
-   * submitted while its material was Available can be waiting here when the
-   * BOM line is switched back to To be advised — and approval is the moment
-   * the order goes to the supplier. Every earlier check judged a
-   * specification that has since been withdrawn. Same lines, same predicate,
-   * same sentence as submit.
-   */
-  const { data: approveLines } = await supabase
-    .from("po_line_items")
-    .select("item_id, sales_order_id, iwo_id")
-    .eq("purchase_order_id", poId);
-  /* THE LAST REOPENED-BUDGET GATE — approving a PO drafted before its budget
-     was reopened commits the same spend a new PO would (Phase 5, decision 3). */
-  const approveReopened = await refuseReopenedBudget(
-    (approveLines ?? []) as { sales_order_id: string | null }[],
-  );
-  if (approveReopened) return { ok: false, error: approveReopened };
+  /* THE TBA AND REOPENED-BUDGET GATES, ONE LAST TIME — approval is the moment the
+     order goes to the supplier. One function since 0764, so My Approvals asks the
+     same question (`poApproveRefusal`). */
+  const refusal = await poApproveRefusal(poId);
+  if (refusal) return { ok: false, error: refusal };
 
-  const approveTba = await refuseUnsettledMaterials(
-    (approveLines ?? []) as { item_id: string | null; sales_order_id: string | null; iwo_id: string | null }[],
-  );
-  if (approveTba) return { ok: false, error: approveTba };
+  /* NO SIGNATURE, NO APPROVAL (user 2026-10-28, 0765). The decision refuses it too
+     (`purchase_order_apply_decision`, which is what guards My Approvals); asked here
+     first so the run is never touched, and because the pre-0764 path below writes
+     the PO directly and would otherwise approve with an empty signatory block. */
+  const { data: mySig } = user?.id
+    ? await supabase.from("profiles").select("signature_path").eq("id", user.id).maybeSingle()
+    : { data: null };
+  if (!(mySig as { signature_path: string | null } | null)?.signature_path) {
+    return {
+      ok: false,
+      error:
+        "Upload your signature before approving a purchase order — My Profile ▸ Signature. An approved PO prints the approver's signature, so it cannot be approved without one.",
+    };
+  }
 
-  const { error } = await supabase
-    .from("purchase_orders")
-    .update({
-      status: "approved",
-      approved_by: user?.id ?? null,
-      approved_at: new Date().toISOString(),
-    })
-    .eq("id", poId);
-  if (error) return { ok: false, error: error.message };
+  /* THROUGH THE RUN WHEN THERE IS ONE (0764) — its end writes the PO, the signature
+     snapshot included, and the engine tells the raiser. A PO sent before 0764 has no
+     run and is approved the old way below. */
+  const viaRun = await actOnSubject({
+    subjectTable: WORKFLOWS.purchase_order.subjectTable,
+    subjectId: poId,
+    action: "approve",
+    subjectPath: `/purchase/orders/${poId}`,
+  });
+  if (!viaRun.ok && !("noRun" in viaRun)) return { ok: false, error: viaRun.error };
+
+  if (!viaRun.ok) {
+    const me = mySig;
+    const { error } = await supabase
+      .from("purchase_orders")
+      .update({
+        status: "approved",
+        approved_by: user?.id ?? null,
+        approved_at: new Date().toISOString(),
+        // The approver's signature as it is today (0764) — what the print shows.
+        approver_signature_path: (me as { signature_path: string | null } | null)?.signature_path ?? null,
+      })
+      .eq("id", poId);
+    if (error) return { ok: false, error: error.message };
+    await notifyPoDecided(poId, "approved", null);
+  }
 
   await writeAudit({
     action: "purchase_order.approved",
@@ -740,12 +779,17 @@ export async function approvePo(poId: string): Promise<ActionResult> {
     entityId: poId,
     metadata: { total_amount: poRow.total_amount },
   });
-  await notifyPoDecided(poId, "approved", null);
 
   revalidatePurchase(`/purchase/orders/${poId}`, "/purchase/orders");
   return { ok: true };
 }
 
+/**
+ * REVISE — back to draft with the MD's note. Through the run when there is one: its
+ * reject end (`purchase_order_apply_decision`, 0764) writes the draft and the note,
+ * and the engine tells the raiser. The reason is mandatory on that path — the engine
+ * refuses a reject without one.
+ */
 export async function rejectPo(
   poId: string,
   note?: string,
@@ -766,15 +810,27 @@ export async function rejectPo(
     return { ok: false, error: "Purchase order is not pending approval" };
   }
 
-  const updatedNotes = note
-    ? [poRow.notes, `Rejected: ${note}`].filter(Boolean).join("\n")
-    : poRow.notes;
+  const viaRun = await actOnSubject({
+    subjectTable: WORKFLOWS.purchase_order.subjectTable,
+    subjectId: poId,
+    action: "reject",
+    comment: note?.trim() || undefined,
+    subjectPath: `/purchase/orders/${poId}`,
+  });
+  if (!viaRun.ok && !("noRun" in viaRun)) return { ok: false, error: viaRun.error };
 
-  const { error } = await supabase
-    .from("purchase_orders")
-    .update({ status: "draft", notes: updatedNotes })
-    .eq("id", poId);
-  if (error) return { ok: false, error: error.message };
+  if (!viaRun.ok) {
+    const updatedNotes = note
+      ? [poRow.notes, `Rejected: ${note}`].filter(Boolean).join("\n")
+      : poRow.notes;
+
+    const { error } = await supabase
+      .from("purchase_orders")
+      .update({ status: "draft", notes: updatedNotes })
+      .eq("id", poId);
+    if (error) return { ok: false, error: error.message };
+    await notifyPoDecided(poId, "revise", note ?? null);
+  }
 
   await writeAudit({
     action: "purchase_order.rejected",
@@ -782,7 +838,6 @@ export async function rejectPo(
     entityId: poId,
     metadata: { note: note ?? null },
   });
-  await notifyPoDecided(poId, "revise", note ?? null);
 
   revalidatePurchase(`/purchase/orders/${poId}`, "/purchase/orders");
   return { ok: true };
@@ -809,10 +864,24 @@ export async function declinePo(poId: string, reason: string): Promise<ActionRes
     return { ok: false, error: "Purchase order is not pending approval" };
   }
 
-  const { error } = await supabase
-    .from("purchase_orders")
-    .update({ status: "cancelled", notes: [poRow.notes, `Rejected: ${why}`].filter(Boolean).join("\n") })
-    .eq("id", poId);
+  /* A RUN ENDS FIRST (0764): its reject end puts the PO back to draft with the reason
+     in the notes, then it is closed here — so no request is left open in anyone's
+     My Approvals. A PO sent before 0764 has no run and is closed directly. */
+  const viaRun = await actOnSubject({
+    subjectTable: WORKFLOWS.purchase_order.subjectTable,
+    subjectId: poId,
+    action: "reject",
+    comment: `Rejected: ${why}`,
+    subjectPath: `/purchase/orders/${poId}`,
+  });
+  if (!viaRun.ok && !("noRun" in viaRun)) return { ok: false, error: viaRun.error };
+
+  const { error } = viaRun.ok
+    ? await supabase.from("purchase_orders").update({ status: "cancelled" }).eq("id", poId).eq("status", "draft")
+    : await supabase
+        .from("purchase_orders")
+        .update({ status: "cancelled", notes: [poRow.notes, `Rejected: ${why}`].filter(Boolean).join("\n") })
+        .eq("id", poId);
   if (error) return { ok: false, error: error.message };
 
   await writeAudit({

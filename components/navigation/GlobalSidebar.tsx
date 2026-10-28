@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useAppUser } from "@/lib/auth/permission-context";
@@ -25,6 +25,44 @@ const RAIL_BANDS: { label?: string; hrefs: string[] }[] = [
   { label: "Huddle", hrefs: ["/comms"] },
   { label: "System", hrefs: ["/masters", "/integration", "/admin"] },
 ];
+
+/**
+ * ONE COLOUR PER MODULE (option C of the sidebar icon mock-up, user
+ * 2026-10-28: "c apply it"). Every icon is drawn in its module's colour, and
+ * the active module's tile fills with it and glows. Each is dark enough that
+ * the white icon on the filled tile stays legible. Keyed by module href like
+ * RAIL_BANDS; a module missing here falls back to slate rather than grey, so a
+ * new entry still matches its neighbours.
+ */
+const MODULE_HUE: Record<string, string> = {
+  "/": "#2563EB",
+  "/analytics": "#7C3AED",
+  "/reports": "#0E7490",
+  "/approvals": "#047857",
+  "/sales": "#BE185D",
+  "/orders": "#1A7FC1",
+  "/planning": "#6D28D9",
+  "/purchase": "#C2410C",
+  "/stores": "#B45309",
+  "/production": "#DC2626",
+  "/logistics": "#0369A1",
+  "/hr": "#9333EA",
+  "/finance": "#0F766E",
+  "/comms": "#4338CA",
+  "/masters": "#475569",
+  "/integration": "#0E7490",
+  "/admin": "#334155",
+  "/resolve": "#E11D48",
+};
+const FALLBACK_HUE = "#475569";
+/** The unlit icon: FULL module colour on a soft tile of the same colour (user
+ *  2026-10-28, "still icons look dull … bold"). The first cut pulled the ink
+ *  28% toward the text colour for every theme, which is what greyed it out;
+ *  only the dark theme needs a lift now (a #334155 stroke on a near-black
+ *  panel is invisible), so that is where the mix lives. */
+const HUE_INK =
+  "bg-[color-mix(in_oklab,var(--hue)_13%,transparent)] text-[var(--hue)] " +
+  "dark:bg-[color-mix(in_oklab,var(--hue)_24%,transparent)] dark:text-[color-mix(in_oklab,var(--hue)_55%,white)]";
 
 function toBands(items: NavItem[]) {
   const placed = new Set<string>();
@@ -209,18 +247,35 @@ export function GlobalSidebar({ wide = false }: { wide?: boolean }) {
             1080p window (~728px tall) — and `scrollbar-none` hides the bar
             outright. On a smaller window the wheel still scrolls it; only the
             bar is gone. `py-1` (was `p-1.5`) is part of the same budget. */}
-        <nav className="scrollbar-none flex-1 space-y-0.5 overflow-y-auto overflow-x-hidden px-1.5 py-1">
+        {/* POLISH (user 2026-10-28, screenshot 161520: "same side bar but
+            some ui touch … better spacing"). Three spacing changes, nothing
+            moved or restyled:
+              - each band after the first starts 6px lower (`pt-1.5`), so a
+                caption groups with the rows beneath it rather than sitting
+                tight against the row above;
+              - rows sit 2px apart (`space-y-0.5`, was 1px);
+              - open, the panel pads its RIGHT side only (`pr-3`), so the active
+                pill and its dot no longer run into the panel edge. Left padding
+                is unchanged in both states, so no icon shifts as it opens.
+            Captions now start at the icons' left edge (`px-3`, matching
+            SidebarItem's own padding) instead of 4px outside it. */}
+        <nav
+          className={cn(
+            "scrollbar-none flex-1 overflow-y-auto overflow-x-hidden px-1.5 py-1",
+            expanded && "pr-3",
+          )}
+        >
           {bands.map((band, bi) => (
-            <div key={band.label ?? bi} className="space-y-px">
+            <div key={band.label ?? bi} className={cn("space-y-0.5", bi > 0 && "pt-1.5")}>
               {/* One fixed height either way (`h-[18px]`, was `h-5`): open it
                   is the caption, closed it is a short divider. Same height in
                   both states, so no icon moves when the panel opens (09-16). */}
               {band.label && (
-                <div className="flex h-[18px] items-center gap-2 px-2" aria-hidden={!expanded}>
+                <div className="flex h-[18px] items-center gap-2 px-3" aria-hidden={!expanded}>
                   {expanded ? (
                     // No trailing hairline (2026-10-01): the caption alone
                     // starts the group, same as in the module menu.
-                    <span className="shrink-0 whitespace-nowrap text-[10px] font-semibold uppercase tracking-wider text-caption">
+                    <span className="shrink-0 whitespace-nowrap text-[10px] font-semibold uppercase tracking-[0.08em] text-caption">
                       {band.label}
                     </span>
                   ) : (
@@ -233,7 +288,13 @@ export function GlobalSidebar({ wide = false }: { wide?: boolean }) {
                 const isActive = active?.href === item.href;
 
                 return (
-                  <div key={item.href} className="relative">
+                  // `--hue` is set once here and inherited by the icon tile,
+                  // the row wash and the trailing dot.
+                  <div
+                    key={item.href}
+                    className="relative"
+                    style={{ "--hue": MODULE_HUE[item.href] ?? FALLBACK_HUE } as CSSProperties}
+                  >
                     {/* Closed rail: a brand-green tab on the window edge
                         (the nav's `p-1.5` is what `-left-1.5` reaches past).
                         Brand on a CONTROL mark, never a surface. */}
@@ -246,12 +307,28 @@ export function GlobalSidebar({ wide = false }: { wide?: boolean }) {
                     <SidebarItem
                       href={item.href}
                       label={item.label}
-                      icon={<Icon className="h-4 w-4 shrink-0" />}
+                      tone="hue"
+                      icon={
+                        <span
+                          aria-hidden
+                          className={cn(
+                            "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-[background-color,box-shadow,color] duration-150",
+                            isActive
+                              ? "bg-[var(--hue)] text-white shadow-[0_0_0_3px_color-mix(in_oklab,var(--hue)_15%,transparent),0_4px_12px_color-mix(in_oklab,var(--hue)_40%,transparent)]"
+                              : HUE_INK,
+                          )}
+                        >
+                          <Icon className="h-[18px] w-[18px]" strokeWidth={2.25} />
+                        </span>
+                      }
                       collapsed={!expanded}
                       active={isActive}
                       trailing={
                         isActive ? (
-                          <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-brand-green" />
+                          <span
+                            aria-hidden
+                            className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--hue)] shadow-[0_0_6px_var(--hue)]"
+                          />
                         ) : undefined
                       }
                       // ONE ROW HEIGHT IN BOTH STATES, so the icons stay put
@@ -273,10 +350,18 @@ export function GlobalSidebar({ wide = false }: { wide?: boolean }) {
                       // 32px again (user 2026-10-26, "side la compact aa venum"):
                       // the Huddle band pushed Chats below the fold at 36px.
                       // Spacing only — the 14px text and 10px curve stay.
+                      // COLOUR ICONS, OPTION C (user 2026-10-28, sidebar icon
+                      // mock-up): the 28px tile (18px icon, 2.25 stroke) is centred on the same 26px
+                      // line in both states — closed it sits in the 40px
+                      // button, open `px-[6px]` puts it there — so no icon
+                      // moves as the panel opens. The open active row takes a
+                      // faint wash of its module's colour instead of the
+                      // solid primary pill.
                       className={cn(
                         "h-8 rounded-[10px] text-[14px]",
                         !isActive && "text-foreground",
-                        expanded && "w-full gap-2.5",
+                        expanded && "w-full gap-3 px-[6px]",
+                        expanded && isActive && "bg-[color-mix(in_oklab,var(--hue)_9%,transparent)]",
                       )}
                       onClick={(e) => {
                         e.preventDefault();

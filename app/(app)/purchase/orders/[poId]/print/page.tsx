@@ -25,7 +25,7 @@ export default async function PoPrintPage({ params }: { params: Promise<{ poId: 
   if (data.status !== "approved") {
     const why =
       data.status === "pending_approval"
-        ? "It is waiting for the MD's approval — a rate above the approved budget sends a PO to the MD."
+        ? "It is waiting for approval — every PO is approved before it prints (a rate above the approved budget sends it to the MD)."
         : data.status === "draft"
           ? "It is still a draft. Submit it on Raise PO first."
           : `Its status is ${data.status.replace(/_/g, " ")}.`;

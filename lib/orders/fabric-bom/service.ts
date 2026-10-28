@@ -1089,6 +1089,21 @@ export async function getYarnStageRows(): Promise<ConfigLookup[]> {
   return (data ?? []) as unknown as ConfigLookup[];
 }
 
+/** The Gauge master (`config_lookups` kind 'gauge') for Manual ▸ Gauge (0762).
+ *  `is_active` is selected so a gauge switched off after an entry named it still
+ *  resolves on that entry (AGENTS.md, Disabled rows); the screen hides it from
+ *  the list otherwise. */
+export async function getGaugeRows(): Promise<ConfigLookup[]> {
+  const s = await createClient();
+  const { data, error } = await s
+    .from("config_lookups")
+    .select("id, kind, code, name, notes, is_active")
+    .eq("kind", "gauge")
+    .order("name");
+  if (error) throw new Error(`Could not read the gauges: ${error.message}`);
+  return (data ?? []) as unknown as ConfigLookup[];
+}
+
 export type FabricBomFormData = {
   orders: FabricBomOrderOption[];
   fabrics: FabricOption[];
@@ -1108,6 +1123,8 @@ export type FabricBomFormData = {
   /** The Stage ▾ — GREY / DYED (0504). Its own kind, not 0492's `fabric_stage`;
    *  see that migration on why one shared list would offer WASH on a yarn. */
   yarnStages: ConfigLookup[];
+  /** Manual ▸ Gauge (0762) — read by the knitter's PO. */
+  gauges: ConfigLookup[];
   /** What the Fabric cell's "+ Add" needs — see `FabricCreateFeed`. */
   fabricCreate: FabricCreateFeed;
 };
@@ -1124,6 +1141,7 @@ export async function getFabricBomFormData(): Promise<FabricBomFormData> {
     processLookups,
     yarnProcesses,
     yarnStages,
+    gauges,
     fabricCreate,
   ] = await Promise.all([
     getOrderOptions(),
@@ -1136,6 +1154,7 @@ export async function getFabricBomFormData(): Promise<FabricBomFormData> {
     getFabricProcessLookupRows(),
     getYarnProcessRows(),
     getYarnStageRows(),
+    getGaugeRows(),
     getFabricCreateFeed(),
   ]);
   return {
@@ -1149,6 +1168,7 @@ export async function getFabricBomFormData(): Promise<FabricBomFormData> {
     processLookups,
     yarnProcesses,
     yarnStages,
+    gauges,
     fabricCreate,
   };
 }

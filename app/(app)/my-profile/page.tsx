@@ -9,6 +9,8 @@ import { listBanks } from "@/lib/masters/bank-service";
 import { listDesignations } from "@/lib/masters/designation-service";
 import { PageHeader } from "@/components/ui/page-header";
 import { MyProfileClient } from "./my-profile-client";
+import { getMySignature } from "@/lib/me/signature";
+import { SignatureUpload } from "@/components/me/signature-upload";
 
 /**
  * MY PROFILE (user 2026-10-01) — the signed-in person's own HR ▸ Staff record,
@@ -25,7 +27,15 @@ import { MyProfileClient } from "./my-profile-client";
  */
 export default async function MyProfilePage() {
   const user = await requireUser();
-  const mine = await getMyStaffRecord();
+  const [mine, signature] = await Promise.all([getMyStaffRecord(), getMySignature()]);
+  /* MY SIGNATURE (0764) — on every login's profile, staff record or not: the MD who
+     approves POs may well have no HR record. */
+  const signatureSection = (
+    <section className="space-y-2 rounded-xl border border-border bg-surface p-5">
+      <h2 className="text-sm font-semibold text-foreground">Signature</h2>
+      <SignatureUpload url={signature.url} />
+    </section>
+  );
 
   if (!mine) {
     return (
@@ -41,6 +51,7 @@ export default async function MyProfilePage() {
             </p>
           </div>
         </div>
+        {signatureSection}
       </div>
     );
   }
@@ -58,14 +69,17 @@ export default async function MyProfilePage() {
     rows.map((r) => ({ id: r.id, name: label(r) ?? "—" }));
 
   return (
-    <MyProfileClient
-      row={mine.row}
-      locations={named(locations as { id: string; name?: string | null }[], (l) => l.name)}
-      departments={named(departments, (d) => d.name ?? d.short_name)}
-      divisions={named(divisions, (d) => d.division_name)}
-      categories={named(categories, (c) => c.name)}
-      banks={named(banks, (b) => b.name)}
-      designations={named(designations, (d) => d.name)}
-    />
+    <div className="space-y-4">
+      <MyProfileClient
+        row={mine.row}
+        locations={named(locations as { id: string; name?: string | null }[], (l) => l.name)}
+        departments={named(departments, (d) => d.name ?? d.short_name)}
+        divisions={named(divisions, (d) => d.division_name)}
+        categories={named(categories, (c) => c.name)}
+        banks={named(banks, (b) => b.name)}
+        designations={named(designations, (d) => d.name)}
+      />
+      {signatureSection}
+    </div>
   );
 }
