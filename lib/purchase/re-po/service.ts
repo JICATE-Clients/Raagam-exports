@@ -22,39 +22,56 @@ const num = (v: unknown) => (v == null ? 0 : Number(v));
 /** Every requirement line with a balance, or the lines of the given REs (balance or not). */
 export async function getRequirementLines(sourceIds?: readonly string[]): Promise<RequirementLine[]> {
   const s = await createClient();
-  const { data, error } = await s.rpc("po_requirement_lines", {
-    p_source_ids: sourceIds && sourceIds.length ? [...sourceIds] : null,
-  });
+  const p_source_ids = sourceIds && sourceIds.length ? [...sourceIds] : null;
+  // The fabric specs (0762) ride the same round: one call each, side by side.
+  const [{ data, error }, specs] = await Promise.all([
+    s.rpc("po_requirement_lines", { p_source_ids }),
+    s.rpc("po_fabric_specs", { p_source_ids }),
+  ]);
   if (error) throw new Error(`Could not read the requirement sheets: ${error.message}`);
-  return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
-    source_kind: (r.source_kind as RequirementLine["source_kind"]) ?? "re",
-    source_id: String(r.source_id),
-    source_no: String(r.source_no ?? "—"),
-    garment_order_id: (r.garment_order_id as string | null) ?? null,
-    iwo_id: (r.iwo_id as string | null) ?? null,
-    sales_order_id: (r.sales_order_id as string | null) ?? null,
-    re_no: (r.re_no as string | null) ?? null,
-    customer: (r.customer as string | null) ?? null,
-    delivery_date: (r.delivery_date as string | null) ?? null,
-    item_id: String(r.item_id),
-    item_name: String(r.item_name ?? ""),
-    item_class_id: (r.item_class_id as string | null) ?? null,
-    item_class: (r.item_class as string | null) ?? null,
-    category_id: (r.category_id as string | null) ?? null,
-    category: (r.category as string | null) ?? null,
-    slice_label: String(r.slice_label ?? ""),
-    colour: (r.colour as string | null) ?? null,
-    req_key: String(r.req_key),
-    uom_id: (r.uom_id as string | null) ?? null,
-    uom_code: (r.uom_code as string | null) ?? null,
-    required_qty: num(r.required_qty),
-    ordered_qty: num(r.ordered_qty),
-    balance_qty: num(r.balance_qty),
-    size_id: (r.size_id as string | null) ?? null,
-    size_name: (r.size_name as string | null) ?? null,
-    size_sort: r.size_sort == null ? null : num(r.size_sort),
-    slice_base: String(r.slice_base ?? r.slice_label ?? ""),
-  }));
+  if (specs.error) throw new Error(`Could not read the fabric specs: ${specs.error.message}`);
+  const specOf = new Map(
+    ((specs.data ?? []) as Record<string, unknown>[]).map((r) => [
+      lineKeyOf({ source_id: String(r.source_id), req_key: String(r.req_key) }),
+      r,
+    ]),
+  );
+  const numN = (v: unknown) => (v == null ? null : Number(v));
+  return ((data ?? []) as Record<string, unknown>[]).map((r) => {
+    const spec = specOf.get(lineKeyOf({ source_id: String(r.source_id), req_key: String(r.req_key) }));
+    return {
+      source_kind: (r.source_kind as RequirementLine["source_kind"]) ?? "re",
+      source_id: String(r.source_id),
+      source_no: String(r.source_no ?? "—"),
+      garment_order_id: (r.garment_order_id as string | null) ?? null,
+      iwo_id: (r.iwo_id as string | null) ?? null,
+      sales_order_id: (r.sales_order_id as string | null) ?? null,
+      re_no: (r.re_no as string | null) ?? null,
+      customer: (r.customer as string | null) ?? null,
+      delivery_date: (r.delivery_date as string | null) ?? null,
+      item_id: String(r.item_id),
+      item_name: String(r.item_name ?? ""),
+      item_class_id: (r.item_class_id as string | null) ?? null,
+      item_class: (r.item_class as string | null) ?? null,
+      category_id: (r.category_id as string | null) ?? null,
+      category: (r.category as string | null) ?? null,
+      slice_label: String(r.slice_label ?? ""),
+      colour: (r.colour as string | null) ?? null,
+      req_key: String(r.req_key),
+      uom_id: (r.uom_id as string | null) ?? null,
+      uom_code: (r.uom_code as string | null) ?? null,
+      required_qty: num(r.required_qty),
+      ordered_qty: num(r.ordered_qty),
+      balance_qty: num(r.balance_qty),
+      size_id: (r.size_id as string | null) ?? null,
+      size_name: (r.size_name as string | null) ?? null,
+      size_sort: r.size_sort == null ? null : num(r.size_sort),
+      slice_base: String(r.slice_base ?? r.slice_label ?? ""),
+      gsm: numN(spec?.gsm),
+      gauge: (spec?.gauge as string | null) ?? null,
+      loop_length: numN(spec?.loop_length),
+    };
+  });
 }
 
 /**

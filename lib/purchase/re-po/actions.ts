@@ -6,8 +6,13 @@ import { can, getAppUser } from "@/lib/auth/server";
 import { refuseReopenedBudget, refuseUnsettledMaterials } from "@/lib/purchase/bom-ceiling-service";
 import { getRequirementLines, getVendorsForClass } from "./service";
 import { notifyPoAboveBudget } from "@/lib/purchase/po-escalation";
+import { startApproval } from "@/lib/approvals/actions";
+import { WORKFLOWS } from "@/lib/approvals/workflows";
+import { poItemClasses } from "@/lib/purchase/po-routing";
 import {
+  budgetWords,
   gstSlab,
+  withGst,
   lineDescription,
   lineGst,
   lineKeyOf,
@@ -181,7 +186,7 @@ export async function checkRatesAgainstBudget(
 }
 
 export type SavePoResult =
-  | { ok: true; poId: string; code: string | null; status: "draft" | "approved" | "pending_approval"; aboveCount: number }
+  | { ok: true; poId: string; code: string | null; status: "draft" | "approved" | "pending_approval"; aboveCount: number; unbudgetedCount: number }
   | { ok: false; error: string };
 
 /**
@@ -276,6 +281,7 @@ export async function savePoFromRequirement(raw: RePoInput, mode: "draft" | "sub
   }
 
   const fx = input.po_type === "import" ? (input.exchange_rate ?? 0) : 1;
+  const slab = gstSlab(input.gst);
   let aboveCount = 0;
   let unbudgeted = 0;
   /** Lines that send the PO to the MD — above budget, or with no approved budget. */
@@ -295,7 +301,8 @@ export async function savePoFromRequirement(raw: RePoInput, mode: "draft" | "sub
           uom_id: l.req.uom_id,
           slice_label: l.req.slice_label,
           colour: l.req.colour,
-          rate: l.rate == null ? null : l.rate * fx,
+          // GST-inclusive budget: compare the rate with this line's GST on (withGst).
+          rate: l.rate == null ? null : withGst(l.rate * fx, l.gst_pct ?? slab.pct),
         })),
       );
       aboveCount = flags.filter((f) => f.above).length;
@@ -306,17 +313,19 @@ export async function savePoFromRequirement(raw: RePoInput, mode: "draft" | "sub
     }
   }
 
-  const slab = gstSlab(input.gst);
   // GST line by line (0756): each line's own slab, else the header's default.
   const totals = poTotals(lines.map((l) => ({ qty: l.qty, rate: l.rate ?? 0, gstPct: l.gst_pct })), slab.pct);
   /* Add − Less from the Commercial section, in the PO's currency like the rates. */
   const chargesNet = input.charges.reduce((a, c) => a + (c.kind === "less" ? -1 : 1) * c.amount, 0);
   const grand = Math.round((totals.total + chargesNet) * 100) / 100;
-  const status: "draft" | "approved" | "pending_approval" =
-    mode === "draft" ? "draft" : aboveCount > 0 || unbudgeted > 0 ? "pending_approval" : "approved";
+  /* EVERY PO IS APPROVED (user 2026-10-28, 0765): inside budget no longer means
+     approved by rule — it goes to the item class's approver, above budget to the MD.
+     `escalated` is what routes it there (the run's `above_budget`). */
+  const isAbove = aboveCount > 0 || unbudgeted > 0;
+  const status: "draft" | "approved" | "pending_approval" = mode === "draft" ? "draft" : "pending_approval";
   // The reason is mandatory for the MD (user 2026-10-27) — checked here too, not only on screen.
-  if (status === "pending_approval" && !input.budget_reason?.trim())
-    return { ok: false, error: "A rate is above budget — give the reason before it goes to the MD" };
+  if (isAbove && mode !== "draft" && !input.budget_reason?.trim())
+    return { ok: false, error: `${budgetWords(aboveCount, unbudgeted)} — give the reason before it goes to the MD` };
   const user = await getAppUser();
   const latestDelivery = lines.map((l) => l.delivery_date).sort().at(-1) ?? null;
 
@@ -336,14 +345,12 @@ export async function savePoFromRequirement(raw: RePoInput, mode: "draft" | "sub
       gst_amount: totals.gst,
       payment_terms: input.payment_terms,
       // Only a PO that goes to the MD carries a reason; one inside budget has nothing to explain.
-      ...(status === "pending_approval" && input.budget_reason ? { budget_reason: input.budget_reason } : {}),
+      ...(isAbove && status === "pending_approval" && input.budget_reason ? { budget_reason: input.budget_reason } : {}),
       ...(input.commercial ?? {}),
       expected_date: latestDelivery,
       order_date: new Date().toISOString().slice(0, 10),
       status,
       created_by: user?.id ?? null,
-      approved_by: status === "approved" ? (user?.id ?? null) : null,
-      approved_at: status === "approved" ? new Date().toISOString() : null,
     })
     .select("id, code")
     .single();
@@ -365,6 +372,11 @@ export async function savePoFromRequirement(raw: RePoInput, mode: "draft" | "sub
       bag_weight: l.bag_weight,
       rolls: l.rolls ?? 0,
       dia: l.dia,
+      // The cloth's construction, COPIED FROM PLANNING here and never from the browser
+      // (0762): the vendor's PO keeps what the BOM said the day it was raised.
+      gsm: l.req.gsm,
+      gauge: l.req.gauge,
+      loop_length: l.req.loop_length,
       quantity: l.qty,
       uom_id: l.req.uom_id,
       unit_price: l.rate ?? 0,
@@ -404,18 +416,40 @@ export async function savePoFromRequirement(raw: RePoInput, mode: "draft" | "sub
   }
 
   if (status === "pending_approval") {
-    // THE MD'S ALERT (escalation spec §2): which items, the total, the reason.
     const items = [...new Set(lines.filter((l) => escalated.has(lineKeyOf(l.req))).map((l) => l.req.item_name.toUpperCase()))];
-    await notifyPoAboveBudget({
-      id: poRow.id,
-      code: poRow.code,
-      items,
-      reason: input.budget_reason ?? null,
-      total: `${input.po_type === "import" ? (input.currency_code ?? "") : "₹"} ${grand.toFixed(2)}`,
+    const total = `${input.po_type === "import" ? (input.currency_code ?? "") : "₹"} ${grand.toFixed(2)}`;
+    /* INTO MY APPROVALS (user 2026-10-28, 0764): the run is the MD's request, and its
+       end writes the PO (`purchase_order_apply_decision`). The context is what the
+       MD's alert and inbox card say — frozen as sent, like a budget's summary. */
+    const started = await startApproval({
+      workflowKey: WORKFLOWS.purchase_order.key,
+      subjectTable: WORKFLOWS.purchase_order.subjectTable,
+      subjectId: poRow.id,
+      context: {
+        po_code: poRow.code,
+        items,
+        total,
+        reason: input.budget_reason ?? null,
+        above_count: aboveCount,
+        unbudgeted_count: unbudgeted,
+        /* WHAT ROUTES IT (0765): above budget → the MD's flow; otherwise the first
+           flow whose classes include any of this PO's — most senior first. */
+        above_budget: isAbove,
+        item_classes: await poItemClasses(poRow.id),
+      },
     });
+    if (!started.ok) {
+      /* NO FLOW COULD TAKE IT (nobody holds the flow's role, or the flow is off).
+         The PO still waits the pre-0764 way — the PO page's own Approve (and the MD's
+         alert when it is above budget) — rather than failing a save the Purchase
+         Manager cannot fix. Logged, so Approval Flows gets looked at. */
+      console.error(`[raise-po] ${poRow.code}: not routed to My Approvals — ${started.error}`);
+      if (isAbove)
+        await notifyPoAboveBudget({ id: poRow.id, code: poRow.code, items, reason: input.budget_reason ?? null, total });
+    }
   }
 
   revalidatePath("/purchase/orders");
   revalidatePath("/purchase/requirement-po");
-  return { ok: true, poId: poRow.id, code: poRow.code, status, aboveCount: aboveCount + unbudgeted };
+  return { ok: true, poId: poRow.id, code: poRow.code, status, aboveCount, unbudgetedCount: unbudgeted };
 }

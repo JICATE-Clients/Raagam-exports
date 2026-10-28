@@ -1,32 +1,8 @@
-import { requirePermission, can } from "@/lib/auth/server";
-import { listVendors } from "@/lib/purchase/po-service";
-import { PageHeader } from "@/components/ui/page-header";
-import { VendorsClient } from "./vendors-client";
+import { redirect } from "next/navigation";
 
-export default async function VendorsPage() {
-  await requirePermission("materials_purchase", "view");
-
-  const [vendors, canCreate, canEdit, canExport, canDelete] = await Promise.all([
-    listVendors(),
-    can("materials_purchase", "create"),
-    can("materials_purchase", "edit"),
-    can("materials_purchase", "export"),
-    can("materials_purchase", "delete"),
-  ]);
-
-  return (
-    <div className="space-y-4">
-      <PageHeader
-        title="Vendors"
-        description="Vendor master — yarn, knitting, dyeing, trims, packing."
-      />
-      <VendorsClient
-        vendors={vendors}
-        canCreate={canCreate}
-        canEdit={canEdit}
-        canExport={canExport}
-        canDelete={canDelete}
-      />
-    </div>
-  );
+/* VENDORS LEFT THE PURCHASE MENU (user 2026-10-28). Raise PO picks its vendor
+   from the Master Data vendor (`master_vendors`, 0737), so that is the one
+   vendor screen; this URL answers as a redirect so no bookmark breaks. */
+export default function VendorsPage() {
+  redirect("/masters/associates/vendor");
 }

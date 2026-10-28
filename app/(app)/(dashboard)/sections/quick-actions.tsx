@@ -50,10 +50,10 @@ const ACTIONS: (QuickAction & { module: Module; action: Action })[] = [
   {
     label: "Add supplier",
     hint: "Vendor onboarding",
-    href: "/purchase/vendors",
+    href: "/masters/associates/vendor",
     icon: "user-plus",
     tone: "info",
-    module: "materials_purchase",
+    module: "masters",
     action: "create",
   },
   {

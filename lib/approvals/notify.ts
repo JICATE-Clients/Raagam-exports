@@ -161,6 +161,28 @@ async function noticeFor(
     };
   }
 
+  /* A PURCHASE ORDER SAYS WHICH ITEMS AND WHY (0764) — the sentence the pre-0764
+     above-budget alert carried, now read off the run's frozen context. */
+  if (run.workflow_key === "purchase_order") {
+    const ctx = (run.context ?? {}) as Record<string, unknown>;
+    const code = typeof ctx.po_code === "string" ? ctx.po_code : "";
+    const items = Array.isArray(ctx.items) ? (ctx.items as string[]) : [];
+    const above = Number(ctx.above_count ?? 0) + Number(ctx.unbudgeted_count ?? 0);
+    const shown = items.slice(0, 3).join(", ") + (items.length > 3 ? ` +${items.length - 3} more` : "");
+    return {
+      title: `PO ${code}${above > 0 ? " is above budget —" : ""} ${sentBack ? "sent back for" : "needs"} your approval`.replace("  ", " "),
+      body:
+        [
+          [shown, typeof ctx.total === "string" ? `total ${ctx.total}` : null].filter(Boolean).join(" · "),
+          typeof ctx.reason === "string" && ctx.reason ? `Reason: ${ctx.reason}` : null,
+        ]
+          .filter(Boolean)
+          .join("\n") || undefined,
+      href,
+      type: above > 0 ? "warning" : "info",
+    };
+  }
+
   const label = workflowLabel(run.workflow_key);
   return {
     title: sentBack ? `${label} was sent back for your approval` : `${label} needs your approval`,

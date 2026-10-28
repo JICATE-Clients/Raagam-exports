@@ -557,6 +557,9 @@ const REDIRECTED: Record<string, string> = {
   // the Service Desk hub folded into Work + Reports.
   "/resolve/complaints": "/resolve/inbox",
   "/resolve/desk-hub": "/resolve/insights",
+  // Vendors left the Purchase menu (user 2026-10-28): the vendor a PO names is
+  // the Master Data vendor (0737), so the old screen answers as a redirect.
+  "/purchase/vendors": "/masters/associates/vendor",
 };
 
 for (const [moduleHref, leaves] of Object.entries(OLD_NAV_LEAVES)) {

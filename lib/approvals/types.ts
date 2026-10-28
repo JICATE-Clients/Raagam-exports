@@ -9,13 +9,16 @@
 // need OR, add a second flow at a higher priority. That keeps the matcher
 // explainable in the admin UI, which is worth more than expressiveness.
 
-export type CriteriaOperator = 'in' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte';
+export type CriteriaOperator = 'in' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'any';
 
 export type CriteriaCondition =
   | string
   | number
   | boolean
   | { in: (string | number | boolean)[] }
+  // 0765 — the context value is a LIST (a PO's item classes); matches when any
+  // member is one of these.
+  | { any: (string | number | boolean)[] }
   | { ne: string | number | boolean }
   | { gt: number }
   | { gte: number }

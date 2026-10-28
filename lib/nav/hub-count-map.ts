@@ -152,7 +152,6 @@ export const HUB_COUNT_TABLES: Record<string, string | null> = {
   "/purchase/price-confirmations": "purchase_price_confirmations",
   "/purchase/po-cancellations": "po_cancellations",
   "/purchase/completions": "po_completions",
-  "/purchase/vendors": "vendors",
   "/purchase/lab": "lab_tests",
   // Same work-queue case as Approve Amendment: this screen acknowledges rows in
   // `purchase_indents`, which the Indents card beside it already counts.

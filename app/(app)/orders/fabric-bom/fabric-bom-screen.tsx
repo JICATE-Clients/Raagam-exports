@@ -63,6 +63,7 @@ import { Button } from "@/components/ui/button";
 import { RowHoverRemove } from "@/components/ui/row-hover-remove";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { isInactive } from "@/lib/masters/inactive";
 /* A Combobox, so the Manual sheet's Table width cell PICKS rather than accepts:
    typed text in one is a SEARCH and is never committed (`commit` in
    combobox.tsx). That is what makes the declared dia list mean something. */
@@ -550,6 +551,10 @@ type ManualEntryRow = {
   wastage_pct: string;
   /** Legacy's "EndBit Loss %" — a second allowance on the same row (0522). */
   endbit_loss_pct: string;
+  /** The knitting gauge (0762) — "" while unnamed. Read by the knitter's PO. */
+  gauge_id: string;
+  /** Loop length in mm (0762) — "" while untyped. Read by the knitter's PO. */
+  loop_length: string;
   /** Legacy's "Assort Color wise" checkbox (0522). */
   assort_color_wise: boolean;
   /** The colourways this entry's weight is for, when `assort_color_wise` is on
@@ -1009,6 +1014,8 @@ const blankManualEntry = (key: string, style_ref_no = ""): ManualEntryRow => ({
   calc_mode: "direct",
   wastage_pct: "",
   endbit_loss_pct: "",
+  gauge_id: "",
+  loop_length: "",
   assort_color_wise: false,
   combos: [],
   /* FALSE (client, 2026-09-04: "its auto enabled so disable it" — reversing
@@ -2511,6 +2518,8 @@ export function FabricBomScreen({
         calc_mode: e.calc_mode ?? "direct",
         wastage_pct: e.wastage_pct == null ? "" : String(e.wastage_pct),
         endbit_loss_pct: e.endbit_loss_pct == null ? "" : String(e.endbit_loss_pct),
+        gauge_id: e.gauge_id ?? "",
+        loop_length: e.loop_length == null ? "" : String(e.loop_length),
         assort_color_wise: e.assort_color_wise ?? false,
         /* 0567's nested child, flattened to the strings the grid ticks. */
         combos: (e.combos ?? []).map((c) => c.combo),
@@ -5546,6 +5555,46 @@ export function FabricBomScreen({
         />
       ),
     },
+    /* GAUGE AND LOOP LENGTH (user 2026-10-28, 0762) — the cloth's construction,
+       typed ONCE here by the merchandiser and read, never retyped, by the
+       knitter's PO (Raise PO shows them read-only and prints them). Optional:
+       a BOM saved before 0762 has neither, and the PO prints nothing for it. */
+    {
+      header: "Gauge",
+      cell: (e) => (
+        <Select
+          compact
+          aria-label="Gauge"
+          value={e.gauge_id}
+          onChange={(ev) => setEntryCell(e.key, { gauge_id: ev.target.value })}
+        >
+          <option value="" />
+          {/* A switched-off gauge is offered to nobody, except the entry that
+              already holds it (AGENTS.md, Disabled rows). */}
+          {data.gauges
+            .filter((g) => !isInactive(g) || g.id === e.gauge_id)
+            .map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.name}
+                {isInactive(g) ? " (inactive)" : ""}
+              </option>
+            ))}
+        </Select>
+      ),
+    },
+    {
+      header: "Loop Length",
+      align: "right",
+      cell: (e) => (
+        <Input
+          className="text-right"
+          inputMode="decimal"
+          aria-label="Loop Length (mm)"
+          value={e.loop_length}
+          onChange={(ev) => setEntryCell(e.key, { loop_length: ev.target.value })}
+        />
+      ),
+    },
     /* COMPONENT PROC. LOSS % IS OFF THIS GRID (client redesign, point 1: it
        "prevented confusion with the sequential fabric process losses
        configured in the next tab"). `wastage_pct` is UNCHANGED in the schema
@@ -5869,6 +5918,10 @@ export function FabricBomScreen({
     "Assort Colour-Wise": "minmax(6.5rem,1fr)",
     "Size Wise": "minmax(4.5rem,0.8fr)",
     "EndBit Loss %": "minmax(6.5rem,0.9fr)",
+    /* 0762: a gauge name ("24 GG") and a loop length ("2.850") — short values,
+       floors sized to their headings. The floors now sum to 66.25rem. */
+    Gauge: "minmax(6rem,0.8fr)",
+    "Loop Length": "minmax(6.5rem,0.8fr)",
     Components: "minmax(6.75rem,1.1fr)",
     "Assort Color": "minmax(6rem,0.9fr)",
   };
@@ -11357,6 +11410,8 @@ export function FabricBomScreen({
         calc_mode: calcModeOf(e.calc_mode),
         wastage_pct: numOrNull(e.wastage_pct) ?? 0,
         endbit_loss_pct: numOrNull(e.endbit_loss_pct) ?? 0,
+        gauge_id: e.gauge_id || null,
+        loop_length: numOrNull(e.loop_length),
         assort_color_wise: e.assort_color_wise,
         size_wise: e.size_wise,
         panels: e.panels,

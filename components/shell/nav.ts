@@ -311,7 +311,6 @@ export const SECTION_ACTIONS: Record<string, string[]> = {
   "/purchase/rfq": ["New RFQ"],
   "/purchase/grn": ["New GRN"],
   "/purchase/dc": ["New Delivery Challan"],
-  "/purchase/vendors": ["New Vendor"],
 
   "/stores/opening-stock": ["New Opening Stock", "Import"],
   "/stores/requisitions": ["New MRS"],

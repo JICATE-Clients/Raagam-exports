@@ -498,17 +498,35 @@ export function SectionCard({
   );
 }
 
-/** Prepared / Checked / Approved, each over a rule. */
-export function SignOff({ names }: { names?: { prepared?: string | null; checked?: string | null; approved?: string | null } }) {
+/** Prepared / Checked / Approved, each over a rule. `approvedSignature` (0764) is an
+ *  image URL drawn ON the Approved rule — the approver's signature as it was when they
+ *  approved; every other caller passes nothing and the block is as before. */
+export function SignOff({
+  names,
+  approvedSignature,
+}: {
+  names?: { prepared?: string | null; checked?: string | null; approved?: string | null };
+  approvedSignature?: string | null;
+}) {
   const cells: [string, string | null | undefined][] = [
     ["Prepared By", names?.prepared],
     ["Checked By", names?.checked],
     ["Approved By", names?.approved],
   ];
   return (
-    <div className="mt-8 grid grid-cols-3 gap-7">
+    // Room above the rules for the signature image the Approved cell lifts over its rule.
+    <div className={`${approvedSignature ? "mt-20" : "mt-8"} grid grid-cols-3 items-end gap-7`}>
       {cells.map(([label, name]) => (
         <div key={label} className="border-t border-[#17202b] pt-1.5 text-[12px] font-semibold text-[#17202b]">
+          {label === "Approved By" && approvedSignature ? (
+            // On the rule, over the label: where a hand signature sits on paper.
+            // eslint-disable-next-line @next/next/no-img-element -- a short-lived signed URL, printed
+            <img
+              src={approvedSignature}
+              alt={`Signature of ${name ?? "the approver"}`}
+              className="-mt-14 mb-1 block h-12 w-auto max-w-full object-contain"
+            />
+          ) : null}
           {label}
           <span className="block text-[11.5px] font-normal text-[#7b8594]">{name || " "}</span>
         </div>

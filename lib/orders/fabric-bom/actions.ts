@@ -245,6 +245,9 @@ function normalizeManualEntries(data: FabricBomInput) {
       calc_mode: e.calc_mode ?? "direct",
       wastage_pct: e.wastage_pct ?? 0,
       endbit_loss_pct: e.endbit_loss_pct ?? 0,
+      // The cloth's construction for the knitter's PO (0762).
+      gauge_id: e.gauge_id ?? null,
+      loop_length: e.loop_length ?? null,
       assort_color_wise: e.assort_color_wise ?? false,
       /* "SIZE WISE", WHICH THIS NORMALISER DROPPED ON THE FLOOR (2026-09-11).
          The planner's answer reached the action and was validated, and then

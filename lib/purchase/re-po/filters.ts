@@ -1,7 +1,8 @@
 /**
  * THE FILTERS ON PO FROM REQUIREMENT (user 2026-10-26, canvas "PO Order Filters"
- * v6: one row of pills, reordered 2026-10-26 — PO Type · Order Type · Buyer ·
- * Item Class · Orders · Category · Vendor │ Order by · Budget · Progress). Each filter is there to stop one mistake, and the
+ * v6: one row of pills, reordered 2026-10-28 — PO Type · Order Type · Buyer ·
+ * Orders · Item Class · Category · Vendor │ Order by · Budget · Progress; the
+ * chain from Buyer to Vendor narrows top-down only). Each filter is there to stop one mistake, and the
  * rules live here, pure, so the screen and `scripts/check-re-po-filters.mts`
  * read one definition:
  *

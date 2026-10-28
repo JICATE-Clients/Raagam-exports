@@ -1098,15 +1098,20 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         label: "Approvals & Amendments",
         description: "Rate, price and budget changes, cancellation and completion",
         children: [
+          // 0765 — who approves a PO, by item class / above budget, on one screen
+          // (user 2026-10-28). Edits the purchase_order approval flows.
+          { href: "/purchase/po-approval-routing", label: "PO Approval Routing", description: "Who approves a PO — by item class, above budget, and the rest" },
           { href: "/purchase/over-budget", label: "Over-budget Confirmation", description: "Budget versus quoted rate with variance" },
           { href: "/purchase/rate-amendments", label: "Rate Amendments", description: "Revise a PO line rate and recompute the total" },
           { href: "/purchase/price-confirmations", label: "Price Confirmation", description: "Confirm agreed purchase prices" },
           { href: "/purchase/po-cancellations", label: "Cancel PO", description: "Cancel a purchase order with a logged reason" },
           { href: "/purchase/completions", label: "PO Completions", description: "Close out a completed purchase order" },
+          // Was a loose row under this group and read as one of its screens (user 2026-10-28: move it in).
+          { href: "/purchase/lab", label: "Lab / QC", description: "Test standards and in-house / outside-lab test reports" },
         ],
       },
-      { kind: "link", href: "/purchase/vendors", label: "Vendors" },
-      { kind: "link", href: "/purchase/lab", label: "Lab / QC" },
+      // Vendors row removed (user 2026-10-28): Raise PO picks from the Master Data vendor (0737),
+      // so /purchase/vendors redirects there — see REDIRECTED in check-module-groups.mts.
     ],
   },
 

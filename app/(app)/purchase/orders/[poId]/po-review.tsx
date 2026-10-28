@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { approvePo, declinePo, rejectPo, submitPo } from "@/lib/purchase/po-actions";
 import type { PoWithDetails } from "@/lib/purchase/po-service";
 import type { PoVariance } from "@/lib/purchase/po-escalation";
+import { poBudgetImpact } from "@/lib/purchase/re-po/types";
 import { PO_STATUS_LABELS, type PoLineItem } from "@/lib/purchase/types";
 import type { Uom } from "@/lib/masters/types";
 import { Button } from "@/components/ui/button";
@@ -114,12 +115,16 @@ export function PoReview({
      currency and the money it costs is counted in rupees. Every rupee a line pays above
      its budget rate comes straight off the order's profit, so that sum IS the impact. */
   const fx = isImport ? Number(po.exchange_rate ?? 0) || 1 : 1;
-  const budgetOf = (l: ReviewLine) => (variance ? (variance[l.id] ?? null) : null);
-  const overLines = variance ? lines.filter((l) => budgetOf(l) != null && Number(l.unit_price) * fx > budgetOf(l)! + 1e-9) : [];
-  const unbudgetedLines = variance ? lines.filter((l) => budgetOf(l) == null && Number(l.quantity) > 0) : [];
-  const profitHit = overLines.reduce((a, l) => a + (Number(l.unit_price) * fx - budgetOf(l)!) * Number(l.quantity), 0);
-  const budgetedSpend = overLines.reduce((a, l) => a + budgetOf(l)! * Number(l.quantity), 0);
-  const overPct = budgetedSpend > 0 ? (profitHit / budgetedSpend) * 100 : 0;
+  /* THE BUDGET RATE INCLUDES GST (user 2026-10-28; `withGst` in re-po/types.ts). `budgetOf`
+     is therefore the BASIC ceiling — the budget less this line's GST — so it stands beside
+     the basic Rate column, and the same lines read "above" here as on Raise PO. A line saved
+     before 0756 has no GST of its own and reads the header's. */
+  // One calculation with the My Approvals card (`poBudgetImpact`, 0764).
+  const impact = poBudgetImpact(lines, variance ?? {}, { fx, headerGstPct: gstPct });
+  const budgetOf = (l: ReviewLine) => (variance ? impact.budgetOf(l) : null);
+  const overLines = variance ? impact.over : [];
+  const unbudgetedLines = variance ? impact.unbudgeted : [];
+  const { profitHit, overPct } = impact;
   const reason = typeof raw.budget_reason === "string" && raw.budget_reason.trim() ? raw.budget_reason : null;
 
   const columns: Column<ReviewLine>[] = [
@@ -140,7 +145,8 @@ export function PoReview({
     ...(variance
       ? [
           {
-            header: `Budget (${cur})`,
+            // The budget less GST, so it compares with the Rate column beside it.
+            header: `Budget ex GST (${cur})`,
             align: "right" as const,
             cell: (r: ReviewLine) => {
               const b = budgetOf(r);

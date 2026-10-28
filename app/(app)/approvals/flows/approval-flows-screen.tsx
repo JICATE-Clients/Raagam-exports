@@ -133,7 +133,7 @@ const BLANK_STEP: Omit<StepRow, "key"> = {
 type CritRow = {
   key: string;
   field: string;
-  op: "eq" | "ne" | "gt" | "gte" | "lt" | "lte" | "in";
+  op: "eq" | "ne" | "gt" | "gte" | "lt" | "lte" | "in" | "any";
   value: string;
 };
 
@@ -273,9 +273,10 @@ export function ApprovalFlowsScreen({
       const field = c.field.trim();
       if (!field) continue;
       const raw = c.value.trim();
-      if (c.op === "in") {
+      // `any` (0765) is a list too — "item classes includes any of YARN, FABRIC".
+      if (c.op === "in" || c.op === "any") {
         out[field] = {
-          in: raw.split(",").map((v) => coerce(v.trim())),
+          [c.op]: raw.split(",").map((v) => coerce(v.trim())),
         } as CriteriaCondition;
         continue;
       }
@@ -605,6 +606,7 @@ export function ApprovalFlowsScreen({
           <option value="lt">&lt;</option>
           <option value="lte">&le;</option>
           <option value="in">is one of</option>
+          <option value="any">includes any of</option>
         </Select>
       ),
     },
