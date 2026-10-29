@@ -25,11 +25,14 @@ export function EmojiPicker({
   onPick,
   onClose,
   anchor,
+  label = "Pick a reaction",
 }: {
   onPick: (emoji: string) => void;
   onClose: () => void;
   /** The button that opened it — for choosing up or down, and for focus return. */
   anchor: HTMLElement | null;
+  /** What the dialog is called — the composer inserts rather than reacts. */
+  label?: string;
 }) {
   const [q, setQ] = useState("");
   const [cat, setCat] = useState<string>("common");
@@ -98,7 +101,7 @@ export function EmojiPicker({
     <div
       ref={boxRef}
       role="dialog"
-      aria-label="Pick a reaction"
+      aria-label={label}
       onKeyDown={onKey}
       className={cn(
         "absolute right-0 z-30 w-[min(20rem,calc(100vw-2rem))] rounded-lg border border-border bg-surface p-2 shadow-lg",

@@ -1,15 +1,13 @@
-import Link from "next/link";
-import { Settings, Users } from "lucide-react";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
-import { isAdminRole, memberStatusTone, type Workspace } from "@/lib/comms/workspace";
+import { memberStatusTone, type Workspace } from "@/lib/comms/workspace";
 import { initials } from "./message-body";
 
 /**
  * The workspace's identity at the top of the hub frame (0750): the company's
- * workspace name, a Paused pill while an owner has suspended it, the People
- * directory, and — for owners and admins only — the settings gear. One slim
- * row, so the views below keep their own headers unchanged.
+ * workspace name and a Paused pill while an owner has suspended it. People and
+ * Settings live in the sidebar only. One slim row, so the views below keep
+ * their own headers unchanged.
  */
 export function WorkspaceBar({ workspace: w }: { workspace: Workspace }) {
   const suspended = w.status === "suspended";
@@ -26,22 +24,8 @@ export function WorkspaceBar({ workspace: w }: { workspace: Workspace }) {
         {w.description && <Truncated className="hidden text-xs text-muted-foreground @2xl/comms:block" text={w.description} />}
       </div>
       {suspended && <StatusPill tone={memberStatusTone("suspended")}>Paused</StatusPill>}
-      <Link
-        href="/comms/people"
-        className="inline-flex items-center gap-1 rounded-control px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-surface-muted hover:text-foreground"
-      >
-        <Users className="h-3.5 w-3.5" aria-hidden /> People
-      </Link>
-      {isAdminRole(w.my_role) && (
-        <Link
-          href="/comms/workspace"
-          aria-label="Workspace settings"
-          title="Workspace settings"
-          className="rounded-control p-1.5 text-muted-foreground hover:bg-surface-muted hover:text-foreground"
-        >
-          <Settings className="h-4 w-4" aria-hidden />
-        </Link>
-      )}
+      {/* No People link or settings gear here (user 2026-10-29: "People and
+          Settings should only be in the sidebar") — both are Huddle rows. */}
     </div>
   );
 }

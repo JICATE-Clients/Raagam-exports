@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAppUser } from "@/lib/auth/server";
 import { isInactive } from "@/lib/masters/inactive";
 import { foldReactions } from "./reactions";
+import { mentionIds, previewText } from "./format";
 import {
   SEARCH_PAGE,
   decodeSearchCursor,
@@ -151,7 +152,7 @@ async function titlesFor(
 // Conversations
 // ---------------------------------------------------------------------------
 
-type MyConversationRow = Omit<ConversationSummary, "department_name" | "title" | "my_role" | "kind" | "visibility"> & {
+type MyConversationRow = Omit<ConversationSummary, "department_name" | "title" | "my_role" | "kind" | "visibility" | "last_author_name"> & {
   kind: ConversationKind;
   visibility: Visibility;
   my_role: MemberRole;
@@ -170,24 +171,39 @@ export const listMyConversations = cache(async function listMyConversations(
   if (error) fail("conversations", error);
   const rows = (data ?? []) as MyConversationRow[];
 
-  const [titles, depts] = await Promise.all([
+  const [titles, depts, authors] = await Promise.all([
     titlesFor(s, rows, me),
     departmentNames(s, rows.map((r) => r.department_id)),
+    // Authors of the last messages and everyone those messages @mention, in one call.
+    resolveNames(s, [
+      ...rows.map((r) => (r.last_author_id === me ? null : r.last_author_id)),
+      ...rows.flatMap((r) => mentionIds(r.last_body)),
+    ]),
   ]);
   return rows.map((r) => ({
     ...r,
+    // `?? false` / `?? null`: before 0764 is applied the RPC has no such columns.
+    favorite: r.favorite ?? false,
+    archived: r.archived ?? false,
+    // The PREVIEW, not the stored text: tokens as names, formatting markers off.
+    last_body: r.last_body ? previewText(r.last_body, authors) || null : null,
+    last_author_id: r.last_author_id ?? null,
+    last_author_name: !r.last_author_id ? null : r.last_author_id === me ? "You" : authors.get(r.last_author_id) ?? null,
+    last_deleted: r.last_deleted ?? false,
+    last_has_file: r.last_has_file ?? false,
     department_name: r.department_id ? depts.get(r.department_id) ?? null : null,
     title: titles.get(r.id) ?? conversationTitle(r, []),
   }));
 });
 
-/** Total unread across the caller's unmuted conversations — the nav badge. */
+/** Total unread across the caller's unmuted, unarchived conversations — the
+ *  nav badge. An archived chat stays quiet, as in WhatsApp (0764). */
 export async function getUnreadTotal(): Promise<number> {
   const s = await createClient();
   const { data, error } = await s.rpc("comm_my_conversations", { p_kind: null });
   if (error) fail("unread messages", error);
-  return ((data ?? []) as { unread_count: number; muted: boolean }[])
-    .filter((r) => !r.muted)
+  return ((data ?? []) as { unread_count: number; muted: boolean; archived?: boolean }[])
+    .filter((r) => !r.muted && !r.archived)
     .reduce((n, r) => n + (r.unread_count ?? 0), 0);
 }
 
