@@ -1,6 +1,7 @@
 import { can } from "@/lib/auth/server";
 import type { Action, Module } from "@/lib/auth/types";
-import { QuickActionGrid, type QuickAction } from "@/components/dashboard/cards";
+import { QuickActionList, type QuickAction } from "@/components/dashboard/cards";
+import { PanelCard } from "@/components/dashboard/lists";
 
 /**
  * Section 05a — the eight shortcuts. Zero queries; permission checks resolve
@@ -92,5 +93,9 @@ export async function QuickActionsSection() {
   const actions = allowed.filter((a): a is (typeof ACTIONS)[number] => a !== null);
 
   if (actions.length === 0) return null;
-  return <QuickActionGrid actions={actions} />;
+  return (
+    <PanelCard title="Quick actions">
+      <QuickActionList actions={actions} />
+    </PanelCard>
+  );
 }

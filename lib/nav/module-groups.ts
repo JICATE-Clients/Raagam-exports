@@ -1,3 +1,48 @@
+import {
+  Activity,
+  Archive,
+  ArchiveX,
+  ArrowDownToLine,
+  ArrowRightLeft,
+  ArrowUpFromLine,
+  BadgeIndianRupee,
+  Banknote,
+  BookOpen,
+  Boxes,
+  Building2,
+  CalendarClock,
+  CalendarRange,
+  ChartColumn,
+  ClipboardPen,
+  Clock,
+  Cog,
+  FileCheck,
+  FileText,
+  Gauge,
+  Hammer,
+  HardDrive,
+  Landmark,
+  Layers,
+  LifeBuoy,
+  ListTree,
+  PackageCheck,
+  PackageOpen,
+  PackagePlus,
+  Presentation,
+  Receipt,
+  Ruler,
+  Scale,
+  Scissors,
+  Server,
+  Settings,
+  ShoppingBag,
+  Tags,
+  Truck,
+  UserCog,
+  Users,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
 import type { Module } from "@/lib/auth/types";
 
 /**
@@ -53,6 +98,14 @@ export interface GroupChild {
   href: string;
   label: string;
   description: string;
+  /**
+   * A green "New" tag on this screen's sidebar row until the given date
+   * (`YYYY-MM-DD`, inclusive), then it goes by itself (Sarvam sidebar review,
+   * user 2026-10-29, https://claude.ai/artifact/EgufM8nybBmMcZ3LcvHV4H). A date
+   * and never a boolean: a "new" flag nobody remembers to clear is how every
+   * row ends up tagged New.
+   */
+  newUntil?: string;
   /**
    * A CARD on this hub whose sidebar ROW lives somewhere else — another group,
    * or (for a module root) the module row itself. `owningNavHref` and
@@ -135,6 +188,15 @@ export interface ModuleGroup {
   /** Route segment under the module — the hub page's own route. */
   slug: string;
   label: string;
+  /**
+   * The group heading's icon in the module menu, drawn in the module's colour
+   * (sidebar plan A, user 2026-10-28,
+   * https://claude.ai/artifact/EM8N82rVGzbKtJLhtrLaRS). REQUIRED so a new
+   * group cannot ship as the one bare heading in its column. Groups only —
+   * the screens under them stay text, per the client's 2026-09-16 "it looks
+   * much icons".
+   */
+  icon: LucideIcon;
   description: string;
   /**
    * NO SIDEBAR ROW, but everything else about the group stays live.
@@ -378,6 +440,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "setup",
         label: "Order Management",
+        icon: ClipboardPen,
         description:
           "Order entry to approved budget — the five steps a bulk order passes through",
         // Colour Cards was the other half of this group and was removed with its
@@ -589,6 +652,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "cad-room",
         label: "CAD",
+        icon: Ruler,
         description: "Assign, send and approve each style's CAD",
         children: [
           { href: "/orders/cad-lifecycle", label: "CAD Queue", description: "Assign a style's CAD to a pattern maker, send it to the buyer, and record Approved or Rework" },
@@ -601,6 +665,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "time-action",
         label: "Time & Action",
+        icon: CalendarClock,
         description: "Follow up T&A approvals and work your department's due activities",
         children: [
           { href: "/orders/ta-followup", label: "TA Followup", description: "Mark PP and other T&A approvals Sent / Approved / Rework, and chase what is overdue" },
@@ -681,6 +746,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "execution",
         label: "Order Execution",
+        icon: PackageCheck,
         description: "Work orders, advised items and packing advice",
         children: [
           { href: "/orders/internal-work-orders", label: "Internal Work Orders", description: "Raise a work order, then its BOM and budget" },
@@ -701,6 +767,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "closure",
         label: "Order Closure",
+        icon: Archive,
         description: "Cancel or complete a garment order",
         children: [
           { href: "/orders/cancellations", label: "Cancellation", description: "Cancel an order with a logged reason" },
@@ -730,6 +797,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         slug: "ta",
         hidden: true,
         label: "Time & Action (TA)",
+        icon: CalendarRange,
         description: "Activities, plans, follow-ups and completion for each order",
         status: "provisional",
         note:
@@ -818,6 +886,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         slug: "retired",
         hidden: true,
         label: "Retired Screens",
+        icon: ArchiveX,
         description: "Order screens kept reachable, but no longer in the menu",
         status: "provisional",
         note:
@@ -958,6 +1027,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "management",
         label: "Sample Management",
+        icon: Scissors,
         description: "Raise, cost, plan, approve and revise samples",
         children: [
           { href: "/sales/sample-entry", label: "Sample Entry", description: "Raise a sample — customer, styles, product info, combos and quantities" },
@@ -982,6 +1052,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "bom",
         label: "Bill of Materials",
+        icon: ListTree,
         description: "Fabric, garment, material and accessory BOMs, with shortage and transfer",
         note: "These screens are built, but the Planning tables are not in this database — migration 0332 removed them and the replacement schema has not been applied. Nothing here can be opened or saved yet.",
         status: "provisional",
@@ -998,6 +1069,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "ppm",
         label: "PPM",
+        icon: Presentation,
         description: "Production planning and material issue, with cancellation and completion",
         note: "These screens are built, but the Planning tables are not in this database — migration 0332 removed them and the replacement schema has not been applied. Nothing here can be opened or saved yet.",
         status: "provisional",
@@ -1014,6 +1086,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "fabric",
         label: "Fabric Planning",
+        icon: Layers,
         description: "Fabric orders and consumption against plan",
         note: "These screens are built, but the Planning tables are not in this database — migration 0332 removed them and the replacement schema has not been applied. Nothing here can be opened or saved yet.",
         status: "provisional",
@@ -1026,6 +1099,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "material",
         label: "Material Planning",
+        icon: Boxes,
         description: "Excess material plans, rates and excess orders",
         note: "These screens are built, but the Planning tables are not in this database — migration 0332 removed them and the replacement schema has not been applied. Nothing here can be opened or saved yet.",
         status: "provisional",
@@ -1039,6 +1113,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "capacity",
         label: "Capacity & Production",
+        icon: Gauge,
         description: "Line capacity and production scheduling",
         note: "These screens are built, but the Planning tables are not in this database — migration 0332 removed them and the replacement schema has not been applied. Nothing here can be opened or saved yet.",
         status: "provisional",
@@ -1069,13 +1144,14 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "procurement",
         label: "Procurement",
+        icon: ShoppingBag,
         description: "Indents, RFQs and purchase orders",
         children: [
           // doc/purchase/puchase.md (2026-10-23): RE numbers in, requirement lines out, the manager types the rate.
           // First in the group (user 2026-10-26): a PO starts from the requirement, then is worked on Purchase Orders.
-          { href: "/purchase/requirement-po", label: "Raise PO", description: "Pick RE numbers; what they still need lists itself; type the rate" },
+          { href: "/purchase/requirement-po", label: "Raise PO", description: "Pick RE numbers; what they still need lists itself; type the rate", newUntil: "2026-11-30" },
           // The approver's queue of POs raised on Raise PO — Orders ▸ Approval's shape (user 2026-10-28).
-          { href: "/purchase/po-approval", label: "PO Approval", description: "Approve, send back or reject a PO raised on Raise PO" },
+          { href: "/purchase/po-approval", label: "PO Approval", description: "Approve, send back or reject a PO raised on Raise PO", newUntil: "2026-11-30" },
           { href: "/purchase/orders", label: "Purchase Orders", description: "Create from budget, submit and approve" },
           { href: "/purchase/rfq", label: "RFQ", description: "Request quotes from vendors and award" },
           { href: "/purchase/indents", label: "Indents", description: "Department indents and their lines" },
@@ -1088,6 +1164,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "receiving",
         label: "Receiving",
+        icon: PackageOpen,
         description: "Goods receipts and delivery challans",
         children: [
           { href: "/purchase/grn", label: "Goods Receipts", description: "Partial receipt, QC accept or reject, posts to Stores" },
@@ -1098,6 +1175,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "approvals",
         label: "Approvals & Amendments",
+        icon: FileCheck,
         description: "Rate, price and budget changes, cancellation and completion",
         children: [
           // 0765 — who approves a PO, by item class / above budget, on one screen
@@ -1125,6 +1203,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "setup",
         label: "Stock Setup",
+        icon: PackagePlus,
         description: "Opening balances and stock adjustments",
         children: [
           { href: "/stores/opening-stock", label: "Opening Stock", description: "Set a store's initial balances" },
@@ -1135,6 +1214,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "issues",
         label: "Issues & Requisitions",
+        icon: ArrowUpFromLine,
         description: "Department requests and inter-department delivery",
         children: [
           { href: "/stores/requisitions", label: "Requisitions", description: "Material requisition slips, submit to issue" },
@@ -1145,6 +1225,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "processing",
         label: "Processing",
+        icon: Cog,
         description: "Process orders, issues and receipts",
         children: [
           { href: "/stores/process-orders", label: "Process Orders", description: "Orders raised on a processing store" },
@@ -1156,6 +1237,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "receipts",
         label: "Receipts & Returns",
+        icon: ArrowDownToLine,
         description: "Customer-supplied receipts and vendor returns",
         children: [
           { href: "/stores/csp-receipts", label: "CSP Receipts", description: "Customer-supplied and consignment material" },
@@ -1174,6 +1256,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "manufacturing",
         label: "Manufacturing",
+        icon: Hammer,
         description: "Job orders and contractor piece rates",
         children: [
           { href: "/production/job-orders", label: "Job Orders", description: "Job orders and their component details" },
@@ -1184,6 +1267,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "finishing",
         label: "Finishing & Despatch",
+        icon: Truck,
         description: "Inspection, packing and finished-goods despatch",
         children: [
           { href: "/production/inspections", label: "Inspections", description: "Final QC with pass, fail or rework" },
@@ -1203,6 +1287,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "people",
         label: "People",
+        icon: Users,
         description: "Workers, staff, contractors and their lifecycle",
         children: [
           { href: "/hr/workers", label: "Workers", description: "Worker master and bulk import" },
@@ -1225,6 +1310,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "time",
         label: "Time & Attendance",
+        icon: Clock,
         description: "Attendance, piece records and leave",
         children: [
           { href: "/hr/attendance", label: "Attendance", description: "Mark and review daily attendance" },
@@ -1236,6 +1322,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "pay",
         label: "Pay",
+        icon: Banknote,
         description: "Payroll runs, payslips, advances and adjustments",
         children: [
           { href: "/hr/payroll", label: "Payroll Runs", description: "Run payroll for a period" },
@@ -1254,6 +1341,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "compliance",
         label: "Compliance & Setup",
+        icon: Scale,
         description: "Statutory documents and payroll settings",
         children: [
           { href: "/hr/statutory", label: "Statutory Docs", description: "PF, ESI and other statutory records" },
@@ -1271,6 +1359,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "documents",
         label: "Shipping Documents",
+        icon: FileText,
         description: "Proforma invoices and letters of credit",
         children: [
           { href: "/logistics/proforma", label: "Proforma Invoices", description: "Raise proforma invoices for a shipment" },
@@ -1281,6 +1370,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "exports",
         label: "Export Incentives",
+        icon: BadgeIndianRupee,
         description: "EPCG declarations and incentive claims",
         children: [
           { href: "/logistics/epcg", label: "EPCG Declarations", description: "EPCG scheme declarations" },
@@ -1291,10 +1381,28 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "categories",
         label: "Categories",
+        icon: Tags,
         description: "Export and order category assignment",
         children: [
           { href: "/logistics/export-categories", label: "Export Categories", description: "Maintain export category master" },
           { href: "/logistics/order-categories", label: "Order Category Assign", description: "Assign orders to export categories" },
+        ],
+      },
+      // Vehicle & Transport (doc/vehicle program/plan.md D1, 2026-10-29). Trip
+      // detail (/logistics/transport/trips/[id]) is a document reached from the
+      // board, not a row.
+      {
+        kind: "group",
+        slug: "transport",
+        label: "Transport",
+        icon: Truck,
+        description: "Vehicles, trip requests, dispatch and the fleet board",
+        children: [
+          { href: "/logistics/transport/requests", label: "Trip Requests", description: "Book a vehicle for an order's material", newUntil: "2026-11-30" },
+          { href: "/logistics/transport/dispatch", label: "Dispatch", description: "Pool pending requests onto a vehicle", newUntil: "2026-11-30" },
+          { href: "/logistics/transport/board", label: "Fleet Board", description: "Live trips, status and load per vehicle", newUntil: "2026-11-30" },
+          { href: "/logistics/transport/vehicles", label: "Vehicles", description: "Vehicle master — number, type, payload, GPS device", newUntil: "2026-11-30" },
+          { href: "/logistics/transport/places", label: "Transport Places", description: "Units, vendors and other stops with their geofence", newUntil: "2026-11-30" },
         ],
       },
     ],
@@ -1308,6 +1416,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "setup",
         label: "Chart & Setup",
+        icon: BookOpen,
         description: "Accounts, cost centres, cost heads and party openings",
         children: [
           { href: "/finance/accounts", label: "Chart of Accounts", description: "Account groups and heads" },
@@ -1320,6 +1429,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "ar-ap",
         label: "Payables & Receivables",
+        icon: ArrowRightLeft,
         description: "Bills, invoices and debit or credit notes",
         children: [
           { href: "/finance/payables", label: "Payables", description: "Vendor bills and payment due" },
@@ -1331,6 +1441,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "banking",
         label: "Banking",
+        icon: Landmark,
         description: "Limits, journals, cheques, forward contracts and rates",
         children: [
           { href: "/finance/bank-limits", label: "Bank Limits", description: "Sanctioned limits per bank" },
@@ -1344,6 +1455,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "invoicing",
         label: "Invoicing",
+        icon: Receipt,
         description: "Provisional and domestic invoices",
         children: [
           { href: "/finance/provisional-invoices", label: "Provisional Invoices", description: "Raise provisional invoices" },
@@ -1354,6 +1466,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "results",
         label: "Ledger & Results",
+        icon: ChartColumn,
         description: "General ledger, other entries and shipment profitability",
         children: [
           { href: "/finance/ledger", label: "General Ledger", description: "Journals and ledger enquiry" },
@@ -1368,8 +1481,10 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
   // Reporting is for everyone; Work, Analytics and Administration each check
   // their own `RH` key on the page, so the module grant only opens the hubs.
   "/resolve": {
-    label: "Resolve Hub",
-    description: "Report a problem, work the jobs, and see what stays broken",
+    // SIMPLE WORDS (user 2026-10-28): every label here must read for a worker
+    // with five years of school — no "triage", "SLA", "routing" or "queue".
+    label: "Help & Repairs",
+    description: "Tell us a problem, get it fixed, and see what is still broken",
     module: "resolve",
     entries: [
       // DE-DUPLICATED 2026-10-26 (user: "a lot duplicated page in side bar").
@@ -1381,61 +1496,65 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
       {
         kind: "group",
         slug: "reporting",
-        label: "Reporting",
-        description: "Raise a problem and follow what you raised",
+        label: "Ask for Help",
+        icon: LifeBuoy,
+        description: "Tell us a problem and see what happened to it",
         children: [
-          { href: "/resolve/report", label: "Report a Problem", description: "Fix, IT help, buy something or raise a concern — one chat" },
-          { href: "/resolve/my-reports", label: "My Reports", description: "Everything you raised — confirm, reopen or rate when it is done" },
+          { href: "/resolve/report", label: "Tell a Problem", description: "Something broken, IT help, something to buy, or a complaint — tell us in one chat" },
+          { href: "/resolve/my-reports", label: "My Problems", description: "Everything you told us — say it is fixed, open it again, or give stars" },
           // Redirects to the PUBLIC /p/track (no login — an anonymous concern
           // is followed by its link alone). The row is an in-module hop because
           // check:nav resolves every leaf under app/(app); see that page.
-          { href: "/resolve/track", label: "Track Concern", description: "Follow an anonymous concern with its private link" },
+          { href: "/resolve/track", label: "Check My Complaint", description: "Check a secret complaint with its private link" },
         ],
       },
       {
         kind: "group",
         slug: "work",
-        label: "Work",
-        description: "The tickets you work, the queues you sort, and the calls you log",
+        label: "Do the Work",
+        icon: Wrench,
+        description: "Your jobs, new jobs to sort, and phone calls to note",
         children: [
           // One inbox for every lane (2026-10-26) — it replaced My Work,
           // Requirements and Complaints, whose URLs redirect here.
-          { href: "/resolve/inbox", label: "Inbox", description: "Every ticket you work — Fix, IT, Buy and Concern — in one list" },
-          { href: "/resolve/triage", label: "Triage Queue", description: "Fix jobs to decide, assign and spot-check — sorted by score" },
+          { href: "/resolve/inbox", label: "My Jobs", description: "Every job given to you — repair, IT, buying and complaints — in one list" },
+          { href: "/resolve/triage", label: "Sort New Jobs", description: "New repair jobs — decide, give to someone, and check — most urgent first" },
           // The hub was `desk-hub` until 2026-10-26: `/resolve/desk` is the queue itself.
-          { href: "/resolve/desk", label: "Desk Queue", description: "IT requests to hand out — urgent first, then priority, then first come" },
-          { href: "/resolve/desk/log", label: "Log a Call", description: "Raise a request for a caller on the phone, email, chat or WhatsApp" },
-          { href: "/resolve/kb", label: "Knowledge Base", description: "Fixes written from resolved requests, searchable" },
+          { href: "/resolve/desk", label: "Give Out IT Jobs", description: "IT requests to give to someone — urgent first, then oldest first" },
+          { href: "/resolve/desk/log", label: "Note a Phone Call", description: "Write down a problem for someone who called, emailed or sent a WhatsApp" },
+          { href: "/resolve/kb", label: "How to Fix", description: "Easy fix steps written from old jobs — search them" },
         ],
       },
       {
         kind: "group",
         slug: "insights",
-        label: "Reports",
-        description: "How the work is going — live counts, who carries what, and every ticket",
+        label: "See Progress",
+        icon: Activity,
+        description: "How the work is going — counts, who has what, and every job",
         children: [
-          { href: "/resolve/analytics", label: "Analytics", description: "Trends, top problems and time to fix" },
-          { href: "/resolve/desk/dashboard", label: "Desk Dashboard", description: "Live IT counts, technician allocation and escalations" },
-          { href: "/resolve/workload", label: "Workload", description: "Open, blocked and overdue jobs per team and person" },
-          { href: "/resolve/desk/performance", label: "Performance", description: "Response, resolution, SLA met and rating per technician" },
-          { href: "/resolve/jobs", label: "All Jobs", description: "Every job in this unit, with filters and CSV export" },
+          { href: "/resolve/analytics", label: "Problem Summary", description: "What breaks most, and how fast it gets fixed" },
+          { href: "/resolve/desk/dashboard", label: "IT Summary", description: "Live IT counts, who has which job, and late jobs" },
+          { href: "/resolve/workload", label: "Work per Person", description: "Open, stuck and late jobs for each team and person" },
+          { href: "/resolve/desk/performance", label: "IT Staff Scores", description: "How fast each IT person replies and fixes, and their stars" },
+          { href: "/resolve/jobs", label: "All Jobs", description: "Every job in this unit — filter it and download it" },
         ],
       },
       {
         kind: "group",
         slug: "setup",
-        label: "Administration",
-        description: "Trades, places and QR stickers, teams, routing and unit settings",
+        label: "Settings",
+        icon: Settings,
+        description: "Repair types, places and QR stickers, teams, and who gets which job",
         children: [
-          { href: "/resolve/setup/trades", label: "Trades", description: "Electrical, plumbing, carpentry … the kinds of fix" },
-          { href: "/resolve/setup/places", label: "Places & QR", description: "Rooms, machines and assets, and their QR stickers" },
-          { href: "/resolve/setup/teams", label: "Teams", description: "Trade teams, their lead and members" },
-          { href: "/resolve/setup/routing", label: "Routing", description: "Send a trade or place to a named owner" },
-          { href: "/resolve/setup/complaint-categories", label: "Complaint Categories", description: "Who handles each kind of complaint, and who may see the sensitive ones" },
-          { href: "/resolve/setup/service-categories", label: "Service Categories", description: "IT request categories, their type, team and default priority" },
-          { href: "/resolve/setup/service-sla", label: "Service SLA", description: "Response and resolution minutes per priority" },
-          { href: "/resolve/setup/problem-catalog", label: "Problem Catalog", description: "The problems Raagam Assist offers in each lane, and where each one goes" },
-          { href: "/resolve/setup/unit-settings", label: "Unit Settings", description: "Heads, SLA days, escalation and triage weights" },
+          { href: "/resolve/setup/trades", label: "Repair Types", description: "Electrical, plumbing, carpentry … the kinds of repair" },
+          { href: "/resolve/setup/places", label: "Places & QR Stickers", description: "Rooms, machines and things, and their QR stickers" },
+          { href: "/resolve/setup/teams", label: "Repair Teams", description: "Each repair team, its leader and its people" },
+          { href: "/resolve/setup/routing", label: "Who Gets Which Job", description: "Send a repair type or a place to one person" },
+          { href: "/resolve/setup/complaint-categories", label: "Complaint Types", description: "Kinds of complaint, who looks into each, and who may see the private ones" },
+          { href: "/resolve/setup/service-categories", label: "IT Help Types", description: "Kinds of IT request, the team for each, and how urgent it starts" },
+          { href: "/resolve/setup/service-sla", label: "IT Reply Time", description: "How many minutes IT has to reply and to fix, for each urgency" },
+          { href: "/resolve/setup/problem-catalog", label: "Problem List", description: "The problems Raagam Assist shows people, and where each one goes" },
+          { href: "/resolve/setup/unit-settings", label: "Unit Rules", description: "Who hears about late jobs, days allowed per job, and how new jobs are sorted" },
         ],
       },
     ],
@@ -1456,6 +1575,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "access",
         label: "Users & Access",
+        icon: UserCog,
         description: "Users, roles and the audit trail",
         children: [
           { href: "/admin/users", label: "Users", description: "User accounts and their roles" },
@@ -1484,6 +1604,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "organisation",
         label: "Organisation",
+        icon: Building2,
         description: "Company profile and divisions",
         // DOCUMENT NO FORMAT LEFT THIS GROUP (client 2026-08-12). It is the
         // legacy Configure ▸ System screen and now lives at
@@ -1506,6 +1627,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "resources",
         label: "Resources",
+        icon: HardDrive,
         description: "Assets and couriers",
         children: [
           { href: "/admin/assets", label: "Assets", description: "Asset register" },
@@ -1516,6 +1638,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         kind: "group",
         slug: "system",
         label: "System",
+        icon: Server,
         description: "Notifications, the scheduled jobs behind them, and the design reference",
         // doc/admin/notification-management-plan.md §5. Scheduled Jobs is its
         // own row, not a Notifications tab: the jobs advance approvals and
@@ -1546,6 +1669,8 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
 export interface NavChild {
   href: string;
   label: string;
+  /** The group's heading icon (`ModuleGroup.icon`); absent on a plain link. */
+  icon?: LucideIcon;
   /**
    * A group's OWN children, one level further in — the sidebar's THIRD
    * level (client override, 2026-09-05: Sidebar normally stops at two, per
@@ -1554,7 +1679,7 @@ export interface NavChild {
    * excluded (their row lives in another group) and so are `todo` ones
    * (no route exists yet to link to).
    */
-  children?: { href: string; label: string }[];
+  children?: { href: string; label: string; newUntil?: string }[];
 }
 
 export function moduleNavChildren(moduleHref: string): NavChild[] | undefined {
@@ -1569,9 +1694,10 @@ export function moduleNavChildren(moduleHref: string): NavChild[] | undefined {
         ? {
             href: `${moduleHref}/${e.slug}`,
             label: e.label,
+            icon: e.icon,
             children: e.children
               .filter((c) => !c.cardOnly && c.status !== "todo")
-              .map((c) => ({ href: c.href, label: c.label })),
+              .map((c) => ({ href: c.href, label: c.label, newUntil: c.newUntil })),
           }
         : { href: e.href, label: e.label },
     );

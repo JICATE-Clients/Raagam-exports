@@ -7,62 +7,85 @@ import { useAppUser } from "@/lib/auth/permission-context";
 import { useOpenModule } from "@/lib/workspace-tabs";
 import { cn } from "@/lib/utils";
 import { activeModule, visibleModules, type NavItem } from "./navigation-config";
+import { SIDEBAR_HUE } from "./module-hue";
 import { SidebarItem } from "./SidebarItem";
+import { setMenuCollapsed } from "./menu-collapse";
+import { PanelLeftOpen } from "lucide-react";
 
 /**
  * Captions for the open flyout (client 2026-09-17, sidebar option A). Keyed by
  * module href; the first, uncaptioned band holds the overview screens. A
- * module missing from this table lands in the last band rather than
+ * module missing from this table lands in Setup rather than
  * vanishing, so a new NAV entry is still reachable before anyone files it.
  */
+/*
+ * GARMENT WORDS, NOT OFFICE WORDS (user 2026-10-28: "need more clear … in
+ * garment words"). "Commercial", "Operations" and "System" said nothing about
+ * where a style is in its life; the captions now follow the trade's own flow —
+ * a style is sampled and booked, then goes into BULK (plan, buy, store, make,
+ * ship). Same six bands as before on purpose: every extra caption costs 24px
+ * and the rail has no scrollbar (see the nav's spacing note below).
+ */
 const RAIL_BANDS: { label?: string; hrefs: string[] }[] = [
-  { hrefs: ["/", "/analytics", "/reports", "/approvals"] },
-  { label: "Commercial", hrefs: ["/sales", "/orders"] },
-  { label: "Operations", hrefs: ["/planning", "/purchase", "/stores", "/production", "/logistics"] },
+  { hrefs: ["/", "/approvals"] },
+  { label: "Sampling & Orders", hrefs: ["/sales", "/orders"] },
+  { label: "Bulk Production", hrefs: ["/planning", "/purchase", "/stores", "/production", "/logistics"] },
   { label: "People & Accounts", hrefs: ["/hr", "/finance"] },
+  // Out of the overview band into their own, under People & Accounts (user
+  // 2026-10-29: "analytics and report also separate … move it under people
+  // and account"). Dashboard and Approvals stay on top: those are where the
+  // day starts; these two are read after the work is done.
+  { label: "Analytics & Reports", hrefs: ["/analytics", "/reports"] },
   // Its own captioned band, not among the overview screens (user 2026-10-26:
   // "message module kku oru name vachi heading … dashboard kulla vendam").
   { label: "Huddle", hrefs: ["/comms"] },
-  { label: "System", hrefs: ["/masters", "/integration", "/admin"] },
+  // Resolve Hub was only here by the fallback below; it is listed now.
+  // "Setup" alone since Help & Repairs moved out to Support (user 2026-10-29).
+  { label: "Setup", hrefs: ["/masters"] },
+  // Its own band (user 2026-10-29: "Integration also separate") — links to
+  // outside systems are not master data.
+  { label: "Integration", hrefs: ["/integration"] },
+  // Its own band (user 2026-10-29: "Help & support also separate under
+  // Support") — reporting a breakdown is not setting the system up.
+  { label: "Support", hrefs: ["/resolve"] },
+  // Its own band, last (user 2026-10-29: "administration separate menu
+  // group"). Users, roles, units and the system jobs are not setup the
+  // shop floor does; they sit apart at the foot of the rail.
+  { label: "Administration", hrefs: ["/admin"] },
 ];
 
-/**
- * ONE COLOUR PER MODULE (option C of the sidebar icon mock-up, user
- * 2026-10-28: "c apply it"). Every icon is drawn in its module's colour, and
- * the active module's tile fills with it and glows. Each is dark enough that
- * the white icon on the filled tile stays legible. Keyed by module href like
- * RAIL_BANDS; a module missing here falls back to slate rather than grey, so a
- * new entry still matches its neighbours.
- */
-const MODULE_HUE: Record<string, string> = {
-  "/": "#2563EB",
-  "/analytics": "#7C3AED",
-  "/reports": "#0E7490",
-  "/approvals": "#047857",
-  "/sales": "#BE185D",
-  "/orders": "#1A7FC1",
-  "/planning": "#6D28D9",
-  "/purchase": "#C2410C",
-  "/stores": "#B45309",
-  "/production": "#DC2626",
-  "/logistics": "#0369A1",
-  "/hr": "#9333EA",
-  "/finance": "#0F766E",
-  "/comms": "#4338CA",
-  "/masters": "#475569",
-  "/integration": "#0E7490",
-  "/admin": "#334155",
-  "/resolve": "#E11D48",
-};
-const FALLBACK_HUE = "#475569";
-/** The unlit icon: FULL module colour on a soft tile of the same colour (user
+// The icon colour is SIDEBAR_HUE (./module-hue) — one pastel for every module.
+/** The unlit icon: the FULL sidebar colour on a soft tile of the same colour (user
  *  2026-10-28, "still icons look dull … bold"). The first cut pulled the ink
  *  28% toward the text colour for every theme, which is what greyed it out;
  *  only the dark theme needs a lift now (a #334155 stroke on a near-black
  *  panel is invisible), so that is where the mix lives. */
-const HUE_INK =
-  "bg-[color-mix(in_oklab,var(--hue)_13%,transparent)] text-[var(--hue)] " +
-  "dark:bg-[color-mix(in_oklab,var(--hue)_24%,transparent)] dark:text-[color-mix(in_oklab,var(--hue)_55%,white)]";
+/*
+ * GREY, NO TILE (Sarvam sidebar review, user 2026-10-29, fix 1,
+ * https://claude.ai/artifact/EgufM8nybBmMcZ3LcvHV4H). This REVERSES the
+ * 2026-10-28 tile above on purpose: eighteen blue squares meant the lit one
+ * did not stand out. Unlit is now a plain line icon in the muted text colour,
+ * so the one solid tile (the module you are in) is what the eye finds. The
+ * stroke stays 2.25, which keeps the icons from reading dull.
+ */
+const HUE_INK = "text-muted-foreground";
+
+/*
+ * THE RAIL'S GLOSS (user 2026-10-29, screenshot 094801). Written here as
+ * classes rather than in lib/appearance.ts's Pearl/Frost presets, so it shows
+ * under every appearance — the presets only reach the screens using them.
+ * Light from above, never a coloured glow: a white top highlight and a soft
+ * drop shadow. Dark mode swaps the white sheen for a lifted charcoal one.
+ */
+const GLOSS_TILE =
+  "bg-[var(--hue)] bg-[image:linear-gradient(180deg,rgb(255_255_255/.32)_0%,rgb(255_255_255/.08)_50%,rgb(255_255_255/0)_60%)] " +
+  "shadow-[inset_0_1px_0_rgb(255_255_255/.45),inset_0_-1px_0_rgb(0_0_0/.12),0_2px_5px_-1px_color-mix(in_oklab,var(--hue)_45%,transparent)]";
+const GLOSS_ROW =
+  "bg-[image:linear-gradient(180deg,#ffffff,#eef1f5)] shadow-[inset_0_1px_0_#fff,0_0_0_1px_rgb(15_20_30/.07),0_2px_6px_-3px_rgb(15_20_30/.22)] " +
+  "dark:bg-[image:linear-gradient(180deg,#2a303a,#1f242c)] dark:shadow-[inset_0_1px_0_rgb(255_255_255/.07),0_0_0_1px_rgb(255_255_255/.04),0_2px_6px_-3px_rgb(0_0_0/.6)]";
+const GLOSS_HOVER =
+  "hover:bg-[image:linear-gradient(180deg,#ffffff,#f3f5f8)] hover:shadow-[inset_0_1px_0_#fff,0_0_0_1px_rgb(15_20_30/.05),0_2px_5px_-3px_rgb(15_20_30/.15)] " +
+  "dark:hover:bg-[image:linear-gradient(180deg,#252a33,#1d2129)] dark:hover:shadow-[inset_0_1px_0_rgb(255_255_255/.05),0_2px_5px_-3px_rgb(0_0_0/.5)]";
 
 function toBands(items: NavItem[]) {
   const placed = new Set<string>();
@@ -74,7 +97,9 @@ function toBands(items: NavItem[]) {
     return { label: b.label, rows };
   });
   const rest = items.filter((i) => !placed.has(i.href));
-  bands[bands.length - 1].rows.push(...rest);
+  // Unlisted modules go to Setup, NOT the last band — that is
+  // Administration now, and a new module is not an admin screen.
+  (bands.find((b) => b.label === "Setup") ?? bands[bands.length - 1]).rows.push(...rest);
   // A permission-trimmed band with nothing left would draw a lone caption.
   return bands.filter((b) => b.rows.length > 0);
 }
@@ -111,7 +136,15 @@ function toBands(items: NavItem[]) {
 const OPEN_DELAY_MS = 300;
 const CLOSE_DELAY_MS = 400;
 
-export function GlobalSidebar({ wide = false }: { wide?: boolean }) {
+export function GlobalSidebar({
+  wide = false,
+  menuFolded = false,
+}: {
+  wide?: boolean;
+  /** The operator folded the module menu away (menu-collapse.ts) — the rail
+   *  then carries the button that brings it back. */
+  menuFolded?: boolean;
+}) {
   const pathname = usePathname();
   const user = useAppUser();
   const openTab = useOpenModule();
@@ -265,6 +298,19 @@ export function GlobalSidebar({ wide = false }: { wide?: boolean }) {
             expanded && "pr-3",
           )}
         >
+          {/* The way back to a folded module menu, at the top of the rail where
+              the menu's own fold button sat beside the module name. */}
+          {menuFolded && (
+            <button
+              type="button"
+              title="Show menu"
+              aria-label="Show menu"
+              onClick={() => setMenuCollapsed(false)}
+              className="mb-1.5 flex h-8 w-10 items-center justify-center rounded-[10px] text-muted-foreground transition-colors hover:bg-[var(--cell-active)] hover:text-foreground"
+            >
+              <PanelLeftOpen aria-hidden className="h-[18px] w-[18px]" strokeWidth={2} />
+            </button>
+          )}
           {bands.map((band, bi) => (
             <div key={band.label ?? bi} className={cn("space-y-0.5", bi > 0 && "pt-1.5")}>
               {/* One fixed height either way (`h-[18px]`, was `h-5`): open it
@@ -293,7 +339,7 @@ export function GlobalSidebar({ wide = false }: { wide?: boolean }) {
                   <div
                     key={item.href}
                     className="relative"
-                    style={{ "--hue": MODULE_HUE[item.href] ?? FALLBACK_HUE } as CSSProperties}
+                    style={{ "--hue": SIDEBAR_HUE } as CSSProperties}
                   >
                     {/* Closed rail: a brand-green tab on the window edge
                         (the nav's `p-1.5` is what `-left-1.5` reaches past).
@@ -313,9 +359,12 @@ export function GlobalSidebar({ wide = false }: { wide?: boolean }) {
                           aria-hidden
                           className={cn(
                             "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-[background-color,box-shadow,color] duration-150",
-                            isActive
-                              ? "bg-[var(--hue)] text-white shadow-[0_0_0_3px_color-mix(in_oklab,var(--hue)_15%,transparent),0_4px_12px_color-mix(in_oklab,var(--hue)_40%,transparent)]"
-                              : HUE_INK,
+                            // GLOSSY (user 2026-10-29, screenshot 094801: "add
+                            // some glossy effect for the first menu module
+                            // sidebar"). Light from above on the lit tile — a
+                            // white band fading out by 60% and a 1px top
+                            // highlight — and a short drop in its own colour.
+                            isActive ? cn("text-white", GLOSS_TILE) : HUE_INK,
                           )}
                         >
                           <Icon className="h-[18px] w-[18px]" strokeWidth={2.25} />
@@ -323,14 +372,8 @@ export function GlobalSidebar({ wide = false }: { wide?: boolean }) {
                       }
                       collapsed={!expanded}
                       active={isActive}
-                      trailing={
-                        isActive ? (
-                          <span
-                            aria-hidden
-                            className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--hue)] shadow-[0_0_6px_var(--hue)]"
-                          />
-                        ) : undefined
-                      }
+                      // No glowing end dot (same day): the module menu's
+                      // active row has none, and the open rail now matches it.
                       // ONE ROW HEIGHT IN BOTH STATES, so the icons stay put
                       // under the pointer as the panel opens (client 2026-09-16).
                       // 32px (2026-10-01): 40px rows needed 834px with the logo
@@ -355,13 +398,18 @@ export function GlobalSidebar({ wide = false }: { wide?: boolean }) {
                       // line in both states — closed it sits in the 40px
                       // button, open `px-[6px]` puts it there — so no icon
                       // moves as the panel opens. The open active row takes a
-                      // faint wash of its module's colour instead of the
+                      // faint wash of the sidebar colour instead of the
                       // solid primary pill.
                       className={cn(
                         "h-8 rounded-[10px] text-[14px]",
                         !isActive && "text-foreground",
                         expanded && "w-full gap-3 px-[6px]",
-                        expanded && isActive && "bg-[color-mix(in_oklab,var(--hue)_9%,transparent)]",
+                        // The rail's rows are glossy (screenshot 094801): the
+                        // open active row is a raised sheen, an idle row
+                        // takes a fainter one on hover. The rail ONLY — the
+                        // module menu keeps its flat soft fill.
+                        expanded && isActive && GLOSS_ROW,
+                        !isActive && GLOSS_HOVER,
                       )}
                       onClick={(e) => {
                         e.preventDefault();

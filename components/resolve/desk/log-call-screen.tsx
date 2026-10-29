@@ -377,7 +377,8 @@ export function LogCallScreen({
 }
 
 /**
- * The chat's answer pill, as a RADIO. Same face as `AnswerPill` (rounded-xl,
+ * The chat's old answer pill, as a RADIO. Same face the chat's `AnswerPill` had
+ * before it became round `Chip`s (2026-10-28) — rounded-xl,
  * a small tinted icon tile, lifts under the finger), two per row on a phone,
  * and the picked one lit in the IT lane's colour. Being radios, Tab lands on
  * the group and ↑↓←→ move the pick — `lib/focus.ts` already owns radios.

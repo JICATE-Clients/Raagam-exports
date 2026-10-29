@@ -82,7 +82,7 @@ export default async function Page() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="Resolve settings" description="Who does the work, what people can pick, and the rules and timings" />
+      <PageHeader title="Settings" description="Who does the work, what people can pick, and the rules and timings" />
       <SettingsHome sections={sections.filter((s) => s.cards.length > 0)} />
     </div>
   );

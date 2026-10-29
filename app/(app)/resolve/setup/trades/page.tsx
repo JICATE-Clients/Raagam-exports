@@ -9,7 +9,7 @@ export default async function TradesPage() {
   const perms = { canCreate: true, canEdit: true, canDelete: true };
   return (
     <div className="space-y-4">
-      <PageHeader title="Trades" description="The kinds of fix — every unit's teams and routing pick from this list" />
+      <PageHeader title="Repair Types" description="The kinds of fix — every unit's teams and routing pick from this list" />
       <TradesScreen rows={rows} perms={perms} />
     </div>
   );

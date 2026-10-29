@@ -13,6 +13,7 @@ import {
   visibleModules,
 } from "@/components/navigation/navigation-config";
 import type { PreviewableRole } from "@/lib/auth/role-simulation";
+import { useMenuCollapsed } from "@/components/navigation/menu-collapse";
 import { DOCK_HEIGHT, SidebarDock } from "./sidebar-dock";
 import type { StoreNavLink } from "./sidebar-types";
 
@@ -55,9 +56,13 @@ export function Sidebar({
   // ABOVE THE EARLY RETURN — see "Hooks above every early return" in AGENTS.md.
   const pathname = usePathname();
   const user = useAppUser();
+  const menuCollapsed = useMenuCollapsed();
   if (editorOpen) return null;
 
-  const withMenu = hasModuleMenu(activeModule(pathname, visibleModules(user)), stores.length);
+  const hasMenu = hasModuleMenu(activeModule(pathname, visibleModules(user)), stores.length);
+  // Folded by the operator (menu-collapse.ts): the sidebar is then the rail
+  // alone, exactly as on a module with no menu — round mark, compact dock.
+  const withMenu = hasMenu && !menuCollapsed;
 
   return (
     <div
@@ -97,8 +102,8 @@ export function Sidebar({
         )}
       </div>
       <div className="flex min-h-0 flex-1">
-        <GlobalSidebar wide={withMenu} />
-        <ContextSidebar stores={stores} />
+        <GlobalSidebar wide={withMenu} menuFolded={hasMenu && menuCollapsed} />
+        {withMenu && <ContextSidebar stores={stores} />}
       </div>
       {/* THE DOCK (user 2026-10-01): unit, role preview and account, spanning
           rail + menu the way the brand row spans the top. Rail-only pages

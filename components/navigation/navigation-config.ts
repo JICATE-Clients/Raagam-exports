@@ -21,6 +21,21 @@ export function isRouteActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(href + "/");
 }
 
+/**
+ * Today as `YYYY-MM-DD` in the operator's LOCAL time, taken once when the
+ * bundle loads. Local, not `toISOString()` — that is UTC, and in IST it reads
+ * yesterday until 05:30. Module-level so no render calls the clock.
+ */
+const TODAY = (() => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+})();
+
+/** Whether a registry row's `newUntil` (inclusive) still earns its "New" tag. */
+export function isStillNew(newUntil: string | undefined): boolean {
+  return !!newUntil && TODAY <= newUntil;
+}
+
 /** A plain left-click, no modifier — the only kind worth intercepting.
  *  Ctrl/Cmd/Shift/middle-click all mean "open in a new browser tab" and
  *  must reach the native anchor untouched. */

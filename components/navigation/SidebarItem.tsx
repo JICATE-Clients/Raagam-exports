@@ -59,9 +59,9 @@ export function SidebarItem({
       href={href}
       title={collapsed ? label : undefined}
       onClick={handleClick}
-      // Surface-style hook (lib/appearance.ts STYLES): Pearl / Frost gloss the
-      // active pill like a solid button.
-      data-active={solid ? "" : undefined}
+      // No `data-active` any more: that is the hook lib/appearance.ts uses to
+      // gloss and re-colour the active pill as a solid button, and the active
+      // row is a soft fill now (see the class note below).
       aria-current={active ? "page" : undefined}
       className={cn(
         // `text-[13px]`, not `text-sm` (14px) — matches the workspace tab
@@ -91,11 +91,20 @@ export function SidebarItem({
         // compile here, and `--primary-soft` is too dark under text in dark
         // mode — see globals.css). A hover is a row state, not a surface, so
         // the "no tinted column" decision above is untouched.
+        //
+        // SOFT, NOT SOLID (Sarvam sidebar review, user 2026-10-29, fix 3,
+        // https://claude.ai/artifact/EgufM8nybBmMcZ3LcvHV4H). This REVERSES the
+        // 2026-09-08 solid pill on purpose: white-on-blue with a shadow was the
+        // heaviest thing in the sidebar and competed with the page's one filled
+        // button. The active row is now a neutral fill with semibold dark text;
+        // hover is the same fill, fainter, so the two never look alike. A mix
+        // of `--foreground` rather than a grey literal, so it holds in both
+        // themes. The tab bar keeps its own solid tab — a different job.
         solid
-          ? "bg-primary font-semibold text-primary-foreground shadow-elev hover:bg-primary-hover"
+          ? "bg-[color-mix(in_oklab,var(--foreground)_8%,transparent)] font-semibold text-foreground"
           : active
             ? "font-semibold text-foreground"
-            : "text-muted-foreground hover:bg-[var(--cell-active)] hover:text-foreground",
+            : "text-muted-foreground hover:bg-[color-mix(in_oklab,var(--foreground)_4%,transparent)] hover:text-foreground",
         className,
       )}
     >

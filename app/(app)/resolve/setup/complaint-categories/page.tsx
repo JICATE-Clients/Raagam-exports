@@ -9,7 +9,7 @@ export default async function ComplaintCategoriesPage() {
   const perms = { canCreate: true, canEdit: true, canDelete: true };
   return (
     <div className="space-y-4">
-      <PageHeader title="Concern Categories" description="What a concern can be about, who looks into it, and who may see the confidential ones" />
+      <PageHeader title="Complaint Types" description="What a concern can be about, who looks into it, and who may see the confidential ones" />
       <ComplaintCategoriesScreen rows={rows} perms={perms} people={people} />
     </div>
   );

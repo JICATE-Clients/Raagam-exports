@@ -9,20 +9,29 @@
  * finance access" is a lie the operator cannot detect.
  */
 
-export type DashboardRange = "today" | "week" | "month";
+export type DashboardRange = "today" | "week" | "month" | "custom";
 
-export const DASHBOARD_RANGES: DashboardRange[] = ["today", "week", "month"];
+export const DASHBOARD_RANGES: DashboardRange[] = ["today", "week", "month", "custom"];
 
 export const RANGE_LABELS: Record<DashboardRange, string> = {
   today: "Today",
   week: "Week",
   month: "Month",
+  custom: "Custom",
 };
 
 export interface DashboardFilters {
   range: DashboardRange;
   /** null = all locations. */
   location: string | null;
+  /**
+   * The operator's own window, `YYYY-MM-DD`, read only when `range` is
+   * "custom" (user 2026-10-28). `parseCustom` has already checked both are real
+   * dates and put them in order, so a hand-typed URL cannot reach the service
+   * with `to` before `from`.
+   */
+  from?: string;
+  to?: string;
 }
 
 /** Calendar window for a range, plus the equal-length preceding window for deltas. */
@@ -67,15 +76,6 @@ export interface DashboardCaps {
   stores: boolean;
   logistics: boolean;
   systemAdmin: boolean;
-}
-
-// ---------- section 00: hero ----------
-
-export interface PulseRing {
-  label: string;
-  note: string;
-  pct: number;
-  tone: DashboardTone;
 }
 
 // ---------- section 01: performance ----------

@@ -23,7 +23,7 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
   const initial = firstId ? await getTicketDetail(firstId) : null;
   return (
     <div className="space-y-3">
-      <PageHeader title="Inbox" />
+      <PageHeader title="My Jobs" />
       <InboxScreen mode="resolver" lists={lists} meId={user.id} initial={initial} />
     </div>
   );

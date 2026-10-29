@@ -14,7 +14,7 @@ export default async function RoutingPage() {
   const perms = { canCreate: true, canEdit: true, canDelete: true };
   return (
     <div className="space-y-4">
-      <PageHeader title="Routing" description="Send a trade, a place, or both to a named owner — these rules win over every other" />
+      <PageHeader title="Who Gets Which Job" description="Send a trade, a place, or both to a named owner — these rules win over every other" />
       <RoutingScreen
         rows={rows}
         perms={perms}

@@ -407,7 +407,7 @@ export function UnitSettingsScreen({
               htmlFor="rh-us-desk-manager"
               hint={
                 managerLacksTriage ? (
-                  <span className="text-warning">Cannot open escalated requests — give them Resolve Hub approve (triage) access.</span>
+                  <span className="text-warning">Cannot open escalated requests — give them Help &amp; Repairs &ldquo;approve&rdquo; (sort jobs) access.</span>
                 ) : (
                   "Breaches and stale escalations go here; else the Unit Head"
                 )

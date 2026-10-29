@@ -23,7 +23,7 @@ import { Truncated } from "@/components/ui/truncated";
  * A server component: every control is a link rewriting `cv` / `cd` / `cs`.
  */
 
-const KINDS: Record<CalKind, { label: string; dot: string; chip: string }> = {
+export const KINDS: Record<CalKind, { label: string; dot: string; chip: string }> = {
   ta: { label: "T&A", dot: "bg-info", chip: "bg-info-soft text-info" },
   approval: { label: "Buyer approval", dot: "bg-warning", chip: "bg-warning-soft text-warning" },
   milestone: { label: "Work Flow", dot: "bg-primary", chip: "bg-primary/10 text-primary" },
@@ -170,21 +170,27 @@ function Segmented({ items, active, label }: { items: { key: string; label: stri
 
 /* ---- Today ------------------------------------------------------------- */
 
-function MiniMonth({
+/** Also the Dashboard's calendar panel (2026-10-28), which passes `bare` to draw
+ *  it inside its own card rather than as a card within a card. */
+export function MiniMonth({
   cursor,
   byDate,
   today,
   dayHref,
+  bare = false,
 }: {
   cursor: string;
   byDate: Map<string, CalEvent[]>;
   today: string;
   dayHref: (d: string) => string;
+  bare?: boolean;
 }) {
   const month = cursor.slice(0, 7);
+  const Frame = bare ? "div" : Card;
   return (
-    <Card className="p-3">
-      <p className="mb-2 text-center text-sm font-semibold">{monthTitle(cursor)}</p>
+    <Frame className={bare ? undefined : "p-3"}>
+      {/* Bare, the host draws the title between its own month arrows. */}
+      {!bare && <p className="mb-2 text-center text-sm font-semibold">{monthTitle(cursor)}</p>}
       <div className="grid grid-cols-7 pb-1 text-center text-[11px] font-semibold text-muted-foreground">
         {WEEKDAYS.map((w) => (
           <span key={w}>{w[0]}</span>
@@ -218,7 +224,7 @@ function MiniMonth({
           );
         })}
       </div>
-    </Card>
+    </Frame>
   );
 }
 
@@ -258,7 +264,7 @@ function Column({
   );
 }
 
-function EventCard({ e, today, showDate }: { e: CalEvent; today: string; showDate: boolean }) {
+export function EventCard({ e, today, showDate }: { e: CalEvent; today: string; showDate: boolean }) {
   const late = isLate(e, today);
   const daysLate = late ? Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${e.date}T00:00:00Z`)) / 86_400_000) : 0;
   const pill = late

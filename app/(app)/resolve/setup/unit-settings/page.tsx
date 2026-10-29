@@ -15,7 +15,7 @@ export default async function UnitSettingsPage() {
   ]);
   return (
     <div className="space-y-4">
-      <PageHeader title="Unit Settings" description="Who escalations reach, how long each job has, and how triage scores" />
+      <PageHeader title="Unit Rules" description="Who hears about late jobs, how long each job has, and how new jobs are sorted" />
       {/* Keyed by unit so switching units in the topbar reopens the form on that unit's values. */}
       <UnitSettingsScreen
         key={settings.location_id}

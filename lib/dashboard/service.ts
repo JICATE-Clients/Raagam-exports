@@ -4,8 +4,9 @@ import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { getDashboardData } from "@/lib/orders/service";
 import { workFlowDef } from "@/lib/orders/work-flow/types";
-import { addDays, monthLabel, rangeWindow, today, trailing12 } from "./range";
+import { addDays, compareLabel, filterWindow, monthLabel, today, trailing12 } from "./range";
 import { delta, fmtCompactInr, fmtCompactNumber, fmtPct } from "./format";
+import { fmtDate } from "@/lib/format";
 import type {
   ActivityItem,
   AlertItem,
@@ -18,7 +19,6 @@ import type {
   Leaderboard,
   LeaderRow,
   MiniStatRow,
-  PulseRing,
   StageRow,
   StatusSlice,
   TrendPoint,
@@ -42,6 +42,18 @@ function embed(row: Row, key: string): Row | null {
   const v = row[key];
   if (Array.isArray(v)) return (v[0] as Row) ?? null;
   return (v as Row) ?? null;
+}
+
+/**
+ * A purchase order's supplier name. Since 0737 a PO names its supplier in ONE of
+ * two columns: `master_vendor_id` (the Raise PO screen, Master Data vendors) or
+ * the older `vendor_id` (purchase-side `vendors`). Reading only `vendor_id`
+ * printed "vendor" / "—" for every new PO (user 2026-10-29), and pooled them all
+ * under one blank name in Top suppliers. Every PO select names BOTH embeds,
+ * written out at the `.select()` call so `check:embeds` can read them.
+ */
+function poVendor(row: Row): string {
+  return s(embed(row, "master_vendors")?.name) || s(embed(row, "vendors")?.name);
 }
 
 class DeniedError extends Error {}
@@ -79,25 +91,6 @@ async function cell<T>(enabled: boolean, fn: () => Promise<T>): Promise<Cell<T>>
     return { ok: false, reason: "error", note: (e as Error).message };
   }
 }
-
-/** Product gaps, stated once so the wording stays consistent across tiles. */
-export const NOT_TRACKED = {
-  machines: {
-    ok: false as const,
-    reason: "not_tracked" as const,
-    note: "No machine master or downtime capture exists yet.",
-  },
-  reorder: {
-    ok: false as const,
-    reason: "not_tracked" as const,
-    note: "Low-stock alerts need a reorder level on the item master.",
-  },
-  stage: {
-    ok: false as const,
-    reason: "not_tracked" as const,
-    note: "Production capture covers cutting, sewing and packing only.",
-  },
-};
 
 /* ------------------------------------------------------------------ *
  * Permissions
@@ -185,85 +178,33 @@ function tail(c: Cell<Row[]>, key: string, key2?: string): number[] {
  * ------------------------------------------------------------------ */
 
 /**
- * Three "how are we doing" rings.
+ * Production lines that have entered output today, out of the active lines.
  *
- * None of the mockup's original three survived contact with the schema, and the
- * substitutions are deliberate rather than approximate:
- *  - "On-time delivery" needs an actual dispatch date. `shipments` has etd/eta
- *    (both plans) and no delivered-on column, so the honest nearest measure is
- *    T&A milestones closed on or before their planned date.
- *  - "Capacity used" needs a capacity per line. There is none, and the planning
- *    tables that held one were dropped in 0332. Lines reporting output today is
- *    a real signal of the same shape.
+ * This was one of three "pulse" rings in a row of its own under the greeting;
+ * the row went on 2026-10-29 (user: the welcome card answers "what needs me",
+ * and two big tiles carried two small facts). Of the other two, Order health is
+ * the Alerts panel's "overdue milestone(s)" / "may miss delivery" items, shown
+ * only when something is wrong, and Milestones on time read `ta_milestones`,
+ * which Order Entry never writes (see `getAlerts`). This one now sits beside the
+ * Manufacturing section it explains. Null when the viewer has no production
+ * access or there are no active lines.
  */
-export async function getPulse(caps: DashboardCaps): Promise<PulseRing[]> {
+export async function getLinesReporting(caps: DashboardCaps): Promise<{ reporting: number; active: number } | null> {
+  if (!caps.production) return null;
   const sb = await createClient();
   const t = today();
-
-  const [milestones, lines, entriesToday, coreData] = await Promise.all([
-    caps.orders
-      ? sb
-          .from("ta_milestones")
-          .select("planned_date, actual_date")
-          .eq("status", "done")
-          .not("actual_date", "is", null)
-          .gte("actual_date", addDays(t, -90))
-      : Promise.resolve({ data: null }),
-    caps.production
-      ? sb.from("production_lines").select("id").eq("is_active", true)
-      : Promise.resolve({ data: null }),
-    caps.production
-      ? sb.from("production_entries").select("line_id").eq("entry_date", t)
-      : Promise.resolve({ data: null }),
-    caps.orders ? core() : Promise.resolve(null),
+  const [lines, entriesToday] = await Promise.all([
+    sb.from("production_lines").select("id").eq("is_active", true),
+    sb.from("production_entries").select("line_id").eq("entry_date", t),
   ]);
-
-  const out: PulseRing[] = [];
-
-  const ms = rows(milestones);
-  if (caps.orders && ms.length > 0) {
-    const onTime = ms.filter((m) => s(m.actual_date) <= s(m.planned_date)).length;
-    out.push({
-      label: "Milestones on time",
-      note: `last 90 days · ${onTime} of ${ms.length}`,
-      pct: Math.round((onTime / ms.length) * 100),
-      tone: "primary",
-    });
-  }
-
-  const lineRows = rows(lines);
-  if (caps.production && lineRows.length > 0) {
-    const reporting = new Set(
-      rows(entriesToday)
-        .map((e) => s(e.line_id))
-        .filter(Boolean),
-    ).size;
-    out.push({
-      label: "Lines reporting",
-      note: `today · ${reporting} of ${lineRows.length} active`,
-      pct: Math.round((reporting / lineRows.length) * 100),
-      tone: "accent",
-    });
-  }
-
-  if (coreData) {
-    const open = coreData.openOrders;
-    const atRisk = new Set(
-      coreData.milestoneRows
-        .filter((m) => m.planned_date != null && m.planned_date < t)
-        .map((m) => m.sales_order_id),
-    ).size;
-    if (open > 0) {
-      out.push({
-        label: "Order health",
-        note: atRisk === 0 ? "no orders at risk" : `${atRisk} order(s) at risk`,
-        pct: Math.max(0, Math.round(((open - atRisk) / open) * 100)),
-        tone: atRisk === 0 ? "success" : "warning",
-      });
-    }
-  }
-
-  return out;
+  const active = rows(lines).length;
+  if (active === 0) return null;
+  const reporting = new Set(
+    rows(entriesToday)
+      .map((e) => s(e.line_id))
+      .filter(Boolean),
+  ).size;
+  return { reporting, active };
 }
 
 /* ------------------------------------------------------------------ *
@@ -288,7 +229,7 @@ export async function getHeroKpis(
   caps: DashboardCaps,
 ): Promise<Cell<HeroKpi>[]> {
   const sb = await createClient();
-  const w = rangeWindow(f.range);
+  const w = filterWindow(f);
   const cur = { p_from: w.from, p_to: w.to, p_location: f.location };
   const prev = { p_from: w.prevFrom, p_to: w.prevTo, p_location: f.location };
 
@@ -303,8 +244,7 @@ export async function getHeroKpis(
   };
 
   const sum = (r: Row[], key: string) => r.reduce((t, x) => t + n(x[key]), 0);
-  const periodHint =
-    f.range === "today" ? "vs yesterday" : f.range === "week" ? "vs last week" : "vs last month";
+  const periodHint = compareLabel(f);
 
   const [sales, revenue, production, dispatch] = await Promise.all([
     cell(caps.reports, async () => {
@@ -403,15 +343,16 @@ export async function getHeroKpis(
  * than faked: inventory *value* needs a cost on the item master (there is none,
  * so this reports quantity on hand), and gross margin needs the shipment P&L
  * join, which is unbounded and far too heavy for a dashboard — overdue
- * receivables occupies that slot instead. Low-stock has no substitute and is
- * rendered as an explicit gap.
+ * receivables occupies that slot instead. Low-stock had no substitute and sat
+ * as a permanent "Not tracked yet" tile until 2026-10-29, when the user had the
+ * dashboard's never-filled tiles removed; it comes back with a reorder level.
  */
 export async function getMiniStats(
   f: DashboardFilters,
   caps: DashboardCaps,
 ): Promise<Cell<MiniStatRow>[]> {
   const sb = await createClient();
-  const w = rangeWindow(f.range);
+  const w = filterWindow(f);
   const t = today();
 
   const [orderCount, stock, indents, pos, overdueAr] = await Promise.all([
@@ -516,9 +457,6 @@ export async function getMiniStats(
     indents,
     pos,
     overdueAr,
-    // No reorder level exists on the item master, so there is nothing to be
-    // "below". Kept in place so the gap is visible rather than quietly missing.
-    { ...NOT_TRACKED.reorder },
   ];
 }
 
@@ -651,7 +589,7 @@ export async function getManufacturing(
   caps: DashboardCaps,
 ): Promise<StageRow[]> {
   const sb = await createClient();
-  const w = rangeWindow(f.range);
+  const w = filterWindow(f);
 
   const [stageAgg, knitting, consumption, packing, shipping] = await Promise.all([
     cell(caps.production, async () => {
@@ -734,9 +672,11 @@ export async function getManufacturing(
         value: {
           headline: `${fmtCompactNumber(v.good)} pcs`,
           sub: v.reject > 0 ? `${fmtCompactNumber(v.reject)} rejected` : "no rejects recorded",
-          state: fmtPct(yieldPct, 0),
-          tone: yieldPct >= 97 ? "success" : yieldPct >= 92 ? "warning" : "danger",
-          pct: Math.round(yieldPct),
+          // Nothing made is not a 100% yield (user 2026-10-29 read "100% · 0
+          // pcs"). The pass rate shows only once a piece is recorded.
+          state: totalQty > 0 ? fmtPct(yieldPct, 0) : "No output",
+          tone: totalQty === 0 ? "muted" : yieldPct >= 97 ? "success" : yieldPct >= 92 ? "warning" : "danger",
+          pct: totalQty > 0 ? Math.round(yieldPct) : 0,
         },
       },
     };
@@ -753,7 +693,7 @@ export async function getManufacturing(
         ok: true,
         value: {
           headline: fmtCompactNumber(qty),
-          sub: `issued from stores this ${f.range === "today" ? "day" : f.range}`,
+          sub: `issued from stores this ${f.range === "today" ? "day" : f.range === "custom" ? "period" : f.range}`,
           state: qty > 0 ? "Issued" : "None",
           tone: "info",
           pct: qty > 0 ? 100 : 0,
@@ -820,9 +760,6 @@ export async function getManufacturing(
           }
         : shipping,
     },
-    { key: "dyeing", name: "Dyeing", icon: "droplets", data: { ...NOT_TRACKED.stage } },
-    { key: "finishing", name: "Finishing", icon: "sparkles", data: { ...NOT_TRACKED.stage } },
-    { key: "oee", name: "Machine efficiency", icon: "gauge", data: { ...NOT_TRACKED.machines } },
   ];
 }
 
@@ -881,9 +818,9 @@ export async function getApprovals(caps: DashboardCaps): Promise<ApprovalsResult
       table: "purchase_orders",
       enabled: caps.materials,
       type: "Purchase Order",
-      select: "id, code, total_amount, currency_code, created_at, vendors!vendor_id(name)",
+      select: "id, code, total_amount, currency_code, created_at, vendors!vendor_id(name), master_vendors!master_vendor_id(name)",
       status: "pending_approval",
-      party: (r: Row) => s(embed(r, "vendors")?.name) || null,
+      party: (r: Row) => poVendor(r) || null,
       value: (r: Row) => n(r.total_amount),
     },
     {
@@ -995,13 +932,20 @@ export async function getActivity(caps: DashboardCaps): Promise<ActivityItem[]> 
   const sb = await createClient();
 
   const [orders, grns, prod, recv] = await Promise.all([
+    /* THE ORDER ENTRY, NOT THE SHELL (2026-10-29). Since 0404 a garment order's
+       party is a CUSTOMER on `garment_order_amendments`; the `sales_orders`
+       row is a numbering shell with no buyer and no quantity, which is why
+       every line read "Buyer · 0 pcs". Drafts carry no RE No (0700) and are
+       left out; a revision is a second entry for the same order, so the
+       newest per order is kept. */
     cell(caps.orders, async () =>
       rows(
         await sb
-          .from("sales_orders")
-          .select("id, order_number, order_qty, created_at, buyers(name)")
+          .from("garment_order_amendments")
+          .select("id, sales_order_id, created_at, customer:customers(name), sales_order:sales_orders(order_number)")
+          .eq("is_draft", false)
           .order("created_at", { ascending: false })
-          .limit(5),
+          .limit(15),
       ),
     ),
     cell(caps.materials, async () =>
@@ -1037,18 +981,24 @@ export async function getActivity(caps: DashboardCaps): Promise<ActivityItem[]> 
 
   const items: ActivityItem[] = [];
 
-  if (orders.ok)
-    for (const r of orders.value)
+  if (orders.ok) {
+    const seen = new Set<string>();
+    for (const r of orders.value) {
+      const so = s(r.sales_order_id);
+      if (!so || seen.has(so) || seen.size >= 5) continue;
+      seen.add(so);
       items.push({
-        key: `so:${s(r.id)}`,
+        key: `so:${so}`,
         title: "Sales order booked",
-        ref: s(r.order_number) || null,
-        href: `/orders/${s(r.id)}`,
-        detail: `${s(embed(r, "buyers")?.name) || "Buyer"} · ${fmtCompactNumber(n(r.order_qty))} pcs`,
+        ref: s(embed(r, "sales_order")?.order_number) || null,
+        href: `/orders/${so}`,
+        detail: s(embed(r, "customer")?.name) || "Customer not set",
         source: "Orders",
         at: s(r.created_at),
         tone: "primary",
       });
+    }
+  }
 
   if (grns.ok)
     for (const r of grns.value)
@@ -1102,6 +1052,9 @@ export async function getActivity(caps: DashboardCaps): Promise<ActivityItem[]> 
  * is worse than one with five entries. Every alert below is a real query, and
  * each is skipped rather than errored when the viewer lacks the module.
  */
+/** How many documents of one alert kind are read before the count says "N+". */
+const GROUP_LIMIT = 50;
+
 export async function getAlerts(caps: DashboardCaps): Promise<AlertItem[]> {
   const sb = await createClient();
   const t = today();
@@ -1112,11 +1065,11 @@ export async function getAlerts(caps: DashboardCaps): Promise<AlertItem[]> {
       rows(
         await sb
           .from("purchase_orders")
-          .select("id, code, expected_date, vendors!vendor_id(name)")
+          .select("id, code, expected_date, vendors!vendor_id(name), master_vendors!master_vendor_id(name)")
           .in("status", ["approved", "partially_received"])
           .lt("expected_date", t)
           .order("expected_date", { ascending: true })
-          .limit(3),
+          .limit(GROUP_LIMIT),
       ),
     ),
     cell(caps.materials, async () =>
@@ -1126,7 +1079,7 @@ export async function getAlerts(caps: DashboardCaps): Promise<AlertItem[]> {
           .select("id, description, rejected_qty, qc_status, grns!inner(code, status)")
           .in("qc_status", ["failed", "partial"])
           .eq("grns.status", "posted")
-          .limit(3),
+          .limit(GROUP_LIMIT),
       ),
     ),
     cell(caps.logistics, async () =>
@@ -1137,7 +1090,7 @@ export async function getAlerts(caps: DashboardCaps): Promise<AlertItem[]> {
           .in("status", ["planning", "docs_ready"])
           .lt("etd", t)
           .order("etd", { ascending: true })
-          .limit(3),
+          .limit(GROUP_LIMIT),
       ),
     ),
     cell(caps.finance, async () =>
@@ -1148,7 +1101,7 @@ export async function getAlerts(caps: DashboardCaps): Promise<AlertItem[]> {
           .in("status", ["open", "partially_received", "overdue"])
           .lt("due_date", t)
           .order("due_date", { ascending: true })
-          .limit(3),
+          .limit(GROUP_LIMIT),
       ),
     ),
     /* ORDER ENTRY ▸ T&A ▸ WORK FLOW (0607) — pre-production office milestones
@@ -1224,49 +1177,60 @@ export async function getAlerts(caps: DashboardCaps): Promise<AlertItem[]> {
     });
   }
 
-  if (latePos.ok)
-    for (const r of latePos.value)
-      out.push({
-        key: `po:${s(r.id)}`,
-        title: `Supplier delay — ${s(embed(r, "vendors")?.name) || "vendor"}`,
-        body: `${s(r.code)} was expected ${s(r.expected_date)} and is not fully received.`,
-        href: "/purchase/orders",
-        tone: "warning",
-        icon: "package-x",
-      });
+  /* ONE LINE PER KIND (user 2026-10-29): three "Supplier delay — vendor"
+     cards in a row said one thing three times. Each kind is now a single alert
+     that counts its documents and names the first few. */
+  const many = (count: number) => `${count}${count >= GROUP_LIMIT ? "+" : ""}`;
+  const firstFew = (xs: string[]) => `${xs.slice(0, 3).join(" · ")}${xs.length > 3 ? " …" : ""}`;
 
-  if (failedQc.ok)
-    for (const r of failedQc.value)
-      out.push({
-        key: `qc:${s(r.id)}`,
-        title: `QC ${s(r.qc_status)} — ${s(embed(r, "grns")?.code)}`,
-        body: `${s(r.description)} · ${fmtCompactNumber(n(r.rejected_qty))} rejected.`,
-        href: "/purchase/grn",
-        tone: "danger",
-        icon: "badge-alert",
-      });
+  if (latePos.ok && latePos.value.length > 0) {
+    const v = latePos.value;
+    out.push({
+      key: "po-late",
+      title: `${many(v.length)} supplier deliver${v.length === 1 ? "y" : "ies"} late`,
+      body: firstFew(v.map((r) => `${s(r.code)}${poVendor(r) ? ` (${poVendor(r)})` : ""} due ${fmtDate(s(r.expected_date))}`)),
+      href: "/purchase/orders",
+      tone: "warning",
+      icon: "package-x",
+    });
+  }
 
-  if (lateShipments.ok)
-    for (const r of lateShipments.value)
-      out.push({
-        key: `shp:${s(r.id)}`,
-        title: `Shipment past ETD — ${s(r.code)}`,
-        body: `${s(embed(r, "buyers")?.name) || "Buyer"} · ETD ${s(r.etd)}, not yet sailed.`,
-        href: "/logistics",
-        tone: "warning",
-        icon: "ship",
-      });
+  if (failedQc.ok && failedQc.value.length > 0) {
+    const v = failedQc.value;
+    out.push({
+      key: "qc-failed",
+      title: `${many(v.length)} received line${v.length === 1 ? "" : "s"} failed QC`,
+      body: firstFew(v.map((r) => `${s(embed(r, "grns")?.code)} ${s(r.description)} (${fmtCompactNumber(n(r.rejected_qty))} rejected)`)),
+      href: "/purchase/grn",
+      tone: "danger",
+      icon: "badge-alert",
+    });
+  }
 
-  if (overdueAr.ok)
-    for (const r of overdueAr.value)
-      out.push({
-        key: `ar:${s(r.id)}`,
-        title: `Payment overdue — ${s(embed(r, "buyers")?.name) || "buyer"}`,
-        body: `${s(r.invoice_no) || s(r.code)} · ${fmtCompactInr(n(r.amount_inr))} due ${s(r.due_date)}.`,
-        href: "/finance/receivables",
-        tone: "danger",
-        icon: "circle-alert",
-      });
+  if (lateShipments.ok && lateShipments.value.length > 0) {
+    const v = lateShipments.value;
+    out.push({
+      key: "ship-late",
+      title: `${many(v.length)} shipment${v.length === 1 ? "" : "s"} past ETD`,
+      body: firstFew(v.map((r) => `${s(r.code)}${s(embed(r, "buyers")?.name) ? ` (${s(embed(r, "buyers")?.name)})` : ""} ETD ${fmtDate(s(r.etd))}`)),
+      href: "/logistics",
+      tone: "warning",
+      icon: "ship",
+    });
+  }
+
+  if (overdueAr.ok && overdueAr.value.length > 0) {
+    const v = overdueAr.value;
+    const total = v.reduce((sum, r) => sum + n(r.amount_inr), 0);
+    out.push({
+      key: "ar-overdue",
+      title: `${many(v.length)} payment${v.length === 1 ? "" : "s"} overdue · ${fmtCompactInr(total)}`,
+      body: firstFew(v.map((r) => `${s(r.invoice_no) || s(r.code)}${s(embed(r, "buyers")?.name) ? ` (${s(embed(r, "buyers")?.name)})` : ""}`)),
+      href: "/finance/receivables",
+      tone: "danger",
+      icon: "circle-alert",
+    });
+  }
 
   return out.slice(0, 6);
 }
@@ -1288,7 +1252,7 @@ export async function getLeaderboards(
   caps: DashboardCaps,
 ): Promise<Leaderboard[]> {
   const sb = await createClient();
-  const w = rangeWindow(f.range);
+  const w = filterWindow(f);
   const args = { p_from: w.from, p_to: w.to, p_location: f.location };
 
   const scale = (list: { name: string; raw: number; value: string }[]): LeaderRow[] => {
@@ -1324,13 +1288,13 @@ export async function getLeaderboards(
     cell(caps.materials, async () => {
       const { data } = await sb
         .from("purchase_orders")
-        .select("total_amount, vendors!vendor_id(name)")
+        .select("total_amount, vendors!vendor_id(name), master_vendors!master_vendor_id(name)")
         .neq("status", "cancelled")
         .gte("order_date", w.from)
         .lte("order_date", w.to);
       const byVendor = new Map<string, number>();
       for (const r of rows({ data })) {
-        const name = s(embed(r, "vendors")?.name) || "—";
+        const name = poVendor(r) || "—";
         byVendor.set(name, (byVendor.get(name) ?? 0) + n(r.total_amount));
       }
       return scale(

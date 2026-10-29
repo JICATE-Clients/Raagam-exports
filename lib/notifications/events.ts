@@ -20,7 +20,7 @@
 
 export type NotificationEventDef = {
   /** Groups the catalog on the admin screen. */
-  module: "approvals" | "orders" | "cad" | "ta" | "comms" | "admin" | "resolve";
+  module: "approvals" | "orders" | "cad" | "ta" | "comms" | "admin" | "resolve" | "logistics";
   label: string;
   /**
    * Who the CODE sends it to, in the operator's words. The admin can ADD
@@ -439,6 +439,28 @@ export const NOTIFICATION_EVENTS = {
     fallbackToAdmins: false,
   },
 
+  // ---- Logistics ▸ Transport (doc/vehicle program/plan.md) -------------------
+  // Raised by dispatchTrip / completeTrip, keyed on the trip id, to the people
+  // who booked the requests on it. Not mandatory: no queue waits on them.
+  "transport.trip_dispatched": {
+    module: "logistics",
+    label: "Your transport request was dispatched",
+    audience: "Whoever booked a request that is on the trip",
+    staticAudience: null,
+    mandatory: false,
+    push: true,
+    fallbackToAdmins: false,
+  },
+  "transport.trip_completed": {
+    module: "logistics",
+    label: "Your transport request was delivered",
+    audience: "Whoever booked a request that is on the trip",
+    staticAudience: null,
+    mandatory: false,
+    push: true,
+    fallbackToAdmins: false,
+  },
+
   // ---- Administration -------------------------------------------------------
   "admin.test": {
     module: "admin",
@@ -475,5 +497,6 @@ export const EVENT_MODULE_LABEL: Record<NotificationEventDef["module"], string> 
   ta: "T&A",
   comms: "Huddle",
   admin: "Administration",
-  resolve: "Resolve Hub",
+  resolve: "Help & Repairs",
+  logistics: "Logistics",
 };

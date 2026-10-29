@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowDownRight, ArrowUpRight, CircleDashed, Lock, Unplug } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import { Truncated } from "@/components/ui/truncated";
 import { StatusPill } from "@/components/ui/status-pill";
 import { cn } from "@/lib/utils";
 import type {
@@ -14,36 +15,7 @@ import type {
 import { Sparkline, ProgressBar } from "./charts";
 import { Icon } from "./icon";
 import { toneBg, toneSoft, toStatusTone } from "./tone";
-
-/* ------------------------------------------------------------------ *
- * Section rule
- * ------------------------------------------------------------------ */
-
-/** The numbered `01 ── Performance ─────────` divider between sections. */
-export function SectionHeading({
-  index,
-  title,
-  meta,
-}: {
-  index: string;
-  title: string;
-  meta?: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-center gap-3.5">
-      {/* The section number is the page's one brand marker per section (colour
-          pass 2026-10-16): a primary chip, so the eye can run down the page by
-          number. The title takes the heading navy, not the brand blue — a page
-          of blue titles would read as a page of links. */}
-      <span className="rounded-md bg-primary-soft px-1.5 py-0.5 font-mono text-[11px] font-semibold tracking-[0.06em] text-primary">
-        {index}
-      </span>
-      <h2 className="text-sm font-semibold tracking-[0.01em] text-heading">{title}</h2>
-      <span className="h-px flex-1 bg-border" />
-      {meta && <span className="text-[11px] text-muted-foreground">{meta}</span>}
-    </div>
-  );
-}
+import { GLASS, GLASS_TILE } from "./glass";
 
 /* ------------------------------------------------------------------ *
  * The honest empty state
@@ -152,45 +124,43 @@ function DeltaChip({ delta, up }: { delta: string; up: boolean }) {
 export function KpiCard({ kpi }: { kpi: HeroKpi }) {
   const tone = kpi.up ? "primary" : "warning";
   return (
-    <Card interactive className="relative min-w-0 animate-rise overflow-hidden p-4">
+    <Card interactive className={cn(GLASS, "relative min-w-0 animate-rise overflow-hidden p-4")}>
       {/* A 3px rule along the top in the card's own tone (colour pass
           2026-10-16). It carries the SAME meaning as the icon well — blue when
           the figure is moving the right way, amber when it is not — so it adds
           colour without adding a second thing to decode. A rule, not a tinted
           card: the client has refused tinted grounds five times. */}
       <span aria-hidden className={cn("absolute inset-x-0 top-0 h-[3px]", toneBg[tone])} />
-      <div className="flex items-center justify-between gap-2.5">
-        <p className="min-w-0 truncate text-[11px] font-medium text-muted-foreground">
-          {kpi.label}
-        </p>
+      {/* Layout A (2026-10-28): the icon well leads, the trend sits opposite it,
+          and the figure reads beneath — the reference dashboard's card. */}
+      <div className="flex items-start justify-between gap-2.5">
         <span
           className={cn(
-            "flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px]",
+            "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl",
             toneSoft[tone],
           )}
         >
-          <Icon name={kpi.icon} className="h-4 w-4" />
+          <Icon name={kpi.icon} className="h-5 w-5" />
         </span>
+        <Sparkline values={kpi.spark} tone={kpi.up ? "pos" : "danger"} />
       </div>
 
-      <p className="mt-2 text-2xl font-semibold tracking-tight tabular-nums text-heading">
+      <p className="mt-3 min-w-0 truncate text-xs font-medium text-muted-foreground">
+        {kpi.label}
+      </p>
+      <p className="mt-0.5 text-2xl font-bold tracking-tight tabular-nums text-heading">
         {kpi.value}
       </p>
 
-      <div className="mt-2.5 flex items-end justify-between gap-2.5">
-        <div className="flex min-w-0 flex-col gap-1">
-          {kpi.delta ? (
-            <DeltaChip delta={kpi.delta} up={kpi.up} />
-          ) : (
-            // No delta is a real state — the previous period was zero, so a
-            // percentage would be meaningless rather than merely unknown.
-            <span className="text-[11px] text-muted-foreground">—</span>
-          )}
-          <span className="truncate text-[10px] text-muted-foreground">
-            {kpi.hint}
-          </span>
-        </div>
-        <Sparkline values={kpi.spark} tone={kpi.up ? "pos" : "danger"} />
+      <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+        {kpi.delta ? (
+          <DeltaChip delta={kpi.delta} up={kpi.up} />
+        ) : (
+          // No delta is a real state — the previous period was zero, so a
+          // percentage would be meaningless rather than merely unknown.
+          <span className="text-[11px] text-muted-foreground">—</span>
+        )}
+        <span className="truncate text-[11px] text-muted-foreground">{kpi.hint}</span>
       </div>
     </Card>
   );
@@ -223,11 +193,11 @@ export function MiniStat({ stat }: { stat: MiniStatRow }) {
 
   if (!stat.href) {
     return (
-      <Card className="min-w-0 px-3.5 py-3">{body}</Card>
+      <Card className={cn(GLASS_TILE, "min-w-0 px-3.5 py-3")}>{body}</Card>
     );
   }
   return (
-    <Card interactive className="min-w-0">
+    <Card interactive className={cn(GLASS_TILE, "min-w-0")}>
       <Link href={stat.href} className="block px-3.5 py-3">
         {body}
       </Link>
@@ -239,37 +209,37 @@ export function MiniStat({ stat }: { stat: MiniStatRow }) {
  * Manufacturing stage card
  * ------------------------------------------------------------------ */
 
-export function StageCard({ stage }: { stage: StageRow }) {
+/**
+ * A production stage as a small tile, two to a row in the right column
+ * (user 2026-10-29: Manufacturing moved under Quick actions, compact). The
+ * stage, its figure and its state word; the explanatory line is the tooltip.
+ */
+export function StageTile({ stage }: { stage: StageRow }) {
+  const d = stage.data.ok ? stage.data.value : null;
   return (
-    <Card className="flex min-w-0 flex-col p-4">
-      <div className="flex items-center justify-between gap-2.5">
-        <span className="flex min-w-0 items-center gap-2 text-xs font-medium text-muted-foreground">
-          <Icon name={stage.icon} className="h-3.5 w-3.5 shrink-0" />
-          <span className="truncate">{stage.name}</span>
+    <div
+      title={d ? `${stage.name}: ${d.headline} · ${d.sub}` : stage.name}
+      className="min-w-0 rounded-lg border border-[var(--glass-edge)] bg-[var(--glass-row)] px-2.5 py-2"
+    >
+      <div className="flex items-center justify-between gap-1.5">
+        <span className="flex min-w-0 items-center gap-1.5 text-[11.5px] font-medium text-muted-foreground">
+          <Icon name={stage.icon} className="size-3.5 shrink-0" />
+          <Truncated text={stage.name} className="min-w-0" />
         </span>
-        {stage.data.ok && (
-          <StatusPill tone={toStatusTone(stage.data.value.tone)}>
-            {stage.data.value.state}
+        {d && (
+          <StatusPill tone={toStatusTone(d.tone)} className="shrink-0">
+            {d.state}
           </StatusPill>
         )}
       </div>
-
-      <div className="mt-2 flex-1">
+      {d ? (
+        <p className="mt-1 text-[15px] font-semibold tabular-nums leading-tight">{d.headline}</p>
+      ) : (
         <CellView cell={stage.data} compact>
-          {(d) => (
-            <>
-              <p className="text-[22px] font-semibold tracking-tight tabular-nums">
-                {d.headline}
-              </p>
-              <p className="mb-2.5 mt-0.5 text-[11px] text-muted-foreground">
-                {d.sub}
-              </p>
-              <ProgressBar pct={d.pct} tone={d.tone} />
-            </>
-          )}
+          {() => null}
         </CellView>
-      </div>
-    </Card>
+      )}
+    </div>
   );
 }
 
@@ -287,8 +257,8 @@ export function LeaderboardCard({
   rows: Cell<LeaderRow[]>;
 }) {
   return (
-    <Card className="flex min-w-0 flex-col">
-      <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
+    <Card className={cn(GLASS, "flex min-w-0 flex-col")}>
+      <div className="flex items-center justify-between gap-2 border-b border-[var(--glass-edge)] px-4 py-3">
         <h3 className="text-sm font-semibold text-heading">{title}</h3>
         <span className="shrink-0 text-[11px] text-muted-foreground">{note}</span>
       </div>
@@ -349,33 +319,26 @@ export interface QuickAction {
   tone: DashboardTone;
 }
 
-export function QuickActionGrid({ actions }: { actions: QuickAction[] }) {
+/**
+ * The shortcuts, as a two-column list of small buttons in the right column
+ * (user 2026-10-29). They were eight large tiles with a line of description
+ * each across the full width; the description is now the button's tooltip.
+ */
+export function QuickActionList({ actions }: { actions: QuickAction[] }) {
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+    <div className="grid grid-cols-2 gap-1.5 p-3">
       {actions.map((a) => (
-        <Card key={a.href + a.label} interactive className="min-w-0">
-          <Link
-            href={a.href}
-            className="flex items-center gap-3 px-4 py-3.5 hover:border-primary"
-          >
-            <span
-              className={cn(
-                "flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px]",
-                toneSoft[a.tone],
-              )}
-            >
-              <Icon name={a.icon} className="h-[17px] w-[17px]" />
-            </span>
-            <span className="min-w-0">
-              <span className="block truncate text-[13px] font-medium">
-                {a.label}
-              </span>
-              <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
-                {a.hint}
-              </span>
-            </span>
-          </Link>
-        </Card>
+        <Link
+          key={a.href + a.label}
+          href={a.href}
+          title={a.hint}
+          className="flex min-w-0 items-center gap-2 rounded-lg border border-[var(--glass-edge)] bg-[var(--glass-row)] px-2.5 py-2 text-[12.5px] font-medium transition-colors hover:border-primary hover:bg-primary-soft"
+        >
+          <span className={cn("grid size-6 shrink-0 place-items-center rounded-md", toneSoft[a.tone])}>
+            <Icon name={a.icon} className="size-[13px]" />
+          </span>
+          <Truncated text={a.label} className="min-w-0" />
+        </Link>
       ))}
     </div>
   );

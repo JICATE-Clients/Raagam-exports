@@ -500,14 +500,12 @@ function pearlCss(sel: string): string {
     // actual "half white" in 3229. A solid pill keeps the sheen above instead.
     `${sel} :is(.ty-btn-solid,.ty-btn-outline){position:relative;isolation:isolate}` +
     `${sel} .ty-btn-solid::after{content:"";position:absolute;inset:0;z-index:-1;border-radius:inherit;pointer-events:none;background:linear-gradient(180deg,rgb(255 255 255/.24) 0%,rgb(255 255 255/.07) 50%,rgb(255 255 255/0) 70%,rgb(0 0 0/.06) 100%)}` +
-    // The sidebar's active item is a solid pill too (`SidebarItem`, which
-    // backs the rail, the module menu and its sub-rows): same glass band,
-    // same lift (user 2026-10-01: "see the sidebar button?"). An idle row
-    // gets a white raised sheen on hover only — never a tinted column.
-    `${sel} .ty-sidebar[data-active]{position:relative;isolation:isolate;box-shadow:inset 0 1px 0 rgb(255 255 255/.4),inset 0 -1px 0 rgb(0 0 0/.12),0 2px 4px -1px rgb(15 20 30/.22),0 6px 14px -6px rgb(15 20 30/.3)}` +
-    `${sel} .ty-sidebar[data-active]::after{content:"";position:absolute;inset:0;z-index:-1;border-radius:inherit;pointer-events:none;background:linear-gradient(180deg,rgb(255 255 255/.22) 0%,rgb(255 255 255/.06) 50%,rgb(255 255 255/0) 70%,rgb(0 0 0/.05) 100%)}` +
-    `${sel} .ty-sidebar:not([data-active]):hover{background-color:transparent;background-image:linear-gradient(180deg,#fff,#f1f3f6);box-shadow:inset 0 1px 0 #fff,0 0 0 1px rgb(15 20 30/.06),0 2px 6px -3px rgb(15 20 30/.18)}` +
-    `${d} .ty-sidebar:not([data-active]):hover{background-image:linear-gradient(180deg,#262b34,#1d2129);box-shadow:inset 0 1px 0 rgb(255 255 255/.06),0 2px 6px -3px rgb(0 0 0/.6)}` +
+    // NO SIDEBAR GLOSS (user 2026-10-29, screenshot 094524: "the second side
+    // end have some glowing … we need add it for too"). The sidebar's active
+    // row was a solid pill and took this glass band; since the Sarvam review
+    // (same day) every sidebar row — rail flyout, module menu, channels — is a
+    // flat soft fill, so the glass band and the raised white hover sheen are
+    // gone here. Buttons keep theirs.
     `${sel} .ty-btn-solid{box-shadow:inset 0 1px 0 rgb(255 255 255/.45),inset 0 -1px 0 rgb(0 0 0/.14),0 2px 4px -1px rgb(15 20 30/.25),0 6px 14px -6px rgb(15 20 30/.35)}` +
     `${sel} ${ob}{background-color:#fff;background-image:linear-gradient(180deg,#fff 0%,#fbfcfd 46%,#edf0f3 54%,#e6e9ed 100%);box-shadow:inset 0 1px 0 #fff,inset 0 -1px 0 rgb(15 20 30/.07),0 1px 2px rgb(15 20 30/.12),0 4px 10px -5px rgb(15 20 30/.18)}` +
     `${sel} ${ob}:hover:not(:disabled){background-image:linear-gradient(180deg,#fff 0%,#f6f8fa 46%,#e6eaee 54%,#dde2e7 100%)}` +

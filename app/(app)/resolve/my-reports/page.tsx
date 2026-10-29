@@ -24,7 +24,7 @@ export default async function MyReportsPage({ searchParams }: { searchParams: Pr
   return (
     <div className="space-y-3">
       <PageHeader
-        title="My Reports"
+        title="My Problems"
         actions={
           <Link href="/resolve/report" className={buttonClasses({ variant: "primary" })}>
             <Plus className="h-4 w-4" aria-hidden />

@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Ban, Boxes, Check, ChevronRight, Clock, FileText, History, Layers, LayoutGrid, Lock, Package, Ruler, Store, Tag, TrendingUp, Truck, Undo2, User, Wallet, X } from "lucide-react";
+import { Ban, Boxes, Check, ChevronRight, Clock, FileText, History, Layers, LayoutGrid, Lock, Package, Ruler, Store, Tag, TrendingUp, Truck, Undo2, User, Wallet, X } from "lucide-react";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { Button } from "@/components/ui/button";
-import { Field, FIELD_WIDTH_CSS } from "@/components/ui/field";
+import { Field, FieldError, FIELD_WIDTH_CSS } from "@/components/ui/field";
 import { FilterPill, type FilterPillOption } from "@/components/ui/filter-pill";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -18,6 +18,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { Truncated } from "@/components/ui/truncated";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
+import { useFormDraft } from "@/lib/use-form-draft";
 import { useAccordion } from "@/lib/ui/use-accordion";
 import { focusField } from "@/lib/focus";
 import { cn } from "@/lib/utils";
@@ -242,6 +243,34 @@ export function RequirementPoForm({
   const advancedRef = useRef<Record<string, boolean>>({});
 
   useUnsavedGuard(dirty || isPending);
+
+  /* AUTOSAVE, NO "SAVE DRAFT" BUTTON (user 2026-10-29: "we will save automatically …
+     then why that save draft button — remove it"). Everything typed is kept in this
+     browser as it is typed (useFormDraft, ~1 s after the last key) and offered back on
+     the next visit by the Restore / Discard notice above the title. Kept LOCAL on
+     purpose: a server draft was a real PO — every press took a PO number and the lines'
+     balance — so autosaving that way would raise a new PO each pause in typing. Cleared
+     on Submit and on Cancel. */
+  const draft = useFormDraft({
+    storageKey: `purchase:raise-po:${initialOrderId ?? "new"}`,
+    enabled: true,
+    value: { classIds, orderIds, vendorPick, poType, currency, exRate, gst, paymentTerms, commercial, rows, flags },
+    onRestore: (v) => {
+      setClassIds(v.classIds);
+      setOrderIds(v.orderIds);
+      setVendorPick(v.vendorPick);
+      setPoType(v.poType);
+      setCurrency(v.currency);
+      setExRate(v.exRate);
+      setGst(v.gst);
+      setPaymentTerms(v.paymentTerms);
+      setCommercial(v.commercial);
+      setRows(v.rows);
+      setFlags(v.flags);
+      setActiveKey(v.orderIds[0] ?? "");
+      setDirty(true);
+    },
+  });
 
   const budgeted = useMemo(() => new Set(budgetedKeys), [budgetedKeys]);
 
@@ -728,6 +757,7 @@ export function RequirementPoForm({
         return;
       }
       setDirty(false);
+      draft.clear();
       success(
         res.status === "draft"
           ? `${res.code ?? "PO"} saved as draft`
@@ -1396,29 +1426,52 @@ export function RequirementPoForm({
     !isPending && hasClass && orderIds.length > 0 && !!vendorId && active.length > 0 && undated === 0 && (poType === "local" || num(exRate) > 0);
   // Above budget → the reason is mandatory before it can go to the MD (user 2026-10-27).
   const canSubmit = canSave && unpriced === 0 && (!goesToMd || unreasoned === 0);
-  const hint = !hasClass
-    ? "Choose the item class."
-    : orderIds.length === 0
-      ? "Tick the orders for this PO."
-      : !vendorId
+  /* EACH WARNING UNDER ITS OWN FIELD (user 2026-10-29: "Choose the item class … its in
+     top but message is showing in bottom … show the warning message under the exact
+     field"). These four were the bottom bar's first four answers, a page away from the
+     pill, box or list they meant. They now render beside it (FilterPill `error`, the
+     tick list's head, the rate box), and the bar below says only what belongs to the
+     LINES — a count of rates or dates still to type, or where Submit will send it. */
+  const fieldErrors = {
+    itemClass: !hasClass ? "Choose the item class." : null,
+    orders: hasClass && orderIds.length === 0 ? "Tick the orders for this PO." : null,
+    vendor:
+      hasClass && !vendorId
         ? classVendors.length === 0
-          ? classIds.length > 1
-            ? "No bought-item vendor is mapped to every class ticked — untick one, or map a vendor in Master Data ▸ Vendors."
-            : `No bought-item vendor is mapped to ${classOptions.find((c) => c.value === classIds[0])?.label ?? "this class"} — add one in Master Data ▸ Vendors.`
+          ? "No vendor mapped — add one in Master Data ▸ Vendors."
           : "Choose the vendor."
-        : active.length === 0
+        : null,
+    exRate: poType === "import" && num(exRate) <= 0 ? "Type the exchange rate." : null,
+  };
+  const fieldBlocked = Object.values(fieldErrors).some(Boolean);
+  /* WHICH RATE IS MISSING (user 2026-10-29, screenshot 3842: "1 rate still to type …
+     indicate"). A bare count left the operator scanning the grid for the blank box; the
+     chip now names the line — numbered as the grid numbers it, skipped rows left out —
+     and a click puts the cursor in that box (`openRe`). The order on screen first, then
+     the next order still to price. */
+  const priceTarget = (activeGroup?.toPrice.length ? activeGroup : groups.find((g) => g.toPrice.length > 0)) ?? null;
+  const priceLine = priceTarget
+    ? sizeGroupsOf(priceTarget.rows)
+        .filter((sg) => !sg.members.every((m) => m.row.skip))
+        .findIndex((sg) => sg.members.some((m) => m.key === priceTarget.toPrice[0].key)) + 1
+    : 0;
+  const priceWhere = priceTarget && priceLine > 0 ? `${groups.length > 1 ? `${priceTarget.re.split(" · ")[0]}, ` : ""}line ${priceLine}` : "";
+  const hint = fieldBlocked
+    ? null
+    : active.length === 0
           ? "Every line is skipped or 0 — there is nothing to order."
           : undated > 0
             ? `Type the delivery date on ${undated} line${undated === 1 ? "" : "s"} — the order has no ship date and ${vendorName} no lead days.`
-            : poType === "import" && num(exRate) <= 0
-              ? "Type the exchange rate."
-              : unpriced > 0
-                ? "Submit opens once every rate is typed."
+            : unpriced > 0
+                ? // Short enough to read whole in the chip (user 2026-10-29: "not look clear").
+                  `Type the rate${priceWhere ? ` on ${priceWhere}` : ""}${unpriced > 1 ? ` · ${unpriced} left` : ""}`
                 : goesToMd
                   ? unreasoned
                     ? `Pick ${unreasoned} budget reason${unreasoned === 1 ? "" : "s"}`
                     : `${budgetWords(above, unbudgeted)} — Submit sends it to the MD`
-                  : "Every rate is within budget — Submit approves the PO by rule.";
+                  : // Short, like the chips above it (user 2026-10-29: "fix it"); was a sentence
+                    // with a full stop, cut off by the chip's own width.
+                    "Within budget — ready to submit";
   /* THE BAR'S MESSAGE IS A STATUS CHIP (user 2026-10-26: "make it better, single row,
      better colouring"): amber = something still to do, red = Submit goes to the MD,
      green = ready. Fixed colour pairs, as in FilterPill — the skin cannot repaint them. */
@@ -1481,7 +1534,12 @@ export function RequirementPoForm({
     },
     {
       header: QTY.po,
-      width: FIELD_WIDTH_CSS.range,
+      /* `code` (144px), one step past `range` (user 2026-10-29, screenshots 101621 /
+         102705: "fix this field ui"). At 112px the box left of the 40px unit had ~52px,
+         and ruler + gap + a 4-digit total + `pr-2.5` need ~74, so the number ran into its
+         own padding and touched the unit. Shrinking the icon did not buy enough; the
+         column is the fix. This grid stays inside the 1155px pane. */
+      width: FIELD_WIDTH_CSS.code,
       cell: (g) => {
         if (!g.sized) return qtyBox(g.first);
         const sizes = g.members.map((m) => m.size_name).filter(Boolean);
@@ -1507,9 +1565,15 @@ export function RequirementPoForm({
                    draw theirs: foreground, no grouping, right-aligned, and `pr-2.5` because that
                    is `Input`'s own padding — so 3230 here ends where 3230 ends in the box above.
                    The ruler on the left is the only sign it opens; the count is in the label. */
-                className="flex h-8 min-w-0 flex-1 items-center pr-2.5 pl-2 text-sm tabular-nums hover:bg-[#f2f7fb] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:opacity-50"
+                /* ROOM BETWEEN ICON, NUMBER AND UNIT (user 2026-10-29, screenshot 101621:
+                   "the field cell squeezing the value"). In the 112px column the 16px ruler
+                   + pl-2 left a 4-digit total touching both the icon and "NOS". The ruler
+                   is 14px with pl-1 and a gap-2 keeps it off the number; the number still
+                   ends at `pr-2.5` and the unit keeps the w-10 every other row uses, so
+                   both line up with the typed boxes below. */
+                className="flex h-8 min-w-0 flex-1 items-center gap-2 pr-2.5 pl-1 text-sm tabular-nums hover:bg-[#f2f7fb] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:opacity-50"
               >
-                <Ruler aria-hidden className="size-4 shrink-0 text-[#037bb8]" />
+                <Ruler aria-hidden className="size-3.5 shrink-0 text-[#037bb8]" />
                 <span className="ml-auto">{Number(groupQty(g).toFixed(3))}</span>
               </button>
             <Truncated className="w-10 shrink-0 text-[11px] font-semibold text-muted-foreground uppercase">{g.first.uom_code ?? ""}</Truncated>
@@ -1811,8 +1875,22 @@ export function RequirementPoForm({
           grid, no footer floating as a box of its own. The PO's own terms (GST, Payment
           Terms, the exchange rate) ride the title row beside its number: they are facts
           about this PO, as the number and date are. */}
+      {/* The autosaved work from last time — links, not buttons (AGENTS.md "Buttons"). */}
+      {draft.hasDraft ? (
+        <p className="mb-2 flex max-w-[88rem] flex-wrap items-center gap-x-3 text-[13px] text-muted-foreground">
+          <span>You have an unfinished PO from last time.</span>
+          <button type="button" className="font-semibold text-primary hover:underline" onClick={draft.restore}>
+            Restore
+          </button>
+          <button type="button" className="hover:underline" onClick={draft.discard}>
+            Discard
+          </button>
+        </p>
+      ) : null}
       <div className="max-w-[88rem] rounded-xl border border-[#dde4eb] bg-white">
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-2 px-4 py-2.5">
+        {/* Room under the row while the exchange rate's warning hangs there (user
+            2026-10-29, screenshot 105223: it sat on the pill labels below). */}
+        <div className={cn("flex flex-wrap items-center gap-x-2 gap-y-2 px-4 pt-2.5", fieldErrors.exRate ? "pb-7" : "pb-2.5")}>
           <h2 className="text-base font-bold">Purchase Order</h2>
           {/* PO NO (0745): the next number in this unit, given for real on Save under a
               lock — a chip beside the title, not a read-only field in the row (V6). */}
@@ -1828,7 +1906,10 @@ export function RequirementPoForm({
           {poType === "import" ? (
             /* ONE BOX, NOT TWO (user 2026-10-24, screenshot 3711): Currency and Exchange
                Rate are one fact, "1 USD = ₹ x". */
-            <label className="inline-flex h-8 items-center gap-1 rounded-control border border-[#d9a400] pl-1 text-[13px] text-muted-foreground focus-within:border-[#037bb8]">
+            /* ONE RING FOR THE ONE BOX (screenshot 105223): the app's global focus ring
+               drew a second box round the ₹ input inside this one. The input's own ring is
+               switched off below and the label carries it instead. */
+            <label className="relative inline-flex h-8 items-center gap-1 rounded-control border border-[#d9a400] pl-1 text-[13px] text-muted-foreground focus-within:border-[#037bb8] focus-within:shadow-[0_0_0_2px_var(--ring)]">
               <select
                 id="rpo-ccy"
                 aria-label="Currency"
@@ -1854,13 +1935,20 @@ export function RequirementPoForm({
                 inputMode="decimal"
                 required
                 aria-label={`Rupees for 1 ${currency}`}
-                className="h-7 w-20 border-0 bg-transparent px-1 text-right text-[13px] font-semibold tabular-nums text-foreground shadow-none focus-visible:ring-0"
+                className="h-7 w-20 border-0 bg-transparent px-1 text-right text-[13px] font-semibold tabular-nums text-foreground shadow-none focus-visible:ring-0 focus-visible:shadow-none! @2xl/editor:h-7"
                 value={exRate}
+                aria-describedby={fieldErrors.exRate ? "rpo-fx-error" : undefined}
                 onChange={(e) => {
                   setDirty(true);
                   setExRate(e.target.value);
                 }}
               />
+              {/* Under the box, hung so the title row does not grow (FilterPill's shape). */}
+              {fieldErrors.exRate ? (
+                <span className="pointer-events-none absolute top-full left-0 whitespace-nowrap [&>p]:mt-1">
+                  <FieldError id="rpo-fx-error">{fieldErrors.exRate}</FieldError>
+                </span>
+              ) : null}
             </label>
           ) : null}
           <span className="ml-auto inline-flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -1871,8 +1959,21 @@ export function RequirementPoForm({
           {/* THE FILTER ROW (canvas v6). PO Type, Item Class and Vendor are required pills;
               the rest only narrow the tick list below. Counts are "what this choice would
               leave", so a greyed choice is one that would empty the list. */}
-          {/* ONE ROW from md up (screenshot 3744): the pills shrink to fit instead of wrapping. */}
-          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-3 border-t border-[#dde4eb] bg-[#fafbfc] px-4 pt-4 pb-2.5 md:flex-nowrap">
+          {/* ONE ROW (screenshots 3744, 120804): a chosen pill stacks its label over its value
+              and enters the row at a small basis, growing toward its full width (filter-pill.tsx),
+              so the row breaks only when even the minimums do not fit. */}
+          {/* Room under the row for a pill's warning line (FilterPill `error` hangs below it). */}
+          <div
+            className={cn(
+              // Wraps rather than overflows: with option A's inline labels the row can outgrow a laptop pane.
+              // 4px between pills (was 6px): with Progress the ten pills need ~1,520px and a
+              // full-HD pane gives 1,500, so Progress dropped to a line of its own (user
+              // 2026-10-29, screenshot 3840). Tighter gaps keep it on one row there; a narrower
+              // laptop still wraps rather than clipping a pill's dropdown.
+              "flex flex-wrap items-center gap-x-1 border-t border-[#dde4eb] bg-[#fafbfc] px-4 pt-2.5",
+              fieldErrors.itemClass || fieldErrors.vendor ? "gap-y-6 pb-6" : "gap-y-2 pb-2.5",
+            )}
+          >
             {/* PO TYPE LEADS THE ROW (user 2026-10-26: "type local/import also as filter,
                 move it before item class"). Always set, so it never holds the cursor. */}
             <FilterPill
@@ -1944,6 +2045,7 @@ export function RequirementPoForm({
               family="item"
               icon={Layers}
               required
+              error={fieldErrors.itemClass}
               options={classOptions}
               multiple
               value={classIds}
@@ -1989,6 +2091,7 @@ export function RequirementPoForm({
               required
               wide
               placeholder="Choose vendor"
+              error={fieldErrors.vendor}
               disabled={!hasClass}
               options={classVendors.map((v) => ({
                 value: v.id,
@@ -2010,10 +2113,14 @@ export function RequirementPoForm({
               }}
             />
             <span aria-hidden className="mx-0.5 hidden h-5 w-px shrink-0 bg-[#dde4eb] sm:block" />
+            {/* THE THREE STATUS PILLS SHOW THEIR ICON ALONE until used (2026-10-29, screenshot
+                120804), name on hover: they only narrow the tick list, and their ~210px is
+                what lets every chosen pill keep its value on one row. */}
             <FilterPill
               label="Order by"
               family="status"
               icon={Clock}
+              collapse
               wide
               disabled={!hasClass}
               note={leadNote}
@@ -2028,6 +2135,7 @@ export function RequirementPoForm({
               label="Budget"
               family="status"
               icon={Wallet}
+              collapse
               disabled={!hasClass}
               options={BUDGET_STATES.map((b) => ({ ...b, count: count("budget", b.value) }))}
               anyCount={anyCount("budget")}
@@ -2039,6 +2147,7 @@ export function RequirementPoForm({
               label="Progress"
               family="status"
               icon={TrendingUp}
+              collapse
               disabled={!hasClass}
               options={PROGRESS_STATES.map((p) => ({ ...p, count: count("progress", p.value) }))}
               anyCount={anyCount("progress")}
@@ -2094,6 +2203,11 @@ export function RequirementPoForm({
                               </button>
                             ) : null}
                           </div>
+                          {fieldErrors.orders ? (
+                            <div className="px-2.5 pb-1.5">
+                              <FieldError>{fieldErrors.orders}</FieldError>
+                            </div>
+                          ) : null}
                           {visible.ticked.length ? (
                             <>
                               {sectionLabel("On this PO")}
@@ -2524,7 +2638,9 @@ export function RequirementPoForm({
       >
         {/* THE FIGURES ON ONE LINE: each label muted, its value beside it, parted by
             hairlines; the Total last and set apart in its own tinted box. */}
-        <dl className="flex items-center gap-3 text-[13px] whitespace-nowrap tabular-nums">
+        {/* COMPACT (user 2026-10-29: "why this much large"): figures 12.5px, the Total
+            box 28px tall at 14px, the status chip 28px at 12px medium. */}
+        <dl className="flex items-center gap-3 text-[12.5px] whitespace-nowrap tabular-nums">
           <div className="flex items-baseline gap-1.5">
             <dt className="text-muted-foreground">Taxable</dt>
             <dd className="font-semibold">
@@ -2549,40 +2665,45 @@ export function RequirementPoForm({
               </div>
             </>
           ) : null}
-          <div className="flex h-8 items-baseline gap-2 rounded-control border border-[#b9dcf0] bg-[#e8f3fb] px-3 leading-8 text-[#035c8c]">
-            <dt className="text-xs font-semibold tracking-wide uppercase">Total</dt>
-            <dd className="text-[15px] font-bold">
+          <div className="flex h-7 items-baseline gap-2 rounded-control border border-[#b9dcf0] bg-[#e8f3fb] px-2.5 leading-7 text-[#035c8c]">
+            <dt className="text-[11px] font-semibold tracking-wide uppercase">Total</dt>
+            <dd className="text-[14px] font-bold">
               {cur} {fmtFixed(totals.total + charges, 2)}
             </dd>
           </div>
         </dl>
+        {/* No chip while a FIELD is what's missing — that warning is under the field. */}
         <div className="flex min-w-0 flex-1">
-          <span
-            role="status"
-            className={cn("inline-flex h-8 max-w-full min-w-0 items-center gap-2 rounded-full border px-3 text-[13px] font-semibold", HINT_CHIP.box)}
-          >
-            <span aria-hidden className={cn("size-2 shrink-0 rounded-full", HINT_CHIP.dot)} />
-            <Truncated className="min-w-0">{hint}</Truncated>
-          </span>
+          {hint ? (
+            <span
+              role="status"
+              className={cn("inline-flex h-7 max-w-full min-w-0 items-center gap-1.5 rounded-full border px-2.5 text-[12px] font-medium", HINT_CHIP.box)}
+            >
+              <span aria-hidden className={cn("size-2 shrink-0 rounded-full", HINT_CHIP.dot)} />
+              {/* A missing rate is a place to go: the words are a link to that box.
+                  tabIndex -1 — Tab lands on fields only (lib/focus.ts). */}
+              {unpriced > 0 && priceTarget && !fieldBlocked && active.length > 0 && undated === 0 ? (
+                <button type="button" tabIndex={-1} onClick={() => openRe(priceTarget)} className="min-w-0 underline-offset-2 hover:underline">
+                  <Truncated className="min-w-0">{hint}</Truncated>
+                </button>
+              ) : (
+                <Truncated className="min-w-0">{hint}</Truncated>
+              )}
+            </span>
+          ) : null}
         </div>
-        {unpriced > 0 && groups.some((g) => g.toPrice.length > 0) ? (
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => {
-              const g = groups.find((x) => x.toPrice.length > 0);
-              if (g) openRe(g);
-            }}
-          >
-            Go to next blank rate
-            <ArrowRight aria-hidden className="size-4" />
-          </Button>
-        ) : null}
-        <Button type="button" variant="ghost" onClick={() => (onCancel ? onCancel() : router.push("/purchase/orders"))}>
+        {/* "Go to next blank rate" and "Save draft" are gone (user 2026-10-29): the chip
+            already says how many rates are left, and the work autosaves (see `draft`). */}
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={() => {
+            draft.clear();
+            if (onCancel) onCancel();
+            else router.push("/purchase/orders");
+          }}
+        >
           Cancel
-        </Button>
-        <Button type="button" variant="outline" disabled={!canSave} onClick={() => save("draft")}>
-          Save draft
         </Button>
         {/* "Submit" whichever way it goes (user 2026-10-28) — red while the strip says MD. */}
         <Button type="button" variant={goesToMd ? "danger" : "primary"} disabled={!canSubmit} onClick={() => save("submit")}>

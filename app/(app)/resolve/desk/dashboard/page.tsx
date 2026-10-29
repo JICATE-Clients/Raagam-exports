@@ -12,7 +12,7 @@ export default async function DeskDashboardPage() {
   const data = await getDeskDashboard();
   return (
     <div className="space-y-4">
-      <PageHeader title="Desk Dashboard" description="Live IT desk counts, who is carrying what, and what has escalated" />
+      <PageHeader title="IT Summary" description="Live IT desk counts, who is carrying what, and what has escalated" />
       <DeskDashboard data={data} />
     </div>
   );

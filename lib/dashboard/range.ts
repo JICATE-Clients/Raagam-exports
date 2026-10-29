@@ -1,6 +1,7 @@
-import type { DashboardRange, RangeWindow } from "./types";
+import type { DashboardFilters, DashboardRange, RangeWindow } from "./types";
 import { DASHBOARD_RANGES } from "./types";
-import { addDays, addMonths, endOfMonth, startOfMonth, today } from "@/lib/calendar";
+import { addDays, addMonths, daysBetween, endOfMonth, isCalendarDate, startOfMonth, today } from "@/lib/calendar";
+import { fmtDate } from "@/lib/format";
 
 /**
  * The dashboard's range selector, built on the shared calendar arithmetic in
@@ -36,7 +37,7 @@ export function parseRange(raw: string | undefined): DashboardRange {
  * today and week compare like against like.
  */
 export function rangeWindow(
-  range: DashboardRange,
+  range: Exclude<DashboardRange, "custom">,
   now: Date = new Date(),
 ): RangeWindow {
   const t = today(now);
@@ -63,6 +64,61 @@ export function rangeWindow(
     prevFrom: startOfMonth(prevMonthEnd),
     prevTo: prevMonthEnd,
   };
+}
+
+/** The longest custom window — a year and a day, so "this FY" always fits. */
+const MAX_CUSTOM_DAYS = 366;
+
+/**
+ * A custom window off the query string, or null when it is not a usable one —
+ * the page then falls back to Month rather than refusing to render.
+ *
+ * Reversed dates are swapped rather than rejected (the operator meant the
+ * span, not the order), and a span longer than a year is cut back to a year
+ * ending on `to`: every KPI query scans the window AND the equal window before
+ * it, so an unbounded custom range is an unbounded scan.
+ */
+export function parseCustom(
+  rawFrom: string | undefined,
+  rawTo: string | undefined,
+): { from: string; to: string } | null {
+  if (!rawFrom || !rawTo || !isCalendarDate(rawFrom) || !isCalendarDate(rawTo)) return null;
+  const [first, to] = rawFrom <= rawTo ? [rawFrom, rawTo] : [rawTo, rawFrom];
+  const from = daysBetween(first, to) > MAX_CUSTOM_DAYS - 1 ? addDays(to, -(MAX_CUSTOM_DAYS - 1)) : first;
+  return { from, to };
+}
+
+/**
+ * The window the filters ask for. A custom span compares against the span of
+ * the same length immediately before it — like against like, the rule
+ * `rangeWindow` already follows for Today and Week.
+ */
+export function filterWindow(f: DashboardFilters, now: Date = new Date()): RangeWindow {
+  if (f.range === "custom" && f.from && f.to) {
+    const len = daysBetween(f.from, f.to) + 1;
+    return { from: f.from, to: f.to, prevFrom: addDays(f.from, -len), prevTo: addDays(f.from, -1) };
+  }
+  return rangeWindow(f.range === "custom" ? "month" : f.range, now);
+}
+
+/** What the comparison is against, in words, for a KPI's hint line. */
+export function compareLabel(f: DashboardFilters): string {
+  switch (f.range) {
+    case "today":
+      return "vs yesterday";
+    case "week":
+      return "vs last week";
+    case "custom":
+      return "vs previous period";
+    default:
+      return "vs last month";
+  }
+}
+
+/** The window in words, for the toolbar — DD/MM/YYYY like every date here. */
+export function windowLabel(f: DashboardFilters, now: Date = new Date()): string {
+  const w = filterWindow(f, now);
+  return w.from === w.to ? fmtDate(w.from) : `${fmtDate(w.from)} – ${fmtDate(w.to)}`;
 }
 
 /**

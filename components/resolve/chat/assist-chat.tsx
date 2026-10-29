@@ -4,8 +4,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  ArrowLeft,
-  ArrowRight,
+  ArrowUp,
   BookOpen,
   Check,
   ChevronRight,
@@ -20,11 +19,8 @@ import {
   Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
-import { cn } from "@/lib/utils";
 import { useAppUser } from "@/lib/auth/permission-context";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { fmtDateTime } from "@/lib/format";
@@ -52,10 +48,11 @@ import { AnonymousReceipt } from "@/components/resolve/complaint/anonymous-recei
 import { KbSteps } from "@/components/resolve/kb/kb-steps";
 import {
   ANSWER_BAR,
-  AnswerCard,
-  AnswerPill,
   AssistHeader,
   Bot,
+  CHAT_BOX_ID,
+  Chip,
+  Chips,
   Me,
   PRIMARY_LINK,
   ReviewRow,
@@ -63,11 +60,27 @@ import {
   softLabel,
 } from "./assist";
 import { assistIcon, searchCatalog } from "./assist-icons";
+import { AssistBuddy, type BuddyMood } from "./assist-buddy";
+import { AssistBackContext } from "./assist-back";
 
 type Impact = "cannot_work" | "degraded" | "request";
 const LANES: AssistLane[] = ["fix", "it", "buy", "concern"];
 const OTHER = "__other__";
 const SHOW_ITEMS = 6;
+const SHOW_PLACES = 6;
+
+/** The chat box on each question that can be answered by typing; on any
+ *  other it stays in place, switched off, saying to tap a choice. */
+const BOX: Partial<Record<Step, { hint: string; max: number }>> = {
+  lane: { hint: "Type your problem — needle, printer, salary", max: 80 },
+  area: { hint: "Type your problem — needle, printer, salary", max: 80 },
+  item: { hint: "Type your problem — needle, printer, salary", max: 80 },
+  custom: { hint: "Say it in a few words", max: 120 },
+  detail: { hint: "Or type it in your own words", max: 200 },
+  place: { hint: "Type the place — building, floor, line, machine", max: 120 },
+  qty: { hint: "Or type how many", max: 9 },
+  note: { hint: "Type a note, or tap No", max: 2000 },
+};
 const QTY_CHIPS = [1, 2, 5, 10, 25, 50];
 const IMPACTS: { value: Impact; label: string; sub: string; tile: string }[] = [
   { value: "cannot_work", label: "I can't work at all", sub: "Everything is stopped", tile: "bg-red-100 text-red-800 dark:bg-red-400/15 dark:text-red-300" },
@@ -157,12 +170,12 @@ export function AssistChat({
     const init: State = { ...EMPTY, lane: startLane, step: "lane" };
     return { ...init, step: nextStep(init) };
   });
+  /** What is in the chat box — a search on the first three questions, the
+   *  person's own words on the rest. One box, so one value. */
   const [draft, setDraft] = useState("");
-  const [query, setQuery] = useState("");
+  /** Every state before an answer, newest last — "Change" pops one. */
+  const [history, setHistory] = useState<State[]>([]);
   const [moreItems, setMoreItems] = useState(false);
-  const [typingPlace, setTypingPlace] = useState(places.length === 0);
-  const [qtyTyping, setQtyTyping] = useState(false);
-  const [detailTyping, setDetailTyping] = useState(false);
   const [note, setNote] = useState("");
   const [photo, setPhoto] = useState<CapturedPhoto | null>(null);
   const [gps, setGps] = useState<{ lat: number; lng: number } | null>(null);
@@ -173,7 +186,7 @@ export function AssistChat({
   const [tracking, setTracking] = useState<string | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
 
-  const barRef = useRef<HTMLDivElement>(null);
+  const logRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
   const laneAreas = useMemo(() => areas.filter((a) => a.lane === s.lane), [areas, s.lane]);
@@ -183,10 +196,22 @@ export function AssistChat({
   const dangerous = !!item?.dangerous || s.danger === true;
   const place = places.find((p) => p.id === s.placeId) ?? null;
   const look = s.lane ? ROUTE_LOOK[s.lane] : null;
+  const searching = s.step === "lane" || s.step === "area" || s.step === "item";
   const hits = useMemo(
-    () => (["lane", "area", "item"].includes(s.step) ? searchCatalog(s.lane ? laneAreas : areas, query) : []),
-    [areas, laneAreas, query, s.lane, s.step],
+    () => (searching ? searchCatalog(s.lane ? laneAreas : areas, draft) : []),
+    [areas, laneAreas, draft, s.lane, searching],
   );
+  const shownPlaces = useMemo(() => {
+    const q = draft.trim().toLowerCase();
+    const list = q ? places.filter((p) => p.name.toLowerCase().includes(q) || (p.code ?? "").toLowerCase().includes(q)) : places;
+    return list.slice(0, SHOW_PLACES);
+  }, [places, draft]);
+  const box = BOX[s.step];
+  const boxOn = !!box && !isPending;
+  // The questions answered by typing take the cursor to the box; the rest
+  // put it on their first choice, so a phone's keyboard opens only when
+  // there is something to type.
+  const typeFirst = s.step === "custom" || s.step === "note" || (s.step === "place" && places.length === 0);
 
   const dirty = s.lane !== null && s.step !== "sent" && s.step !== "fixed" && s.lane !== startLane;
   // The one-time anonymous link must survive a silent deploy reload.
@@ -194,18 +219,73 @@ export function AssistChat({
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
-    barRef.current?.querySelector<HTMLElement>("textarea, input:not([type=file]), button")?.focus();
-  }, [s.step]);
+    if (typeFirst) {
+      document.getElementById(CHAT_BOX_ID)?.focus({ preventScroll: true });
+      return;
+    }
+    const rows = logRef.current?.querySelectorAll("[data-assist-chips]");
+    rows?.[rows.length - 1]?.querySelector<HTMLElement>("[data-assist-chip]")?.focus({ preventScroll: true });
+  }, [s.step, typeFirst]);
 
   /** Merge answers, then walk to the first open question (unless told where). */
   function answer(patch: Partial<State>) {
+    setHistory((h) => [...h, s]);
     setS((prev) => {
       const n = { ...prev, ...patch } as State;
       return { ...n, step: patch.step ?? nextStep(n) };
     });
-    setQuery("");
+    setDraft("");
     setMoreItems(false);
-    setDetailTyping(false);
+  }
+  /** "Change" on the newest answer: the chat exactly as it was before it. */
+  function back() {
+    const prev = history[history.length - 1];
+    if (!prev) return;
+    setHistory(history.slice(0, -1));
+    setS(prev);
+    setDraft("");
+    setMoreItems(false);
+  }
+  const canBack = history.length > 0 && !isPending && s.step !== "sent" && s.step !== "fixed";
+  function focusBox() {
+    document.getElementById(CHAT_BOX_ID)?.focus();
+  }
+  /** Send what is in the box, as the answer to whichever question is open. */
+  function sendBox() {
+    const t = draft.trim();
+    if (!t || !boxOn) return;
+    switch (s.step) {
+      case "lane":
+      case "area":
+      case "item":
+        if (hits.length > 0) return pickItem(hits[0].area, hits[0].item);
+        if (!s.lane) return; // nothing to file it under yet — the line above the box says so
+        return answer({
+          areaId: area?.id ?? OTHER,
+          itemId: OTHER,
+          custom: t.toUpperCase(),
+          detail: null,
+          kbHits: null,
+          kbDone: false,
+          anonOk: false,
+          anonymous: false,
+        });
+      case "custom":
+        return answer({ custom: t.toUpperCase() });
+      case "detail":
+        return answer({ detail: t.toUpperCase() });
+      case "place":
+        if (shownPlaces.length === 1) return pickPlace(shownPlaces[0].id);
+        return answer({ placeId: null, placeText: t.toUpperCase(), similar: [], similarDone: true });
+      case "qty": {
+        const n = Number(t);
+        if (n > 0) answer({ qty: n });
+        return;
+      }
+      case "note":
+        setNote(t.toUpperCase());
+        return answer({ noteAsked: true, step: "review" });
+    }
   }
 
   function pickLane(lane: AssistLane) {
@@ -281,6 +361,7 @@ export function AssistChat({
 
   function restart(lane: AssistLane | null = null) {
     setS({ ...EMPTY, lane, step: lane ? "area" : "lane" });
+    setHistory([]);
     setDraft("");
     setNote("");
     setPhoto(null);
@@ -326,10 +407,18 @@ export function AssistChat({
     });
   }
 
-  const placeOptions = useMemo<ComboboxOption[]>(
-    () => places.map((p) => ({ value: p.id, label: p.name, search: p.code })),
-    [places],
-  );
+  // ── Nool's mood — read off the chat, never stored ─────────────────────────
+  // Order matters: a send in flight outranks everything, and danger outranks
+  // typing (a worker describing a live wire should see "careful", not "listening").
+  const mood: BuddyMood = isPending
+    ? "thinking"
+    : s.step === "sent" || s.step === "fixed"
+      ? "happy"
+      : s.step === "danger" || (dangerous && s.lane === "fix")
+        ? "worried"
+        : draft.trim()
+          ? "listening"
+          : "idle";
 
   // ── The conversation so far ────────────────────────────────────────────────
   const at = (step: Step) => s.step === step;
@@ -337,10 +426,10 @@ export function AssistChat({
 
   if (!canReport) {
     return (
-      <Frame lane={null} replyMinutes={replyMinutes}>
+      <Frame lane={null} replyMinutes={replyMinutes} mood="worried">
         <div className="flex flex-col gap-3 px-3.5 py-4">
           <Bot>
-            Hi{firstName ? ` ${firstName}` : ""}. Your login doesn&apos;t have access to Resolve Hub yet, so I can&apos;t
+            Hi{firstName ? ` ${firstName}` : ""}. Your login doesn&apos;t have access to Help &amp; Repairs yet, so I can&apos;t
             send anything for you. Ask your administrator to give you a role — until then, tell your supervisor.
           </Bot>
         </div>
@@ -349,8 +438,16 @@ export function AssistChat({
   }
 
   return (
-    <Frame lane={s.lane} replyMinutes={replyMinutes}>
-      <div className="flex min-h-[40dvh] flex-col gap-2.5 px-3.5 pt-3.5 pb-3 md:min-h-0 md:flex-1 md:overflow-y-auto" aria-live="polite">
+    <Frame lane={s.lane} replyMinutes={replyMinutes} mood={mood}>
+      <AssistBackContext.Provider value={canBack ? back : null}>
+      <div
+        ref={logRef}
+        className="flex min-h-[40dvh] flex-col gap-2.5 px-3.5 pt-3.5 pb-3 md:min-h-0 md:flex-1 md:overflow-y-auto"
+        aria-live="polite"
+      >
+        {/* Nool says hello before the first question; it scrolls away with
+            the conversation, and the header's buddy carries on from there. */}
+        <AssistBuddy size={72} className="mx-auto mb-1 text-foreground" />
         <Bot>
           Hi{firstName ? ` ${firstName}` : ""}! What do you need? Tap one — or search below.
         </Bot>
@@ -562,24 +659,20 @@ export function AssistChat({
           />
         )}
 
-        <div ref={endRef} />
-      </div>
-
-      {/* ── The answers for the current question ─────────────────────────── */}
-      <div ref={barRef} className={ANSWER_BAR}>
+        {/* ── The choices for the current question — right under it ──────── */}
         {at("lane") && (
-          <div className="grid grid-cols-2 gap-1.5 md:grid-cols-4">
+          <Chips label="What do you need">
             {LANES.map((k) => {
               const r = ROUTE_LOOK[k];
-              return <AnswerCard key={k} title={r.label} sub={r.sub} icon={r.icon} tile={r.tile} ring={r.ring} onClick={() => pickLane(k)} />;
+              return <Chip key={k} label={r.label} sub={r.sub} icon={r.icon} tile={r.tile} ring={r.ring} onClick={() => pickLane(k)} />;
             })}
-          </div>
+          </Chips>
         )}
 
         {at("area") && (
-          <div className="grid grid-cols-2 gap-1.5 md:grid-cols-3">
+          <Chips>
             {laneAreas.map((a) => (
-              <AnswerPill
+              <Chip
                 key={a.id}
                 label={a.label}
                 icon={assistIcon(a.icon)}
@@ -588,257 +681,171 @@ export function AssistChat({
                 onClick={() => answer({ areaId: a.id, itemId: null })}
               />
             ))}
-            <AnswerPill label="Something else" icon={PencilLine} onClick={pickOther} />
-          </div>
+            <Chip label="Something else" icon={PencilLine} onClick={pickOther} />
+          </Chips>
         )}
 
         {at("item") && area && (
-          <div className="grid grid-cols-2 gap-1.5 md:grid-cols-3">
+          <Chips>
             {shownItems.map((i) => (
-              <AnswerPill key={i.id} label={softLabel(i.label)} danger={i.dangerous} ring={look?.ring} onClick={() => pickItem(area, i)} />
+              <Chip key={i.id} label={softLabel(i.label)} danger={i.dangerous} ring={look?.ring} onClick={() => pickItem(area, i)} />
             ))}
             {area.items.length > SHOW_ITEMS && !moreItems && (
-              <AnswerPill label={`More (${area.items.length - SHOW_ITEMS})`} onClick={() => setMoreItems(true)} />
+              <Chip label={`More (${area.items.length - SHOW_ITEMS})`} onClick={() => setMoreItems(true)} />
             )}
-            <AnswerPill label="Something else" icon={PencilLine} onClick={() => pickItem(area, null)} />
-          </div>
+            <Chip label="Something else" icon={PencilLine} onClick={() => pickItem(area, null)} />
+          </Chips>
         )}
 
-        {/* One search over the catalog — the fastest way to any problem — with
-            Back beside it, so the two never take a row each. */}
-        {(at("lane") || at("area") || at("item")) && (
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center gap-1.5">
-              {(at("area") || at("item")) && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="w-8 flex-none px-0"
-                  aria-label="Back"
-                  title="Back"
-                  onClick={() => (at("item") ? answer({ areaId: null }) : restart())}
-                >
-                  <ArrowLeft aria-hidden="true" />
-                </Button>
-              )}
-              <div className="relative min-w-0 flex-1">
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-                {/* caps-input: exempt -- a search query, not a stored value */}
-                <Input
-                  id="assist-search"
-                  value={query}
-                  uppercase={false}
-                  type="search"
-                  aria-label="Search a problem — needle, printer, salary"
-                  className="pl-8"
-                  onChange={(e) => setQuery(e.target.value)}
-                />
-              </div>
-            </div>
-            {query.trim().length >= 2 && (
-              <div className="flex flex-col gap-1">
-                {hits.length === 0 ? (
-                  <p className="px-1 text-xs text-muted-foreground">Nothing matches — pick an area, or choose Something else.</p>
-                ) : (
-                  hits.map(({ area: a, item: i }) => (
-                    // button-shape: exempt -- a search result row, not an action button
-                    <button
-                      key={i.id}
-                      type="button"
-                      onClick={() => pickItem(a, i)}
-                      className="flex min-h-10 items-center gap-2 rounded-lg border border-border bg-surface px-3 py-1.5 text-left transition hover:-translate-y-px hover:bg-surface-muted hover:shadow-sm focus-visible:outline-2 focus-visible:outline-ring"
-                    >
-                      <span className={cn("size-2 flex-none rounded-full", ROUTE_LOOK[a.lane].dot)} aria-hidden="true" />
-                      <span className="flex flex-col">
-                        <span className="text-[13px] font-medium">{softLabel(i.label)}</span>
-                        <span className="text-xs text-muted-foreground">
-                          {ROUTE_LOOK[a.lane].label} · {a.label}
-                        </span>
-                      </span>
-                    </button>
-                  ))
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {at("custom") && (
-          <TextAnswer
-            id="assist-custom"
-            label="In a few words"
-            max={120}
-            value={draft}
-            onChange={setDraft}
-            onSend={(t) => {
-              setDraft("");
-              answer({ custom: t.toUpperCase() });
-            }}
-          />
-        )}
-
-        {at("detail") &&
-          (detailTyping ? (
-            <TextAnswer
-              id="assist-detail"
-              label="In your own words"
-              max={200}
-              value={draft}
-              onChange={setDraft}
-              onSend={(t) => {
-                setDraft("");
-                answer({ detail: t.toUpperCase() });
-              }}
-            />
+        {/* Typing in the box searches the whole catalog; the matches answer
+            the same question the chips above do. */}
+        {searching && draft.trim().length >= 2 &&
+          (hits.length === 0 ? (
+            <p className="pl-[34px] text-xs text-muted-foreground">
+              {s.lane
+                ? "Nothing matches — pick a choice, or press Send to say it in your own words."
+                : "Nothing matches — pick what kind of help first."}
+            </p>
           ) : (
-            <div className="grid grid-cols-2 gap-1.5 md:grid-cols-3">
-              {(item?.details.length ? item.details : area?.items[0]?.details ?? DETAIL_FALLBACK[s.lane ?? "fix"]).map((d) => (
-                <AnswerPill key={d} label={d} ring={look?.ring} onClick={() => answer({ detail: d.toUpperCase() })} />
+            <Chips label="Matches" instant>
+              {hits.map(({ area: a, item: i }) => (
+                <Chip
+                  key={i.id}
+                  label={softLabel(i.label)}
+                  sub={`${ROUTE_LOOK[a.lane].label} · ${a.label}`}
+                  icon={assistIcon(a.icon)}
+                  tile={ROUTE_LOOK[a.lane].tile}
+                  danger={i.dangerous}
+                  onClick={() => pickItem(a, i)}
+                />
               ))}
-              <AnswerPill label="Other — type it" icon={PencilLine} onClick={() => setDetailTyping(true)} />
-              <AnswerPill label="Skip" onClick={() => answer({ detail: "" })} />
-            </div>
+            </Chips>
           ))}
 
+        {at("detail") && (
+          <Chips>
+            {(item?.details.length ? item.details : area?.items[0]?.details ?? DETAIL_FALLBACK[s.lane ?? "fix"]).map((d) => (
+              <Chip key={d} label={d} ring={look?.ring} onClick={() => answer({ detail: d.toUpperCase() })} />
+            ))}
+            <Chip label="Type it" icon={PencilLine} onClick={focusBox} />
+            <Chip label="Skip" onClick={() => answer({ detail: "" })} />
+          </Chips>
+        )}
+
         {at("kb") && s.kbHits?.[0] && (
-          <div className="grid grid-cols-2 gap-2">
-            <Button
-              type="button"
+          <Chips>
+            <Chip
+              label="This fixed it"
+              icon={Check}
+              tile={ROUTE_LOOK.it.tile}
               onClick={() => {
                 void kbFeedback(s.kbHits![0].id, true);
                 answer({ step: "fixed" });
               }}
-            >
-              This fixed it
-            </Button>
-            <Button type="button" variant="outline" onClick={() => answer({ kbDone: true })}>
-              Still need help
-            </Button>
+            />
+            <Chip label="Still need help" onClick={() => answer({ kbDone: true })} />
+          </Chips>
+        )}
+
+        {/* A list in the chat, narrowed by what is typed in the box; Send
+            with a name that is not on it keeps the words as the place. */}
+        {at("place") && !s.placeId && (
+          <div
+            role="group"
+            aria-label="Places"
+            data-assist-chips
+            className="ml-[34px] flex max-w-md flex-col overflow-hidden rounded-xl border border-border bg-surface shadow-sm motion-safe:animate-[rise_0.3s_ease_0.45s_both]"
+          >
+            <span className="px-3 py-2 text-xs text-muted-foreground">
+              {places.length > 0
+                ? "Pick the place, or type it below if it isn't listed"
+                : "Type it below — building, floor, line, machine"}
+            </span>
+            {shownPlaces.map((p) => (
+              // button-shape: exempt -- a row of the place list, not an action button
+              <button
+                key={p.id}
+                type="button"
+                data-assist-chip
+                onClick={() => pickPlace(p.id)}
+                className="flex min-h-10 items-center gap-2.5 border-t border-border px-3 py-1.5 text-left text-[13.5px] font-medium hover:bg-surface-muted focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+              >
+                <MapPin className="size-4 flex-none text-muted-foreground" aria-hidden="true" />
+                <span className="min-w-0 flex-1">{p.name}</span>
+                {p.code && <span className="text-xs tabular-nums text-muted-foreground">{p.code}</span>}
+              </button>
+            ))}
           </div>
         )}
 
-        {at("place") &&
-          (typingPlace ? (
-            <div className="flex flex-col gap-1.5">
-              <TextAnswer
-                id="assist-place"
-                label="Where is it? Building, floor, line, machine"
-                max={120}
-                value={draft}
-                onChange={setDraft}
-                onSend={(t) => {
-                  setDraft("");
-                  answer({ placeId: null, placeText: t.toUpperCase(), similar: [], similarDone: true });
-                }}
-              />
-              {places.length > 0 && (
-                <Button type="button" variant="ghost" size="sm" className="self-start" onClick={() => setTypingPlace(false)}>
-                  Pick from the list instead
-                </Button>
-              )}
-            </div>
-          ) : (
-            <div className="flex flex-col gap-2">
-              <span className="pl-0.5 text-xs font-medium text-muted-foreground">Search the place</span>
-              <Combobox options={placeOptions} value={s.placeId ?? ""} onChange={pickPlace} />
-              <Button type="button" variant="outline" size="sm" className="self-start" onClick={() => setTypingPlace(true)}>
-                My place isn&apos;t listed
-              </Button>
-            </div>
-          ))}
-
         {at("similar") && (
-          <Button type="button" variant="outline" onClick={() => answer({ similarDone: true })} disabled={joiningId !== null}>
-            Mine is different — carry on
-          </Button>
+          <Chips>
+            <Chip label="Mine is different — carry on" onClick={() => answer({ similarDone: true })} disabled={joiningId !== null} />
+          </Chips>
         )}
 
         {at("danger") && (
-          <div className="grid grid-cols-2 gap-2">
-            <AnswerCard
-              title="Yes — it's dangerous"
-              sub="Alert them now"
-              icon={TriangleAlert}
-              tile="bg-red-100 text-red-800 dark:bg-red-400/15 dark:text-red-300"
-              onClick={() => answer({ danger: true })}
-            />
-            <AnswerCard title="No" sub="Ordinary repair" icon={ShieldCheck} onClick={() => answer({ danger: false })} />
-          </div>
+          <Chips>
+            <Chip label="Yes — it's dangerous" sub="Alert them now" danger onClick={() => answer({ danger: true })} />
+            <Chip label="No" sub="Ordinary repair" icon={ShieldCheck} onClick={() => answer({ danger: false })} />
+          </Chips>
         )}
 
         {at("impact") && (
-          <div className="grid grid-cols-1 gap-1.5 md:grid-cols-3">
+          <Chips>
             {IMPACTS.map((o) => (
-              <AnswerCard key={o.value} title={o.label} sub={o.sub} icon={TriangleAlert} tile={o.tile} onClick={() => answer({ impact: o.value })} />
+              <Chip key={o.value} label={o.label} sub={o.sub} icon={TriangleAlert} tile={o.tile} onClick={() => answer({ impact: o.value })} />
             ))}
-          </div>
+          </Chips>
         )}
 
-        {at("qty") &&
-          (qtyTyping ? (
-            <TextAnswer
-              id="assist-qty"
-              label="How many"
-              type="number"
-              max={9}
-              value={draft}
-              onChange={setDraft}
-              onSend={(t) => {
-                const n = Number(t);
-                if (!(n > 0)) return;
-                setDraft("");
-                setQtyTyping(false);
-                answer({ qty: n });
-              }}
-            />
-          ) : (
-            <div className="grid grid-cols-3 gap-1.5 md:grid-cols-4">
-              {QTY_CHIPS.map((n) => (
-                <AnswerPill key={n} label={String(n)} ring={look?.ring} onClick={() => answer({ qty: n })} />
-              ))}
-              <AnswerPill label="Other" icon={PencilLine} onClick={() => setQtyTyping(true)} />
-            </div>
-          ))}
+        {at("qty") && (
+          <Chips>
+            {QTY_CHIPS.map((n) => (
+              <Chip key={n} label={String(n)} ring={look?.ring} onClick={() => answer({ qty: n })} />
+            ))}
+            <Chip label="Other" icon={PencilLine} onClick={focusBox} />
+          </Chips>
+        )}
 
         {at("needed") && (
-          <div className="grid grid-cols-3 gap-1.5 md:grid-cols-4">
+          <Chips>
             {NEEDED_BY.map((k) => (
-              <AnswerPill key={k} label={NEEDED_BY_LABEL[k]} ring={look?.ring} onClick={() => answer({ neededBy: k })} />
+              <Chip key={k} label={NEEDED_BY_LABEL[k]} ring={look?.ring} onClick={() => answer({ neededBy: k })} />
             ))}
-          </div>
+          </Chips>
         )}
 
         {at("reason") && (
-          <div className="grid grid-cols-2 gap-1.5 md:grid-cols-3">
+          <Chips>
             {RQ_REASONS.map((k) => (
-              <AnswerPill key={k} label={RQ_REASON_LABEL[k]} ring={look?.ring} onClick={() => answer({ reason: k })} />
+              <Chip key={k} label={RQ_REASON_LABEL[k]} ring={look?.ring} onClick={() => answer({ reason: k })} />
             ))}
-          </div>
+          </Chips>
         )}
 
         {at("superior") && (
-          <div className="grid grid-cols-2 gap-2">
-            <AnswerCard title="Yes" sub="Keep it away from my reporting line" icon={ShieldCheck} tile={ROUTE_LOOK.concern.tile} onClick={() => answer({ superior: true })} />
-            <AnswerCard title="No" sub="Someone else, or a situation" icon={Users} onClick={() => answer({ superior: false })} />
-          </div>
+          <Chips>
+            <Chip label="Yes" sub="Keep it away from my reporting line" icon={ShieldCheck} tile={ROUTE_LOOK.concern.tile} onClick={() => answer({ superior: true })} />
+            <Chip label="No" sub="Someone else, or a situation" icon={Users} onClick={() => answer({ superior: false })} />
+          </Chips>
         )}
 
         {at("anon") && (
-          <div className="grid grid-cols-1 gap-2 min-[380px]:grid-cols-2">
-            <AnswerCard title="With my name" sub="The handler can reply to me" icon={UserRound} tile={ROUTE_LOOK.concern.tile} onClick={() => answer({ anonymous: false })} />
-            <AnswerCard
-              title="Anonymously"
+          <Chips>
+            <Chip label="With my name" sub="The handler can reply to me" icon={UserRound} tile={ROUTE_LOOK.concern.tile} onClick={() => answer({ anonymous: false })} />
+            <Chip
+              label="Anonymously"
               sub="No name kept; a private tracking link once"
               icon={EyeOff}
               tile="bg-slate-200 text-slate-800 dark:bg-slate-400/15 dark:text-slate-200"
               onClick={() => answer({ anonymous: true })}
             />
-          </div>
+          </Chips>
         )}
 
         {at("photo") && (
-          <div className="flex flex-col gap-2">
+          <Chips label="Photo">
             <PhotoCapture
               value={photo}
               onChange={(p) => {
@@ -848,58 +855,95 @@ export function AssistChat({
               }}
               takeLabel="Add photo"
             />
-            <Button type="button" variant="outline" onClick={() => answer({ photoDone: true })}>
-              Skip
-            </Button>
-          </div>
+            <Chip label="Skip" onClick={() => answer({ photoDone: true })} />
+          </Chips>
         )}
 
         {at("note") && (
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="assist-note" className="pl-0.5 text-xs font-medium text-muted-foreground">
-              Note (optional)
-            </label>
-            <Textarea id="assist-note" rows={3} maxLength={2000} value={note} onChange={(e) => setNote(e.target.value)} />
-            <Button type="button" onClick={() => answer({ noteAsked: true, step: "review" })}>
-              Done
-            </Button>
-          </div>
+          <Chips>
+            <Chip label={note.trim() ? "Keep my note" : "No, that's all"} onClick={() => answer({ noteAsked: true, step: "review" })} />
+          </Chips>
         )}
 
         {at("review") && (
-          <div className="flex flex-col gap-2">
+          <Chips label="Send">
             {s.lane === "fix" && !gps && (
-              <Button type="button" variant="outline" onClick={attachLocation} disabled={locating}>
-                <LocateFixed className="size-4" aria-hidden="true" />
-                {locating ? "Finding you…" : "Attach my location (optional)"}
-              </Button>
+              <Chip
+                label={locating ? "Finding you…" : "Attach my location (optional)"}
+                icon={LocateFixed}
+                onClick={attachLocation}
+                disabled={locating}
+              />
             )}
-            <Button type="button" onClick={submit} disabled={isPending}>
+            <Button type="button" data-assist-chip onClick={submit} disabled={isPending}>
               {isPending ? "Sending…" : SEND_LABEL(s.lane, dangerous, s.anonymous === true)}
             </Button>
-          </div>
+          </Chips>
         )}
 
         {at("sent") && receipt && !tracking && (
-          <div className="grid grid-cols-2 gap-2">
-            {receipt.ticket_id ? (
-              <Link href={`/resolve/tickets/${receipt.ticket_id}`} className={PRIMARY_LINK}>
+          <Chips label="What next">
+            {receipt.ticket_id && (
+              <Link href={`/resolve/tickets/${receipt.ticket_id}`} data-assist-chip className={PRIMARY_LINK}>
                 Open it <ChevronRight className="size-4" aria-hidden="true" />
               </Link>
-            ) : (
-              <span />
             )}
-            <Button type="button" variant="outline" onClick={() => restart()}>
-              Something else
-            </Button>
-          </div>
+            <Chip label="Something else" icon={PencilLine} onClick={() => restart()} />
+          </Chips>
         )}
 
         {at("fixed") && (
-          <Button type="button" variant="outline" onClick={() => restart()}>
-            Ask about something else
-          </Button>
+          <Chips>
+            <Chip label="Ask about something else" onClick={() => restart()} />
+          </Chips>
         )}
+
+        <div ref={endRef} />
+      </div>
+      </AssistBackContext.Provider>
+
+      {/* ── One chat box, the same on every step ─────────────────────────── */}
+      <div className={ANSWER_BAR}>
+        <form
+          className="flex items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            sendBox();
+          }}
+        >
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+            {/* caps-input: exempt -- one chat box for a search query and free text; every answer it stores is upper-cased on send */}
+            <Input
+              id={CHAT_BOX_ID}
+              value={draft}
+              uppercase={false}
+              disabled={!boxOn}
+              placeholder={box?.hint ?? "Tap a choice above"}
+              aria-label={box?.hint ?? "Tap a choice above"}
+              inputMode={at("qty") ? "numeric" : undefined}
+              maxLength={box?.max}
+              className="rounded-full pl-8"
+              onChange={(e) => {
+                setDraft(e.target.value);
+                if (searching) requestAnimationFrame(() => endRef.current?.scrollIntoView({ block: "end" }));
+              }}
+              onKeyDown={(e) => {
+                // ↑ from an empty box steps up into the newest row of choices.
+                if (e.key !== "ArrowUp" || draft) return;
+                const rows = logRef.current?.querySelectorAll("[data-assist-chips]");
+                const first = rows?.[rows.length - 1]?.querySelector<HTMLElement>("[data-assist-chip]");
+                if (first) {
+                  e.preventDefault();
+                  first.focus();
+                }
+              }}
+            />
+          </div>
+          <Button type="submit" aria-label="Send" className="w-9 flex-none px-0" disabled={!boxOn || !draft.trim()}>
+            <ArrowUp aria-hidden="true" />
+          </Button>
+        </form>
       </div>
     </Frame>
   );
@@ -965,7 +1009,17 @@ function SEND_LABEL(lane: AssistLane | null, dangerous: boolean, anonymous: bool
 
 // ── Pieces ────────────────────────────────────────────────────────────────────
 
-function Frame({ lane, replyMinutes, children }: { lane: AssistLane | null; replyMinutes: number; children: React.ReactNode }) {
+function Frame({
+  lane,
+  replyMinutes,
+  mood,
+  children,
+}: {
+  lane: AssistLane | null;
+  replyMinutes: number;
+  mood: BuddyMood;
+  children: React.ReactNode;
+}) {
   return (
     // One screen on a desktop: the conversation scrolls inside the frame and
     // the answers stay docked at its foot, so the page itself never scrolls.
@@ -974,6 +1028,7 @@ function Frame({ lane, replyMinutes, children }: { lane: AssistLane | null; repl
       className="flex w-full flex-col border-border bg-background md:h-[calc(100dvh-10.5rem)] md:min-h-[30rem] md:rounded-2xl md:border md:shadow-sm"
     >
       <AssistHeader
+        mood={mood}
         status={
           lane === "it"
             ? `IT desk replies in about ${replyMinutes} min`
@@ -986,52 +1041,6 @@ function Frame({ lane, replyMinutes, children }: { lane: AssistLane | null; repl
       />
       {children}
     </section>
-  );
-}
-
-function TextAnswer({
-  id,
-  label,
-  value,
-  onChange,
-  onSend,
-  max,
-  type,
-}: {
-  id: string;
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  onSend: (text: string) => void;
-  max: number;
-  type?: "number";
-}) {
-  return (
-    <form
-      className="flex flex-col gap-1"
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (value.trim()) onSend(value.trim());
-      }}
-    >
-      <label htmlFor={id} className="pl-0.5 text-xs font-medium text-muted-foreground">
-        {label}
-      </label>
-      <div className="flex items-center gap-2">
-        <Input
-          id={id}
-          type={type}
-          inputMode={type === "number" ? "decimal" : undefined}
-          value={value}
-          maxLength={type === "number" ? undefined : max}
-          onChange={(e) => onChange(e.target.value)}
-          className="flex-1"
-        />
-        <Button type="submit" aria-label="Send" disabled={!value.trim()}>
-          <ArrowRight className="size-4" aria-hidden="true" />
-        </Button>
-      </div>
-    </form>
   );
 }
 

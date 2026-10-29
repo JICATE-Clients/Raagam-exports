@@ -6,13 +6,14 @@ import {
   Laptop,
   MessageSquareWarning,
   ShoppingCart,
-  Sparkles,
   TriangleAlert,
   Wrench,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AssistLane } from "@/lib/resolve/assist-types";
+import { AssistBuddy, type BuddyMood } from "./assist-buddy";
+import { MeChange } from "./assist-back";
 
 /**
  * RAAGAM ASSIST — the one face of Resolve Hub's chats (user 2026-10-26:
@@ -66,46 +67,59 @@ export const ROUTE_LOOK: Record<
   },
 };
 
-/** The avatar: Raagam's blue running into the leaf's green. */
-export function AgentAvatar({ size = "sm" }: { size?: "sm" | "md" | "lg" }) {
-  const box = size === "lg" ? "size-16" : size === "md" ? "size-10" : "size-7";
-  const icon = size === "lg" ? "size-8" : size === "md" ? "size-5" : "size-3.5";
-  return (
-    <span
-      className={cn(
-        "flex flex-none items-center justify-center rounded-full bg-gradient-to-br from-sky-600 via-cyan-500 to-emerald-500 text-white shadow-sm ring-2 ring-white dark:ring-background",
-        box,
-      )}
-      aria-hidden="true"
-    >
-      <Sparkles className={icon} />
-    </span>
-  );
+/**
+ * CHAT, NOT A FORM (user 2026-10-28, mock-up
+ * https://claude.ai/artifact/EZKFpQXtQgxeJFnB4EtKDy). Three things make the
+ * conversation read like one, and all three are CSS so the chat holds no
+ * timers for them:
+ *  - Nool TYPES FIRST: a new bubble shows "…" for a moment, then its words
+ *    (`assist-says`). Each question mounts when it is asked, so the animation
+ *    runs once per question and never on a bubble already read.
+ *  - the CHOICES follow it under the question (`Chips`, delayed to match);
+ *  - "Change" shows on the NEWEST answer only — every `Me` carries the button
+ *    and `:has(~ .assist-me)` hides it on all but the last.
+ * Reduced motion: no wait, no dots; the words are simply there.
+ */
+const CHAT_CSS = `
+.assist-says { position: relative; }
+@media (prefers-reduced-motion: no-preference) {
+  .assist-says > .assist-says-text { animation: assist-reveal 0.45s step-end both; }
+  .assist-says::after {
+    content: ""; position: absolute; left: 12px; top: 50%; width: 26px; height: 6px; margin-top: -3px;
+    background: radial-gradient(circle 3px, currentColor 95%, transparent) 0 0 / 10px 6px repeat-x;
+    opacity: 0.45; animation: assist-dots 0.45s step-end both;
+  }
 }
+@keyframes assist-reveal { from { opacity: 0; } to { opacity: 1; } }
+@keyframes assist-dots { from { visibility: visible; } to { visibility: hidden; } }
+.assist-me:not(:has(~ .assist-me)) > .assist-change { display: inline-flex; }
+`;
 
-/** A message from Raagam Assist. */
+/** A message from Raagam Assist. The spool beside it holds still — only the
+ *  header's moves (see assist-buddy.tsx). */
 export function Bot({ children, muted = false }: { children: ReactNode; muted?: boolean }) {
   return (
     <div className="flex max-w-[92%] items-end gap-2 motion-safe:animate-rise">
-      <AgentAvatar />
+      <AssistBuddy size={26} />
       <div
         className={cn(
-          "rounded-[14px_14px_14px_4px] border border-border bg-surface px-3 py-2 text-sm leading-5 shadow-sm",
+          "assist-says rounded-[14px_14px_14px_4px] border border-border bg-surface px-3 py-2 text-sm leading-5 shadow-sm",
           muted && "text-muted-foreground",
         )}
       >
-        {children}
+        <div className="assist-says-text">{children}</div>
       </div>
     </div>
   );
 }
 
-/** A message from the person — what they typed or tapped. */
+/** A message from the person — what they typed or tapped. The newest one
+ *  carries "Change" (`MeChange`), which steps the chat back one answer. */
 export function Me({ children, tone }: { children: ReactNode; tone?: AssistRoute }) {
   return (
     <div
       className={cn(
-        "max-w-[82%] self-end whitespace-pre-line rounded-[14px_4px_14px_14px] px-3 py-2 text-sm font-medium leading-5 text-white shadow-sm motion-safe:animate-rise",
+        "assist-me flex max-w-[82%] items-center gap-2 self-end whitespace-pre-line rounded-[14px_4px_14px_14px] px-3 py-2 text-sm font-medium leading-5 text-white shadow-sm motion-safe:animate-rise",
         tone === "fix"
           ? "bg-amber-700"
           : tone === "concern"
@@ -115,16 +129,30 @@ export function Me({ children, tone }: { children: ReactNode; tone?: AssistRoute
               : "bg-gradient-to-br from-sky-700 to-primary",
       )}
     >
-      {children}
+      <span className="min-w-0">{children}</span>
+      <MeChange />
     </div>
   );
 }
 
-/** The chat panel's top bar — the agent's name and the desk's pace. */
-export function AssistHeader({ status, step }: { status: ReactNode; step?: string | null }) {
+/** The chat panel's top bar — the agent's name, its live mood, and the desk's
+ *  pace. */
+export function AssistHeader({
+  status,
+  step,
+  mood = "idle",
+}: {
+  status: ReactNode;
+  step?: string | null;
+  mood?: BuddyMood;
+}) {
   return (
     <div className="flex items-center gap-2.5 rounded-t-none border-b border-border bg-gradient-to-r from-sky-50 via-cyan-50 to-emerald-50 px-3.5 py-2 md:rounded-t-2xl dark:from-sky-500/10 dark:via-cyan-500/10 dark:to-emerald-500/10">
-      <AgentAvatar size="md" />
+      {/* The chat's own rules ride with its header, which every chat draws. */}
+      <style href="assist-chat" precedence="medium">
+        {CHAT_CSS}
+      </style>
+      <AssistBuddy size={40} mood={mood} live label={AGENT_NAME} />
       <div className="flex min-w-0 flex-1 flex-col">
         <span className="text-sm font-semibold leading-5">{AGENT_NAME}</span>
         <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -175,8 +203,9 @@ function FollowUp({ className }: { className?: string }) {
 }
 
 /**
- * The bar the answers sit in — docked above the phone tab bar (main keeps
- * 4.5rem + inset clear for it), at the panel's foot on a desktop.
+ * The bar the chat box sits in — docked above the phone tab bar (main keeps
+ * 4.5rem + inset clear for it), at the panel's foot on a desktop. Only the
+ * box lives here since 2026-10-28; the choices moved up into the chat.
  */
 export const ANSWER_BAR =
   "sticky bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-10 flex flex-col gap-2 border-t border-border bg-surface px-3 py-2.5 md:bottom-0 md:rounded-b-2xl";
@@ -199,91 +228,121 @@ export function softLabel(label: string): string {
 }
 
 /**
- * A ONE-LINE TAP ANSWER — the chat's everyday choice: a pill with a small
- * coloured icon. Compact so a whole area's choices fit on one or two rows,
- * and it lifts under the finger so a tap reads as a tap.
+ * THE CHOICES UNDER A QUESTION (user 2026-10-28, mock-up
+ * https://claude.ai/artifact/EZKFpQXtQgxeJFnB4EtKDy). They used to sit in a
+ * box docked below the chat as cards and pills; now they follow the question
+ * they answer, indented to its bubble (26px spool + 8px gap), and fade in once
+ * Nool has finished "typing" it. `data-assist-chips` is how the chat box's ↑
+ * finds the newest row.
+ *
+ * Keys inside a row: ← → move along it (wrapping), ↓ goes back down to the
+ * chat box, Enter is the button's own click. Handled here and marked
+ * `preventDefault`, which the app's keyboard provider stands down on.
  */
-export function AnswerPill({
-  label,
-  onClick,
-  icon: Icon,
-  tile,
-  ring,
-  danger = false,
+export function Chips({
+  children,
+  label = "Choices",
+  instant = false,
 }: {
-  label: ReactNode;
-  onClick: () => void;
-  icon?: LucideIcon;
-  tile?: string;
-  ring?: string;
-  /** A dangerous choice: red tile and a warning glyph, whatever the lane. */
-  danger?: boolean;
+  children: ReactNode;
+  label?: string;
+  /** Answers to what is being typed — no wait for Nool to "type" first. */
+  instant?: boolean;
 }) {
-  const Glyph = danger ? TriangleAlert : Icon;
   return (
-    // button-shape: exempt -- a pill-shaped tap answer, not an action button
-    <button
-      type="button"
-      onClick={onClick}
+    <div
+      role="group"
+      aria-label={label}
+      data-assist-chips
       className={cn(
-        "flex min-h-10 w-full min-w-0 items-center gap-2 rounded-xl border border-border bg-surface py-1.5 pr-2.5 text-left text-[13px] font-medium leading-4 shadow-sm",
-        "transition duration-150 hover:-translate-y-px hover:shadow-md active:translate-y-0 active:scale-[0.97] focus-visible:outline-2 focus-visible:outline-ring",
-        Glyph ? "pl-1.5" : "pl-3",
-        danger ? "border-red-200 hover:border-red-400 dark:border-red-500/30" : ring,
+        "flex flex-wrap gap-1.5 pl-[34px]",
+        instant ? "motion-safe:animate-rise" : "motion-safe:animate-[rise_0.3s_ease_0.45s_both]",
       )}
+      onKeyDown={(e) => {
+        const chips = [...e.currentTarget.querySelectorAll<HTMLElement>("[data-assist-chip]")];
+        const i = chips.indexOf(document.activeElement as HTMLElement);
+        if (i < 0) return;
+        if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+          e.preventDefault();
+          chips[(i + (e.key === "ArrowRight" ? 1 : chips.length - 1)) % chips.length].focus();
+        } else if (e.key === "ArrowDown") {
+          const box = document.getElementById(CHAT_BOX_ID);
+          if (box && !(box as HTMLInputElement).disabled) {
+            e.preventDefault();
+            box.focus();
+          }
+        }
+      }}
     >
-      {Glyph && (
-        <span
-          className={cn(
-            "flex size-7 flex-none items-center justify-center rounded-lg",
-            danger ? "bg-red-100 text-red-700 dark:bg-red-400/15 dark:text-red-300" : tile ?? "bg-primary-soft text-primary",
-          )}
-          aria-hidden="true"
-        >
-          <Glyph className="size-3.5" />
-        </span>
-      )}
-      <span className="min-w-0">{label}</span>
-    </button>
+      {children}
+    </div>
   );
 }
 
-/** A two-line tap answer ("I can't work at all / Everything is stopped"). */
-export function AnswerCard({
-  title,
+/** The chat box's id — `Chips` sends ↓ there, the box sends ↑ back. */
+export const CHAT_BOX_ID = "assist-box";
+
+/**
+ * One choice: a round chip, with an optional coloured icon and a second line.
+ * Lifts under the finger so a tap reads as a tap. A dangerous choice gets a
+ * red ring and a warning glyph whatever the lane — the same rule the old
+ * answer pill had.
+ */
+export function Chip({
+  label,
   sub,
   onClick,
   icon: Icon,
   tile,
   ring,
+  danger = false,
+  disabled = false,
 }: {
-  title: string;
+  label: ReactNode;
   sub?: string | null;
   onClick: () => void;
   icon?: LucideIcon;
   /** Icon tile colours (ROUTE_LOOK[…].tile or any tinted pair). */
   tile?: string;
   ring?: string;
+  danger?: boolean;
+  disabled?: boolean;
 }) {
+  const Glyph = danger ? TriangleAlert : Icon;
   return (
-    // button-shape: exempt -- a two-line answer card, not an action button
+    // button-shape: exempt -- a round tap answer in the chat, not an action button
     <button
       type="button"
+      data-assist-chip
       onClick={onClick}
+      disabled={disabled}
       className={cn(
-        "flex min-h-12 items-center gap-2.5 rounded-xl border border-border bg-surface px-2.5 py-2 text-left shadow-sm transition duration-150 hover:-translate-y-px hover:shadow-md active:translate-y-0 active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-ring",
-        ring,
+        "inline-flex min-w-0 items-center gap-2 rounded-full border-[1.5px] border-border bg-surface py-1 text-left text-[13.5px] font-medium leading-4 shadow-sm",
+        "transition duration-150 hover:-translate-y-px hover:shadow-md active:translate-y-0 active:scale-[0.97] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:opacity-50",
+        sub ? "min-h-11 pr-4" : "min-h-9 pr-3.5",
+        Glyph ? "pl-1" : "pl-3.5",
+        danger ? "border-red-300 hover:border-red-500 dark:border-red-500/40" : (ring ?? "hover:border-primary"),
       )}
     >
-      {Icon && (
-        <span className={cn("flex size-8 flex-none items-center justify-center rounded-lg", tile ?? "bg-primary-soft text-primary")}>
-          <Icon className="size-4" aria-hidden="true" />
+      {Glyph && (
+        <span
+          className={cn(
+            "flex size-7 flex-none items-center justify-center rounded-full",
+            danger ? "bg-red-100 text-red-700 dark:bg-red-400/15 dark:text-red-300" : (tile ?? "bg-primary-soft text-primary"),
+          )}
+          aria-hidden="true"
+        >
+          <Glyph className="size-3.5" />
         </span>
       )}
-      <span className="flex flex-col gap-0.5">
-        <span className="text-sm font-semibold leading-5">{title}</span>
-        {sub && <span className="text-xs leading-4 text-muted-foreground">{sub}</span>}
-      </span>
+      {sub ? (
+        <span className="flex min-w-0 flex-col gap-0.5">
+          <span className="font-semibold">{label}</span>
+          <span className="text-xs font-normal text-muted-foreground">{sub}</span>
+        </span>
+      ) : (
+        <span className="min-w-0">{label}</span>
+      )}
     </button>
   );
 }

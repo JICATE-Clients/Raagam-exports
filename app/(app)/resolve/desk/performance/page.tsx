@@ -28,7 +28,7 @@ export default async function DeskPerformancePage({ searchParams }: { searchPara
   const presets = { week: { from: startOfWeek(t), to: t }, month: { from: startOfMonth(t), to: t } };
   return (
     <div className="space-y-4">
-      <PageHeader title="Performance" description="Response, resolution, SLA met and CSAT per technician — tickets resolved in the range" />
+      <PageHeader title="IT Staff Scores" description="How fast each IT person replies and fixes, and their stars — jobs finished in these dates" />
       <DeskPerformanceScreen key={`${from}|${to}`} from={from} to={to} rows={rows} presets={presets} />
     </div>
   );

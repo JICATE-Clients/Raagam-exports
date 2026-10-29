@@ -3,6 +3,7 @@ import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import type { DashboardTone, TrendPoint } from "@/lib/dashboard/types";
 import { toneBg, toneVar } from "./tone";
+import { GLASS } from "./glass";
 
 /**
  * Charts for the dashboard, as plain SVG and CSS.
@@ -59,8 +60,8 @@ export function ChartFrame({
   className?: string;
 }) {
   return (
-    <Card className={cn("flex min-w-0 flex-col", className)}>
-      <CardHeader className="items-start">
+    <Card className={cn(GLASS, "flex min-w-0 flex-col", className)}>
+      <CardHeader className="items-start border-[var(--glass-edge)]">
         <div className="min-w-0">
           <h3 className="text-sm font-semibold text-foreground">{title}</h3>
           {subtitle && (
@@ -237,33 +238,73 @@ export function DonutChart({
     return <ChartEmpty>Nothing open right now.</ChartEmpty>;
   }
 
-  // Each slice's arc runs from the sum of everything before it to that sum plus
-  // its own count. Computed per slice rather than with a running counter: a
-  // variable reassigned inside .map() during render is exactly what the React
-  // Compiler lint rejects, and with at most a handful of statuses the repeated
-  // sum costs nothing.
-  const stops = slices.map((slice, i) => {
-    const before = slices.slice(0, i).reduce((t, x) => t + x.count, 0);
-    const from = (before / total) * 100;
-    const to = ((before + slice.count) / total) * 100;
-    return `${toneVar(slice.tone)} ${from.toFixed(2)}% ${to.toFixed(2)}%`;
+  // THE GLASS RING (2026-10-28) — Budget Approval's breakdown ring, drawn the
+  // same way: round-capped arcs with a gap between them, each glowing in its
+  // own colour, around a frosted centre. A slice too small to see past its
+  // caps still gets MIN_SPAN (that chart's "small slice stays visible" rule);
+  // the others give the difference back in proportion, and the legend beside
+  // the ring carries every exact count.
+  //
+  // Each arc's start is the sum of the spans before it, computed per slice
+  // rather than with a running counter: a variable reassigned inside .map()
+  // during render is exactly what the React Compiler lint rejects.
+  const R = 80;
+  const C = 2 * Math.PI * R;
+  const TRIM = 26;
+  const MIN_SPAN = TRIM + 10;
+  const live = slices.filter((x) => x.count > 0);
+  const raw = live.map((x) => (x.count / total) * C);
+  const small = raw.map((r) => r < MIN_SPAN);
+  const lifted = small.filter(Boolean).length * MIN_SPAN;
+  const bigTotal = raw.reduce((t, r, i) => t + (small[i] ? 0 : r), 0);
+  const scale = bigTotal > 0 ? Math.max(0, C - lifted) / bigTotal : 1;
+  const spans = raw.map((r, i) => (live.length === 1 ? C : small[i] ? MIN_SPAN : r * scale));
+  const arcs = live.map((x, i) => {
+    const start = spans.slice(0, i).reduce((t, v) => t + v, 0);
+    const len = live.length === 1 ? C : Math.max(0.1, spans[i] - TRIM);
+    return { key: x.label, color: toneVar(x.tone), start: live.length === 1 ? 0 : start + TRIM / 2, len };
   });
 
   return (
     <div className="flex flex-wrap items-center gap-5">
-      <div
-        className="relative h-[132px] w-[132px] shrink-0 rounded-full bg-[image:var(--g)]"
-        style={{ "--g": `conic-gradient(${stops.join(",")})` } as Vars}
-      >
-        <div className="absolute inset-[17px] flex flex-col items-center justify-center rounded-full bg-surface">
-          <span className="text-[22px] font-semibold tabular-nums">{total}</span>
+      <div className="relative size-[150px] shrink-0">
+        <svg viewBox="0 0 200 200" className="size-full -rotate-90 overflow-visible" aria-hidden="true">
+          <circle cx="100" cy="100" r={R} fill="none" strokeWidth={20} style={{ stroke: "var(--glass-track)" }} />
+          {arcs.map((a) => (
+            <circle
+              key={a.key}
+              cx="100"
+              cy="100"
+              r={R}
+              fill="none"
+              stroke={a.color}
+              strokeWidth={20}
+              strokeLinecap="round"
+              strokeDasharray={`${a.len} ${C}`}
+              strokeDashoffset={-a.start}
+              className="viz-slice"
+              style={{ filter: `drop-shadow(0 0 4px ${a.color})` }}
+            />
+          ))}
+        </svg>
+        {/* The frosted centre, its rim stitched like a garment button — the
+            page's one light garment touch on a chart. */}
+        <div
+          className="absolute inset-[30px] flex flex-col items-center justify-center rounded-full backdrop-blur-md"
+          style={{ background: "var(--glass-disc)", border: "1px solid var(--glass-edge)", boxShadow: "var(--glass-disc-shadow)" }}
+        >
+          <span aria-hidden className="absolute inset-[5px] rounded-full border-[1.5px] border-dashed border-border" />
+          <span className="text-[22px] font-bold leading-tight tabular-nums">{total}</span>
           <span className="text-[10px] text-muted-foreground">{unit}</span>
         </div>
       </div>
       <ul className="flex min-w-[150px] flex-1 flex-col gap-2.5">
         {slices.map((s) => (
           <li key={s.label} className="flex items-center gap-2.5">
-            <i className={cn("h-2.5 w-2.5 shrink-0 rounded-[3px]", toneBg[s.tone])} />
+            <i
+              className={cn("h-2.5 w-2.5 shrink-0 rounded-full", toneBg[s.tone])}
+              style={{ boxShadow: `0 0 6px ${toneVar(s.tone)}` }}
+            />
             <span className="flex-1 truncate text-xs text-muted-foreground">
               {s.label}
             </span>
@@ -405,6 +446,8 @@ export function AreaChart({
         />
         <polyline
           points={line}
+          pathLength={1}
+          className="viz-line"
           fill="none"
           stroke={toneVar(primaryTone)}
           strokeWidth={2.5}

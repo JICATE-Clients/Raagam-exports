@@ -19,13 +19,20 @@ export async function LeaderboardSection({
   filters: DashboardFilters;
   caps: DashboardCaps;
 }) {
-  const boards = await getLeaderboards(filters, caps);
+  // A board with nothing to rank, or one the viewer may not open, is left out
+  // (user 2026-10-29: no unused sections); the rest share the row evenly.
+  const boards = (await getLeaderboards(filters, caps)).filter((b) =>
+    b.rows.ok ? b.rows.value.length > 0 : b.rows.reason !== "denied",
+  );
+  if (boards.length === 0) return null;
 
+  // Cards only, no wrapper: they share the page's grid with Recent activity
+  // (2026-10-29), so neither ends up alone in a full-width row.
   return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+    <>
       {boards.map((b) => (
         <LeaderboardCard key={b.key} title={b.title} note={b.note} rows={b.rows} />
       ))}
-    </div>
+    </>
   );
 }

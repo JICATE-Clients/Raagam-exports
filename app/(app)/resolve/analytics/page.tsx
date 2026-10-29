@@ -21,7 +21,7 @@ export default async function ResolveAnalyticsPage({ searchParams }: { searchPar
   const since = fmtDate(addDays(startOfWeek(today()), -7 * (weeks - 1)));
   return (
     <div className="space-y-4">
-      <PageHeader title="Analytics" description="This unit's broken reports — how many, how fast, and what keeps breaking" />
+      <PageHeader title="Problem Summary" description="This unit's broken reports — how many, how fast, and what keeps breaking" />
       <AnalyticsView data={data} period={period} since={since} />
     </div>
   );

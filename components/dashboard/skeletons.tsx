@@ -1,5 +1,7 @@
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
+import { GLASS } from "./glass";
 
 /**
  * Loading shapes for each dashboard section.
@@ -14,7 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
  */
 
 function Tile({ className }: { className?: string }) {
-  return <Card className={className} />;
+  return <Card className={cn(GLASS, className)} />;
 }
 
 export function KpiRowSkeleton() {
@@ -33,8 +35,8 @@ export function KpiRowSkeleton() {
 
 export function MiniStripSkeleton() {
   return (
-    <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
-      {[0, 1, 2, 3, 4, 5].map((i) => (
+    <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
+      {[0, 1, 2, 3, 4].map((i) => (
         <Tile key={i} className="h-[74px]" />
       ))}
     </div>
@@ -57,50 +59,48 @@ export function ChartRowSkeleton() {
   );
 }
 
+/** The Manufacturing card: small stage tiles, two to a row. */
 export function StageGridSkeleton() {
-  return (
-    <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-      {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
-        <Tile key={i} className="h-[150px]" />
-      ))}
-    </div>
-  );
+  return <Tile className="h-[300px]" />;
 }
 
+/** The "Needs you" card: approvals and alerts behind two tabs. */
 export function ApprovalsSkeleton() {
-  return <Tile className="h-[320px]" />;
+  return <Tile className="h-[230px]" />;
 }
 
+/** One panel — Recent activity, or Alerts in the right column (2026-10-28). */
 export function ActivitySkeleton() {
+  return <Tile className="h-[380px]" />;
+}
+
+/** The right column's calendar: month grid, legend and the day's list. */
+export function CalendarSkeleton() {
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
-      <Tile className="h-[380px]" />
-      <Tile className="h-[380px]" />
-    </div>
+    <Card className={cn(GLASS, "p-4")}>
+      <Skeleton className="h-4 w-24" />
+      <Skeleton className="mt-3 h-14 w-full" />
+      <Skeleton className="mt-3 h-3 w-1/2" />
+      <Skeleton className="mt-3 h-10 w-full" />
+    </Card>
   );
 }
 
+/** One card's worth: the Top lists share a grid with Recent activity. */
 export function LeaderboardSkeleton() {
-  return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-      <Tile className="h-[280px]" />
-      <Tile className="h-[280px]" />
-      <Tile className="h-[280px]" />
-    </div>
-  );
+  return <Tile className="h-[240px]" />;
 }
 
+/**
+ * The page's top band: the welcome card (Nool, the greeting, a few task rows)
+ * and the period bar. The three pulse tiles that sat under them went on
+ * 2026-10-29, so the placeholder no longer draws them.
+ */
 export function HeroSkeleton() {
   return (
-    <Card className="px-6 py-5">
-      <Skeleton className="h-3 w-56" />
-      <Skeleton className="mt-3 h-8 w-72" />
-      <Skeleton className="mt-2 h-3.5 w-64" />
-      <div className="mt-5 flex gap-5">
-        <Skeleton className="h-[42px] w-[42px] rounded-full" />
-        <Skeleton className="h-[42px] w-[42px] rounded-full" />
-        <Skeleton className="h-[42px] w-[42px] rounded-full" />
-      </div>
-    </Card>
+    <div className="space-y-4">
+      <Tile className="h-[232px]" />
+      <Tile className="h-[52px]" />
+    </div>
   );
 }
