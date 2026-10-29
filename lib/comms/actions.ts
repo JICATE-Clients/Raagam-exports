@@ -83,6 +83,8 @@ function fail(error: string): Fail {
   return { ok: false, error };
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function revHub(): void {
   revalidatePath("/comms", "layout");
 }
@@ -90,6 +92,24 @@ function revHub(): void {
 // ---------------------------------------------------------------------------
 // Conversations
 // ---------------------------------------------------------------------------
+
+/**
+ * The caller's own Favourite / Archived flags on one chat (0764). Only the
+ * flag passed changes. Personal — it writes the caller's membership row, so
+ * nobody else's Pulse moves.
+ */
+export async function setChatFlags(input: { conversation_id: string; favorite?: boolean; archived?: boolean }): Promise<Result> {
+  const id = input?.conversation_id;
+  if (typeof id !== "string" || !UUID_RE.test(id)) return fail("Unknown conversation.");
+  const favorite = typeof input.favorite === "boolean" ? input.favorite : null;
+  const archived = typeof input.archived === "boolean" ? input.archived : null;
+  if (favorite === null && archived === null) return fail("Nothing to change.");
+  const s = await createClient();
+  const { error } = await s.rpc("comm_set_chat_flags", { p_conv: id, p_favorite: favorite, p_archived: archived });
+  if (error) return fail(commErrorText(error, "That change could not be saved."));
+  revHub();
+  return { ok: true };
+}
 
 /** Open (or find) the one direct conversation with `otherUserId`. */
 export async function openDirect(otherUserId: string): Promise<Result> {

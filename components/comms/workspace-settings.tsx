@@ -78,7 +78,7 @@ export function WorkspaceSettings({ workspace: w }: { workspace: Workspace }) {
         <Link href="/comms" className="rounded-md p-1.5 text-muted-foreground hover:bg-surface-muted @3xl/comms:hidden" aria-label="Back to conversations">
           <ArrowLeft className="h-4 w-4" />
         </Link>
-        <h1 className="flex-1 text-sm font-semibold text-heading">Workspace</h1>
+        <h1 className="flex-1 text-sm font-semibold text-heading">Settings</h1>
         <span className="text-xs text-muted-foreground">You are {ROLE_LABEL[w.my_role].toLowerCase()}</span>
       </header>
 

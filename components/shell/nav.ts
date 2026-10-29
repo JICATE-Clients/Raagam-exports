@@ -211,7 +211,9 @@ export const NAV: NavItem[] = [
         label: "Huddle",
         children: [
           { href: "/comms", label: "Pulse" },
-          { href: "/comms/channels", label: "Channels" },
+          // No "Channels" row (user 2026-10-29: duplicate) — the Channels fold
+          // ContextSidebar appends below lists them, and its "Browse channels"
+          // opens /comms/channels.
           { href: "/comms/search", label: "Search" },
           { href: "/comms/saved", label: "Saved" },
           // Every alert this person has — the bell shows only the latest (0746).
@@ -221,8 +223,10 @@ export const NAV: NavItem[] = [
           { href: "/comms/approvals", label: "My Approvals" },
           // The workspace (0750): its people, and its settings — read-only
           // for an ordinary member, editable by the workspace's owners/admins.
+          // ONLY here (user 2026-10-29: "People and Settings should only be
+          // in the sidebar") — the workspace bar no longer links to either.
           { href: "/comms/people", label: "People" },
-          { href: "/comms/workspace", label: "Workspace" },
+          { href: "/comms/workspace", label: "Settings" },
         ],
       },
     ],

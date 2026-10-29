@@ -77,6 +77,17 @@ export interface ConversationSummary {
   member_count: number;
   /** What the list prints: channel name, group name, or the other person. */
   title: string;
+  /** 0764: the CALLER's own flags — Pulse's Favourites filter and Archived
+   *  section. `archived` is personal; `is_archived` is a channel closed for all. */
+  favorite: boolean;
+  archived: boolean;
+  /** 0764: the newest top-level message the caller may read, for the row's
+   *  preview. `last_body` is null when it was deleted or file-only. */
+  last_body: string | null;
+  last_author_id: string | null;
+  last_author_name: string | null;
+  last_deleted: boolean;
+  last_has_file: boolean;
 }
 
 /** A channel the caller may see in the browser, joined or not. */
