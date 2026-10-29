@@ -16,10 +16,11 @@ import {
   FileChartColumn,
   ChartNoAxesCombined,
   BadgeCheck,
-  MessagesSquare,
+  MessageCircleMore,
   Database,
   ShieldCheck,
   Headset,
+  MessagesSquare,
   type LucideIcon,
 } from "lucide-react";
 import type { Module } from "@/lib/auth/types";
@@ -31,9 +32,11 @@ import { REPORTS, reportHref } from "@/lib/reports/catalog";
 export interface SubNavItem {
   href: string;
   label: string;
+  /** A group's heading icon in the module menu (see `ModuleGroup.icon`). */
+  icon?: LucideIcon;
   /** A group's own screens, for the sidebar's third level — see
    *  `NavChild` in lib/nav/module-groups.ts for why this exists at all. */
-  children?: { href: string; label: string }[];
+  children?: { href: string; label: string; newUntil?: string }[];
 }
 
 export interface NavItem {
@@ -188,7 +191,7 @@ export const NAV: NavItem[] = [
   },
   {
     href: "/resolve",
-    label: "Resolve Hub",
+    label: "Help & Repairs", // was "Resolve Hub" (user 2026-10-28: simple English)
     module: "resolve",
     icon: Headset,
     children: moduleNavChildren("/resolve"),
@@ -202,7 +205,7 @@ export const NAV: NavItem[] = [
     href: "/comms",
     label: "Pulse", // was "Chats" (user 2026-10-27)
     module: "communication",
-    icon: MessagesSquare,
+    icon: MessageCircleMore, // was MessagesSquare (user 2026-10-28: "i dont like")
     /* ONE "COLLABORATION" CAPTION HOLDING THE HUB'S FOUR VIEWS (user 2026-10-26:
        "community kulla message channel search saved ithalam venum" — and no
        Order / Sample under it). A group, so ContextSidebar draws it as one
@@ -213,6 +216,7 @@ export const NAV: NavItem[] = [
       {
         href: "/comms/community",
         label: "Huddle",
+        icon: MessagesSquare,
         children: [
           { href: "/comms", label: "Pulse" },
           { href: "/comms/channels", label: "Channels" },

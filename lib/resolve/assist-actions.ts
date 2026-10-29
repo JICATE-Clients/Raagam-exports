@@ -22,7 +22,7 @@ import { ASSIST_LANES, NEEDED_BY, RQ_REASONS, type AssistReceipt } from "./assis
  * "use server" file is a runtime ReferenceError that tsc does not see.
  */
 
-const NO_ACCESS = "You do not have access to do this in Resolve Hub";
+const NO_ACCESS = "You do not have access to do this in Help & Repairs";
 
 type PgError = { code?: string; message: string } | null;
 function dbError(e: NonNullable<PgError>): string {

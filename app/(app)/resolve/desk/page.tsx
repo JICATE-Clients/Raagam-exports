@@ -20,7 +20,7 @@ export default async function DeskQueuePage() {
   const lists = Object.fromEntries(DESK_QUEUE_TABS.map((t, i) => [t, tabs[i]])) as Record<DeskQueueTab, DeskQueueRow[]>;
   return (
     <div className="space-y-4">
-      <PageHeader title="Desk Queue" description="IT requests — urgent overrides first, then priority, then first come first served" />
+      <PageHeader title="Give Out IT Jobs" description="IT requests — urgent overrides first, then priority, then first come first served" />
       <DeskQueueScreen lists={lists} shift={shift} people={people} canAssign={canTriage} nowMs={requestNow()} />
     </div>
   );

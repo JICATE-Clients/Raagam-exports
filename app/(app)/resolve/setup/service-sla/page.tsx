@@ -9,7 +9,7 @@ export default async function ServiceSlaPage() {
   const [sla, loc] = await Promise.all([listServiceSla(), getCurrentLocationId()]);
   return (
     <div className="space-y-4">
-      <PageHeader title="IT Response Times" description="How soon the IT desk must first reply, and fix, at each priority — this unit" />
+      <PageHeader title="IT Reply Time" description="How soon the IT desk must first reply, and fix, at each priority — this unit" />
       {/* Keyed by unit so switching units in the topbar reopens the grid on that unit's values. */}
       <ServiceSlaScreen key={loc ?? "none"} sla={sla} />
     </div>

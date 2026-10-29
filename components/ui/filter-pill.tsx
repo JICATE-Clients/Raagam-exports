@@ -1,8 +1,8 @@
 "use client";
 
-import { useId, useRef, useState, type KeyboardEvent } from "react";
+import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Check, ChevronDown, Search, X, type LucideIcon } from "lucide-react";
-import { useRequiredHold } from "@/components/ui/field";
+import { FieldError, useRequiredHold } from "@/components/ui/field";
 import { Truncated } from "@/components/ui/truncated";
 import { cn } from "@/lib/utils";
 
@@ -84,14 +84,26 @@ const IDLE = { box: "border-[#8090a1] bg-surface shadow-[0_1px_1px_rgba(16,24,40
  * that colour as its border with a soft glow; a must-pick stays amber; "Any" is grey.
  * Fixed values for the same reason as SET_RED above — a skin cannot re-point them.
  */
+/*
+ * OPTION A — FILLED WHEN CHOSEN (user 2026-10-29, "build option A for filter pills",
+ * https://claude.ai/artifact/AwdeGkLkYXKcAzGLhnX4RK). REVERSES the floating label of
+ * design 3 above, deliberately: "Local" and "Any" sat in the same white box, so the
+ * row never said what was filtered, and the 10.5px label in the border cut to
+ * "Order Ty…". Three looks for three states now:
+ *   - untouched: white, IDLE edge, label and "Any" in grey;
+ *   - chosen:    the family colour as a pale FILL and a soft edge, label and icon in
+ *                that colour, the value bold — colour appears only where a filter IS on;
+ *   - required and empty: dashed amber (NEEDED), until it is picked.
+ * The label sits INSIDE the pill at 13px and never truncates; only the value does.
+ */
 export type FilterFamily = "order" | "item" | "vendor" | "status";
 const FAMILY: Record<FilterFamily, { text: string; set: string }> = {
-  order: { text: "text-[#2f6fdb]", set: "border-[#2f6fdb] shadow-[0_0_0_3px_rgba(47,111,219,0.15)]" },
-  item: { text: "text-[#0f8a7e]", set: "border-[#0f8a7e] shadow-[0_0_0_3px_rgba(15,138,126,0.15)]" },
-  vendor: { text: "text-[#7c3fd0]", set: "border-[#7c3fd0] shadow-[0_0_0_3px_rgba(124,63,208,0.15)]" },
-  status: { text: "text-[#c2541c]", set: "border-[#c2541c] shadow-[0_0_0_3px_rgba(194,84,28,0.15)]" },
+  order: { text: "text-[#2f6fdb]", set: "border-[#2f6fdb]/45 bg-[#2f6fdb]/10" },
+  item: { text: "text-[#0f8a7e]", set: "border-[#0f8a7e]/45 bg-[#0f8a7e]/10" },
+  vendor: { text: "text-[#7c3fd0]", set: "border-[#7c3fd0]/45 bg-[#7c3fd0]/10" },
+  status: { text: "text-[#c2541c]", set: "border-[#c2541c]/45 bg-[#c2541c]/10" },
 };
-const NO_FAMILY = { text: "text-[#475467]", set: "border-[#037bb8] shadow-[0_0_0_3px_rgba(3,123,184,0.15)]" };
+const NO_FAMILY = { text: "text-[#037bb8]", set: "border-[#037bb8]/45 bg-[#037bb8]/10" };
 
 type FilterPillCommon = {
   id?: string;
@@ -117,7 +129,32 @@ type FilterPillCommon = {
   family?: FilterFamily;
   /** What the filter is, at a glance; drawn in the family colour. */
   icon?: LucideIcon;
+  /**
+   * What is wrong with THIS pill — "Choose the vendor." — drawn directly under
+   * it through `FieldError` (field.tsx: "A WARNING SITS UNDER THE FIELD IT IS
+   * ABOUT"). Raise PO said it in the bottom bar, the whole page away from the
+   * pill it meant (user 2026-10-29: "message showing in bottom … show the
+   * warning message under the exact field"). It hangs below the pill rather
+   * than pushing the row down, so a row of pills does not jump as a message
+   * comes and goes; give the row room under it (`gap-y`/`pb`) for one line.
+   */
+  error?: ReactNode;
+  /**
+   * Untouched, show the icon alone; the name is the tooltip and the screen
+   * reader's label (Raise PO's Order by / Budget / Progress, 2026-10-29). For a
+   * secondary filter in a row that has to stay on one line. Once chosen it
+   * shows its label and value like any other pill.
+   */
+  collapse?: boolean;
 };
+
+/** The right edge a list must stay inside: the nearest ancestor that clips, else the window. */
+function clipRight(el: HTMLElement): number {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    if (getComputedStyle(p).overflowX !== "visible") return p.getBoundingClientRect().right;
+  }
+  return window.innerWidth;
+}
 
 /** A list longer than this opens with a search box — six fit on screen without one. */
 const SEARCH_FROM = 6;
@@ -142,6 +179,8 @@ export function FilterPill(props: FilterPillProps) {
     zeroPickable = false,
     family,
     icon: Icon,
+    error,
+    collapse = false,
   } = props;
   const fam = family ? FAMILY[family] : NO_FAMILY;
   const searchable = props.searchable ?? options.length > SEARCH_FROM;
@@ -153,6 +192,8 @@ export function FilterPill(props: FilterPillProps) {
   const triggerId = id ?? `fp-${autoId}`;
   const listId = `${triggerId}-list`;
   const [open, setOpen] = useState(false);
+  /** Open the list leftward from the pill's right edge (see `openList`). */
+  const [alignEnd, setAlignEnd] = useState(false);
   const [hi, setHi] = useState(0);
   const [query, setQuery] = useState("");
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -181,6 +222,11 @@ export function FilterPill(props: FilterPillProps) {
     if (disabled) return;
     tickedRef.current = false;
     setQuery("");
+    // A pill at the end of the row opened its list past the card's edge, which clips it
+    // (user 2026-10-29, screenshot 121621: Progress cut off). Measured as it opens: a list
+    // that would cross the clipping edge hangs from the pill's RIGHT edge instead.
+    const w = wrapRef.current;
+    if (w) setAlignEnd(w.getBoundingClientRect().left + (wide ? 320 : 240) > clipRight(w) - 8);
     const at = Math.max(0, items.findIndex((o) => isOn(o)));
     setHi(enabled(at) ? at : items.findIndex((_, i) => enabled(i)));
     setOpen(true);
@@ -303,7 +349,20 @@ export function FilterPill(props: FilterPillProps) {
       // not shrink below its content without min-w-0, so a set pill's longer value + ✕ grew
       // the row past its width; now the row can squeeze the widest pills, whose value
       // truncates (full text on hover) while the label beside it stays whole.
-      className="relative inline-flex max-w-[11rem] min-w-0"
+      // 17rem since option A: the label is inside the pill now, so the cap holds the
+      // label AND up to ~150px of value. The row still squeezes the widest (min-w-0).
+      //
+      // ONE ROW, FOR REAL (user 2026-10-29, screenshot 120804: seven chosen pills went
+      // to two rows again). min-w-0 alone never could: a WRAPPING row breaks lines on
+      // each pill's FULL width before it shrinks anything, so a long value moved the
+      // next pill down instead of truncating. A chosen pill now enters the row at a
+      // small basis (8rem: icon, its label stacked above the value, the ✕) and GROWS
+      // toward its full width (max-w-max), the free space shared by value length. So
+      // the row breaks only when even the minimums do not fit, and in between the
+      // longest values shorten with "…" (full text on hover). An untouched pill never
+      // shrinks: its label is all it shows.
+      className={cn("relative inline-flex", set ? "min-w-0 basis-[8rem] max-w-max" : "shrink-0")}
+      style={set ? { flexGrow: Math.max(1, shown.length) } : undefined}
       onBlur={(e) => {
         if (!wrapRef.current?.contains(e.relatedTarget as Node | null)) close();
       }}
@@ -326,50 +385,65 @@ export function FilterPill(props: FilterPillProps) {
         aria-controls={listId}
         aria-activedescendant={open ? `${listId}-${hi}` : undefined}
         aria-label={`${label}: ${chosen.length > 1 ? chosen.map((o) => o.label).join(", ") : shown}`}
+        aria-describedby={error ? `${triggerId}-error` : undefined}
+        aria-invalid={error ? true : undefined}
         data-field-trigger
         data-filter-pill
         data-field-empty={set ? "false" : "true"}
         {...hold}
         disabled={disabled}
+        title={collapse && !set ? label : undefined}
         onClick={() => (open ? close() : openList())}
         onKeyDown={onKeyDown}
         className={cn(
-          // A FIELD, NOT A PILL (design 3, 2026-10-27): 40px, 8px corners, the label in the
-          // top border. Still one row — the wrapper's 11rem cap and min-w-0 let the widest
-          // shrink, the value truncates (full text on hover) and the label stays whole.
-          "relative inline-flex h-10 max-w-full min-w-0 items-center gap-1.5 rounded-control border-[1.5px] bg-surface pl-2.5 text-[13px] whitespace-nowrap transition-[border-color,box-shadow]",
+          // 36px (`h-9`), the app's control height, 1px edge, 8px corners (option A).
+          // gap-1 / pl-2 (was gap-1.5 / pl-2.5, 2026-10-29): ~40px across the Raise PO row,
+          // which is what lets all ten pills sit on one line on a full-HD screen.
+          "relative inline-flex h-9 max-w-full min-w-0 items-center gap-1 rounded-control border bg-surface pl-2 text-[13px] whitespace-nowrap transition-[border-color,background-color]",
           "hover:border-[#037bb8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-45",
           set && !required ? "pr-7" : "pr-2",
-          required && !set && NEEDED.box,
-          !required && set && (tone === "danger" ? `${SET_RED.box} shadow-[0_0_0_3px_rgba(217,45,32,0.15)]` : `bg-surface ${fam.set}`),
-          // A required pill once chosen rests like any other — set, but nothing more to do.
-          ((!required && !set) || (required && set)) && IDLE.box,
+          set && "w-full max-w-[17rem]",
+          !set && required && cn(NEEDED.box, "border-dashed border-[1.5px]"),
+          !set && !required && IDLE.box,
+          // Chosen — required or not — fills with its family colour (option A).
+          set && (tone === "danger" ? SET_RED.box : fam.set),
         )}
       >
-        {/* The label rides the top border; its ground matches the box's so the line breaks under it. */}
-        <span
-          className={cn(
-            "pointer-events-none absolute -top-[9px] left-2 max-w-[calc(100%-1rem)] truncate px-1 text-[10.5px] leading-4 font-semibold",
-            required && !set
-              ? `bg-[linear-gradient(#fafbfc_50%,#fff7e0_50%)] ${NEEDED.text}`
-              : `bg-[linear-gradient(#fafbfc_50%,var(--surface)_50%)] ${tone === "danger" && set ? SET_RED.text : fam.text}`,
-          )}
-        >
-          {label}
-          {required ? <span aria-hidden className="text-danger">*</span> : null}
-        </span>
-        {Icon ? <Icon aria-hidden className={cn("size-3.5 shrink-0", required && !set ? NEEDED.text : fam.text)} /> : null}
-        <Truncated
-          touch={false}
-          className={cn(
-            "min-w-0 flex-1",
-            set ? "font-semibold text-foreground" : required ? cn("font-semibold", NEEDED.text) : "text-muted-foreground",
-            !required && set && tone === "danger" && SET_RED.text,
-          )}
-        >
-          {shown}
-        </Truncated>
-        {set && !required ? null : <ChevronDown aria-hidden className={cn("size-3.5 shrink-0", IDLE.text)} />}
+        {Icon ? (
+          <Icon aria-hidden className={cn("size-3.5 shrink-0", !set ? (required ? NEEDED.text : IDLE.text) : tone === "danger" ? SET_RED.text : fam.text)} />
+        ) : null}
+        {set ? (
+          /* CHOSEN: the label sits ABOVE the value, small, in the family colour (user
+             2026-10-29, screenshot 120804). Side by side, "Item Class* SEWING ACCESSORIES"
+             spent the label's width again on every chosen pill, and seven of them could
+             not share one row. Stacked, a pill is as wide as the longer of the two. The
+             label is never cut; the value truncates when the row is short. */
+          <span className="flex min-w-0 flex-1 flex-col text-left leading-tight">
+            <span className={cn("text-[10.5px] font-semibold whitespace-nowrap", tone === "danger" ? SET_RED.text : fam.text)}>
+              {label}
+              {required ? <span aria-hidden className="text-danger">*</span> : null}
+            </span>
+            <Truncated
+              touch={false}
+              className={cn("min-w-0 text-[13px] font-bold text-foreground", tone === "danger" && SET_RED.text)}
+            >
+              {shown}
+            </Truncated>
+          </span>
+        ) : (
+          /* UNTOUCHED: the label alone — "Buyer ▾" — no "Any": the plain grey look already
+             says "not filtered", and ten "Any"s cost ~300px the row does not have. The
+             aria-label above still reads "Buyer: Any". A REQUIRED one too (user 2026-10-29,
+             screenshot 3838: "itemclass near choose remove it same for vendor … just
+             dropdown enough"). A `collapse` pill hides even the label (icon + tooltip). */
+          <span className={cn("shrink-0 font-medium", required ? NEEDED.text : IDLE.text, collapse && "sr-only")}>
+            {label}
+            {required ? <span aria-hidden className="text-danger">*</span> : null}
+          </span>
+        )}
+        {set && !required ? null : (
+          <ChevronDown aria-hidden className={cn("size-3.5 shrink-0", set ? (tone === "danger" ? SET_RED.text : fam.text) : IDLE.text)} />
+        )}
       </button>
       {set && !required ? (
         <button
@@ -392,7 +466,8 @@ export function FilterPill(props: FilterPillProps) {
           aria-label={label}
           aria-multiselectable={multiple || undefined}
           className={cn(
-            "absolute top-[calc(100%+6px)] left-0 z-30 max-h-80 overflow-auto rounded-lg border bg-surface p-1.5 shadow-lg",
+            "absolute top-[calc(100%+6px)] z-30 max-h-80 overflow-auto rounded-lg border bg-surface p-1.5 shadow-lg",
+            alignEnd ? "right-0" : "left-0",
             wide ? "w-80" : "w-60",
           )}
         >
@@ -479,6 +554,13 @@ export function FilterPill(props: FilterPillProps) {
               </div>
             );
           })}
+        </div>
+      ) : null}
+      {/* Under the pill, hung so the row does not jump (see `error`). Hidden while the
+          list is open: the list sits in the same place, and choosing is the answer. */}
+      {error && !open ? (
+        <div className="pointer-events-none absolute top-full left-0 z-[1] whitespace-nowrap [&>p]:mt-0.5 [&>p]:whitespace-nowrap">
+          <FieldError id={`${triggerId}-error`}>{error}</FieldError>
         </div>
       ) : null}
     </div>

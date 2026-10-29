@@ -29,7 +29,7 @@ export default async function PlacesPage() {
   const perms = { canCreate: true, canEdit: true, canDelete: true };
   return (
     <div className="space-y-4">
-      <PageHeader title="Places & QR" description="Rooms, machines and assets in this unit, and the QR stickers that report against them" />
+      <PageHeader title="Places & QR Stickers" description="Rooms, machines and assets in this unit, and the QR stickers that report against them" />
       <PlacesScreen
         rows={rows}
         perms={perms}

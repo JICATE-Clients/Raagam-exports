@@ -28,7 +28,12 @@ export async function proxy(request: NextRequest) {
    * These routes are NOT unprotected: each checks `CRON_SECRET` itself and
    * answers 401 without it. Auth moves into the handler; it does not go away.
    */
-  const isCronJob = pathname.startsWith("/api/cron/");
+  //
+  // `/api/transport/` is a GPS vendor's webhook (doc/vehicle program/telematics.md)
+  // and gets the same treatment: no cookies, and a 307 would be retried forever.
+  // Its route checks `x-transport-secret` against TRANSPORT_WEBHOOK_SECRET (503
+  // when unset, 401 when wrong).
+  const isCronJob = pathname.startsWith("/api/cron/") || pathname.startsWith("/api/transport/");
 
   /**
    * A BUYER'S APPROVAL LINK (0668) — `/p/approve/<token>` is opened by someone

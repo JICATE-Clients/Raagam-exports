@@ -2389,6 +2389,23 @@ html[data-type-scale="compact"] [data-sheet-row="head"] > :is(.text-foreground, 
   .viz-slice, .viz-grow { animation: none; }
 }
 
+/* THE DASHBOARD'S GLASS (2026-10-28) — the blooms behind the frosted cards
+   drift slowly so the glass has something to frost; `motion-safe:` at the
+   call site keeps them still under reduced motion. `viz-line` draws a trend
+   line in from its start (the path carries pathLength="1"). */
+@keyframes glass-drift {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(26px, -20px); }
+}
+@keyframes viz-line {
+  from { stroke-dashoffset: 1; }
+  to { stroke-dashoffset: 0; }
+}
+.viz-line { stroke-dasharray: 1; animation: viz-line 1.4s cubic-bezier(0.22, 0.8, 0.26, 1) 0.15s both; }
+@media (prefers-reduced-motion: reduce) {
+  .viz-line { animation: none; }
+}
+
 /* ===========================================================================
  * SPREADSHEET GRID — `data-grid-style="sheet"` (client 2026-10-03, Order Entry
  * ▸ Styles ▸ Components: "convert the entire table into a clean, compact,

@@ -1,125 +1,74 @@
 import Link from "next/link";
-import { CheckCheck } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { fmtAgo } from "@/lib/dashboard/format";
-import type { ActivityItem, AlertItem } from "@/lib/dashboard/types";
-import { Icon } from "./icon";
+import type { ActivityItem } from "@/lib/dashboard/types";
 import { toneBg, toneSoft } from "./tone";
+import { GLASS } from "./glass";
 
 /**
- * Recent activity, as a connected timeline.
+ * Recent activity, one row per KIND of event (user 2026-10-29: five lines that
+ * each said "Sales order booked" read as one fact repeated). A kind that
+ * happened once keeps its detail; a kind that happened several times shows the
+ * count and its first document numbers, each a link. The time is the newest.
  *
- * The mockup shows an actor name per row ("Divya R"). That is deliberately not
- * reproduced: `profiles` is RLS'd to `id = auth.uid() OR system_admin:view`, so
- * embedding a name would return null for every row except the viewer's own —
- * a column that is blank for everyone but admins is worse than one that says
- * something true. The originating module goes there instead.
+ * No actor name, deliberately: `profiles` is RLS'd to `id = auth.uid() OR
+ * system_admin:view`, so a name would be blank for everyone but admins. The
+ * originating module is shown instead.
  */
-export function TimelineList({ items }: { items: ActivityItem[] }) {
+export function ActivityGroups({ items }: { items: ActivityItem[] }) {
   if (items.length === 0) {
-    return (
-      <p className="px-4 py-10 text-center text-sm text-muted-foreground">
-        Nothing recorded yet.
-      </p>
-    );
+    return <p className="px-4 py-6 text-center text-sm text-muted-foreground">Nothing recorded yet.</p>;
+  }
+  const groups: ActivityItem[][] = [];
+  const byTitle = new Map<string, ActivityItem[]>();
+  for (const it of items) {
+    const g = byTitle.get(it.title);
+    if (g) g.push(it);
+    else {
+      const fresh = [it];
+      byTitle.set(it.title, fresh);
+      groups.push(fresh);
+    }
   }
 
   return (
-    <ol className="px-4 py-4">
-      {items.map((t, i) => (
-        <li key={t.key} className="grid grid-cols-[26px_1fr] gap-3.5">
-          <div className="flex flex-col items-center gap-1">
-            <span
-              className={cn("mt-1 h-2.5 w-2.5 shrink-0 rounded-full", toneBg[t.tone])}
-            />
-            {/* The rail stops at the last item rather than trailing into space. */}
-            <span
-              className={cn(
-                "w-px flex-1",
-                i === items.length - 1 ? "bg-transparent" : "bg-border",
-              )}
-            />
-          </div>
-          <div className="min-w-0 pb-4">
-            <div className="flex flex-wrap items-baseline gap-2">
-              <p className="text-[13px] font-medium">{t.title}</p>
-              {t.ref &&
-                (t.href ? (
-                  <Link
-                    href={t.href}
-                    className="font-mono text-[11px] text-primary hover:underline"
-                  >
-                    {t.ref}
-                  </Link>
-                ) : (
-                  <span className="font-mono text-[11px] text-primary">{t.ref}</span>
-                ))}
-            </div>
-            <p className="mt-1 truncate text-xs text-muted-foreground">{t.detail}</p>
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              {t.source} · {fmtAgo(t.at)}
-            </p>
-          </div>
-        </li>
-      ))}
-    </ol>
-  );
-}
-
-/**
- * Things needing attention. Every entry is a real query result — the mockup's
- * machine-breakdown and shade-variation rows had no capture behind them and are
- * simply absent rather than invented.
- */
-export function AlertList({ items }: { items: AlertItem[] }) {
-  if (items.length === 0) {
-    return (
-      <div className="px-4 py-10 text-center">
-        <span className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-success-soft text-success">
-          <CheckCheck className="h-5 w-5" />
-        </span>
-        <p className="mt-3 text-sm font-medium">Nothing needs attention</p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          No overdue milestones, late shipments or unpaid invoices.
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <ul>
-      {items.map((a) => {
-        const inner = (
-          <>
-            <span
-              className={cn(
-                "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg",
-                toneSoft[a.tone],
-              )}
-            >
-              <Icon name={a.icon} className="h-[15px] w-[15px]" />
+    <ul className="px-2 py-1.5">
+      {groups.map((g) => {
+        const first = g[0];
+        const newest = g.reduce((m, x) => (x.at > m ? x.at : m), first.at);
+        return (
+          <li key={first.key} className="grid grid-cols-[28px_minmax(0,1fr)_auto] items-start gap-2.5 border-b border-[var(--glass-edge)] px-2 py-2 last:border-0">
+            <span className={cn("mt-0.5 grid size-7 place-items-center rounded-lg", toneSoft[first.tone])}>
+              <span className={cn("size-2 rounded-full", toneBg[first.tone])} />
             </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-[13px] font-medium">{a.title}</span>
-              <span className="mt-0.5 block text-xs text-muted-foreground">
-                {a.body}
+            <span className="min-w-0">
+              <span className="flex items-center gap-1.5 text-[13px] font-semibold">
+                {first.title}
+                {g.length > 1 && (
+                  <span className="rounded-full border border-border bg-surface-muted px-1.5 text-[11px] font-bold tabular-nums">{g.length}</span>
+                )}
+              </span>
+              <span className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 text-[11.5px] text-muted-foreground">
+                {g.slice(0, 3).map((x) =>
+                  x.ref ? (
+                    x.href ? (
+                      <Link key={x.key} href={x.href} className="font-mono text-[11px] text-primary hover:underline">
+                        {x.ref}
+                      </Link>
+                    ) : (
+                      <span key={x.key} className="font-mono text-[11px]">{x.ref}</span>
+                    )
+                  ) : null,
+                )}
+                {g.length > 3 && <span>+{g.length - 3} more</span>}
+                {g.length === 1 && first.detail && <span>{first.detail}</span>}
               </span>
             </span>
-          </>
-        );
-        return (
-          <li key={a.key} className="border-b border-border last:border-0">
-            {a.href ? (
-              <Link
-                href={a.href}
-                className="flex gap-3 px-4 py-3.5 transition-colors hover:bg-surface-muted"
-              >
-                {inner}
-              </Link>
-            ) : (
-              <div className="flex gap-3 px-4 py-3.5">{inner}</div>
-            )}
+            <span className="whitespace-nowrap pt-0.5 text-right text-[11px] text-muted-foreground">
+              {fmtAgo(newest)}
+              <span className="block">{first.source}</span>
+            </span>
           </li>
         );
       })}
@@ -127,7 +76,7 @@ export function AlertList({ items }: { items: AlertItem[] }) {
   );
 }
 
-/** Shared card chrome for the two panels above. */
+/** Shared card chrome for the dashboard's titled panels. */
 export function PanelCard({
   title,
   aside,
@@ -140,8 +89,8 @@ export function PanelCard({
   className?: string;
 }) {
   return (
-    <Card className={cn("flex min-w-0 flex-col overflow-hidden", className)}>
-      <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
+    <Card className={cn(GLASS, "flex min-w-0 flex-col overflow-hidden", className)}>
+      <div className="flex items-center justify-between gap-2 border-b border-[var(--glass-edge)] px-4 py-3">
         <h3 className="text-sm font-semibold">{title}</h3>
         {aside}
       </div>

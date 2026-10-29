@@ -68,7 +68,7 @@ export const MODULE_LABELS: Record<Module, string> = {
   integration: "System Integration",
   reports: "Reports & Analytics",
   approvals: "Approvals",
-  resolve: "Resolve Hub",
+  resolve: "Help & Repairs",
   communication: "Communication Hub",
 };
 

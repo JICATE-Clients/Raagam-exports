@@ -10,7 +10,7 @@ export default async function ProblemCatalogPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Problem Catalog"
+        title="Problem List"
         description="What Raagam Assist offers a reporter in each lane, and where each problem goes"
       />
       <ProblemCatalogScreen areas={areas} items={items} routing={routing} perms={perms} />

@@ -34,7 +34,7 @@ export default async function BrokenReportPage({
 
   return (
     <div className="space-y-4">
-      <PageHeader title="Fix something" back={{ href: "/resolve/report", label: "Report a problem" }} />
+      <PageHeader title="Fix something" back={{ href: "/resolve/report", label: "Tell a problem" }} />
       {/* No places yet is NOT a dead end: the form asks "Where is it?" instead
           and the report is routed as needs-sorting. Only an admin can fix the
           list, so only an admin is pointed at it. */}

@@ -1,6 +1,8 @@
 "use client";
 
-import type { MouseEvent, ReactNode } from "react";
+import type { CSSProperties, MouseEvent, ReactNode } from "react";
+import { Hash, PanelLeftClose, Search, type LucideIcon } from "lucide-react";
+import { useSearch } from "@/components/search/search-provider";
 import { usePathname } from "next/navigation";
 import { useOpenWorkspaceTab } from "@/lib/workspace-tabs";
 import { useAppUser } from "@/lib/auth/permission-context";
@@ -13,18 +15,26 @@ import { SidebarChannels } from "@/components/comms/sidebar-channels";
 import {
   activeChildHref,
   activeModule,
+  isStillNew,
   visibleModules,
   type SubNavItem,
 } from "./navigation-config";
+import { setMenuCollapsed } from "./menu-collapse";
+import { SIDEBAR_HUE } from "./module-hue";
 import { SidebarItem } from "./SidebarItem";
 import { SidebarSection } from "./SidebarSection";
+
+/** One screen row. `newUntil` is the registry's "New" tag date (GroupChild). */
+type SidebarRow = { href: string; label: string; newUntil?: string };
 
 /** A run of rows under one caption — a registry group, or the loose rows
  *  between groups (no caption). */
 interface SidebarBlock {
   key: string;
   label?: string;
-  rows: { href: string; label: string }[];
+  /** The group's heading icon — every registry group has one. */
+  icon?: LucideIcon;
+  rows: SidebarRow[];
   /** Live content drawn INSTEAD of `rows` — the comms Channels list (0751),
    *  which is data, not registry. Still one fold of the same accordion. */
   content?: ReactNode;
@@ -40,7 +50,7 @@ function toBlocks(children: SubNavItem[]): SidebarBlock[] {
   const blocks: SidebarBlock[] = [];
   for (const c of children) {
     if (c.children?.length) {
-      blocks.push({ key: c.href, label: c.label, rows: c.children });
+      blocks.push({ key: c.href, label: c.label, icon: c.icon, rows: c.children });
     } else {
       const last = blocks[blocks.length - 1];
       if (last && !last.label) last.rows.push({ href: c.href, label: c.label });
@@ -67,6 +77,7 @@ export function ContextSidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
   const pathname = usePathname();
   const user = useAppUser();
   const openTab = useOpenWorkspaceTab();
+  const search = useSearch();
   // ABOVE THE EARLY RETURNS — see "Hooks above every early return" in AGENTS.md.
   // Re-read on every route change so a record opened a moment ago shows up.
   const recent = useRecent(pathname);
@@ -103,6 +114,7 @@ export function ContextSidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
     blocks.push({
       key: "comms:channels",
       label: "Channels",
+      icon: Hash,
       rows: [],
       content: (
         <SidebarChannels
@@ -162,7 +174,14 @@ export function ContextSidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
       // the column's left edge separates the module icons from this menu.
       // It belongs to this column, so a module with no menu (Dashboard)
       // draws none — the rail then stands alone beside the page.
-      className="scrollbar-none flex h-full w-46 shrink-0 flex-col overflow-y-auto border-l border-panel-edge"
+      // `w-56` (224px) since 2026-10-28 (sidebar plan A, user: "the width of
+      // the parent … listing"): at 184px "Approvals & Amendments" and most
+      // screen names ellipsised. The rail's flyout is `w-max` now, so nothing
+      // else is sized to this column.
+      // `--hue` is the sidebar's one icon colour (SIDEBAR_HUE), the same the
+      // rail uses; the group headings' icon tiles read it.
+      className="scrollbar-none flex h-full w-56 shrink-0 flex-col overflow-y-auto border-l border-panel-edge"
+      style={{ "--hue": SIDEBAR_HUE } as CSSProperties}
     >
       {/* THE MODULE'S NAME (user 2026-10-01, sub-module menu suggestion 1):
           the column started straight at its first group caption, so nothing
@@ -179,8 +198,41 @@ export function ContextSidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
           rail's lit icon already says which module is open. Kept as a
           screen-reader-only heading so the menu still has a name; `pt-1`
           moves to the column so the first group caption doesn't touch the top. */}
-      <h2 className="sr-only">{mod.label}</h2>
-      <div aria-hidden className="h-1 shrink-0" />
+      {/* BACK ON SCREEN (Sarvam sidebar review, user 2026-10-29, fix 4,
+          https://claude.ai/artifact/EgufM8nybBmMcZ3LcvHV4H). REVERSES the
+          2026-10-01 removal above on purpose: with the rail's icons now grey
+          the name is the plainest statement of where you are, and it is what
+          the fold button sits beside. 15px semibold — a level above the
+          13.5px headings, without the 16px bold that read as a page title. */}
+      <div className="flex h-10 shrink-0 items-center gap-1 pl-3 pr-1.5 pt-1">
+        <h2 className="min-w-0 flex-1 truncate text-[15px] font-semibold text-foreground">{mod.label}</h2>
+        <button
+          type="button"
+          title="Hide menu"
+          aria-label="Hide menu"
+          onClick={() => setMenuCollapsed(true)}
+          className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-[color-mix(in_oklab,var(--foreground)_6%,transparent)] hover:text-foreground"
+        >
+          <PanelLeftClose aria-hidden className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* SEARCH ON SCREEN (fix 2). Ctrl+K has opened the app-wide palette
+          since search-provider.tsx was written, and nothing said so. This row
+          opens that same palette — it is a door, not a second search. A
+          button styled as a row, not an <input>: typing happens in the
+          palette, and a fake field here would take Tab and the caret. */}
+      <div className="shrink-0 px-1.5 pb-2">
+        <button
+          type="button"
+          onClick={search.open}
+          className="flex h-8 w-full items-center gap-2 rounded-lg px-3 text-left text-[13px] text-muted-foreground transition-colors hover:bg-[color-mix(in_oklab,var(--foreground)_4%,transparent)] hover:text-foreground"
+        >
+          <Search aria-hidden className="h-[15px] w-[15px] shrink-0" />
+          <span className="flex-1">Search</span>
+          <kbd className="font-mono text-[11px] text-caption">Ctrl+K</kbd>
+        </button>
+      </div>
 
       {/* THE "HOME" ROW IS HIDDEN (operator, 2026-09-15) — it only ever
           reopened the module's own root/hub page, and that page's card grid
@@ -207,6 +259,7 @@ export function ContextSidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
           key={openOnArrival ?? "none"}
           blocks={blocks}
           initialOpen={openOnArrival}
+          activeHref={activeHref}
           renderRow={(row) => (
             /* TEXT ONLY (client 2026-09-16: "it looks much icons") — the
                level-1 rail beside this column is already a column of icons. */
@@ -218,8 +271,18 @@ export function ContextSidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
               // 28px rows (`py-[5px]`; 30px before — suggestion 4). Text
               // size and colour unchanged: the client asked for DARKER menu
               // text on 2026-08-27, so only the spacing tightened.
-              className={cn("h-9 w-full rounded-[10px] px-3 py-0 text-[14px]", row.href !== activeHref && "text-foreground")}
+              // 32px rows at 13.5px under an icon heading (plan A, 2026-10-28);
+              // the solid active pill is SidebarItem's, unchanged.
+              className={cn("h-8 w-full rounded-lg px-3 py-0 text-[13.5px]", row.href !== activeHref && "text-foreground")}
               onClick={navigate(row.href, row.label)}
+              // fix 6: the registry's dated "New" tag, gone by itself after it.
+              trailing={
+                isStillNew(row.newUntil) ? (
+                  <span className="shrink-0 rounded-full bg-success-soft px-1.5 text-[10.5px] font-semibold leading-[18px] text-success">
+                    New
+                  </span>
+                ) : undefined
+              }
             />
           )}
         />
@@ -260,11 +323,14 @@ export function ContextSidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
 function FoldingGroups({
   blocks,
   initialOpen,
+  activeHref,
   renderRow,
 }: {
   blocks: SidebarBlock[];
   initialOpen: string | null;
-  renderRow: (row: { href: string; label: string }) => ReactNode;
+  /** The screen in view — its group's icon tile is drawn filled. */
+  activeHref: string | null | undefined;
+  renderRow: (row: SidebarRow) => ReactNode;
 }) {
   const fold = useAccordion(initialOpen);
   return (
@@ -273,6 +339,8 @@ function FoldingGroups({
         <SidebarSection
           key={block.key}
           label={block.label}
+          icon={block.icon}
+          current={!!activeHref && block.rows.some((r) => r.href === activeHref)}
           fold={
             block.label
               ? {

@@ -14,7 +14,7 @@ export default async function TriagePage() {
   ]);
   return (
     <div className="space-y-4">
-      <PageHeader title="Triage Queue" description="Highest score first — tap a score to see what earned it" />
+      <PageHeader title="Sort New Jobs" description="Most urgent first — tap a score to see why" />
       <TriageScreen lists={{ decide, open, all }} people={people} nowMs={requestNow()} />
     </div>
   );

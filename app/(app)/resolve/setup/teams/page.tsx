@@ -9,7 +9,7 @@ export default async function TeamsPage() {
   const perms = { canCreate: true, canEdit: true, canDelete: true };
   return (
     <div className="space-y-4">
-      <PageHeader title="Teams" description="Each trade's people in this unit — the lead gets new jobs first" />
+      <PageHeader title="Repair Teams" description="Each trade's people in this unit — the lead gets new jobs first" />
       <TeamsScreen
         rows={rows}
         perms={perms}

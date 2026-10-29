@@ -57,11 +57,11 @@ export default async function LogCallPage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="Log a Call" description="Raise an IT request for someone on the phone, email, chat or WhatsApp" />
+      <PageHeader title="Note a Phone Call" description="Raise an IT request for someone on the phone, email, chat or WhatsApp" />
       {categories.length === 0 ? (
         <p className="max-w-[40rem] rounded-lg border border-border p-4 text-sm text-muted-foreground">
-          No service category is switched on in this unit.{" "}
-          {"Add one under Resolve Hub ▸ Administration ▸ Service Categories first."}
+          No IT help type is switched on in this unit.{" "}
+          {"Add one under Help & Repairs ▸ Settings ▸ IT Help Types first."}
         </p>
       ) : (
         <LogCallScreen categories={categories} people={people} areas={areas} />

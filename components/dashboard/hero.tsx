@@ -1,38 +1,50 @@
 import Link from "next/link";
 import { TriangleAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Card } from "@/components/ui/card";
 import { SEG_IDLE, SEG_ITEM, SEG_LIT, SEG_TRACK } from "@/components/ui/segmented";
 import { MODULE_LABELS, type Module } from "@/lib/auth/types";
+import { startOfMonth, today } from "@/lib/calendar";
+import { windowLabel } from "@/lib/dashboard/range";
 import {
   DASHBOARD_RANGES,
   RANGE_LABELS,
+  type DashboardFilters,
   type DashboardRange,
-  type PulseRing as PulseRingData,
 } from "@/lib/dashboard/types";
-import { ProgressRing } from "./charts";
+import { AutoRefresh } from "./auto-refresh";
+import { CustomRangeForm } from "./custom-range-form";
+import { GLASS } from "./glass";
+
+/** Query values a link must carry so it changes ONE thing — see RangeTabs. */
+export type Carry = Record<string, string | undefined>;
+
+/** `/` with `carry` plus `set` — an unset value is dropped, never sent empty. */
+export function dashHref(carry: Carry, set: Carry = {}): string {
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries({ ...carry, ...set })) if (v) params.set(k, v);
+  const q = params.toString();
+  return q ? `/?${q}` : "/";
+}
 
 /**
- * The range selector: three links, not a GET form.
+ * The range selector: links, not a GET form.
  *
  * A `<form method="get">` submitting from `/` drops every other query
  * parameter, which would silently swallow `?denied=` — the permission notice
  * that `requirePermission()` redirects here specifically to show. Links let us
  * carry it through explicitly, and `<Link>` prefetches so the switch feels
  * immediate where a form submit would not.
+ *
+ * "Custom" opens on this month to date — the dates the operator most often
+ * narrows from — and the toolbar's date form takes it from there.
  */
-export function RangeTabs({
-  current,
-  carry,
-}: {
-  current: DashboardRange;
-  carry?: Record<string, string | undefined>;
-}) {
-  const href = (range: DashboardRange) => {
-    const params = new URLSearchParams();
-    for (const [k, v] of Object.entries(carry ?? {})) if (v) params.set(k, v);
-    params.set("range", range);
-    return `/?${params.toString()}`;
-  };
+export function RangeTabs({ current, carry }: { current: DashboardRange; carry: Carry }) {
+  const t = today();
+  const href = (range: DashboardRange) =>
+    range === "custom"
+      ? dashHref(carry, { range, from: carry.from ?? startOfMonth(t), to: carry.to ?? t })
+      : dashHref({ ...carry, from: undefined, to: undefined }, { range });
 
   return (
     /* The one-shape rule (user 2026-10-06): the words are `<Link>`s, so the
@@ -81,37 +93,25 @@ export function DeniedBanner({ module }: { module: string }) {
 }
 
 /**
- * Greeting, date, health rings and the range selector.
+ * Greeting, title and the page's two actions.
  *
- * The date is rendered on the server in the factory's timezone. A client-side
- * clock would be one more hydration boundary on a page whose whole point is
- * shipping no client JavaScript, and nobody reads a dashboard for the seconds.
+ * The date and greeting are rendered on the server in the factory's timezone.
+ * A client-side clock would be one more hydration boundary, and nobody reads a
+ * dashboard for the seconds.
  */
-export function HeroBanner({
+export function DashboardHeader({
   name,
   subtitle,
-  pulse,
-  range,
-  carry,
   action,
 }: {
   name: string;
   subtitle: string;
-  pulse: PulseRingData[];
-  range: DashboardRange;
-  carry?: Record<string, string | undefined>;
   action?: React.ReactNode;
 }) {
   const hour = Number(
-    new Intl.DateTimeFormat("en-GB", {
-      timeZone: "Asia/Kolkata",
-      hour: "2-digit",
-      hour12: false,
-    }).format(new Date()),
+    new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", hour: "2-digit", hour12: false }).format(new Date()),
   );
-  const greeting =
-    hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
-
+  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const date = new Intl.DateTimeFormat("en-IN", {
     timeZone: "Asia/Kolkata",
     weekday: "long",
@@ -121,43 +121,50 @@ export function HeroBanner({
   }).format(new Date());
 
   return (
-    <section className="relative flex flex-wrap items-end justify-between gap-6 overflow-hidden rounded-xl border border-border bg-surface bg-[image:var(--smoke)] px-6 py-5 shadow-elev inset-shadow-sheen">
-      {/* Soft brand haze in the corner. Decorative, hence aria-hidden. */}
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute -right-10 -top-24 h-56 w-80 rounded-full bg-primary-soft opacity-60 blur-3xl"
-      />
-
-      <div className="relative min-w-[280px]">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
-          {subtitle}
+    <header className="flex flex-wrap items-end justify-between gap-4">
+      <div className="min-w-0">
+        <p className="text-sm text-muted-foreground">
+          {greeting}, {name} · {date}
         </p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight">
-          {greeting}, {name}
-        </h1>
-        <p className="mt-1.5 text-sm text-muted-foreground">{date}</p>
-
-        {pulse.length > 0 && (
-          <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-3">
-            {pulse.map((p) => (
-              <ProgressRing
-                key={p.label}
-                pct={p.pct}
-                tone={p.tone}
-                label={p.label}
-                note={p.note}
-              />
-            ))}
-          </div>
-        )}
+        <h1 className="mt-1 text-2xl font-bold tracking-tight text-heading md:text-[1.7rem]">Operations Dashboard</h1>
+        <p className="mt-0.5 text-sm text-muted-foreground">{subtitle}</p>
       </div>
+      {action}
+    </header>
+  );
+}
 
-      {/* Wraps on a phone: the range tabs + actions are wider than a ~360px
-          card, and the section's overflow-hidden clipped "My calendar". */}
-      <div className="relative flex flex-wrap items-center gap-2.5">
-        <RangeTabs current={range} carry={carry} />
-        {action}
-      </div>
-    </section>
+/**
+ * The period bar: Today · Week · Month · Custom, the custom dates, the window
+ * in words, and the live-refresh state (user 2026-10-28).
+ *
+ * The custom dates ARE a GET form — the one place a form is right here, since
+ * two typed dates are not a link — and it restates `carry` as hidden fields so
+ * the denied notice and the calendar's day survive the submit (the reason the
+ * range itself is links).
+ */
+export function DashboardToolbar({
+  filters,
+  carry,
+  asOf,
+}: {
+  filters: DashboardFilters;
+  carry: Carry;
+  asOf: string;
+}) {
+  const custom = filters.range === "custom";
+  const hidden = Object.entries(carry).filter(
+    (e): e is [string, string] => !!e[1] && e[0] !== "from" && e[0] !== "to" && e[0] !== "range",
+  );
+
+  return (
+    <Card className={cn(GLASS, "flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5")}>
+      <RangeTabs current={filters.range} carry={carry} />
+      {custom && <CustomRangeForm from={filters.from} to={filters.to} hidden={hidden} />}
+      <span className="text-sm font-medium tabular-nums text-foreground">{windowLabel(filters)}</span>
+      <span className="ml-auto">
+        <AutoRefresh asOf={asOf} />
+      </span>
+    </Card>
   );
 }

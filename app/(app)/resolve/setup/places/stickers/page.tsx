@@ -43,7 +43,7 @@ export default async function StickersPage({ searchParams }: { searchParams: Pro
       <PageHeader
         title="QR Stickers"
         description="Print, cut and stick one on each place — scanning it opens the report form for that place"
-        back={{ href: "/resolve/setup/places", label: "Places & QR" }}
+        back={{ href: "/resolve/setup/places", label: "Places & QR Stickers" }}
       />
       <StickerSheet stickers={stickers} />
     </div>

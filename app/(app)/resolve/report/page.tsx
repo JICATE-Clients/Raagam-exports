@@ -14,7 +14,7 @@ export default async function Page() {
   const props = await loadAssistChat();
   return (
     <div className="space-y-4">
-      <PageHeader title="Report a problem" />
+      <PageHeader title="Tell a problem" />
       <AssistLayout>
         <AssistChat {...props} />
       </AssistLayout>

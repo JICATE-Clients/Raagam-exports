@@ -73,7 +73,7 @@ export const JOBS = {
     deletes: true,
   },
   "resolve-escalation": {
-    label: "Resolve Hub overdue jobs",
+    label: "Help & Repairs late jobs",
     does: "Tells the owner's manager about jobs a day late, the unit head about jobs three days late, and sends directors a digest of jobs a week late.",
     // escalation_hour 8 IST (rh_unit_settings default) = 02:30 UTC.
     schedule: "30 2 * * *",
@@ -82,8 +82,8 @@ export const JOBS = {
     runNowNote: "Overdue jobs not yet escalated at their level are escalated now. Each job is escalated once per level.",
   },
   "resolve-outbox": {
-    label: "Resolve Hub alerts",
-    does: "Sends the Resolve Hub alerts still waiting — new problems, assignments, fixes, disputes — and retries any that failed.",
+    label: "Help & Repairs alerts",
+    does: "Sends the Help & Repairs alerts still waiting — new problems, assignments, fixes, disputes — and retries any that failed.",
     schedule: "*/5 * * * *",
     when: "Every 5 minutes",
     everyMinutes: 5,

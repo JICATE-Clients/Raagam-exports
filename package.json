@@ -76,6 +76,7 @@
     "check:status-tone": "npx --yes tsx scripts/check-status-tone.mts",
     "check:holds": "node --experimental-strip-types scripts/check-keyboard-holds.mts",
     "check:nav": "node --experimental-strip-types scripts/check-module-groups.mts",
+    "check:transport": "node --no-warnings --experimental-strip-types scripts/check-transport-logic.mts",
     "check:order-reports": "node --no-warnings --experimental-strip-types scripts/check-order-reports.mts",
     "check:nav-paths": "npx --yes tsx scripts/check-nav-paths.mts",
     "check:approval-tree": "npx --yes tsx scripts/check-approval-tree.mts",
