@@ -8,7 +8,6 @@ import { compareToBaseline, type BaselineRow, type BudgetBaseline } from "./amen
 import { marginDelta, type MarginDelta } from "@/lib/orders/amendments/amendment-entry";
 import {
   BUDGET_SOURCE_LABELS,
-  CMT_OPERATIONS,
   isRefusal,
   lineAmount,
   lineReqd,
@@ -332,14 +331,14 @@ export async function getOrderBudgetReport(salesOrderId: string): Promise<OrderB
           .filter(Boolean)
           .join(" / ") || tidy(l.description);
       /* ONE COST HEAD PER OPERATION, as the legacy lists Cutting, Singer,
-         Checking … — when the line carries its breakup (0574: `rate` is their
+         Checking … — when the line carries its breakup (0771: `rate` is their
          sum). Only a plain INR per-piece line splits: a foreign-currency or flat
          CMT line is shown whole rather than divided by a rule it was not
          priced on. The LAST operation takes the remainder, so the operations
          add up to the amount the engine costed, to the paisa. */
-      const ops = CMT_OPERATIONS.map((op) => ({ label: op.label.toUpperCase(), rate: l[op.key] })).filter(
-        (op): op is { label: string; rate: number } => op.rate != null && Number(op.rate) > 0,
-      );
+      const ops = (l.cmt_ops ?? [])
+        .map((op) => ({ label: (op.name || "CMT").toUpperCase(), rate: op.rate }))
+        .filter((op): op is { label: string; rate: number } => op.rate != null && Number(op.rate) > 0);
       const splittable =
         ops.length > 0 && perUnit && !isRefusal(reqd) && typeof amount === "number" && (!l.currency_code || l.currency_code === "INR");
       if (splittable) {

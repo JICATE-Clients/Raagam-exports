@@ -1,10 +1,10 @@
 import { z } from "zod";
 import {
   BUDGET_SOURCES,
-  CMT_OPERATIONS,
   cmtBreakupTotal,
   isRefusal,
   round4,
+  type CmtOp,
 } from "./totals";
 import { capsTextNullable } from "@/lib/validation/formats";
 import { HOME_CURRENCY } from "@/lib/orders/amendments/order-value";
@@ -198,13 +198,9 @@ export interface BudgetLine {
   /** The component a Partwise (`basis = 'part'`) garment line is for (0421's
    *  `components` row). NULL otherwise. */
   component_id: string | null;
-  /** CMT breakup, per piece (0574). NULL = not broken up; when any is set,
-   *  `rate` is their sum — `chk_obl_cmt_breakup`. */
-  cutting_rate: number | null;
-  making_rate: number | null;
-  checking_rate: number | null;
-  ironing_rate: number | null;
-  packing_rate: number | null;
+  /** CMT breakup, per piece (0771): operations from the CMT master. NULL =
+   *  not broken up; when set, `rate` is their sum — `chk_obl_cmt_ops`. */
+  cmt_ops: CmtOp[] | null;
   /** The Expense / Income Head (0575) — a `config_lookups` row of kind
    *  `expense_head` / `income_head`. NULL on every other source. */
   cost_head_id: string | null;
@@ -292,6 +288,13 @@ const numN = z.coerce.number().nullable().default(null);
  */
 const breakupN = numN.transform((v) => (v == null || v < 0 ? v : round4(v)));
 
+/** One operation of the CMT breakup (0771). */
+const cmtOpInput = z.object({
+  cmt_process_id: z.string().uuid().nullable().default(null),
+  name: z.string().trim().default(""),
+  rate: breakupN,
+});
+
 export const budgetOrderInput = z.object({
   sno: z.coerce.number().int().nonnegative().default(0),
   garment_order_id: z.string().uuid(),
@@ -336,13 +339,10 @@ export const budgetLineInput = z
        ref and a pulled one compare equal. */
     style_ref_no: capsTextNullable(),
     component_id: uuidN,
-    /* 0574 — the CMT breakup. Rounded to 4dp as the column stores it (see
-       `breakupN` above), and the transform below derives `rate` from it. */
-    cutting_rate: breakupN,
-    making_rate: breakupN,
-    checking_rate: breakupN,
-    ironing_rate: breakupN,
-    packing_rate: breakupN,
+    /* 0771 — the CMT breakup, operations from the CMT master. Each rate is
+       rounded to 4dp as `obl_cmt_ops_total` rounds it (see `breakupN` above),
+       and the transforms below drop the blank end row and derive `rate`. */
+    cmt_ops: z.array(cmtOpInput).nullable().default(null),
     // 0575 — Other Expenses / Other Incomes.
     cost_head_id: uuidN,
     // 0590 — Yarn Purchases' Stage.
@@ -365,7 +365,17 @@ export const budgetLineInput = z
        be refused "Enter a rate" for a box the operator never types. Read here,
        reported at the RATE's place in the order below, so the first refusal
        the operator sees is still the engine's first. */
-    const breakup = cmtBreakupTotal(v);
+    const breakup = cmtBreakupTotal(v.cmt_ops);
+
+    /* A rate typed on the blank end row with no operation picked would be
+       dropped on save without a word — say so on the breakup instead. */
+    if ((v.cmt_ops ?? []).some((o) => !o.cmt_process_id && o.rate != null)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["cmt_ops"],
+        message: "Pick the operation for every CMT breakup rate",
+      });
+    }
 
     /* A FLAT CHARGE ASKS FOR NO QUANTITY (0573) — `lineAmount` does not
        consult Reqd for one, so refusing a blank here would demand a number the
@@ -406,14 +416,13 @@ export const budgetLineInput = z
        anyway is still checked for sign below. */
     if (isRefusal(breakup)) {
       // A negative operation, named in the engine's own words, on its own box.
-      const bad = CMT_OPERATIONS.find((op) => (v[op.key] ?? 0) < 0);
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: [bad?.key ?? "rate"],
+        path: ["cmt_ops"],
         message: breakup.refused,
       });
     } else if (breakup != null) {
-      // `chk_obl_cmt_breakup` — said here rather than left for Postgres to word.
+      // `chk_obl_cmt_ops` — said here rather than left for Postgres to word.
       if (v.source !== "cmt") {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -483,14 +492,17 @@ export const budgetLineInput = z
       ? { ...v, currency_code: null, ex_rate: null }
       : v,
   )
-  /* THE RATE IS DERIVED FROM ITS BREAKUP (0574), never typed beside it —
-     `chk_obl_cmt_breakup` holds `rate` equal to the five operations' sum, and
-     `cmtBreakupTotal` rounds exactly as Postgres will store them, so a line
-     that passed this schema cannot fail that check. No breakup: the typed rate
-     stands, which is the fast path. */
+  /* THE RATE IS DERIVED FROM ITS BREAKUP (0574 · 0771), never typed beside
+     it — `chk_obl_cmt_ops` holds `rate` equal to the operations' sum, and
+     `cmtBreakupTotal` rounds exactly as `obl_cmt_ops_total` does, so a line
+     that passed this schema cannot fail that check. The blank end row (no
+     operation) is dropped, and an empty list is stored NULL. No breakup: the
+     typed rate stands, which is the fast path. */
   .transform((v) => {
-    const total = cmtBreakupTotal(v);
-    return typeof total === "number" ? { ...v, rate: total } : v;
+    const ops = (v.cmt_ops ?? []).filter((o) => o.cmt_process_id);
+    const total = cmtBreakupTotal(ops);
+    const broken = typeof total === "number";
+    return { ...v, cmt_ops: broken ? ops : null, rate: broken ? total : v.rate };
   });
 
 export const orderBudgetInput = z.object({
