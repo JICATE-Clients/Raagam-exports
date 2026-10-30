@@ -56,6 +56,7 @@ import {
   lineDescription,
   lineKeyOf,
   lineKindOf,
+  bomDiaOf,
   maxBags,
   withNote,
   poTotals,
@@ -108,13 +109,8 @@ type RowState = {
   /** Yarn (0758): whole bags and the kg in one — qty is their product. */
   bags?: string;
   bagWt?: string;
-  /** Fabric (0758). */
+  /** Fabric (0758): rolls — typed. Dia, GSM, Gauge, Loop length are the Fabric BOM's (2026-10-30). */
   rolls?: string;
-  dia?: string;
-  /** Fabric construction typed on the PO (0762, user 2026-10-28); unset = the Fabric BOM's. */
-  gsm?: string;
-  gauge?: string;
-  loop?: string;
 };
 
 /**
@@ -125,6 +121,14 @@ type RowState = {
  */
 const GRID_HEAD = "whitespace-nowrap bg-[var(--table-head-bg)]";
 /**
+ * DENSE, ONE SIZE WITH THE RAIL (user 2026-10-30, plan B, mockup "Raise PO column widths"):
+ * the PO grids read 12px — the rail's RE number is 12px — with 11px headers, so the item
+ * name gets the width to show in full. One wrapper on the grid pane rather than a size on
+ * every cell. The typed boxes take their 12px from `CELL_INPUT` (which out-merges the
+ * `Input` primitive's `md:text-sm`). This screen only — not the app-wide type scale.
+ */
+const DENSE = "[&_td]:text-xs [&_.text-sm]:text-xs [&_th]:text-[11px]";
+/**
  * A CELL YOU TYPE IN, NOT A BOX IN A CELL (user 2026-10-24, screenshot 3707: "that
  * separate cell border for the rate, qty, delivery date — as table"). The grid's own
  * gridlines are the only frame: the input drops its border, corners and ground, and
@@ -132,7 +136,7 @@ const GRID_HEAD = "whitespace-nowrap bg-[var(--table-head-bg)]";
  * form laid in a table. Hover tints the cell so it still reads as editable.
  */
 const CELL_INPUT =
-  "h-8 rounded-none border-0 bg-transparent shadow-none hover:bg-[#f2f7fb] focus:bg-white focus-visible:ring-2 focus-visible:ring-inset";
+  "h-8 text-xs md:text-xs rounded-none border-0 bg-transparent shadow-none hover:bg-[#f2f7fb] focus:bg-white focus-visible:ring-2 focus-visible:ring-inset";
 type GridRow = RequirementLine & { key: string; row: RowState; /** a vendor is chosen, so this line can be ordered */ supplied: boolean };
 
 const CURRENCIES = ["USD", "EUR", "GBP"] as const;
@@ -277,8 +281,13 @@ export function RequirementPoForm({
   // ---------- Item Class and Vendor: the two required pills ----------
   /* EVERY CLASS IS LISTED (user 2026-10-26: "only listing two"). Each counts the orders
      with a balance in it; a class at 0 is greyed by FilterPill — shown, not pickable
-     into an empty PO. Classes only the requirement lines know (no master row) still list. */
+     into an empty PO. Classes only the requirement lines know (no master row) still list.
+     ONCE AN RE IS CHOSEN, ONLY ITS CLASSES (user 2026-10-30, screenshot 3861): an RE
+     picked on the Orders pill or ticked on the left lists just the classes its approved
+     requirement lines carry — an RE with only Yarn and Trims never offers Fabric. A class
+     already ticked survives (Disabled rows: the value held is never dropped from view). */
   const classOptions: FilterPillOption[] = useMemo(() => {
+    const chosen = new Set([...filters.order, ...orderIds]);
     const byClass = new Map<string, { label: string; orders: Set<string> }>(
       itemClasses.map((c) => [c.id, { label: c.name, orders: new Set<string>() }]),
     );
@@ -289,17 +298,23 @@ export function RequirementPoForm({
       if (filters.kind.length && !filters.kind.includes(l.source_kind)) continue;
       if (filters.buyer.length && !filters.buyer.includes(l.source_kind === "re" ? (l.customer ?? NO_BUYER) : NO_BUYER)) continue;
       // …and the RE / order numbers, which now stand before Item Class (2026-10-28).
-      if (filters.order.length && !filters.order.includes(l.source_id)) continue;
+      if (chosen.size && !chosen.has(l.source_id)) continue;
       const c = byClass.get(l.item_class_id) ?? { label: l.item_class ?? "—", orders: new Set<string>() };
       c.orders.add(l.source_id);
       byClass.set(l.item_class_id, c);
     }
     // The classes with something to buy first, so the greyed ones never push them down.
     return [...byClass.entries()]
+      .filter(([id, c]) => !chosen.size || c.orders.size > 0 || classIds.includes(id))
       .sort((a, b) => Number(b[1].orders.size > 0) - Number(a[1].orders.size > 0) || a[1].label.localeCompare(b[1].label))
       .map(([value, c]) => ({ value, label: c.label, count: c.orders.size }));
-  }, [lines, itemClasses, filters.kind, filters.buyer, filters.order]);
+  }, [lines, itemClasses, filters.kind, filters.buyer, filters.order, orderIds, classIds]);
   const classLines = useMemo(() => lines.filter((l) => !!l.item_class_id && classIds.includes(l.item_class_id)), [lines, classIds]);
+  /* NO CATEGORY FOR YARN (user 2026-10-30): a yarn has no sub-category in the master, so
+     with only Yarn ticked the Category pill is hidden and its picks cleared. Yarn beside
+     Trims keeps it — the trims still have categories to narrow by. */
+  const yarnOnly = (ids: string[]) =>
+    ids.length > 0 && ids.every((id) => lineKindOf(classOptions.find((o) => o.value === id)?.label) === "yarn");
   /* Before a class is picked the filters read EVERY line, so Order Type and Buyer —
      which lead the row — have something to count. The tick list waits for a class. */
   const scopeLines = hasClass ? classLines : lines;
@@ -395,7 +410,8 @@ export function RequirementPoForm({
   const chosen = new Set(orderIds);
   const inClassOrders = classLines.filter((l) => chosen.has(l.source_id));
   // Category narrows the LINES of a ticked order too — the filter means "buy only these".
-  const inOrders = filters.category.length
+  // A hidden pill never narrows: with Yarn alone the Category picks are ignored.
+  const inOrders = filters.category.length && !yarnOnly(classIds)
     ? inClassOrders.filter((l) => !!l.category_id && filters.category.includes(l.category_id))
     : inClassOrders;
 
@@ -786,8 +802,8 @@ export function RequirementPoForm({
             max="9999-12-31"
             aria-label={`Promised delivery, ${label}`}
             // Amber only once a vendor is chosen and it still has no date — before that, blank is fine.
-            // px-1 / 13px: dd/mm/yyyy and the calendar icon fit the 112px column (compacted 2026-10-28).
-            className={cn(CELL_INPUT, "min-w-0 flex-1 px-1 text-[13px]", !own && !disabled && !!vendorId && "bg-[#fff7e0]")}
+            // px-1: dd/mm/yyyy and the calendar icon fit the 112px column (12px since plan B, 2026-10-30).
+            className={cn(CELL_INPUT, "min-w-0 flex-1 px-1", !own && !disabled && !!vendorId && "bg-[#fff7e0]")}
             disabled={disabled}
             value={own}
             onChange={(e) => set(e.target.value)}
@@ -837,14 +853,22 @@ export function RequirementPoForm({
      Classes ticked the second line leads with the category — "SEWING THREAD · DTM NAVY
      BLUE" — so a thread and a label are told apart at a glance. With one class every
      line shares the class and the header already says it, so it is left off. */
-  const itemCell = (name: string, colourSpec: string, struck = false, itemId?: string, category?: string | null) => {
+  const itemCell = (name: string, colourSpec: string, struck = false, itemId?: string, category?: string | null, extra?: ReactNode) => {
     const describe = [classIds.length > 1 ? category?.trim() : "", colourSpec].filter(Boolean).join(" · ");
     return (
     <div className="flex min-w-0 items-center gap-1">
-      <div title={describe ? `${name} · ${describe}` : name} className={cn("min-w-0 flex-1 py-0.5", struck && "text-muted-foreground line-through")}>
+      {/* No `title` here (user 2026-10-30): each line is a <Truncated>, whose black
+          bubble is the one reveal — a native title on the wrapper drew a second,
+          white tooltip over it. */}
+      <div className={cn("min-w-0 flex-1 py-0.5", struck && "text-muted-foreground line-through")}>
         <Truncated className="min-w-0 text-sm leading-tight font-medium">{name}</Truncated>
-        {describe ? (
-          <Truncated className="min-w-0 text-[11px] leading-tight text-[#667085]">{describe}</Truncated>
+        {/* LINE 2 CARRIES NOTE AND GST (plan B, user 2026-10-30): their two columns gave
+            their width to the item name, which now shows whole on one line. */}
+        {describe || extra ? (
+          <div className="flex min-w-0 items-center gap-1.5">
+            {describe ? <Truncated className="min-w-0 shrink text-[10.5px] leading-tight text-[#667085]">{describe}</Truncated> : null}
+            {extra}
+          </div>
         ) : null}
       </div>
       {/* SHOW LAST PO (user 2026-10-26, Task 3): the rate this item was last bought at, from
@@ -866,6 +890,42 @@ export function RequirementPoForm({
     </div>
     );
   };
+  /**
+   * NOTE + GST UNDER THE ITEM (plan B, 2026-10-30). Both stay FIELDS — Tab lands on them in
+   * the order the columns had — they just moved from two 88px columns onto the item's
+   * second line. The note box reads "+ Note" until typed; GST shows the line's slab.
+   */
+  const lineExtras = (
+    key: string,
+    label: string,
+    note: string | null,
+    gst: number | null,
+    disabled: boolean,
+    setNote: (v: string) => void,
+    setGst: (pct: number) => void,
+    printsAs: string,
+  ) => (
+    <>
+      {/* A visible word, not a placeholder: placeholders are off app-wide (lib/ui/placeholders). */}
+      <label htmlFor={`rpo-note-${key}`} className="shrink-0 text-[10.5px] font-semibold text-[#037bb8]">
+        {note == null ? "Note (mixed)" : "Note"}
+      </label>
+      <Input
+        id={`rpo-note-${key}`}
+        maxLength={200}
+        aria-label={`Note to the vendor, ${label}`}
+        title={note ? `Prints as: ${withNote(printsAs, note).toUpperCase()}` : "Printed after the item on the PO, e.g. PROCESS: CUT & SEAL"}
+        disabled={disabled}
+        value={note ?? ""}
+        onChange={(e) => setNote(e.target.value)}
+        className="h-5 min-w-[3.5rem] flex-1 rounded-none border-0 border-b border-dashed border-[#c8dce9] bg-transparent px-1 text-[10.5px] font-medium shadow-none @2xl/editor:h-5 md:text-[10.5px] hover:bg-[#f2f7fb] focus:bg-white focus-visible:ring-1 focus-visible:ring-inset"
+      />
+      <span aria-hidden className="shrink-0 text-[10.5px] font-semibold text-[#667085]">
+        GST
+      </span>
+      {gstCell(`rpo-gst-${key}`, label, gst, disabled, setGst, true)}
+    </>
+  );
   /** Open Show Last PO and ask the server — a newer request replaces an older answer. */
   function openLastPo(itemId: string, title: string, el: HTMLElement) {
     setLastPo({ itemId, title, origin: el.getBoundingClientRect(), rows: null, error: null });
@@ -977,7 +1037,11 @@ export function RequirementPoForm({
     const b = r.row.bags ?? "";
     return lineKindOf(r.item_class) === "yarn" && bw > 0 && b !== "" ? { bags: Math.floor(num(b)), bagWeight: bw } : null;
   };
-  /** What goes up to the save for this line's bags / rolls / dia (0758). */
+  /* DIA FROM THE FABRIC BOM (user 2026-10-30) — `bomDiaOf`, the same rule the save reads.
+     Shown locked, never typed, so the vendor's PO cannot drift from the plan. */
+  const diaOf = (r: GridRow) => bomDiaOf(r) ?? "";
+  /** What goes up to the save for this line's bags / rolls (0758). Dia and the cloth's
+   *  construction are not sent — the save reads them off the Fabric BOM. */
   const materialPayload = (r: GridRow) => {
     const kind = lineKindOf(r.item_class);
     const inBags = bagsOf(r);
@@ -985,11 +1049,6 @@ export function RequirementPoForm({
       bags: inBags?.bags ?? null,
       bag_weight: inBags?.bagWeight ?? null,
       rolls: kind === "fabric" && (r.row.rolls ?? "") !== "" ? Math.max(0, Math.floor(num(r.row.rolls ?? ""))) : null,
-      dia: kind === "fabric" ? (r.row.dia ?? "").trim() || null : null,
-      // Sent only once typed — unset leaves the Fabric BOM's value to the save.
-      ...(kind === "fabric" && r.row.gsm !== undefined ? { gsm: num(r.row.gsm) > 0 ? num(r.row.gsm) : null } : {}),
-      ...(kind === "fabric" && r.row.gauge !== undefined ? { gauge: r.row.gauge.trim() || null } : {}),
-      ...(kind === "fabric" && r.row.loop !== undefined ? { loop_length: num(r.row.loop) > 0 ? num(r.row.loop) : null } : {}),
     };
   };
   /** How much a bag line goes over To Order (0 when it does not). */
@@ -1004,7 +1063,7 @@ export function RequirementPoForm({
         ? inBags
           ? `${inBags.bags} bag${inBags.bags === 1 ? "" : "s"} × ${inBags.bagWeight} kg`
           : "Set the bags"
-        : [r.row.rolls ? `${r.row.rolls} rolls` : "", r.row.dia ? `Dia ${r.row.dia}` : ""].filter(Boolean).join(" · ") || "Set the rolls and dia";
+        : [r.row.rolls ? `${r.row.rolls} rolls` : "", diaOf(r) ? `Dia ${diaOf(r)}` : ""].filter(Boolean).join(" · ") || "Set the rolls and dia";
     const Icon = kind === "yarn" ? Package : Layers;
     const open = (el: HTMLElement) => setQtySheet({ key: r.key, origin: el.getBoundingClientRect() });
     return qtyFacts(
@@ -1067,7 +1126,7 @@ export function RequirementPoForm({
   /* GST % PER LINE (user 2026-10-26, 0756). A line follows the header's slab until it is
      changed here, so the header box still sets every untouched line at once. CGST+SGST vs
      IGST is not chosen per line — it is the vendor's state, and stays on the header. */
-  const gstCell = (id: string, label: string, value: number | null, disabled: boolean, set: (pct: number) => void) => (
+  const gstCell = (id: string, label: string, value: number | null, disabled: boolean, set: (pct: number) => void, small = false) => (
     <Select
       id={id}
       aria-label={`GST %, ${label}`}
@@ -1076,8 +1135,13 @@ export function RequirementPoForm({
       // go through `className`, which `Select` also puts on the Combobox's WRAPPER — its `pr-6`
       // padded the wrapper, so the box shrank to a sliver that hid the value and the ▼ sat
       // outside it, where a click opened nothing. Wrapper: width only; box: the cell look.
-      className="w-full"
-      inputClassName={cn(CELL_INPUT, "pl-2 tabular-nums")}
+      // SMALL (plan B, 2026-10-30): under the item name, beside the Note — no column of its own.
+      className={small ? "w-[4.25rem] shrink-0" : "w-full"}
+      inputClassName={
+        small
+          ? "h-5 rounded border-0 bg-transparent pl-1 text-[11px] font-semibold tabular-nums text-[#667085] shadow-none hover:bg-[#f2f7fb] focus:bg-white focus-visible:ring-1 focus-visible:ring-inset"
+          : cn(CELL_INPUT, "pl-2 tabular-nums")
+      }
       compact
       disabled={disabled}
       value={value == null ? "" : String(value)}
@@ -1293,33 +1357,35 @@ export function RequirementPoForm({
   const openItem = itemGroups.find((g) => g.key === itemFold.openKey) ?? null;
 
   /*
-   * Item 200 + Note 88 + Orders 88 + Qty 112 + Rate 88 + GST 88 + Delivery 112 + Amount 88
-   * + Budget 144 = 1008, + 40 chrome = 1048 — about the pane beside the order list; the unit
+   * PLAN B (2026-10-30): Item flexes, Orders 88 + Qty 112 + Rate 72 + Delivery 112 + Amount 88
+   * + Budget 112 = 584, + 40 chrome; Note and GST ride under the item name. The unit
    * rides inside Qty, as on the order grid. Same default switch as the order grid (see its note). The note, rate, GST
    * and delivery typed here go to every order line under the item; the breakup below edits
    * one order at a time.
    */
   const itemColumns: ChildGridColumn<ItemGroup>[] = [
     {
+      // No width — the item takes what is left; Note and GST under it (plan B, 2026-10-30).
       header: "Item",
-      width: FIELD_WIDTH_CSS.party,
-      cell: (g) => itemCell(g.item_name, g.spec, false, g.members[0]?.item_id, g.members[0]?.category),
-    },
-    {
-      header: "Note",
-      width: FIELD_WIDTH_CSS.hug,
-      cell: (g) => (
-        <Input
-          id={`rpo-inote-${g.key}`}
-          maxLength={200}
-          aria-label={`Note to the vendor, ${g.item_name} ${g.spec}, for all ${g.orders} orders`}
-          className={CELL_INPUT}
-          // MIXED: the orders were noted apart in the order view — typing here sets them all again.
-          placeholder={g.mixedNote ? "mixed" : undefined}
-          value={g.note}
-          onChange={(e) => setMembers(g.members, { note: e.target.value })}
-        />
-      ),
+      cell: (g) =>
+        itemCell(
+          g.item_name,
+          g.spec,
+          false,
+          g.members[0]?.item_id,
+          g.members[0]?.category,
+          lineExtras(
+            `i-${g.key}`,
+            `${g.item_name} ${g.spec}, for all ${g.orders} orders`,
+            // MIXED: the orders were noted / taxed apart in the breakup — typing here sets them all again.
+            g.mixedNote ? null : g.note,
+            g.gst,
+            !g.supplied,
+            (v) => setMembers(g.members, { note: v }),
+            (pct) => setMembers(g.members, { gst: pct }),
+            g.members[0] ? lineDescription(g.members[0]) : g.item_name,
+          ),
+        ),
     },
     {
       header: "Orders",
@@ -1352,7 +1418,7 @@ export function RequirementPoForm({
     },
     {
       header: `Rate ${cur}`,
-      width: FIELD_WIDTH_CSS.hug,
+      width: FIELD_WIDTH_CSS.num,
       className: RATE_COL,
       cell: (g) => (
         <Input
@@ -1371,16 +1437,6 @@ export function RequirementPoForm({
       ),
     },
     {
-      header: "GST %",
-      // 88, not 72 (user 2026-10-27, screenshot 3769): at 72 the ▼ and padding left the
-      // value ~22px and "12%" read "1…".
-      width: FIELD_WIDTH_CSS.hug,
-      cell: (g) =>
-        gstCell(`rpo-igst-${g.key}`, `${g.item_name} ${g.spec}, for all ${g.orders} orders`, g.gst, !g.supplied, (pct) =>
-          setMembers(g.members, { gst: pct }),
-        ),
-    },
-    {
       header: "Delivery",
       width: FIELD_WIDTH_CSS.range,
       cell: (g) =>
@@ -1395,13 +1451,13 @@ export function RequirementPoForm({
     },
     {
       header: "Amount",
-      width: FIELD_WIDTH_CSS.range,
+      width: FIELD_WIDTH_CSS.hug,
       align: "right",
       cell: (g) => (g.amount > 0 ? <Truncated text={fmtFixed(g.amount, 2)} className="block text-sm font-medium tabular-nums" /> : null),
     },
     {
       header: "Budget",
-      width: FIELD_WIDTH_CSS.term,
+      width: FIELD_WIDTH_CSS.range,
       // The order grid's own control; the reason goes to every order line under the item.
       cell: (g) => budgetCell(g.members, (p) => setMembers(g.members, p)),
     },
@@ -1505,32 +1561,36 @@ export function RequirementPoForm({
   const openSizes = (g: SizeGroup, el: HTMLElement) => setSizeSheet({ key: g.key, origin: el.getBoundingClientRect() });
 
   /*
-   * The order grid on size rows. Same widths as `poLineColumns` (920 + 40 = 960). The
+   * The order grid on size rows. PLAN B (user 2026-10-30): Item flexes into what is left,
+   * Qty 144 + Rate 72 + Delivery 112 + Amount 88 + Budget 112 = 528, + 40 `#` — Note and
+   * GST live under the item name, and the rail gave back 16px (11.5rem). The
    * Qty cell of a sized row is a BUTTON showing the total — click it, or ↓ on it (the
    * key that opens any list here), for the per-size quantities. It is `data-field-trigger`
    * so Tab lands on it like a field (AGENTS, Tab lands on fields) and ↓ is the way in.
    */
   const groupColumns: ChildGridColumn<SizeGroup>[] = [
-    { header: "Item", width: FIELD_WIDTH_CSS.party, cell: (g) => itemCell(g.first.item_name, describeGroup(g), groupSkip(g), g.first.item_id, g.first.category) },
     {
-      header: "Note",
-      width: FIELD_WIDTH_CSS.hug,
-      cell: (g) => {
-        const note = common(g.members.map((m) => (m.row.note ?? "").trim()));
-        return (
-          <Input
-            id={`rpo-note-${g.first.key}`}
-            maxLength={200}
-            aria-label={`Note to the vendor, ${g.first.item_name} ${describeGroup(g)}`}
-            title={note ? `Prints as: ${withNote(lineDescription(g.first), note).toUpperCase()}` : "Printed after the item on the PO, e.g. PROCESS: CUT & SEAL"}
-            className={CELL_INPUT}
-            placeholder={note == null ? "mixed" : undefined}
-            disabled={groupSkip(g)}
-            value={note ?? ""}
-            onChange={(e) => setMembers(g.members, { note: e.target.value })}
-          />
-        );
-      },
+      /* NO WIDTH: THE ITEM TAKES WHAT IS LEFT (plan B, user 2026-10-30: "show the item name
+         full in single"). Note and GST ride on its second line (`lineExtras`). */
+      header: "Item",
+      cell: (g) =>
+        itemCell(
+          g.first.item_name,
+          describeGroup(g),
+          groupSkip(g),
+          g.first.item_id,
+          g.first.category,
+          lineExtras(
+            g.first.key,
+            `${g.first.item_name} ${describeGroup(g)}`,
+            common(g.members.map((m) => (m.row.note ?? "").trim())),
+            common(g.members.map((m) => m.row.gst ?? slab.pct)),
+            groupSkip(g),
+            (v) => setMembers(g.members, { note: v }),
+            (pct) => setMembers(g.members, { gst: pct }),
+            lineDescription(g.first),
+          ),
+        ),
     },
     {
       header: QTY.po,
@@ -1584,7 +1644,7 @@ export function RequirementPoForm({
     },
     {
       header: `Rate ${cur}`,
-      width: FIELD_WIDTH_CSS.hug,
+      width: FIELD_WIDTH_CSS.num,
       className: RATE_COL,
       cell: (g) => {
         const rate = common(g.members.filter((m) => !m.row.skip).map((m) => m.row.rate.trim()));
@@ -1606,20 +1666,6 @@ export function RequirementPoForm({
       },
     },
     {
-      header: "GST %",
-      // 88, not 72 (user 2026-10-27, screenshot 3769): at 72 the ▼ and padding left the
-      // value ~22px and "12%" read "1…".
-      width: FIELD_WIDTH_CSS.hug,
-      cell: (g) =>
-        gstCell(
-          `rpo-gst-${g.first.key}`,
-          `${g.first.item_name} ${describeGroup(g)}`,
-          common(g.members.map((m) => m.row.gst ?? slab.pct)),
-          groupSkip(g),
-          (pct) => setMembers(g.members, { gst: pct }),
-        ),
-    },
-    {
       header: "Delivery",
       width: FIELD_WIDTH_CSS.range,
       cell: (g) =>
@@ -1634,7 +1680,7 @@ export function RequirementPoForm({
     },
     {
       header: "Amount",
-      width: FIELD_WIDTH_CSS.range,
+      width: FIELD_WIDTH_CSS.hug,
       align: "right",
       cell: (g) => {
         if (groupSkip(g))
@@ -1664,8 +1710,9 @@ export function RequirementPoForm({
     },
     {
       // BUDGET · SKIP, as on the order grid; the reason goes to every size under the row.
+      // 112 since plan B (was 176): the word and the reason box at 12px, then Skip.
       header: "Budget",
-      width: FIELD_WIDTH_CSS.term,
+      width: FIELD_WIDTH_CSS.range,
       cell: (g) => {
         const skip = groupSkip(g);
         const what = `${g.first.item_name} ${describeGroup(g)}${g.sized ? " (every size)" : ""}`;
@@ -1797,7 +1844,7 @@ export function RequirementPoForm({
       <div
         key={o.id}
         className={cn(
-          "grid h-8 grid-cols-[1.75rem_minmax(0,1fr)] items-center border-b border-[#e8edf2]",
+          "grid h-7 grid-cols-[1.75rem_minmax(0,1fr)] items-center border-b border-[#e8edf2]",
           on && "bg-white shadow-[inset_3px_0_0_#037bb8]",
           on && selKey === o.id && "bg-[#eef6fc]",
         )}
@@ -2065,24 +2112,26 @@ export function RequirementPoForm({
                 setVendorPick((cur) => (cur && v.length && v.every((c) => (vendorsByClass[c] ?? []).some((x) => x.id === cur)) ? cur : ""));
                 setFilters((f) => ({
                   ...f,
-                  category: f.category.filter((c) => lines.some((l) => l.category_id === c && (!v.length || inV(l)))),
+                  category: yarnOnly(v) ? [] : f.category.filter((c) => lines.some((l) => l.category_id === c && (!v.length || inV(l)))),
                 }));
               }}
             />
             {/* CATEGORY FOR EVERY ITEM CLASS (user 2026-10-28) — one class ticked as well as
                 several. This reverses 2026-10-27's "only across classes"; it lists only the
-                categories the pills before it leave. */}
-            <FilterPill
-              label="Category"
-              family="item"
-              icon={Tag}
-              disabled={categoryOptions.length === 0}
-              options={categoryOptions}
-              anyCount={anyCount("category")}
-              multiple
-              value={filters.category}
-              onChange={(v) => setFilter("category", v)}
-            />
+                categories the pills before it leave. Except Yarn alone (2026-10-30, above). */}
+            {yarnOnly(classIds) ? null : (
+              <FilterPill
+                label="Category"
+                family="item"
+                icon={Tag}
+                disabled={categoryOptions.length === 0}
+                options={categoryOptions}
+                anyCount={anyCount("category")}
+                multiple
+                value={filters.category}
+                onChange={(v) => setFilter("category", v)}
+              />
+            )}
             <FilterPill
               id="rpo-vendor"
               label="Vendor"
@@ -2173,7 +2222,7 @@ export function RequirementPoForm({
                     label: "Items",
                     problems: vendorId ? unpriced : 0,
                     content: (
-                      <div className="-mx-2 -mt-4 md:grid md:grid-cols-[12.5rem_minmax(0,1fr)]">
+                      <div className="-mx-2 -mt-4 md:grid md:grid-cols-[11.5rem_minmax(0,1fr)]">
                         {/* THE TICK LIST — the orders of this class with a balance, ticked ones pinned
                             on top whatever the filters say (they narrow the list, never the PO). */}
                         <nav
@@ -2250,7 +2299,7 @@ export function RequirementPoForm({
                             </div>
                           ) : null}
                         </nav>
-                        <div className="min-w-0 p-2">
+                        <div className={cn("min-w-0 p-2", DENSE)}>
                           {selKey === "items" ? (
                             <div className="space-y-2">
                               {/* default-row: exempt -- one row per item across the ticked orders, derived; nothing is added here */}
@@ -2418,8 +2467,8 @@ export function RequirementPoForm({
       {/* YARN BAGS / FABRIC ROLLS POP-UP — a sub-detail with no grid, so `sm` (AGENTS, A
           sub-detail Sheet's size), centred on the pane, grown from the Qty cell, no Save of
           its own: the bags, rolls and dia are written by the PO's Save.
-          FABRIC IS ONE ROW OF SIX (user 2026-10-28: "in single row") — PO weight · Rolls · Dia ·
-          GSM · Gauge · Loop length, 6 × 112 + 5 × 12 gaps = 732 + px-5 (40) + border = ~780px,
+          FABRIC IS ONE ROW OF SIX (user 2026-10-28: "in single row") — Dia · GSM · Ply / Gauge ·
+          Loop length · Rolls · PO weight (sequence 2026-10-30), 6 × 112 + 5 × 12 gaps = 732 + px-5 (40) + border = ~780px,
           so it opens wider than `sm`; yarn's three boxes stay `sm`. */}
       <Sheet
         open={!!qtySheetRow}
@@ -2519,8 +2568,37 @@ export function RequirementPoForm({
                     </div>
                   ) : (
                     <div className="space-y-1.5">
+                    {/* THE SPEC'S SEQUENCE (user 2026-10-30): Dia · GSM · Ply / Gauge · Loop length
+                        · Rolls · Weight. The first four are the Fabric BOM's and LOCKED — Dia off
+                        the requirement row, GSM off the order's colourway, Gauge and Loop length
+                        off Fabric BOM ▸ Manual entry. This reverses 2026-10-28's "allow user
+                        input"; the save reads the same four off the BOM, so the lock is not only
+                        on screen. A readOnly Input drops out of Tab, so Tab lands on Rolls. */}
                     <div className="grid grid-cols-6 gap-3">
-                      {weightBox}
+                      <Field label="Dia" htmlFor={`rpo-dia-${r.key}`}>
+                        <Input id={`rpo-dia-${r.key}`} readOnly title="From the Fabric BOM" value={diaOf(r)} />
+                      </Field>
+                      <Field label="GSM" htmlFor={`rpo-gsm-${r.key}`}>
+                        <Input
+                          id={`rpo-gsm-${r.key}`}
+                          readOnly
+                          title="From the order's colourway"
+                          className="text-right tabular-nums"
+                          value={r.gsm != null ? String(r.gsm) : ""}
+                        />
+                      </Field>
+                      <Field label="Ply / Gauge" htmlFor={`rpo-gauge-${r.key}`}>
+                        <Input id={`rpo-gauge-${r.key}`} readOnly title="From Fabric BOM ▸ Manual entry" value={r.gauge ?? ""} />
+                      </Field>
+                      <Field label="Loop length (mm)" htmlFor={`rpo-loop-${r.key}`}>
+                        <Input
+                          id={`rpo-loop-${r.key}`}
+                          readOnly
+                          title="From Fabric BOM ▸ Manual entry"
+                          className="text-right tabular-nums"
+                          value={r.loop_length != null ? String(r.loop_length) : ""}
+                        />
+                      </Field>
                       <Field label="Rolls" htmlFor={`rpo-rolls-${r.key}`}>
                         <Input
                           id={`rpo-rolls-${r.key}`}
@@ -2533,45 +2611,8 @@ export function RequirementPoForm({
                           onChange={(e) => setRow(r, { rolls: e.target.value })}
                         />
                       </Field>
-                      <Field label="Dia" htmlFor={`rpo-dia-${r.key}`}>
-                        <Input id={`rpo-dia-${r.key}`} maxLength={20} value={r.row.dia ?? ""} onChange={(e) => setRow(r, { dia: e.target.value })} />
-                      </Field>
-                  {/* THE CLOTH'S CONSTRUCTION (0762) — TYPED ON THE PO (user 2026-10-28: "allow
-                      user input"). Each box opens on the Fabric BOM's value (GSM off the order's
-                      colourway, Gauge and Loop Length off Fabric BOM ▸ Manual entry); what is typed
-                      goes on THIS PO line only and is printed — the BOM is never written. */}
-                        <Field label="GSM" htmlFor={`rpo-gsm-${r.key}`}>
-                          <Input
-                            id={`rpo-gsm-${r.key}`}
-                            type="number"
-                            min={0}
-                            inputMode="decimal"
-                            className="text-right tabular-nums"
-                            value={r.row.gsm ?? (r.gsm != null ? String(r.gsm) : "")}
-                            onChange={(e) => setRow(r, { gsm: e.target.value })}
-                          />
-                        </Field>
-                        <Field label="Gauge (GG)" htmlFor={`rpo-gauge-${r.key}`}>
-                          <Input
-                            id={`rpo-gauge-${r.key}`}
-                            maxLength={20}
-                            value={r.row.gauge ?? r.gauge ?? ""}
-                            onChange={(e) => setRow(r, { gauge: e.target.value })}
-                          />
-                        </Field>
-                        <Field label="Loop length (mm)" htmlFor={`rpo-loop-${r.key}`}>
-                          <Input
-                            id={`rpo-loop-${r.key}`}
-                            type="number"
-                            min={0}
-                            inputMode="decimal"
-                            className="text-right tabular-nums"
-                            value={r.row.loop ?? (r.loop_length != null ? String(r.loop_length) : "")}
-                            onChange={(e) => setRow(r, { loop: e.target.value })}
-                          />
-                        </Field>
+                      {weightBox}
                     </div>
-                    <p className="text-xs text-muted-foreground">GSM, Gauge and Loop length are filled from the Fabric BOM — a change here is for this PO only.</p>
                     </div>
                   )}
                 </div>

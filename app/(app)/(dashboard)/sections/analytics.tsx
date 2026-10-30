@@ -12,6 +12,7 @@ import {
 } from "@/components/dashboard/charts";
 import { CellView } from "@/components/dashboard/cards";
 import { StatusPill } from "@/components/ui/status-pill";
+import { cn } from "@/lib/utils";
 
 /**
  * Section 02 — the trend charts.
@@ -32,12 +33,107 @@ export async function AnalyticsSection({
 
   const yoy = t.revenue.yoy;
 
+  const has = (bars: { a: number; b?: number }[]) => bars.some((x) => x.a > 0 || (x.b ?? 0) > 0);
+  const later = [
+    t.revenue.invoiced.some((v) => v > 0) && (
+      <ChartFrame key="rev"
+        title="Revenue"
+        subtitle="Invoiced vs received · 12 mo"
+        aside={
+          yoy != null ? (
+            <StatusPill tone={yoy >= 0 ? "success" : "danger"} className="shrink-0">
+              {yoy >= 0 ? "+" : ""}
+              {yoy.toFixed(1)}% · 6 mo
+            </StatusPill>
+          ) : undefined
+        }
+      >
+        {t.revenue.invoiced.length > 1 ? (
+          <AreaChart
+            labels={t.revenue.labels}
+            primary={t.revenue.invoiced}
+            secondary={t.revenue.received}
+          />
+        ) : (
+          <ChartEmpty>No invoices in this period.</ChartEmpty>
+        )}
+      </ChartFrame>
+    ),
+    t.lineOutput.ok && t.lineOutput.value.length > 0 && (
+      <ChartFrame key="line"
+        title="Line output"
+        subtitle="Today"
+      >
+        <CellView cell={t.lineOutput}>
+          {(lines) =>
+            lines.length === 0 ? (
+              <ChartEmpty>No confirmed output today.</ChartEmpty>
+            ) : (
+              <ul className="flex flex-col gap-3.5">
+                {lines.map((l) => (
+                  <li key={l.name}>
+                    <div className="mb-1.5 flex items-center justify-between gap-2">
+                      <span className="truncate text-xs">{l.name}</span>
+                      <span className="shrink-0 text-xs font-semibold tabular-nums text-muted-foreground">
+                        {fmtCompactNumber(l.qty)}
+                      </span>
+                    </div>
+                    <ProgressBar pct={l.pct} tone={l.pct < 40 ? "warning" : "primary"} />
+                  </li>
+                ))}
+              </ul>
+            )
+          }
+        </CellView>
+      </ChartFrame>
+    ),
+    has(t.productionOutput) && (
+      <ChartFrame key="prod" title="Production output" subtitle="Good vs reject · 12 mo">
+        <BarChartMini
+          bars={t.productionOutput}
+          tones={["primary", "danger"]}
+          height="sm"
+          format={(b) =>
+            `${b.label} · ${fmtCompactNumber(b.a)} good · ${fmtCompactNumber(b.b)} reject`
+          }
+        />
+      </ChartFrame>
+    ),
+    has(t.inventory) && (
+      <ChartFrame key="inv" title="Inventory movement" subtitle="In vs out · 12 mo">
+        <BarChartMini
+          bars={t.inventory}
+          height="sm"
+          format={(b) =>
+            `${b.label} · in ${fmtCompactNumber(b.a)} · out ${fmtCompactNumber(b.b)}`
+          }
+        />
+      </ChartFrame>
+    ),
+    has(t.purchase) && (
+      <ChartFrame key="pur"
+        title="Purchase trend"
+        // purchase_orders.total_amount is stored in each PO's own currency, so
+        // this total mixes them. The existing /analytics page carries the same
+        // caveat; better to state it than to imply rupees.
+        subtitle="Mixed currency · 12 mo"
+      >
+        <BarChartMini
+          bars={t.purchase}
+          tones={["accent", "primary"]}
+          height="sm"
+          format={(b) => `${b.label} · ${fmtCompactInr(b.a)} · ${b.b} POs`}
+        />
+      </ChartFrame>
+    ),
+  ].filter(Boolean);
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <ChartFrame
           title="Order intake"
-          subtitle="units booked vs order count · last 12 months"
+          subtitle="Units vs orders · 12 mo"
           aside={
             <ChartLegend
               items={[
@@ -59,8 +155,8 @@ export async function AnalyticsSection({
           title="Order status"
           subtitle={
             t.orderStatus.pendingAmendments > 0
-              ? `${t.orderStatus.total} open · ${t.orderStatus.pendingAmendments} amendment(s) pending`
-              : `${t.orderStatus.total} open orders`
+              ? `${t.orderStatus.total} open · ${t.orderStatus.pendingAmendments} revising`
+              : `${t.orderStatus.total} open`
           }
         >
           <DonutChart
@@ -71,101 +167,15 @@ export async function AnalyticsSection({
         </ChartFrame>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-        <ChartFrame
-          title="Revenue"
-          subtitle="invoiced vs received · last 12 months"
-          aside={
-            yoy != null ? (
-              <StatusPill tone={yoy >= 0 ? "success" : "danger"} className="shrink-0">
-                {yoy >= 0 ? "+" : ""}
-                {yoy.toFixed(1)}% vs prior 6 months
-              </StatusPill>
-            ) : undefined
-          }
-        >
-          {t.revenue.invoiced.length > 1 ? (
-            <AreaChart
-              labels={t.revenue.labels}
-              primary={t.revenue.invoiced}
-              secondary={t.revenue.received}
-            />
-          ) : (
-            <ChartEmpty>No invoices in this period.</ChartEmpty>
-          )}
-        </ChartFrame>
-
-        {/*
-          Stands in for the mockup's "Machine Utilisation". There is no machine
-          master, no run hours and no downtime capture anywhere in the schema,
-          so utilisation cannot be derived at all — output per line is the same
-          question answered from data that exists. The subtitle says so.
-        */}
-        <ChartFrame
-          title="Line output"
-          subtitle="today · machine-level utilisation isn’t captured"
-        >
-          <CellView cell={t.lineOutput}>
-            {(lines) =>
-              lines.length === 0 ? (
-                <ChartEmpty>No confirmed output today.</ChartEmpty>
-              ) : (
-                <ul className="flex flex-col gap-3.5">
-                  {lines.map((l) => (
-                    <li key={l.name}>
-                      <div className="mb-1.5 flex items-center justify-between gap-2">
-                        <span className="truncate text-xs">{l.name}</span>
-                        <span className="shrink-0 text-xs font-semibold tabular-nums text-muted-foreground">
-                          {fmtCompactNumber(l.qty)}
-                        </span>
-                      </div>
-                      <ProgressBar pct={l.pct} tone={l.pct < 40 ? "warning" : "primary"} />
-                    </li>
-                  ))}
-                </ul>
-              )
-            }
-          </CellView>
-        </ChartFrame>
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <ChartFrame title="Production output" subtitle="good vs reject · last 12 months">
-          <BarChartMini
-            bars={t.productionOutput}
-            tones={["primary", "danger"]}
-            height="sm"
-            format={(b) =>
-              `${b.label} · ${fmtCompactNumber(b.a)} good · ${fmtCompactNumber(b.b)} reject`
-            }
-          />
-        </ChartFrame>
-
-        <ChartFrame title="Inventory movement" subtitle="in vs out · last 12 months">
-          <BarChartMini
-            bars={t.inventory}
-            height="sm"
-            format={(b) =>
-              `${b.label} · in ${fmtCompactNumber(b.a)} · out ${fmtCompactNumber(b.b)}`
-            }
-          />
-        </ChartFrame>
-
-        <ChartFrame
-          title="Purchase trend"
-          // purchase_orders.total_amount is stored in each PO's own currency, so
-          // this total mixes them. The existing /analytics page carries the same
-          // caveat; better to state it than to imply rupees.
-          subtitle="PO value · mixed currency · last 12 months"
-        >
-          <BarChartMini
-            bars={t.purchase}
-            tones={["accent", "primary"]}
-            height="sm"
-            format={(b) => `${b.label} · ${fmtCompactInr(b.a)} · ${b.b} POs`}
-          />
-        </ChartFrame>
-      </div>
+      {/* A CHART WITH NOTHING TO DRAW IS LEFT OUT (user 2026-10-30, screenshot
+          3859: "No data for this period" boxes read as a broken page). Same
+          rule as the headline tiles: absent, never an empty frame. The cards
+          that remain share one grid, so a missing one leaves no hole. */}
+      {later.length > 0 && (
+        <div className={cn("grid grid-cols-1 gap-4 md:grid-cols-2", later.length >= 3 && "xl:grid-cols-3")}>
+          {later}
+        </div>
+      )}
     </div>
   );
 }

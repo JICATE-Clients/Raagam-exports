@@ -15,7 +15,7 @@ import {
   LeaderboardSkeleton,
   StageGridSkeleton,
 } from "@/components/dashboard/skeletons";
-import { HeadlineSection } from "./sections/headline";
+import { BoardCharts, BoardRings, BoardStrip } from "./sections/board";
 import { WelcomeSection, WelcomeSkeleton } from "./sections/welcome";
 import { AnalyticsSection } from "./sections/analytics";
 import { ManufacturingSection } from "./sections/manufacturing";
@@ -99,13 +99,6 @@ export default async function DashboardPage({
     cs: scope === "team" ? "team" : undefined,
   };
 
-  const asOf = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Asia/Kolkata",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(new Date());
-
   const lines = await getLinesReporting(caps);
 
   return (
@@ -136,10 +129,17 @@ export default async function DashboardPage({
             <WelcomeSection user={user} />
           </Suspense>
 
-          <DashboardToolbar filters={filters} carry={carry} asOf={asOf} />
+          <DashboardToolbar filters={filters} carry={carry} />
 
+          {/* THE BOARD (approved plan 2026-10-30, "Raagam Dashboard
+              Redesign"): six ring tiles, each a real share of a real whole
+              (no targets are stored, so nothing is drawn "vs target"), then
+              the order charts. Replaced the headline KPIs + mini-stat strip. */}
           <Suspense fallback={<KpiRowSkeleton />}>
-            <HeadlineSection filters={filters} caps={caps} />
+            <BoardRings caps={caps} />
+          </Suspense>
+          <Suspense fallback={<ChartRowSkeleton />}>
+            <BoardCharts caps={caps} />
           </Suspense>
 
           {/* Hidden entirely without reports:view — the RPCs self-gate in SQL,
@@ -162,6 +162,10 @@ export default async function DashboardPage({
               </Suspense>
             )}
           </div>
+
+          <Suspense fallback={null}>
+            <BoardStrip caps={caps} />
+          </Suspense>
         </div>
 
         <aside className="min-w-0 space-y-4 xl:col-span-4" aria-label="Needs you, calendar and quick actions">

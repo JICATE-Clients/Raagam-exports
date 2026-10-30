@@ -117,7 +117,7 @@ export type ItemPickerRow = PickerRow & { base_uom_id: string | null; purchase_u
  * or recomputed a second time — two reads of one order's value is two chances
  * to disagree with the Prices tab.
  */
-type SalesFacts = {
+export type SalesFacts = {
   value: number | null;
   refusal: string | null;
   gross_value: number | null;
@@ -126,7 +126,13 @@ type SalesFacts = {
   ex_rate: number | null;
 };
 
-async function salesValuesByOrder(): Promise<
+/**
+ * Every non-draft order document's value and quantity, keyed by AMENDMENT id.
+ * Exported for the dashboard board (2026-10-30), so the home page values an
+ * order with the same `orderValue()` call as Order Entry and the budget — never
+ * a third copy of the pricing rules.
+ */
+export async function salesValuesByOrder(): Promise<
   { ok: true; byOrder: Map<string, SalesFacts> } | { ok: false; error: string }
 > {
   const s = await createClient();
