@@ -37,12 +37,22 @@ export const employeeCategoryInput = z.object({
   short_name: z.string().optional().nullable(),
   name: z.string().min(1, "Name is required"),
   for_type: z.enum(["staff", "worker", "staff_worker"]).default("staff"),
-  // Required: every category keeps the hours of exactly one group (client
-  // 2026-10-28). Rows saved before 0769 may still be null until next edited.
-  timing_group: z.enum(["staff", "security", "production_staff"], {
-    message: "Timing Group is required",
-  }),
+  // Off the form since 2026-10-30 (user). Optional, so a save without it
+  // leaves the stored group untouched — Work Timing and the HR dashboard
+  // still read it.
+  timing_group: z.enum(["staff", "security", "production_staff"]).optional(),
   inactive: z.boolean().default(false),
   is_draft: z.boolean().default(false),
 });
 export type EmployeeCategoryInput = z.infer<typeof employeeCategoryInput>;
+
+/**
+ * Does this category belong on a Staff (or Worker) record? (user 2026-10-30:
+ * "only those categories will show in respective staff and worker".)
+ * A legacy "staff_worker" row fits both. The person screens pass the misfits
+ * as `inactive`, not drop them, so a record already holding one keeps it on
+ * the field (AGENTS.md ▸ "Disabled rows") while nobody can newly pick it.
+ */
+export function categoryFitsKind(forType: string | null | undefined, kind: "staff" | "worker"): boolean {
+  return forType === "staff_worker" || forType === kind;
+}

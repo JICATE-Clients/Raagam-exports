@@ -38,9 +38,9 @@ const numOrNull = (v: unknown): number | null => (v == null ? null : Number(v));
 
 export async function listDepartmentOptions(): Promise<Option[]> {
   const s = await createClient();
-  const { data, error } = await s.from("departments").select("id, short_name, name, blocked").order("short_name");
+  const { data, error } = await s.from("departments").select("id, short_name, name, inactive").order("short_name");
   if (error) throw new Error(error.message);
-  return ((data ?? []) as { id: string; short_name: string; name: string | null; blocked: boolean }[]).map((d) => ({
+  return ((data ?? []) as { id: string; short_name: string; name: string | null; inactive: boolean }[]).map((d) => ({
     id: d.id,
     name: d.name || d.short_name,
     inactive: isInactive(d),
@@ -49,9 +49,9 @@ export async function listDepartmentOptions(): Promise<Option[]> {
 
 export async function listDesignationOptions(): Promise<DesignationOption[]> {
   const s = await createClient();
-  const { data, error } = await s.from("designations").select("id, name, for_type, blocked, is_draft").order("name");
+  const { data, error } = await s.from("designations").select("id, name, for_type, inactive, is_draft").order("name");
   if (error) throw new Error(error.message);
-  return ((data ?? []) as { id: string; name: string; for_type: DesignationOption["for_type"]; blocked: boolean; is_draft: boolean }[])
+  return ((data ?? []) as { id: string; name: string; for_type: DesignationOption["for_type"]; inactive: boolean; is_draft: boolean }[])
     .filter((d) => !d.is_draft)
     .map((d) => ({ id: d.id, name: d.name, for_type: d.for_type, inactive: isInactive(d) }));
 }

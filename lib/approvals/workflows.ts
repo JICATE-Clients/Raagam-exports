@@ -40,7 +40,9 @@ export type WorkflowKey =
   | "timeoff_encashment"
   | "lc_termination"
   | "lc_settlement"
-  | "rc_hire";
+  | "rc_hire"
+  | "pf_review"
+  | "pf_promotion";
 
 export type WorkflowDecl = {
   key: WorkflowKey;
@@ -187,6 +189,21 @@ export const WORKFLOWS: Record<WorkflowKey, WorkflowDecl> = {
     subjectTable: "rc_candidates",
     label: "Hiring",
     href: "/hr/recruitment/candidates?open=:id",
+  },
+  // HR ▸ Performance & Growth (0773). Both runs are started inside the
+  // SECURITY DEFINER function that writes the subject (`pf_save_supervisor`
+  // on submit, `pf_raise_promotion`), in the same transaction.
+  pf_review: {
+    key: "pf_review",
+    subjectTable: "pf_reviews",
+    label: "Appraisal",
+    href: "/hr/performance/appraisals?open=:id",
+  },
+  pf_promotion: {
+    key: "pf_promotion",
+    subjectTable: "pf_promotions",
+    label: "Promotion",
+    href: "/hr/performance/promotions?open=:id",
   },
 };
 
