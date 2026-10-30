@@ -26,7 +26,7 @@ import { getCompanyProfile } from "@/lib/admin/company-service";
 import { listNotifies } from "@/lib/masters/notify-service";
 import { NotifyMasterScreen } from "@/components/masters/notify-master-screen";
 import { listEmployeeLocations } from "@/lib/masters/employee-service";
-import { listWorkTimings } from "@/lib/masters/work-timing-service";
+import { listGroupTimings } from "@/lib/masters/group-timing-service";
 import { WorkTimingMasterScreen } from "@/components/masters/work-timing-master-screen";
 import { listWorkingHours } from "@/lib/masters/working-hour-service";
 import { WorkingHourMasterScreen } from "@/components/masters/working-hour-master-screen";
@@ -328,16 +328,18 @@ export default async function SubEntityPage({
         />
       );
     } else if (child.custom === "work_timing") {
-      const [timings, locations, all] = await Promise.all([
-        listWorkTimings(),
-        listEmployeeLocations(),
-        listConfigLookups(),
+      // The three fixed timing groups (0764), not the legacy shift form.
+      // "Today" is IST, resolved here so the screen never reads a viewer's clock.
+      const [timings, categories] = await Promise.all([
+        listGroupTimings(),
+        listEmployeeCategories(),
       ]);
+      const todayIst = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
       screen = (
         <WorkTimingMasterScreen
           rows={timings}
-          locations={locations}
-          shiftCategories={all.filter((l) => l.kind === "shift_category")}
+          categories={categories}
+          today={todayIst}
           perms={perms}
         />
       );

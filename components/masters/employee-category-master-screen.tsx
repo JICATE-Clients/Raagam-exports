@@ -14,12 +14,14 @@ import {
   type EmployeeCategory,
 } from "@/lib/masters/employee-category-types";
 import { EMPLOYEE_CATEGORY_NAMES } from "@/lib/masters/name-vocabularies";
+import { TIMING_GROUPS } from "@/lib/masters/group-timing-types";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
 /**
  * Legacy HR "Employee Category" master — twin of Designation: Name · For
- * (Staff / Worker / Staff-Worker). Draft-capable via the inline status select
+ * (Staff / Worker / Staff-Worker) · Timing Group (Staff / Security /
+ * Production Staff, 0764). Draft-capable via the inline status select
  * (`is_draft` persists exactly as before; short_name mirrors name).
  */
 const descriptor: SimpleMasterDescriptor<EmployeeCategory> = {
@@ -38,9 +40,23 @@ const descriptor: SimpleMasterDescriptor<EmployeeCategory> = {
       options: EMPLOYEE_CATEGORY_FOR.map((f) => ({ value: f.value, label: f.label })),
       widthClass: "w-36",
     },
+    {
+      // Which of the three fixed groups this category keeps the hours of
+      // (client 2026-10-28: "Male Staff" and "Female Staff" both → Staff).
+      // The hours themselves are on Master Data ▸ HR ▸ Work Timing.
+      key: "timing_group",
+      label: "Timing Group",
+      kind: "select",
+      required: true,
+      options: TIMING_GROUPS.map((g) => ({ value: g.value, label: g.label })),
+      widthClass: "w-44",
+    },
   ],
-  fromRow: (r) => ({ name: r.name, for_type: r.for_type }),
-  searchText: (r) => [r.name, r.for_type].filter(Boolean).join(" "),
+  fromRow: (r) => ({ name: r.name, for_type: r.for_type, timing_group: r.timing_group ?? "" }),
+  searchText: (r) =>
+    [r.name, r.for_type, TIMING_GROUPS.find((g) => g.value === r.timing_group)?.label]
+      .filter(Boolean)
+      .join(" "),
   statusOf: (r) => (r.is_draft ? "draft" : r.inactive ? "inactive" : "active"),
   // Offers near-matching names — the curated vocabulary above plus the
   // rows already in THIS master — while typing;
@@ -51,6 +67,7 @@ const descriptor: SimpleMasterDescriptor<EmployeeCategory> = {
     short_name: String(v.name) || null,
     name: String(v.name),
     for_type: String(v.for_type),
+    timing_group: String(v.timing_group) as "staff" | "security" | "production_staff",
     inactive: !s.active && !s.draft,
     is_draft: s.draft,
   }),

@@ -25,6 +25,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardBody } from "@/components/ui/card";
 import { useToast } from "@/components/ui/toast";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 
 const DEFAULTS: PieceRecordInput = {
   worker_id: "",
@@ -67,6 +68,9 @@ export default function PieceRecordsClient({
     ...DEFAULTS,
     work_date: selectedDate,
   });
+  // The entry form is editable local state: hold the silent deploy reload
+  // while it is open or a save is in flight (AGENTS.md ▸ Auto-reload guard).
+  useUnsavedGuard(showForm || isPending);
 
   function navigate() {
     const params = new URLSearchParams();
