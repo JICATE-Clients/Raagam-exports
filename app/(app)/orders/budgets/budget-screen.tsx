@@ -4417,7 +4417,10 @@ export function BudgetScreen({
             (form.description || (editId ? "Budget" : "New budget")),
           badges: (
             <span className="flex items-center gap-2">
-              <StatusPill tone={budgetStatusTone(status)}>{budgetStatusText(status)}</StatusPill>
+              {/* No editId = never saved = Draft; a saved `draft` reads Under Progress. */}
+              <StatusPill tone={budgetStatusTone(editId ? status : null)}>
+                {budgetStatusText(editId ? status : null)}
+              </StatusPill>
               {latestRevision && (
                 <span className="text-[11px] font-medium text-muted-foreground">
                   Revision {latestRevision.revision_no}

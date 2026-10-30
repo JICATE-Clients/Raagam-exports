@@ -33,12 +33,26 @@ import { statusTone, type StatusTone } from "@/lib/ui/status-tone";
 export const BUDGET_STATUSES = ["draft", "submitted", "approved", "rejected"] as const;
 export type BudgetStatus = (typeof BUDGET_STATUSES)[number];
 
-export function budgetStatusText(s: BudgetStatus): string {
+/**
+ * THE BUDGET'S WORD FOR ITS STATE — Draft · Under Progress · Pending Approval ·
+ * Approved (client 2026-10-30: "a budget entry should only remain in Draft
+ * until it is saved; once saved it must transition to Under Progress").
+ *
+ * The stored `draft` is NOT renamed: a budget row only exists once Save has
+ * run, so every `draft` row IS a saved budget the merchandiser is still
+ * verifying — Under Progress. "Draft" belongs to the one budget with no row
+ * yet, which the editor says by passing `null` (no `editId`). Renaming the
+ * column value instead would reach every lock trigger that reads it (0576 ·
+ * 0617 · 0652 · 0653) for a change that is only ever about the word.
+ */
+export function budgetStatusText(s: BudgetStatus | null): string {
   switch (s) {
-    case "draft":
+    case null:
       return "Draft";
+    case "draft":
+      return "Under Progress";
     case "submitted":
-      return "Awaiting approval";
+      return "Pending Approval";
     case "approved":
       return "Approved";
     default:
@@ -46,8 +60,10 @@ export function budgetStatusText(s: BudgetStatus): string {
   }
 }
 
-export function budgetStatusTone(s: BudgetStatus): StatusTone {
-  return statusTone(s);
+/** Tone follows the WORD: a saved `draft` is Under Progress (info), and only
+ *  the unsaved one (`null`) keeps Draft's neutral. */
+export function budgetStatusTone(s: BudgetStatus | null): StatusTone {
+  return statusTone(s === null ? "draft" : s === "draft" ? "in_progress" : s);
 }
 
 /**

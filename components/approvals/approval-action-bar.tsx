@@ -65,6 +65,7 @@ export function ApprovalActionBar({
   acknowledge = false,
   compact = false,
   overrideNote = true,
+  directApprove = false,
 }: {
   run: ActionBarRun;
   verdict: CanActVerdict;
@@ -104,6 +105,16 @@ export function ApprovalActionBar({
    * someone who did not realise they were overriding cannot explain it later.
    */
   overrideNote?: boolean;
+  /**
+   * ONE-CLICK APPROVE (client 2026-10-30, PO Approval: "within budget … directly
+   * approve it with 1 click, without popping up a modal asking for a reason").
+   * Approve acts at once instead of opening the confirm. Only the CALLER knows
+   * whether the document needs a second look (a PO above or without a budget
+   * does), so it is opt-in per call site. Ignored on an override, where the
+   * database demands a reason and the confirm is what asks for it. Reject /
+   * Request Rework always keep their confirm: they always need a reason.
+   */
+  directApprove?: boolean;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -145,9 +156,9 @@ export function ApprovalActionBar({
     : false;
   const canSubmit = !commentRequired || comment.trim().length > 0;
 
-  function submit() {
-    if (!pending) return;
-    const action = pending;
+  function submit(direct?: RunAction) {
+    const action = direct ?? pending;
+    if (!action) return;
     const note = comment.trim();
     /* FILE NOT RECEIVED leads the remark with the fixed reason — the marker
        `isFileNotReceived` reads back on every PD screen (lib/sales/pd-requests/words.ts). */
@@ -271,7 +282,7 @@ export function ApprovalActionBar({
           <Button
             type="button"
             size="sm"
-            onClick={() => setPending("approve")}
+            onClick={() => (directApprove && !isOverride ? submit("approve") : setPending("approve"))}
             disabled={isPending}
           >
             <Check className="h-4 w-4" aria-hidden />
@@ -326,7 +337,7 @@ export function ApprovalActionBar({
             <Button
               type="button"
               size="md"
-              onClick={submit}
+              onClick={() => submit()}
               disabled={!canSubmit || isPending}
             >
               {pending ? COPY[pending].verb : ""}

@@ -34,7 +34,7 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { Sheet } from "@/components/ui/sheet";
 import { DetailSection } from "@/components/masters/detail-section";
 import { StatusPill } from "@/components/ui/status-pill";
-import { QUICK_WORDS_4, useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
+import { QUICK_WORDS_3, useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
 import { Truncated } from "@/components/ui/truncated";
 import { Tooltip } from "@/components/ui/tooltip";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
@@ -122,7 +122,8 @@ const ORDERS_BOX_W = SHEET_BOX_W;
  *    is waiting on, and what it opens on.
  *  - Updated — `approved` / `rejected`: decided. The Order Revisions register
  *    reads both the same way.
- *  - Draft — not yet submitted, still with the merchandiser.
+ *  - Under Progress — saved, not yet submitted, still with the merchandiser
+ *    (a `draft` row; since 2026-10-30 no budget on this queue reads Draft).
  *
  * STATED AS A MAP, NOT AS THREE TESTS IN THE FILTER. Those three tests were
  * what let a draft show under Updated as well as Draft on the Budgeting queue
@@ -139,7 +140,9 @@ const APPROVAL_WORD: Record<BudgetStatus, QuickWord> = {
   submitted: "pending",
   approved: "approved",
   rejected: "progress",
-  draft: "draft",
+  // A saved budget is Under Progress (client 2026-10-30) — there is no Draft
+  // row to file, so this queue's box has no Draft word (QUICK_WORDS_3).
+  draft: "progress",
 };
 const approvalWord = (r: BudgetApprovalRow): QuickWord => APPROVAL_WORD[r.status];
 
@@ -317,7 +320,7 @@ export function BudgetApprovalScreen({
     });
   }, [rows, cards, facetMatch, search]);
   const quick = useQuickStatus(approvalWord, {
-    words: QUICK_WORDS_4,
+    words: QUICK_WORDS_3,
     standDown: !!facets.values.status,
     onPick: () => setFacet("status", ""),
     countRows: base,

@@ -47,7 +47,7 @@ import { useToast } from "@/components/ui/toast";
 import { RecordPicker, type PickerItem } from "@/components/masters/record-picker";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 import { FilterBar } from "@/components/ui/filter-bar";
-import { QUICK_WORDS_4, useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
+import { QUICK_WORDS_3, useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
 import {
   createdByFacet,
   createdDateFacet,
@@ -66,6 +66,7 @@ import { stageRank } from "@/lib/orders/fabric-bom/stage-routes";
 import { IWO_FOR, IWO_FOR_LABELS, type IwoFor } from "@/lib/orders/internal-work-orders/types";
 import { budgetTotals, isRefusal, lineAmount, lineInrRate } from "@/lib/orders/budget/totals";
 import { lineInputOf } from "@/lib/orders/budget/figures";
+import { BUDGET_STATUSES, budgetStatusText, budgetStatusTone } from "@/lib/orders/budget/types";
 import type { IwoBudgetSource, IwoPulledLine } from "@/lib/orders/iwo-budget/pull";
 import {
   IWO_BUDGET_GRIDS,
@@ -293,14 +294,10 @@ type Form = { iwo_id: string | null; budget_date: string; remark: string };
 /* PENDING · UNDER PROGRESS · APPROVED · DRAFT (user 2026-10-15). Submitted
    and Sent back are worked on and not approved, so both are Under Progress —
    before this they read Updated beside the approved budgets. */
+/* A SAVED BUDGET IS UNDER PROGRESS (client 2026-10-30) — Draft is only the
+   budget not saved yet, which has no row, so the box drops it (QUICK_WORDS_3). */
 const budgetWord = (t: IwoBudgetTask): QuickWord =>
-  !t.budget
-    ? "pending"
-    : t.budget.status === "approved"
-      ? "approved"
-      : t.budget.status === "draft"
-        ? "draft"
-        : "progress";
+  !t.budget ? "pending" : t.budget.status === "approved" ? "approved" : "progress";
 
 /**
  * THE LIST'S FILTERS — the grouped drawer (user, 2026-09-23: "implement the
@@ -322,10 +319,8 @@ const IWO_BUDGET_FACETS: FacetGroup<IwoBudgetTask>[] = [
         counted: true,
         options: [
           { value: "none", label: "Not started" },
-          { value: "draft", label: "Draft" },
-          { value: "submitted", label: "Submitted" },
-          { value: "approved", label: "Approved" },
-          { value: "rejected", label: "Rejected" },
+          // The budget's own words (`budgetStatusText`), never re-typed here.
+          ...BUDGET_STATUSES.map((s) => ({ value: s, label: budgetStatusText(s) })),
         ],
         match: (t, v) => (t.budget?.status ?? "none") === v,
       },
@@ -431,7 +426,7 @@ export function IwoBudgetScreen({
     });
   }, [tasks, listQuery, facetMatches]);
   const quick = useQuickStatus(budgetWord, {
-    words: QUICK_WORDS_4,
+    words: QUICK_WORDS_3,
     standDown: !!listFacets.values.budget,
     onPick: () => listFacets.set("budget", ""),
     countRows: base,
@@ -773,14 +768,8 @@ export function IwoBudgetScreen({
       cell: (t) =>
         !t.budget ? (
           <StatusPill tone="neutral">Not started</StatusPill>
-        ) : t.budget.status === "approved" ? (
-          <StatusPill tone="success">Approved</StatusPill>
-        ) : t.budget.status === "submitted" ? (
-          <StatusPill tone="info">Submitted</StatusPill>
-        ) : t.budget.status === "rejected" ? (
-          <StatusPill tone="danger">Rejected</StatusPill>
         ) : (
-          <StatusPill tone="warning">Draft</StatusPill>
+          <StatusPill tone={budgetStatusTone(t.budget.status)}>{budgetStatusText(t.budget.status)}</StatusPill>
         ),
     },
     rowActionsColumn((t) => (

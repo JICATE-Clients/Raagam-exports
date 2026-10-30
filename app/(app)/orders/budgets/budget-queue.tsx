@@ -7,7 +7,7 @@ import { FilterBar } from "@/components/ui/filter-bar";
 import { ViewToggle, useViewMode } from "@/components/ui/view-toggle";
 import { flagFacet, urgencyFacet, useFacetFilter, type FacetGroup } from "@/components/ui/filter-drawer";
 import { StatusPill } from "@/components/ui/status-pill";
-import { DaysOut, QUICK_WORDS_4, useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
+import { DaysOut, QUICK_WORDS_3, useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
 import { GlowRecordCard } from "@/app/(app)/sales/sample-costing/costing-card";
 import { CardAction, CardDeleteAction, DUO } from "@/components/ui/card-action";
 import { PaginationBar } from "@/components/ui/pagination";
@@ -94,8 +94,10 @@ const budgetWord = (o: BudgetableOrder): QuickWord => {
      rework, is worked on and not approved — Under Progress. A revision with
      the MD used to be forced to Pending and every other saved budget read
      Updated; Approved now holds only what the MD approved. */
+  /* A SAVED BUDGET IS UNDER PROGRESS (client 2026-10-30): Draft is only the
+     budget nobody has saved yet, and that has no row to list — so the box
+     drops the Draft word (QUICK_WORDS_3) rather than count it at zero. */
   if (s === "none") return "pending";
-  if (s === "draft") return "draft";
   if (s === "approved") return "approved";
   return "progress";
 };
@@ -247,7 +249,7 @@ export function BudgetQueue({
     });
   }, [ready, query, facetMatch]);
 
-  const quick = useQuickStatus(budgetWord, { countRows: base, words: QUICK_WORDS_4 });
+  const quick = useQuickStatus(budgetWord, { countRows: base, words: QUICK_WORDS_3 });
   const quickMatches = quick.matches;
 
   const filtered = useMemo(() => base.filter(quickMatches), [base, quickMatches]);
