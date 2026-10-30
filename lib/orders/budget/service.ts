@@ -628,12 +628,8 @@ export type PulledCostLine = {
    *  one process on two styles — or two components — two lines. */
   style_ref_no: string | null;
   component_id: string | null;
-  /** CMT breakup (0574) — always null when pulled; the planner breaks it up. */
-  cutting_rate: number | null;
-  making_rate: number | null;
-  checking_rate: number | null;
-  ironing_rate: number | null;
-  packing_rate: number | null;
+  /** CMT breakup (0771) — always null when pulled; the planner breaks it up. */
+  cmt_ops: null;
   /** Expense / Income Head (0575) — always null: nothing pulled is an
    *  "other" line. Carried so a pulled line spreads into a saved one whole. */
   cost_head_id: string | null;
@@ -662,11 +658,7 @@ const PULLED_DEFAULTS = {
   no_of_units: null,
   style_ref_no: null,
   component_id: null,
-  cutting_rate: null,
-  making_rate: null,
-  checking_rate: null,
-  ironing_rate: null,
-  packing_rate: null,
+  cmt_ops: null,
   cost_head_id: null,
   stage_id: null,
   from_bom: true,
@@ -2080,11 +2072,29 @@ async function getBudgetHeadLookups(): Promise<ConfigLookup[]> {
     /* The stage lists ride along (0590): Yarn Purchases' Stage lists the
        `yarn_stage` rows the Fabric BOM's Yarn Process lists, and Fabric
        Purchases' the `fabric_stage` rows its Fabric Process lists. */
-    .in("kind", ["expense_head", "income_head", "yarn_stage", "fabric_stage"])
+    /* `size` (2026-10-30) — not a picker: Accessories Purchases reads the names
+       to tell which part of a pulled line's slice is its SIZE, so the size lines
+       of one trim fold under one Size-wise rate row. */
+    .in("kind", ["expense_head", "income_head", "yarn_stage", "fabric_stage", "size"])
     .order("name");
   // An empty picker reads as "no heads set up" — say the real reason instead.
   if (error) throw new Error(`Could not read the expense and income heads: ${error.message}`);
   return (data ?? []) as ConfigLookup[];
+}
+
+/**
+ * The CMT operations (Master Data ▸ Materials ▸ CMT Processes, 0735) the CMT
+ * breakup picks from (0771) — the same list the Sample Costing's CMT table
+ * offers. Inactive rows are SELECTED, not filtered (AGENTS.md "Disabled rows"):
+ * the sheet hides them from new choices and keeps the one a line holds.
+ */
+export type CmtProcessRow = { id: string; name: string; inactive: boolean };
+
+async function getCmtProcessRows(): Promise<CmtProcessRow[]> {
+  const s = await createClient();
+  const { data, error } = await s.from("cmt_processes").select("id, name, inactive").order("name");
+  if (error) throw new Error(`Could not read the CMT operations: ${error.message}`);
+  return (data ?? []) as CmtProcessRow[];
 }
 
 export type CurrencyRow = { code: string; name: string };
@@ -2107,16 +2117,19 @@ export type BudgetFormData = {
    *  lists (`yarn_stage`, `fabric_stage`; 0590) — filter by `kind` at the use
    *  site. */
   lookups: ConfigLookup[];
+  /** CMT operations for the CMT breakup (0771). */
+  cmtProcesses: CmtProcessRow[];
 };
 
 export async function getBudgetFormData(): Promise<BudgetFormData> {
-  const [orders, items, uoms, currencies, processes, lookups] = await Promise.all([
+  const [orders, items, uoms, currencies, processes, lookups, cmtProcesses] = await Promise.all([
     listBudgetableOrders(),
     getItemRows(),
     getUomRows(),
     getCurrencies(),
     getProcessRows(),
     getBudgetHeadLookups(),
+    getCmtProcessRows(),
   ]);
-  return { orders, items, uoms, currencies, processes, lookups };
+  return { orders, items, uoms, currencies, processes, lookups, cmtProcesses };
 }

@@ -642,6 +642,12 @@ export function ApprovalsInboxScreen({
                 decideRow.workflow_key === WORKFLOWS.order_budget.key ||
                 decideRow.workflow_key === WORKFLOWS.purchase_order.key
               }
+              /* A PO WITHIN BUDGET IS APPROVED IN ONE CLICK (client 2026-10-30) —
+                 no confirm, no remark. Above budget, without a budget, or figures
+                 unreadable (`overCount` null) keeps the confirm and its comment. */
+              directApprove={
+                !!decidePo && decidePo.overCount === 0 && !decidePo.unbudgetedCount
+              }
             />
           </div>
         </Sheet>

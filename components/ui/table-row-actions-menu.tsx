@@ -1,16 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Eye, Pencil, Trash2 } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 import { DropdownMenu, type DropdownItem } from "@/components/ui/dropdown-menu";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { useRowRecord } from "@/components/ui/row-actions";
 // Same layering compromise `row-actions.tsx` already makes and documents:
 // `components/ui` reaching into `components/masters` for the view sheet is
 // backwards, and deliberate — the alternative is a second read-only sheet with
 // the same job. There is no cycle; record-view-sheet imports neither file.
-import { RecordViewSheet, type ViewSection } from "@/components/masters/record-view-sheet";
-import { pairsFromRow, titleFromRow } from "@/lib/record-pairs";
+import type { ViewSection } from "@/components/masters/record-view-sheet";
 
 /**
  * THE ROW ACTIONS CELL AS A SINGLE ⋮ MENU — View / Edit / Delete behind one
@@ -117,19 +115,17 @@ export function TableRowActionsMenu({
   menu?: DropdownItem[];
 }) {
   const [confirming, setConfirming] = useState(false);
-  const [viewing, setViewing] = useState(false);
-  const contextRow = useRowRecord();
 
   const suffix = label ? ` ${label}` : "";
 
-  // THE EYE IS ON BY DEFAULT — see the note above. Opt out with `view={false}`.
-  const record = row ?? contextRow;
-  const autoView = !onView && view !== false && record != null;
-  const handleView = onView ?? (autoView ? () => setViewing(true) : undefined);
+  // NO VIEW AND NO DETAILS (client 2026-10-30, as `RowActions`). `onView`,
+  // `view` and `row` are accepted so call sites compile, and add no item.
+  void view;
+  void row;
+  void onView;
 
   const items: DropdownItem[] = [];
 
-  if (handleView) items.push({ label: "View", icon: Eye, onClick: handleView });
   if (onEdit && canEdit) items.push({ label: "Edit", icon: Pencil, onClick: onEdit });
 
   // A caller's own items keep any separator they declared; otherwise the first
@@ -155,16 +151,6 @@ export function TableRowActionsMenu({
       <div className="flex items-center justify-end">
         <DropdownMenu items={items} label={`Actions${suffix}`} align="right" />
       </div>
-      {autoView && viewing && (
-        <RecordViewSheet
-          open
-          onClose={() => setViewing(false)}
-          title={label || titleFromRow(record)}
-          sections={
-            Array.isArray(view) ? view : [{ label: "Details", pairs: pairsFromRow(record) }]
-          }
-        />
-      )}
       <ConfirmDialog
         open={confirming}
         title={`${deleteLabel}${suffix || " this record"}?`}

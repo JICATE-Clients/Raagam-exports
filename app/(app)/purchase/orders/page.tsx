@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { FileText } from "lucide-react";
 import { requirePermission, can } from "@/lib/auth/server";
 import {
   listPurchaseOrders,
@@ -15,6 +16,8 @@ import { PageHeader } from "@/components/ui/page-header";
 import { DataTable } from "@/components/ui/data-table";
 import type { Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
+import { buttonClasses } from "@/components/ui/button";
+import { Tooltip } from "@/components/ui/tooltip";
 import type { StatusTone } from "@/components/ui/status-pill";
 import { NewPoForm } from "./new-po-form";
 import type { PoWithVendor } from "@/lib/purchase/po-service";
@@ -75,6 +78,37 @@ const columns: Column<PoWithVendor>[] = [
         {fmtMoney(r.total_amount, r.currency_code)}
       </span>
     ),
+  },
+  {
+    /* THE ROW'S REPORT ICON OPENS THE PO'S REPORT — the print (client 2026-10-30:
+       "that report icon needs to open the report of the entry"). A plain Link, as
+       this is a server page and cannot hand a handler or an icon component to a
+       client one. Greyed until approved, saying why (Row actions: a locked action
+       stays visible) — the same rule PO Approval's print icon uses. */
+    header: "",
+    align: "right",
+    cell: (r) =>
+      ["draft", "pending_approval", "cancelled"].includes(r.status) ? (
+        <Tooltip label="Print opens once the PO is approved" touch>
+          <span
+            aria-disabled
+            aria-label={`PO print ${r.code ?? ""} — print opens once the PO is approved`}
+            className={`${buttonClasses({ variant: "ghost", size: "icon" })} cursor-not-allowed text-muted-foreground opacity-50`}
+          >
+            <FileText aria-hidden />
+          </span>
+        </Tooltip>
+      ) : (
+        <Tooltip label="PO print">
+          <Link
+            href={`/purchase/orders/${r.id}/print`}
+            aria-label={`PO print ${r.code ?? ""}`}
+            className={`${buttonClasses({ variant: "ghost", size: "icon" })} text-primary`}
+          >
+            <FileText aria-hidden />
+          </Link>
+        </Tooltip>
+      ),
   },
 ];
 

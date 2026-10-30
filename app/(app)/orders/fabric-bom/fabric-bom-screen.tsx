@@ -63,7 +63,6 @@ import { Button } from "@/components/ui/button";
 import { RowHoverRemove } from "@/components/ui/row-hover-remove";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { isInactive } from "@/lib/masters/inactive";
 /* A Combobox, so the Manual sheet's Table width cell PICKS rather than accepts:
    typed text in one is a SEARCH and is never committed (`commit` in
    combobox.tsx). That is what makes the declared dia list mean something. */
@@ -5555,46 +5554,10 @@ export function FabricBomScreen({
         />
       ),
     },
-    /* GAUGE AND LOOP LENGTH (user 2026-10-28, 0762) — the cloth's construction,
-       typed ONCE here by the merchandiser and read, never retyped, by the
-       knitter's PO (Raise PO shows them read-only and prints them). Optional:
-       a BOM saved before 0762 has neither, and the PO prints nothing for it. */
-    {
-      header: "Gauge",
-      cell: (e) => (
-        <Select
-          compact
-          aria-label="Gauge"
-          value={e.gauge_id}
-          onChange={(ev) => setEntryCell(e.key, { gauge_id: ev.target.value })}
-        >
-          <option value="" />
-          {/* A switched-off gauge is offered to nobody, except the entry that
-              already holds it (AGENTS.md, Disabled rows). */}
-          {data.gauges
-            .filter((g) => !isInactive(g) || g.id === e.gauge_id)
-            .map((g) => (
-              <option key={g.id} value={g.id}>
-                {g.name}
-                {isInactive(g) ? " (inactive)" : ""}
-              </option>
-            ))}
-        </Select>
-      ),
-    },
-    {
-      header: "Loop Length",
-      align: "right",
-      cell: (e) => (
-        <Input
-          className="text-right"
-          inputMode="decimal"
-          aria-label="Loop Length (mm)"
-          value={e.loop_length}
-          onChange={(ev) => setEntryCell(e.key, { loop_length: ev.target.value })}
-        />
-      ),
-    },
+    /* GAUGE AND LOOP LENGTH ARE OFF THIS GRID (user 2026-10-30: "only for PO"). 0762 put
+       them here for the knitter's PO to read; they are now typed on Raise PO's fabric
+       row instead. The entry still round-trips `gauge_id` / `loop_length` untouched, so
+       a value typed before today is kept and still seeds that PO row. */
     /* COMPONENT PROC. LOSS % IS OFF THIS GRID (client redesign, point 1: it
        "prevented confusion with the sequential fabric process losses
        configured in the next tab"). `wastage_pct` is UNCHANGED in the schema
@@ -5918,10 +5881,6 @@ export function FabricBomScreen({
     "Assort Colour-Wise": "minmax(6.5rem,1fr)",
     "Size Wise": "minmax(4.5rem,0.8fr)",
     "EndBit Loss %": "minmax(6.5rem,0.9fr)",
-    /* 0762: a gauge name ("24 GG") and a loop length ("2.850") — short values,
-       floors sized to their headings. The floors now sum to 66.25rem. */
-    Gauge: "minmax(6rem,0.8fr)",
-    "Loop Length": "minmax(6.5rem,0.8fr)",
     Components: "minmax(6.75rem,1.1fr)",
     "Assort Color": "minmax(6rem,0.9fr)",
   };

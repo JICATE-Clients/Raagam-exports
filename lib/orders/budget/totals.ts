@@ -274,7 +274,7 @@ export type LineField = "qty" | "no_of_pcs" | "no_of_units" | "rate" | "ex_rate"
  * TOTAL (sales, cost, a margin) is about no single field, and says so by
  * leaving it out.
  */
-export type Refusal = { refused: string; field?: LineField | CmtOperationKey };
+export type Refusal = { refused: string; field?: LineField | "cmt_ops" };
 
 /** A refusal about one line — always names its field. What `lineAmount`,
  *  `lineInrRate` and `lineReqd` return, so a caller never has to guess. */
@@ -1305,30 +1305,19 @@ export function carryRate(
 }
 
 // ---------------------------------------------------------------------------
-// CMTs — the optional per-operation breakup of a CMT rate (0574)
+// CMTs — the optional per-operation breakup of a CMT rate (0574 · 0771)
 // ---------------------------------------------------------------------------
 
-export type CmtOperationKey =
-  | "cutting_rate"
-  | "making_rate"
-  | "checking_rate"
-  | "ironing_rate"
-  | "packing_rate";
-
-/** A CMT line's breakup, per piece, in INR. Every operation optional. */
-export type CmtBreakup = Partial<Record<CmtOperationKey, number | null>>;
-
 /**
- * The five operations, in the order a garment goes through them. "Sewing /
- * Making" is ONE operation with the client's two names for it, not two.
+ * One CMT operation of a line's breakup (0771) — an operation from Master Data
+ * ▸ Materials ▸ CMT Processes and its rate per piece, in INR. The Sample
+ * Costing's CMT table, as a list on the budget line (`cmt_ops`). `name` rides
+ * beside the id so a report prints it after the master row is renamed.
+ *
+ * Replaced 0574's five fixed operations (client 2026-10-30: "CMT breakup
+ * connect with master like costing operation").
  */
-export const CMT_OPERATIONS: readonly { key: CmtOperationKey; label: string }[] = [
-  { key: "cutting_rate", label: "Cutting" },
-  { key: "making_rate", label: "Sewing / Making" },
-  { key: "checking_rate", label: "Checking" },
-  { key: "ironing_rate", label: "Ironing" },
-  { key: "packing_rate", label: "Packing" },
-];
+export type CmtOp = { cmt_process_id: string | null; name: string; rate: number | null };
 
 /**
  * Round to 4dp the way Postgres rounds a `numeric(14,4)`: half away from zero
@@ -1359,14 +1348,14 @@ export function round4(n: number): number {
  *
  * `rate` stays THE rate for every reader (`lineAmount`, the totals, the
  * purchase ceiling); the breakup only explains it. 0574's check holds the two
- * together — whenever any operation is set, `rate` must EQUAL their sum — so
+ * together (0771's `chk_obl_cmt_ops`) — whenever an operation is picked,
+ * `rate` must EQUAL their sum — so
  * the rate is not typed beside a breakup, it is DERIVED from it, here.
  *
  * ## WHY THE ROUNDING IS EXACTLY THIS
  *
- * The five columns and `rate` are all `numeric(14,4)`. Postgres rounds each
- * operation to 4dp on write, then adds them exactly (numeric is decimal, not
- * binary). So this rounds each value to 4dp FIRST — to what will be stored —
+ * `rate` is `numeric(14,4)`, and `obl_cmt_ops_total` rounds each operation
+ * to 4dp before adding them exactly (numeric is decimal, not binary). So this rounds each value to 4dp FIRST — to what will be stored —
  * sums, and rounds the sum to 4dp again. The second rounding changes no
  * decimal answer; it removes binary noise (0.1 + 0.2 is 0.30000000000000004),
  * so the rate the screen shows is the rate the row will hold. Skip the FIRST
@@ -1374,28 +1363,29 @@ export function round4(n: number): number {
  * gives 6.1728 against a stored breakup of 5 x 1.2346 = 6.1730: a save the
  * database rejects over a digit nobody typed.
  *
- * ## BLANK IS "NO BREAKUP"; 0 IS AN OPERATION DONE FREE
+ * ## NO OPERATION IS "NO BREAKUP"; A BLANK RATE IS AN OPERATION DONE FREE
  *
- * All five blank → null, and the typed rate stands: the breakup is optional,
- * and a single rate typed straight in is the fast path. But a 0 is a real
- * answer — the buyer irons, packing is in the making charge — so a breakup of
- * zeros is a breakup, and its total is 0, not null.
+ * No operation picked → null, and the typed rate stands: the breakup is
+ * optional, and a single rate typed straight in is the fast path. A picked
+ * operation with its rate left blank adds 0 — the buyer irons, packing is in
+ * the making charge — exactly as Postgres's `sum` skips a null.
  *
  * A negative operation is refused and named, for `lineAmount`'s reason: a
  * negative charge is a credit wearing the wrong label. Not-a-number counts as
  * blank, the way `num` reads every other figure here.
  */
-export function cmtBreakupTotal(b: CmtBreakup): number | Refusal | null {
-  let any = false;
+export function cmtBreakupTotal(ops: readonly CmtOp[] | null | undefined): number | Refusal | null {
+  // A line with no operation picked is the blank end row — not part of it.
+  const picked = (ops ?? []).filter((o) => o.cmt_process_id);
+  if (!picked.length) return null;
   let sum = 0;
-  for (const op of CMT_OPERATIONS) {
-    const v = num(b[op.key]);
+  for (const o of picked) {
+    const v = num(o.rate);
     if (v == null) continue;
-    if (v < 0) return { refused: `${op.label} rate cannot be negative`, field: op.key };
-    any = true;
+    if (v < 0) return { refused: `${o.name || "An operation"} rate cannot be negative`, field: "cmt_ops" };
     sum += round4(v);
   }
-  return any ? round4(sum) : null;
+  return round4(sum);
 }
 
 // ---------------------------------------------------------------------------

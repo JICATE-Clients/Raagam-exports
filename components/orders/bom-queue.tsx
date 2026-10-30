@@ -205,6 +205,10 @@ export function BomQueuePill({ status }: { status: BomStatus }) {
 export type QuickWord = "pending" | "updated" | "draft" | "progress" | "approved";
 /** The four-word box, in the order the user listed it. */
 export const QUICK_WORDS_4: readonly QuickWord[] = ["pending", "progress", "approved", "draft"];
+/** The same box without Draft, for a document that has NO saved-but-draft
+ *  state — a budget is Under Progress from its first Save (client 2026-10-30),
+ *  so a Draft word there would only ever count zero. */
+export const QUICK_WORDS_3: readonly QuickWord[] = ["pending", "progress", "approved"];
 /** The figure beside each word. Partial because a word with no rows is absent
  *  rather than zero — `StatusSegment` draws the `?? 0`, so the two readers
  *  (this box and the server-counted one below) cannot print it differently. */

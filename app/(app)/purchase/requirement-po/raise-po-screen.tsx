@@ -2,7 +2,7 @@
 
 import { useMemo, useState, type ComponentProps } from "react";
 import { useRouter } from "next/navigation";
-import { Printer } from "lucide-react";
+import { FileText } from "lucide-react";
 import { MasterListShell } from "@/components/masters/master-list-shell";
 import { StatusSegment, type QuickCounts, type QuickWord } from "@/components/orders/bom-queue";
 import type { Column } from "@/components/ui/data-table";
@@ -195,13 +195,24 @@ export function RaisePoScreen({ raised, form }: { raised: RaisedPo[]; form: Form
            actions). Greyed until the PO is approved, saying why, rather than hidden: the
            row is the same PO either way, only its state differs. */
         menuAs: "icons",
+        /* THE REPORT ICON REPORTS THE ENTRY (client 2026-10-30, screenshots
+           3877–3879) — never a view, and on THIS screen never the order sheet:
+           a pending RE / SWO / IWO opens its PURCHASE STATUS (items, the POs
+           raised for each, balance to buy); a PO opens its print. */
         menu: (r) =>
           r.word === "pending"
-            ? []
+            ? [
+                {
+                  // The PURCHASE side of the RE — items, POs raised, balance (not its order sheet).
+                  label: "Purchase status report",
+                  icon: FileText,
+                  onClick: () => router.push(`/purchase/requirement-po/${r.id}/report`),
+                },
+              ]
             : [
                 {
-                  label: r.status === "approved" ? "Print PO" : "Print opens after approval",
-                  icon: Printer,
+                  label: r.status === "approved" ? "PO Report" : "Report opens after approval",
+                  icon: FileText,
                   disabled: r.status !== "approved",
                   onClick: () => router.push(`/purchase/orders/${r.id}/print`),
                 },
