@@ -230,6 +230,8 @@ export async function savePoFromRequirement(raw: RePoInput, mode: "draft" | "sub
     bags: number | null;
     bag_weight: number | null;
     rolls: number | null;
+    gauge: string | null;
+    loop_length: number | null;
   }[] = [];
   for (const l of input.lines) {
     if (l.qty <= 0) continue; // qty 0 = "not ordered on this PO"
@@ -257,6 +259,8 @@ export async function savePoFromRequirement(raw: RePoInput, mode: "draft" | "sub
       bags: l.bags ?? null,
       bag_weight: l.bag_weight ?? null,
       rolls: l.rolls ?? null,
+      gauge: l.gauge ?? null,
+      loop_length: l.loop_length ?? null,
     });
   }
   if (lines.length === 0) return { ok: false, error: "Every line has quantity 0 — there is nothing to order" };
@@ -382,15 +386,15 @@ export async function savePoFromRequirement(raw: RePoInput, mode: "draft" | "sub
       bags: l.bags,
       bag_weight: l.bag_weight,
       rolls: l.rolls ?? 0,
-      /* DIA · GSM · GAUGE · LOOP LENGTH ARE THE FABRIC BOM'S, NEVER TYPED (user 2026-10-30
-         spec; reverses 2026-10-28's "allow user input"). Read off the requirement line the
-         server just re-fetched, so a stale tab or a hand-made request cannot put a figure
-         on the vendor's PO that the plan does not hold. The PO still COPIES them, so it
-         keeps what it said when raised (0762). */
+      /* DIA · GSM ARE THE PLAN'S, NEVER TYPED (user 2026-10-30 spec). Read off the
+         requirement line the server just re-fetched, so a stale tab or a hand-made request
+         cannot put a figure on the vendor's PO that the plan does not hold. GAUGE · LOOP
+         LENGTH are PO-only and typed on Raise PO (user 2026-10-30, off the Fabric BOM).
+         The PO line keeps all four as it said them when raised (0762). */
       dia: bomDiaOf(l.req),
       gsm: lineKindOf(l.req.item_class) === "fabric" ? l.req.gsm : null,
-      gauge: lineKindOf(l.req.item_class) === "fabric" ? l.req.gauge : null,
-      loop_length: lineKindOf(l.req.item_class) === "fabric" ? l.req.loop_length : null,
+      gauge: lineKindOf(l.req.item_class) === "fabric" ? l.gauge : null,
+      loop_length: lineKindOf(l.req.item_class) === "fabric" ? l.loop_length : null,
       quantity: l.qty,
       uom_id: l.req.uom_id,
       unit_price: l.rate ?? 0,

@@ -52,9 +52,9 @@ export type RequirementLine = {
   slice_base: string;
   /**
    * THE CLOTH'S CONSTRUCTION (user 2026-10-28, `po_fabric_specs` 0762) — RE fabric lines
-   * only, NULL on everything else. Read from planning and never typed here: GSM off the
-   * order's colourway, Gauge and Loop Length off the Fabric BOM ▸ Manual entry. The save
-   * copies them onto the PO line for the vendor print.
+   * only, NULL on everything else. GSM is read off the order's colourway and never typed.
+   * Gauge and Loop Length are typed on Raise PO (2026-10-30); the values here are only a
+   * Fabric BOM entry's from before then, used to pre-fill the two boxes.
    */
   gsm: number | null;
   gauge: string | null;
@@ -196,9 +196,19 @@ export const rePoLineInput = z.object({
   /** Yarn (0758): whole bags and the kg in one; qty is their product. Both or neither. */
   bags: z.number().int().min(0).nullish().transform((v) => v ?? null),
   bag_weight: z.number().positive().nullish().transform((v) => v ?? null),
-  /** Fabric (0758): rolls — the one thing the Purchase Manager types. Dia, GSM, Gauge and
-   *  Loop length are NOT input: the save reads them off the Fabric BOM (user 2026-10-30). */
+  /** Fabric (0758): rolls — typed. Dia and GSM are NOT input: the save reads them off the
+   *  Fabric BOM and the order (user 2026-10-30). */
   rolls: z.number().int().min(0).nullish().transform((v) => v ?? null),
+  /** Fabric: Gauge and Loop length — TYPED HERE, they are PO-only facts (user 2026-10-30,
+   *  taken off Fabric BOM ▸ Manual entry). Blank → null. */
+  gauge: z
+    .string()
+    .trim()
+    .max(40, "A gauge is at most 40 characters")
+    .toUpperCase()
+    .nullish()
+    .transform((v) => (v ? v : null)),
+  loop_length: z.number().positive().nullish().transform((v) => v ?? null),
   /** This line's GST % (0756); null / absent = the PO's default slab. */
   gst_pct: z
     .number()

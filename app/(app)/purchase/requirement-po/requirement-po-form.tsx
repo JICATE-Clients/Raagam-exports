@@ -109,8 +109,11 @@ type RowState = {
   /** Yarn (0758): whole bags and the kg in one — qty is their product. */
   bags?: string;
   bagWt?: string;
-  /** Fabric (0758): rolls — typed. Dia, GSM, Gauge, Loop length are the Fabric BOM's (2026-10-30). */
+  /** Fabric (0758): rolls — typed. Dia and GSM are the plan's (2026-10-30). */
   rolls?: string;
+  /** Fabric: Gauge and Loop length — typed here, PO-only (2026-10-30). Unset = the BOM's old value. */
+  gauge?: string;
+  loopLength?: string;
 };
 
 /**
@@ -1040,8 +1043,10 @@ export function RequirementPoForm({
   /* DIA FROM THE FABRIC BOM (user 2026-10-30) — `bomDiaOf`, the same rule the save reads.
      Shown locked, never typed, so the vendor's PO cannot drift from the plan. */
   const diaOf = (r: GridRow) => bomDiaOf(r) ?? "";
-  /** What goes up to the save for this line's bags / rolls (0758). Dia and the cloth's
-   *  construction are not sent — the save reads them off the Fabric BOM. */
+  /** What goes up to the save for this line's bags / rolls (0758), and a fabric's Gauge and
+   *  Loop length. Dia and GSM are not sent — the save reads them off the plan. */
+  const gaugeOf = (r: GridRow) => r.row.gauge ?? r.gauge ?? "";
+  const loopOf = (r: GridRow) => r.row.loopLength ?? (r.loop_length != null ? String(r.loop_length) : "");
   const materialPayload = (r: GridRow) => {
     const kind = lineKindOf(r.item_class);
     const inBags = bagsOf(r);
@@ -1049,6 +1054,8 @@ export function RequirementPoForm({
       bags: inBags?.bags ?? null,
       bag_weight: inBags?.bagWeight ?? null,
       rolls: kind === "fabric" && (r.row.rolls ?? "") !== "" ? Math.max(0, Math.floor(num(r.row.rolls ?? ""))) : null,
+      gauge: kind === "fabric" ? gaugeOf(r).trim() || null : null,
+      loop_length: kind === "fabric" && num(loopOf(r)) > 0 ? num(loopOf(r)) : null,
     };
   };
   /** How much a bag line goes over To Order (0 when it does not). */
@@ -2569,11 +2576,12 @@ export function RequirementPoForm({
                   ) : (
                     <div className="space-y-1.5">
                     {/* THE SPEC'S SEQUENCE (user 2026-10-30): Dia · GSM · Ply / Gauge · Loop length
-                        · Rolls · Weight. The first four are the Fabric BOM's and LOCKED — Dia off
-                        the requirement row, GSM off the order's colourway, Gauge and Loop length
-                        off Fabric BOM ▸ Manual entry. This reverses 2026-10-28's "allow user
-                        input"; the save reads the same four off the BOM, so the lock is not only
-                        on screen. A readOnly Input drops out of Tab, so Tab lands on Rolls. */}
+                        · Rolls · Weight. Dia and GSM are the plan's and LOCKED — Dia off the
+                        requirement row, GSM off the order's colourway; the save reads both off
+                        the plan, so the lock is not only on screen. Gauge and Loop length are
+                        TYPED here (user 2026-10-30: "only for PO" — taken off Fabric BOM ▸
+                        Manual entry), pre-filled from a BOM entry that held one before then. A
+                        readOnly Input drops out of Tab, so Tab lands on Gauge. */}
                     <div className="grid grid-cols-6 gap-3">
                       <Field label="Dia" htmlFor={`rpo-dia-${r.key}`}>
                         <Input id={`rpo-dia-${r.key}`} readOnly title="From the Fabric BOM" value={diaOf(r)} />
@@ -2588,15 +2596,20 @@ export function RequirementPoForm({
                         />
                       </Field>
                       <Field label="Ply / Gauge" htmlFor={`rpo-gauge-${r.key}`}>
-                        <Input id={`rpo-gauge-${r.key}`} readOnly title="From Fabric BOM ▸ Manual entry" value={r.gauge ?? ""} />
+                        <Input
+                          id={`rpo-gauge-${r.key}`}
+                          maxLength={40}
+                          value={gaugeOf(r)}
+                          onChange={(e) => setRow(r, { gauge: e.target.value })}
+                        />
                       </Field>
                       <Field label="Loop length (mm)" htmlFor={`rpo-loop-${r.key}`}>
                         <Input
                           id={`rpo-loop-${r.key}`}
-                          readOnly
-                          title="From Fabric BOM ▸ Manual entry"
+                          inputMode="decimal"
                           className="text-right tabular-nums"
-                          value={r.loop_length != null ? String(r.loop_length) : ""}
+                          value={loopOf(r)}
+                          onChange={(e) => setRow(r, { loopLength: e.target.value })}
                         />
                       </Field>
                       <Field label="Rolls" htmlFor={`rpo-rolls-${r.key}`}>
