@@ -23,9 +23,9 @@ import { FlipCard } from "@/components/hr/flip-card";
 import { HeroHyperspeed } from "@/components/hr/hero-hyperspeed";
 import { RadarPanel } from "@/components/hr/radar-panel";
 import { CelebrateScene, GroupFigure, HurryScene, TeamScene, WaitingScene, WorkingScene } from "@/components/hr/people-art";
-import { TIMING_GROUPS, timingGroupLabel, isOvernight, shiftMinutes, type TimingGroup } from "@/lib/masters/group-timing-types";
+import { kindLabel, isOvernight, shiftMinutes, type PersonKind } from "@/lib/masters/category-timing-types";
 import type { HrDashboard } from "@/lib/hr/dashboard-service";
-import type { DayStatus, GroupDay, PersonDay } from "@/lib/hr/timing-calc";
+import type { DayStatus, GroupDay, PersonDay, ShiftInfo } from "@/lib/hr/timing-calc";
 import { fmtDate, fmtTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -55,11 +55,17 @@ const C = {
   slate: "#cbd5e1",
 };
 
-const GROUP: Record<TimingGroup, { hex: string; dot: string; chip: string; band: string; shadow: string }> = {
+// Staff and Worker (0774) — hours are per Employee Category now, so the
+// dashboard splits people by which master they live in.
+const GROUP: Record<PersonKind, { hex: string; dot: string; chip: string; band: string; shadow: string }> = {
   staff: { hex: "#4f46e5", shadow: "shadow-indigo-500/20 hover:shadow-indigo-500/30", band: "from-indigo-500 to-violet-600", dot: "bg-sky-400", chip: "bg-indigo-50 text-indigo-700 ring-indigo-600/15 dark:bg-indigo-500/10 dark:text-indigo-300" },
-  security: { hex: "#d97706", shadow: "shadow-orange-500/20 hover:shadow-orange-500/30", band: "from-amber-400 to-orange-500", dot: "bg-amber-400", chip: "bg-amber-50 text-amber-700 ring-amber-600/15 dark:bg-amber-500/10 dark:text-amber-300" },
-  production_staff: { hex: "#0d9488", shadow: "shadow-emerald-500/20 hover:shadow-emerald-500/30", band: "from-emerald-500 to-teal-600", dot: "bg-emerald-400", chip: "bg-teal-50 text-teal-700 ring-teal-600/15 dark:bg-teal-500/10 dark:text-teal-300" },
+  worker: { hex: "#0d9488", shadow: "shadow-emerald-500/20 hover:shadow-emerald-500/30", band: "from-emerald-500 to-teal-600", dot: "bg-emerald-400", chip: "bg-teal-50 text-teal-700 ring-teal-600/15 dark:bg-teal-500/10 dark:text-teal-300" },
 };
+
+/** One line per category: its hours, or that none are set. */
+function shiftLine(x: ShiftInfo): string {
+  return x.timing ? `${fmtTime(x.timing.in_time)} – ${fmtTime(x.timing.out_time)}` : "No timing set";
+}
 
 function clock(ms: number): string {
   return new Date(ms).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "numeric", minute: "2-digit" });
@@ -247,10 +253,10 @@ function Dot({ className }: { className: string }) {
   return <i className={cn("inline-block h-2 w-2 shrink-0 rounded-full", className)} />;
 }
 
-function GroupChip({ group }: { group: TimingGroup }) {
+function GroupChip({ group }: { group: PersonKind }) {
   return (
     <span className={cn("inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] font-medium ring-1 ring-inset", GROUP[group].chip)}>
-      {timingGroupLabel(group)}
+      {kindLabel(group)}
     </span>
   );
 }
@@ -486,7 +492,8 @@ export function HrDashboardView({ data }: { data: HrDashboard }) {
   // Radar blips = punches in the last 15 minutes (the sweep caps them at 16).
   const recentPunches = all.reduce((t, d) => t + d.punches.filter((p) => p >= now - 15 * 60_000).length, 0);
   const allOnline = data.devices.length > 0 && online.length === data.devices.length;
-  const missingTimings = TIMING_GROUPS.filter((g) => !groups.find((x2) => x2.group === g.value)?.timing);
+  // Categories people are in that have no hours today — nobody there is judged.
+  const missingTimings = groups.flatMap((g) => g.shifts).filter((x) => x.categoryId && !x.timing);
 
   const dateLine = new Intl.DateTimeFormat("en-IN", {
     timeZone: "Asia/Kolkata",
@@ -528,7 +535,7 @@ export function HrDashboardView({ data }: { data: HrDashboard }) {
             {groups.map((g) => (
               <span key={g.group} className="inline-flex items-center gap-2 rounded-lg bg-white/15 px-3 py-1.5 text-xs ring-1 ring-white/20 backdrop-blur">
                 <Dot className={GROUP[g.group].dot} />
-                {timingGroupLabel(g.group)}
+                {kindLabel(g.group)}
                 <b className="tabular-nums">
                   {g.people.filter(isPresent).length}/{g.people.length}
                 </b>
@@ -550,29 +557,27 @@ export function HrDashboardView({ data }: { data: HrDashboard }) {
           </div>
         </header>
 
-        {(missingTimings.length > 0 || data.noGroup > 0 || data.unlinkedIds > 0) && (
+        {(missingTimings.length > 0 || data.noCategory > 0 || data.unlinkedIds > 0) && (
           <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/20 dark:bg-amber-500/5 dark:text-amber-200">
             <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
             <ul className="min-w-0 flex-1 space-y-0.5">
               {missingTimings.length > 0 && (
                 <li>
-                  No Punch In / Out set for {missingTimings.map((g) => g.label).join(", ")}, so nobody there is marked late.{" "}
+                  No Punch In / Out set for {missingTimings.map((x) => x.name).join(", ")}, so nobody there is marked late.{" "}
                   <Link href="/masters/hr/work-timing" className="font-semibold underline underline-offset-2">
                     Set Work Timing
                   </Link>
                 </li>
               )}
-              {data.noGroup > 0 && (
+              {data.noCategory > 0 && (
                 <li>
-                  {data.noGroup} enrolled {data.noGroup === 1 ? "person's category has" : "people's categories have"} no Timing Group.{" "}
-                  <Link href="/masters/hr/employee-category" className="font-semibold underline underline-offset-2">
-                    Fix on Employee Category
-                  </Link>
+                  {data.noCategory} enrolled {data.noCategory === 1 ? "person has" : "people have"} no Employee Category, so
+                  no timing applies. Set it on their Staff or Worker record.
                 </li>
               )}
               {data.unlinkedIds > 0 && (
                 <li>
-                  {data.unlinkedIds} device {data.unlinkedIds === 1 ? "ID" : "IDs"} punched today but {data.unlinkedIds === 1 ? "is" : "are"} not linked to anyone in a timing group.
+                  {data.unlinkedIds} device {data.unlinkedIds === 1 ? "ID" : "IDs"} punched today but {data.unlinkedIds === 1 ? "is" : "are"} not linked to any active staff or worker.
                 </li>
               )}
             </ul>
@@ -722,8 +727,8 @@ export function HrDashboardView({ data }: { data: HrDashboard }) {
           </Panel>
         </div>
 
-        {/* ── Timing groups — flip cards: today on the front, the shift on the back ── */}
-        <div className="grid gap-6 lg:grid-cols-3">
+        {/* ── Staff / Worker — flip cards: today on the front, each category's hours on the back ── */}
+        <div className="grid gap-6 lg:grid-cols-2">
           {groups.map((g) => {
             const n = g.people.length;
             const ot = g.people.filter((d) => isPresent(d) && d.lateMin === 0).length;
@@ -737,32 +742,36 @@ export function HrDashboardView({ data }: { data: HrDashboard }) {
               { v: ab, cls: "bg-gradient-to-r from-rose-500 to-pink-500" },
               { v: ni, cls: "bg-slate-200 dark:bg-slate-700" },
             ];
-            // The next dated revision of this group's hours, if one is scheduled.
-            const upcoming = data.timings
-              .filter((t) => t.timing_group === g.group && t.effective_from.slice(0, 10) > g.day)
-              .sort((a, b) => a.effective_from.localeCompare(b.effective_from))[0];
+            // The hours on the front: one line when every category keeps the
+            // same hours, otherwise a count — the back lists them all.
+            const timed = g.shifts.filter((x) => x.timing);
+            const lines = [...new Set(timed.map(shiftLine))];
+            const anyOvernight = timed.some((x) => x.timing && isOvernight(x.timing));
+            const untimed = g.shifts.filter((x) => !x.timing).length;
+            // The soonest scheduled change across this side's categories.
+            const upcoming = g.shifts
+              .filter((x) => x.upcoming)
+              .sort((a, b) => a.upcoming!.effective_from.localeCompare(b.upcoming!.effective_from))[0];
 
             const front = (
               <div key="front" className="group/grp flex h-full flex-col bg-white dark:bg-slate-900">
                 <div className={cn("relative isolate flex items-start justify-between gap-3 overflow-hidden bg-gradient-to-br px-5 py-4 text-white", GROUP[g.group].band)}>
                   <span aria-hidden className="absolute -right-8 -top-10 -z-10 h-28 w-28 rounded-full bg-white/25 blur-xl transition-transform duration-500 group-hover/grp:scale-150" />
                   <div>
-                    <h3 className="text-sm font-semibold">{timingGroupLabel(g.group)}</h3>
+                    <h3 className="text-sm font-semibold">{kindLabel(g.group)}</h3>
                     <p className="mt-1 flex items-center gap-1 text-xs text-white/85">
-                      {g.timing ? (
-                        <>
-                          {fmtTime(g.timing.in_time)} – {fmtTime(g.timing.out_time)}
-                          {isOvernight(g.timing) && <Moon className="h-3 w-3" />}
-                        </>
-                      ) : (
-                        "No timing set"
-                      )}
+                      {lines.length === 0
+                        ? "No timing set"
+                        : lines.length === 1 && untimed === 0
+                          ? lines[0]
+                          : `${g.shifts.length} categories · ${timed.length} timed`}
+                      {anyOvernight && <Moon className="h-3 w-3" />}
                     </p>
                     <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-semibold ring-1 ring-white/25">
                       <RefreshCw className="h-3 w-3" /> Flip for shift
                     </span>
                   </div>
-                  <GroupFigure group={g.group} className="-mb-4 ml-auto h-20 shrink-0 drop-shadow-lg transition-transform duration-500 group-hover/grp:-translate-y-1 group-hover/grp:rotate-[-4deg]" />
+                  <GroupFigure group={g.group === "staff" ? "staff" : "production_staff"} className="-mb-4 ml-auto h-20 shrink-0 drop-shadow-lg transition-transform duration-500 group-hover/grp:-translate-y-1 group-hover/grp:rotate-[-4deg]" />
                   <div className="text-right">
                     <p className="text-[28px] font-semibold leading-none tracking-tight tabular-nums">
                       {pctOf(ot + lt, n)}
@@ -799,44 +808,53 @@ export function HrDashboardView({ data }: { data: HrDashboard }) {
                 <span aria-hidden className="absolute -bottom-16 -right-10 -z-10 h-48 w-48 rounded-full bg-white/20 blur-2xl" />
                 <span aria-hidden className="absolute -left-10 -top-12 -z-10 h-36 w-36 rounded-full bg-black/10 blur-2xl" />
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-white/80">{timingGroupLabel(g.group)} · Shift</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-white/80">{kindLabel(g.group)} · Shifts</p>
                   <span className="inline-flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-semibold ring-1 ring-white/25">
                     <RefreshCw className="h-3 w-3" /> Flip back
                   </span>
                 </div>
-                {g.timing ? (
-                  <>
-                    <p className="mt-3 flex items-center gap-2 text-[26px] font-semibold leading-none tracking-tight tabular-nums">
-                      {fmtTime(g.timing.in_time)}
-                      <ArrowRight className="h-5 w-5 text-white/70" />
-                      {fmtTime(g.timing.out_time)}
-                    </p>
-                    <div className="mt-3 flex flex-wrap gap-1.5 text-[11px] font-medium">
-                      <span className="rounded-md bg-white/20 px-2 py-0.5">{mins(shiftMinutes(g.timing))} day</span>
-                      <span className="rounded-md bg-white/20 px-2 py-0.5">{g.timing.grace_minutes} min in-grace</span>
-                      {isOvernight(g.timing) && (
-                        <span className="inline-flex items-center gap-1 rounded-md bg-white/20 px-2 py-0.5">
-                          <Moon className="h-3 w-3" /> Night shift
+                {g.shifts.length ? (
+                  <ul className="mt-3 min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1 text-xs">
+                    {g.shifts.map((x) => (
+                      <li key={x.categoryId ?? "none"} className="flex items-center gap-2 rounded-lg bg-white/15 px-2.5 py-1.5 ring-1 ring-white/15">
+                        <span className="min-w-0 flex-1 truncate font-semibold">
+                          {x.name} <span className="font-normal text-white/75">· {x.people}</span>
                         </span>
-                      )}
-                    </div>
-                    <p className="mt-3 text-xs text-white/85">In force since {fmtDate(g.timing.effective_from)}</p>
-                  </>
+                        <span className="flex shrink-0 items-center gap-1 tabular-nums">
+                          {x.timing ? (
+                            <>
+                              {fmtTime(x.timing.in_time)}
+                              <ArrowRight className="h-3 w-3 text-white/70" />
+                              {fmtTime(x.timing.out_time)}
+                              <span className="text-white/75">
+                                · {mins(shiftMinutes(x.timing))} · {x.timing.grace_minutes}m grace
+                              </span>
+                              {isOvernight(x.timing) && <Moon className="h-3 w-3" />}
+                            </>
+                          ) : (
+                            <span className="text-white/80">No timing set</span>
+                          )}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
                 ) : (
-                  <p className="mt-4 text-sm text-white/90">No Punch In / Out set for this group yet, so nobody here is marked late.</p>
+                  <p className="mt-4 text-sm text-white/90">Nobody here is enrolled on the punch reader yet.</p>
                 )}
                 <div className="mt-auto flex items-end justify-between gap-3 pt-3">
                   <div className="min-w-0 rounded-xl bg-white/15 px-3 py-2 text-xs ring-1 ring-white/20">
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-white/70">Next change</p>
                     <p className="mt-0.5 truncate font-semibold">
-                      {upcoming ? `From ${fmtDate(upcoming.effective_from)}: ${fmtTime(upcoming.in_time)} – ${fmtTime(upcoming.out_time)}` : "None scheduled"}
+                      {upcoming?.upcoming
+                        ? `${upcoming.name} from ${fmtDate(upcoming.upcoming.effective_from)}: ${fmtTime(upcoming.upcoming.in_time)} – ${fmtTime(upcoming.upcoming.out_time)}`
+                        : "None scheduled"}
                     </p>
                   </div>
                   <Link
                     href="/masters/hr/work-timing"
                     className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-slate-900 shadow-md transition hover:bg-white/90"
                   >
-                    {g.timing ? "Change timing" : "Set timing"} <ArrowUpRight className="h-3.5 w-3.5" />
+                    {untimed ? "Set timing" : "Change timing"} <ArrowUpRight className="h-3.5 w-3.5" />
                   </Link>
                 </div>
               </div>
@@ -847,7 +865,7 @@ export function HrDashboardView({ data }: { data: HrDashboard }) {
                 key={g.group}
                 front={front}
                 back={back}
-                ariaLabel={`${timingGroupLabel(g.group)}: flip to see the shift timing`}
+                ariaLabel={`${kindLabel(g.group)}: flip to see each category's timing`}
                 width={2000}
                 height={236}
                 radius={16}
@@ -1017,8 +1035,8 @@ export function HrDashboardView({ data }: { data: HrDashboard }) {
                             <td className={TD}>
                               <p className="truncate font-medium text-slate-900 dark:text-slate-100">{d.person.name}</p>
                               <p className="mt-0.5 flex items-center gap-1.5 text-xs text-slate-500">
-                                <Dot className={GROUP[d.person.group].dot} />
-                                {timingGroupLabel(d.person.group)}
+                                <Dot className={GROUP[d.person.kind].dot} />
+                                {d.person.categoryName ?? kindLabel(d.person.kind)}
                                 {d.person.code ? ` · ${d.person.code}` : ""}
                               </p>
                             </td>
@@ -1068,7 +1086,7 @@ export function HrDashboardView({ data }: { data: HrDashboard }) {
                       <tr key={`${p.bio}-${p.at}-${i}`} className="transition-colors hover:bg-fuchsia-50/70 dark:hover:bg-fuchsia-500/10">
                         <td className={cn(TD, "w-24 tabular-nums text-slate-500")}>{clock(p.at)}</td>
                         <td className={cn(TD, "font-medium text-slate-900 dark:text-slate-100")}>{p.name ?? `ID ${p.bio}`}</td>
-                        <td className={TD}>{p.group ? <GroupChip group={p.group} /> : "—"}</td>
+                        <td className={TD}>{p.kind ? <GroupChip group={p.kind} /> : "—"}</td>
                         <td className={cn(TD, "text-right")}>
                           <span
                             className={cn(

@@ -1,7 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
-import { listGroupTimings } from "@/lib/masters/group-timing-service";
-import type { GroupTiming, TimingGroup } from "@/lib/masters/group-timing-types";
+import { listCategoryTimings } from "@/lib/masters/category-timing-service";
+import type { CategoryTiming, PersonKind } from "@/lib/masters/category-timing-types";
 import { listDevices, type DeviceRow } from "./punch-service";
 import { computeGroupDays, fetchFrom, type GroupDay, type Person, type RawPunch } from "./timing-calc";
 
@@ -9,7 +9,7 @@ import { computeGroupDays, fetchFrom, type GroupDay, type Person, type RawPunch 
 
 export interface TrendRow {
   day: string;
-  timing_group: TimingGroup;
+  kind: PersonKind;
   enrolled: number;
   present: number;
   late: number;
@@ -19,7 +19,7 @@ export interface FeedPunch {
   at: number;
   name: string | null;
   bio: string;
-  group: TimingGroup | null;
+  kind: PersonKind | null;
   /** In · Out · Back — by its position in that person's day. */
   label: "In" | "Out" | "Back";
 }
@@ -27,21 +27,22 @@ export interface FeedPunch {
 export interface HrDashboard {
   now: number;
   groups: GroupDay[];
-  timings: GroupTiming[];
+  timings: CategoryTiming[];
   trend: TrendRow[];
   devices: DeviceRow[];
   feed: FeedPunch[];
-  /** Ids that punched today but match no person in a timing group. */
+  /** Ids that punched today but match no active staff or worker. */
   unlinkedIds: number;
-  /** People on the reader whose category has no timing group yet. */
-  noGroup: number;
+  /** People on the reader with no Employee Category set. */
+  noCategory: number;
 }
 
 type PersonRow = {
   name: string;
   code: string | null;
   biometric_id: string | null;
-  category: { timing_group: TimingGroup | null } | null;
+  category_id: string | null;
+  category: { name: string } | null;
 };
 
 /**
@@ -70,9 +71,9 @@ async function punchesSince(fromIso: string): Promise<RawPunch[]> {
   return out;
 }
 
-async function enrolledPeople(): Promise<{ people: Person[]; noGroup: number }> {
+async function enrolledPeople(): Promise<{ people: Person[]; noCategory: number }> {
   const s = await createClient();
-  const sel = "name, code, biometric_id, category:employee_categories!category_id(timing_group)";
+  const sel = "name, code, biometric_id, category_id, category:employee_categories!category_id(name)";
   const [staff, workers] = await Promise.all([
     s.from("staff").select(sel).eq("is_active", true).not("biometric_id", "is", null),
     s.from("workers").select(sel).eq("is_active", true).not("biometric_id", "is", null),
@@ -81,25 +82,25 @@ async function enrolledPeople(): Promise<{ people: Person[]; noGroup: number }> 
   if (workers.error) console.error("[hr-dashboard] workers failed", workers.error);
 
   const people: Person[] = [];
-  let noGroup = 0;
+  let noCategory = 0;
   const seen = new Set<string>();
-  for (const r of [...(staff.data ?? []), ...(workers.data ?? [])] as unknown as PersonRow[]) {
+  const rows = [
+    ...((staff.data ?? []) as unknown as PersonRow[]).map((r) => ({ r, kind: "staff" as const })),
+    ...((workers.data ?? []) as unknown as PersonRow[]).map((r) => ({ r, kind: "worker" as const })),
+  ];
+  for (const { r, kind } of rows) {
     const bio = String(r.biometric_id ?? "").trim();
     if (!bio || seen.has(bio)) continue; // a shared id is an enrolment mistake; first claim wins here
     seen.add(bio);
-    const group = r.category?.timing_group ?? null;
-    if (!group) {
-      noGroup++;
-      continue;
-    }
-    people.push({ bio, name: r.name, code: r.code, group });
+    if (!r.category_id) noCategory++;
+    people.push({ bio, name: r.name, code: r.code, kind, categoryId: r.category_id, categoryName: r.category?.name ?? null });
   }
-  return { people, noGroup };
+  return { people, noCategory };
 }
 
 async function trend(): Promise<TrendRow[]> {
   const s = await createClient();
-  const { data, error } = await s.rpc("hr_attendance_trend", { p_days: 7 });
+  const { data, error } = await s.rpc("hr_attendance_trend_by_kind", { p_days: 7 });
   if (error) {
     console.error("[hr-dashboard] trend failed", error);
     return [];
@@ -108,14 +109,9 @@ async function trend(): Promise<TrendRow[]> {
 }
 
 export async function getHrDashboard(now: number): Promise<HrDashboard> {
-  const timings = await listGroupTimings();
-  const from = new Date(fetchFrom(timings, now)).toISOString();
-  const [{ people, noGroup }, punches, trendRows, devices] = await Promise.all([
-    enrolledPeople(),
-    punchesSince(from),
-    trend(),
-    listDevices(),
-  ]);
+  const [timings, { people, noCategory }] = await Promise.all([listCategoryTimings(), enrolledPeople()]);
+  const from = new Date(fetchFrom([...new Set(people.map((p) => p.categoryId))], timings, now)).toISOString();
+  const [punches, trendRows, devices] = await Promise.all([punchesSince(from), trend(), listDevices()]);
 
   const groups = computeGroupDays(people, punches, timings, now);
 
@@ -132,7 +128,7 @@ export async function getHrDashboard(now: number): Promise<HrDashboard> {
           at,
           name: d.person.name,
           bio: d.person.bio,
-          group: g.group,
+          kind: g.group,
           label: i === 0 ? "In" : i % 2 === 1 ? "Out" : "Back",
         }),
       );
@@ -149,6 +145,6 @@ export async function getHrDashboard(now: number): Promise<HrDashboard> {
     devices,
     feed: feed.slice(0, 25),
     unlinkedIds: unlinked.size,
-    noGroup,
+    noCategory,
   };
 }

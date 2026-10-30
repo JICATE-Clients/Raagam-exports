@@ -1,5 +1,6 @@
 import { Factory, ShieldCheck, Users, type LucideIcon } from "lucide-react";
 import type { TimingGroup } from "@/lib/masters/group-timing-types";
+import type { PersonKind } from "@/lib/masters/category-timing-types";
 import type { DashboardTone } from "@/lib/dashboard/types";
 
 /**
@@ -55,4 +56,14 @@ export const GROUP_LOOK: Record<
     dot: "bg-emerald-400",
     emoji: "🏭",
   },
+};
+
+/**
+ * The same looks keyed by Staff / Worker (0774) — Work Timing and the HR
+ * dashboard now split people by which master they live in. Staff keeps the
+ * Staff look; Worker takes the old Production Staff one.
+ */
+export const KIND_LOOK: Record<PersonKind, (typeof GROUP_LOOK)[TimingGroup]> = {
+  staff: GROUP_LOOK.staff,
+  worker: { ...GROUP_LOOK.production_staff, emoji: "🧵" },
 };

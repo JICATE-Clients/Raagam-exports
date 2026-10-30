@@ -140,7 +140,7 @@ export const SUBMODULES: SubmoduleDef[] = [
       { slug: "deduction", label: "Deduction", singular: "Deduction", description: "Salary deduction types", type: "custom", custom: "deduction", icon: "deduction" },
       { slug: "hostel-category", label: "Hostel Category", singular: "Hostel Category", description: "Hostel categories", type: "custom", custom: "hostel_category", icon: "hostel-category" },
       { slug: "holiday", label: "Holiday", singular: "Holiday", description: "Holiday calendar", type: "custom", custom: "holiday", icon: "holiday" },
-      { slug: "work-timing", label: "Work Timing", singular: "Work Timing", description: "Punch In / Out for Staff, Security, Production Staff", type: "custom", custom: "work_timing", icon: "work-timing" },
+      { slug: "work-timing", label: "Work Timing", singular: "Work Timing", description: "Punch In / Out for each Staff and Worker category", type: "custom", custom: "work_timing", icon: "work-timing" },
       { slug: "working-hour", label: "Working Hour", singular: "Working Hour", description: "Working-hour rules", type: "custom", custom: "working_hour", icon: "working-hour" },
       { slug: "leave-type", label: "Leave Type", singular: "Leave Type", description: "Leave types", type: "custom", custom: "leave_type", icon: "leave-type" },
       { slug: "advance-loan-type", label: "Advance and Loan Type", singular: "Advance / Loan Type", description: "Advance & loan types", type: "custom", custom: "advance_loan_type", icon: "advance-loan-type" },
