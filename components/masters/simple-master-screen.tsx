@@ -4,7 +4,7 @@ import { isInactive, type Deactivatable } from "@/lib/masters/inactive";
 
 import { useEffect, useMemo, useRef, useState, useTransition, type KeyboardEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Eye, X } from "lucide-react";
+import { Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Truncated } from "@/components/ui/truncated";
 import { Input } from "@/components/ui/input";
@@ -1131,15 +1131,6 @@ export function SimpleMasterScreen<Row>({
                     this screen keeps its own card because the list interleaves
                     MobileEditCard for whichever row is being edited. */}
                 <div className="flex items-center justify-end gap-1 border-t border-border px-3 py-1.5">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    aria-label={`View ${title}`}
-                    onClick={() => setViewRow(r)}
-                  >
-                    <Eye />
-                    View
-                  </Button>
                   {/* Text, not the desktop bin icon: same reason MobileCardList
                       uses text here — a 32px icon is not a touch target. */}
                   {/* Block / Unblock — the phone's way to the ⋮ item, since the

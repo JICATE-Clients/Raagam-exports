@@ -99,7 +99,6 @@ import {
   BUDGET_SECTIONS,
   BUDGET_SOURCES,
   carryRate,
-  CMT_OPERATIONS,
   cmtBreakupTotal,
   isRefusal,
   lineAmount,
@@ -114,7 +113,7 @@ import {
   type BudgetLineInput,
   type BudgetSectionKey,
   type BudgetSource,
-  type CmtOperationKey,
+  type CmtOp,
   type FabricProcessRow,
   type LineField,
   type ProcessBasis,
@@ -175,7 +174,14 @@ import {
 } from "@/lib/orders/budget/figures";
 import { CopyFromSheet } from "./copy-from-sheet";
 import { BudgetQueue } from "./budget-queue";
-import { breakupOf, CmtBreakupSheet, type CmtBreakupValues } from "./cmt-breakup-sheet";
+import {
+  breakupOf,
+  cmtOpRowsOf,
+  CmtBreakupSheet,
+  hasBreakupRows,
+  withTrailingOp,
+  type CmtOpRow,
+} from "./cmt-breakup-sheet";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canApprove: boolean };
 
@@ -227,7 +233,36 @@ type CostRow = {
    * with no order yet would read straight back as SQ Wise under the cursor.
    */
   scope: Scope;
-} & CmtBreakupValues;
+  /** The CMT breakup (0771) — operations from the CMT master, with the
+   *  blank end row. Empty of operations = not broken up. */
+  cmt_ops: CmtOpRow[];
+  /** SCREEN-ONLY, NEVER IN `costs` (Size-wise rate, 2026-10-30): set on the
+   *  display row that stands for one trim's size lines (`sizeFoldRows`). */
+  group?: SizeGroup;
+  /** SCREEN-ONLY: the size this display copy of a line is for, under its group. */
+  sizeLabel?: string;
+};
+
+/**
+ * ONE TRIM, ITS SIZE LINES (user 2026-10-30, screenshot 3869: Washcare Label
+ * S · M · L · XL · XXL as five rows of 0.5). The lines stay one per size in the
+ * database — that is what Raise PO's budget check matches a size's PO price
+ * against (`po_budget_rate_core`, 0738) — and the grid folds them under one row.
+ */
+type SizeGroup = {
+  id: string;
+  /** Member line keys, in grid order. */
+  members: string[];
+  sizes: string[];
+  /** The slice without its size ("WHITE"), "" when the size was all of it. */
+  base: string;
+  /** Yes = each size priced on its own row; No = one rate written to every size. */
+  sizeWise: boolean;
+};
+/** The display row of a size group carries this key prefix; `setCost` fans it out. */
+const SIZE_GROUP = "size-group:";
+/** What a Size-wise "No" makes equal across a trim's sizes. */
+const SIZE_RATE_TERMS = ["rate", "is_foc", "is_import", "currency_code", "ex_rate", "rate_type"] as const;
 
 type Scope = "sq" | "order" | "style";
 const scopeOfLine = (l: { garment_order_id: string | null; style_ref_no?: string | null }): Scope =>
@@ -295,11 +330,7 @@ const blankCost = (key: string, source: BudgetSource): CostRow => ({
   stage_id: null,
   from_bom: false,
   scope: "sq",
-  cutting_rate: "",
-  making_rate: "",
-  checking_rate: "",
-  ironing_rate: "",
-  packing_rate: "",
+  cmt_ops: withTrailingOp([]),
 });
 
 /**
@@ -361,7 +392,8 @@ type LineLike = {
   cost_head_id?: string | null;
   stage_id?: string | null;
   from_bom?: boolean | null;
-} & Partial<Record<CmtOperationKey, number | null>>;
+  cmt_ops?: CmtOp[] | null;
+};
 
 const str = (v: number | null | undefined) => (v == null ? "" : String(v));
 
@@ -413,11 +445,7 @@ const rowOf = (key: string, l: LineLike): CostRow => ({
   stage_id: l.stage_id ?? null,
   from_bom: !!l.from_bom,
   scope: scopeOfLine(l),
-  cutting_rate: str(l.cutting_rate),
-  making_rate: str(l.making_rate),
-  checking_rate: str(l.checking_rate),
-  ironing_rate: str(l.ironing_rate),
-  packing_rate: str(l.packing_rate),
+  cmt_ops: cmtOpRowsOf(l.cmt_ops),
 });
 
 /** A Fabric Processes group — every line of one process on one order. The
@@ -498,14 +526,6 @@ type FabricGroup = {
   garment_order_id: string | null;
   process_id: string | null;
   lines: CostRow[];
-};
-
-const BLANK_BREAKUP: CmtBreakupValues = {
-  cutting_rate: "",
-  making_rate: "",
-  checking_rate: "",
-  ironing_rate: "",
-  packing_rate: "",
 };
 
 const SECTION_ICONS: Record<BudgetSectionKey, LucideIcon> = {
@@ -737,6 +757,9 @@ export function BudgetScreen({
    *  Kept on screen with a note under Reqd and the only pulled rows that may
    *  be removed. Submit waits until none are left. */
   const [staleKeys, setStaleKeys] = useState<ReadonlySet<string>>(() => new Set());
+  /** Size-wise rate switches the operator set, by group id. Unset = derived:
+   *  Yes only while the sizes' rates differ (`sizeFoldRows`). */
+  const [sizeWise, setSizeWise] = useState<ReadonlyMap<string, boolean>>(() => new Map());
   /** How many lines a refresh would change, found in the background when a
    *  saved draft is opened. Null = in step, or not checked. */
   const [bomDrift, setBomDrift] = useState<number | null>(null);
@@ -822,6 +845,22 @@ export function BudgetScreen({
   const touch = (key: string) =>
     setTouched((t) => (t.has(key) ? t : new Set(t).add(key)));
   const setCost = (key: string, patch: Partial<CostRow>) => {
+    /* A SIZE GROUP'S ROW IS EVERY SIZE AT ONCE (Size-wise rate No): the edit
+       lands on each member line, which is what is saved and what Raise PO
+       reads. `sizeFolds` is declared further down; this runs only on an event. */
+    if (key.startsWith(SIZE_GROUP)) {
+      for (const k of sizeFolds.byId.get(key.slice(SIZE_GROUP.length))?.map((m) => m.key) ?? []) {
+        applyCost(k, patch);
+      }
+      return;
+    }
+    /* A size typed on its own row LATCHES Size-wise on: left derived, typing the
+       last size equal to the rest would fold the rows away under the cursor. */
+    const gid = sizeFolds.idOf.get(key);
+    if (gid && sizeFolds.byId.has(gid)) setSizeWise((m) => (m.has(gid) ? m : new Map(m).set(gid, true)));
+    applyCost(key, patch);
+  };
+  const applyCost = (key: string, patch: Partial<CostRow>) => {
     touch(key);
     if ("qty" in patch) {
       setRowNotes((n) => {
@@ -988,6 +1027,7 @@ export function BudgetScreen({
     setRowNotes({});
     setFoldNotes({});
     setStaleKeys(new Set());
+    setSizeWise(new Map());
     setBomDrift(null);
     driftSeq.current++;
     fetchRateHistory(null);
@@ -1019,6 +1059,7 @@ export function BudgetScreen({
     setRowNotes({});
     setFoldNotes({});
     setStaleKeys(new Set());
+    setSizeWise(new Map());
     setBomDrift(null);
     driftSeq.current++;
     fetchRateHistory(b.id);
@@ -1078,11 +1119,7 @@ export function BudgetScreen({
     no_of_pcs: c.no_of_pcs,
     no_of_units: c.no_of_units,
     scope: c.scope,
-    cutting_rate: c.cutting_rate,
-    making_rate: c.making_rate,
-    checking_rate: c.checking_rate,
-    ironing_rate: c.ironing_rate,
-    packing_rate: c.packing_rate,
+    cmt_ops: c.cmt_ops,
     is_foc: c.is_foc,
     is_import: c.is_import,
   });
@@ -1611,6 +1648,39 @@ export function BudgetScreen({
   const identityCol = (header: string): CostCol => ({
     header,
     cell: (r) => {
+      /* A SIZE GROUP: the item once, which sizes it covers, and the switch.
+         Turning it on is display only; turning it OFF writes one rate to every
+         size (`setSizeWiseOf`), so on a locked budget it is refused only when
+         the sizes differ and Off would rewrite them. */
+      if (r.group) {
+        const g = r.group;
+        const span = g.sizes.length > 1 ? `${g.sizes[0]}–${g.sizes[g.sizes.length - 1]}` : g.sizes[0];
+        return (
+          <span className="flex min-w-0 items-center gap-2">
+            <Truncated className="min-w-0 flex-1 text-sm">{nameOf(data.items, r.item_id)}</Truncated>
+            <span className="shrink-0 rounded border border-border bg-surface-muted px-1.5 text-[11px] leading-5 tabular-nums text-muted-foreground">
+              {g.base ? `${g.base} · ${span}` : span}
+            </span>
+            <Toggle
+              label="Size-wise"
+              checked={g.sizeWise}
+              disabled={g.sizeWise && rateLock(r) && sizesDiffer(g)}
+              onChange={(on) => setSizeWiseOf(g, on)}
+              className="shrink-0 text-[11px]"
+            />
+          </span>
+        );
+      }
+      if (r.sizeLabel) {
+        return (
+          <span className="flex items-center gap-2 pl-6">
+            <span className="text-[11px] text-muted-foreground">Size</span>
+            <span className="rounded border border-border bg-surface-muted px-1.5 text-[11px] leading-5 tabular-nums text-muted-foreground">
+              {r.sizeLabel}
+            </span>
+          </span>
+        );
+      }
       if (bomLocked(r)) {
         const name = nameOf(data.items, r.item_id);
         const detail = lineDetail(name, r.description);
@@ -1911,7 +1981,11 @@ export function BudgetScreen({
        under text in both themes, unlike `--primary-soft`. The class reaches
        the header, every cell and the totals cell through `c.className`. */
     className: "bg-[var(--cell-active)]",
-    cell: (r) => (
+    cell: (r) =>
+      /* Size-wise Yes: each size row below carries its own rate. */
+      r.group?.sizeWise ? (
+        <span className="block text-right text-xs text-muted-foreground">By size</span>
+      ) : (
       <>
         <Input
           {...errProps(r, "rate")}
@@ -1927,7 +2001,7 @@ export function BudgetScreen({
              the one marking a refused rate has. */
           className={
             "h-8 text-right font-semibold [&:not(:focus):not(.border-danger):not([hidden])]:border-primary/60 [&:not(:focus):not(.border-danger):not([hidden])]:bg-surface" +
-            (unpricedKeys.has(r.key)
+            (isUnpriced(r)
               ? " [&:not(:focus):not(.border-danger):not([hidden])]:!border-warning [&:not(:focus):not(.border-danger):not([hidden])]:!bg-warning-soft"
               : "")
           }
@@ -1939,7 +2013,7 @@ export function BudgetScreen({
           /* MANUAL ENTRY NEEDED (0619, spec §3.2): an unpriced line's rate is
              AMBER at rest, before any Save — the operator is told which cell
              is missing rather than finding it by pressing Save. */
-          data-manual-entry={unpricedKeys.has(r.key) ? "" : undefined}
+          data-manual-entry={isUnpriced(r) ? "" : undefined}
           inputMode="decimal"
           value={r.is_foc ? "0.00" : r.rate}
           onChange={(e) => setCost(r.key, { rate: e.target.value })}
@@ -1977,7 +2051,7 @@ export function BudgetScreen({
           );
         })()}
       </>
-    ),
+      ),
   });
 
   /**
@@ -1998,7 +2072,9 @@ export function BudgetScreen({
     total: {
       kind: "sum",
       of: (r) => {
-        const a = amountOf(r);
+        // Size-wise Yes draws the sizes beneath; counting the group too would add them twice.
+        if (r.group?.sizeWise) return 0;
+        const a = rowAmount(r);
         // A REFUSED LINE CONTRIBUTES 0 TO THE BAND AND IS COUNTED ELSEWHERE.
         // The band is a running total of what is on screen; the authoritative
         // count of unanswered lines is the bottom bar's, where it can carry a
@@ -2007,7 +2083,7 @@ export function BudgetScreen({
       },
     },
     cell: (r) => {
-      const a = amountOf(r);
+      const a = rowAmount(r);
       if (!isRefusal(a)) return figure(a);
       // THE ONE REFUSAL THAT BELONGS HERE: `base` — a percentage of a sales
       // value the order does not have yet. No field on the line can fix it,
@@ -2579,7 +2655,7 @@ export function BudgetScreen({
   const styleBound = (r: CostRow) => !!r.style_ref_no;
   const coordinateName = (r: CostRow) =>
     (r.item_id && styleOf(r)?.coordinates.find((c) => c.id === r.item_id)?.name) || "";
-  const hasBreakup = (r: CostRow) => CMT_OPERATIONS.some((op) => r[op.key].trim() !== "");
+  const hasBreakup = (r: CostRow) => hasBreakupRows(r.cmt_ops);
 
   /** Two facts in one cell, the second muted beneath — the blueprint's
    *  "Style / Article" and "SC No / Order No". */
@@ -2725,7 +2801,7 @@ export function BudgetScreen({
   ]);
 
   /**
-   * Write one operation's figure, and the line's rate with it.
+   * Write the line's operations, and its rate with them.
    *
    * The rate follows the TOTAL whenever there is one, so the breakup can never
    * disagree with the rate it explains (0574). When every box is cleared there
@@ -2733,13 +2809,13 @@ export function BudgetScreen({
    * for typing again. A refused total (a negative figure) leaves it alone too:
    * the sheet prints the sentence, and a rate is not written from a refusal.
    */
-  function setBreakup(key: string, op: CmtOperationKey, value: string) {
+  function setBreakup(key: string, ops: CmtOpRow[]) {
     touch(key);
     mutCosts((xs) =>
       xs.map((x) => {
         if (x.key !== key) return x;
-        const next = { ...x, [op]: value };
-        const total = cmtBreakupTotal(breakupOf(next));
+        const next = { ...x, cmt_ops: ops };
+        const total = cmtBreakupTotal(breakupOf(ops));
         return typeof total === "number" ? { ...next, rate: String(total) } : next;
       }),
     );
@@ -3044,6 +3120,97 @@ export function BudgetScreen({
    * No `label=` caption: the section, and the tab inside it, names each grid.
    */
   const rowsOf = (source: string) => costs.filter((c) => c.source === source);
+
+  /**
+   * SIZE-WISE RATE (user 2026-10-30, screenshot 3869). Accessories Purchases'
+   * pulled lines of one trim that differ ONLY by size — same order, item, unit
+   * and slice once its size is taken out — fold under one row. Which part of the
+   * slice is the size is read against the Size master's names, so WHITE and BLACK
+   * thread never fold; a stale line keeps its own row and its ✕. Plain consts, no
+   * memo: one pass over the order's own lines (AGENTS.md, hooks above returns).
+   */
+  const sizeNames = new Set(
+    data.lookups.filter((l) => l.kind === "size").map((l) => l.name.trim().toUpperCase()),
+  );
+  const sizeFolds = (() => {
+    const byId = new Map<string, CostRow[]>();
+    const meta = new Map<string, { sizes: string[]; base: string }>();
+    const idOf = new Map<string, string>();
+    for (const r of rowsOf("material")) {
+      if (!r.from_bom || !r.item_id || staleKeys.has(r.key)) continue;
+      const detail = lineDetail(nameOf(data.items, r.item_id), r.description);
+      if (!detail) continue;
+      const parts = detail.split(" · ").map((p) => p.trim());
+      const at = parts.findIndex((p) => sizeNames.has(p.toUpperCase()));
+      if (at < 0) continue;
+      const base = parts.filter((_, i) => i !== at).join(" · ");
+      const id = `${r.garment_order_id ?? ""}|${r.item_id}|${r.uom_id ?? ""}|${base.toUpperCase()}`;
+      byId.set(id, [...(byId.get(id) ?? []), r]);
+      const m = meta.get(id) ?? { sizes: [], base };
+      m.sizes.push(parts[at]);
+      meta.set(id, m);
+      idOf.set(r.key, id);
+    }
+    // One size alone is not a fold — it stays the plain row it was.
+    for (const [id, rows] of byId) if (rows.length < 2) byId.delete(id);
+    return { byId, meta, idOf };
+  })();
+  const sizesDiffer = (g: SizeGroup) => {
+    const rows = sizeFolds.byId.get(g.id) ?? [];
+    return rows.some((m) => SIZE_RATE_TERMS.some((f) => m[f] !== rows[0][f]));
+  };
+  /** Off writes the first size's rate and terms to every size — the one rate
+   *  the folded row then shows and edits. On changes nothing stored. */
+  const setSizeWiseOf = (g: SizeGroup, on: boolean) => {
+    setSizeWise((m) => new Map(m).set(g.id, on));
+    const first = sizeFolds.byId.get(g.id)?.[0];
+    if (!on && first && sizesDiffer(g)) {
+      setCost(SIZE_GROUP + g.id, Object.fromEntries(SIZE_RATE_TERMS.map((f) => [f, first[f]])) as Partial<CostRow>);
+    }
+  };
+  /** Amber "Manual Entry Needed" — on a folded row, while any size is unpriced. */
+  const isUnpriced = (r: CostRow) =>
+    r.group ? r.group.members.some((k) => unpricedKeys.has(k)) : unpricedKeys.has(r.key);
+  /** A folded row's amount is its sizes' amounts added — their rates may differ. */
+  const rowAmount = (r: CostRow): ReturnType<typeof amountOf> => {
+    if (!r.group) return amountOf(r);
+    let total = 0;
+    for (const m of sizeFolds.byId.get(r.group.id) ?? []) {
+      const a = amountOf(m);
+      if (isRefusal(a)) return a;
+      total += a;
+    }
+    return Math.round(total * 100) / 100;
+  };
+  /** Accessories Purchases' rows as drawn: each size group as one row, its
+   *  sizes beneath it only while Size-wise is Yes. */
+  const sizeFoldRows = (): CostRow[] => {
+    const out: CostRow[] = [];
+    const done = new Set<string>();
+    for (const r of rowsOf("material")) {
+      const id = sizeFolds.idOf.get(r.key);
+      const rows = id ? sizeFolds.byId.get(id) : undefined;
+      if (!id || !rows) {
+        out.push(r);
+        continue;
+      }
+      if (done.has(id)) continue;
+      done.add(id);
+      const { sizes, base } = sizeFolds.meta.get(id)!;
+      const differ = rows.some((m) => SIZE_RATE_TERMS.some((f) => m[f] !== rows[0][f]));
+      const group: SizeGroup = {
+        id,
+        members: rows.map((m) => m.key),
+        sizes,
+        base,
+        sizeWise: sizeWise.get(id) ?? differ,
+      };
+      const qty = rows.reduce((t, m) => t + (Number(m.qty) || 0), 0);
+      out.push({ ...rows[0], key: SIZE_GROUP + id, qty: String(Math.round(qty * 1000) / 1000), group });
+      if (group.sizeWise) rows.forEach((m, i) => out.push({ ...m, sizeLabel: sizes[i] }));
+    }
+    return out;
+  };
   /** A PULLED LINE CANNOT BE REMOVED (0591) — it is a cost the BOM says this
    *  order has, and the budget is the BOMs' answer with prices on it. A line
    *  that should not be paid for is FOC, not deleted. The one exception is a
@@ -3126,7 +3293,7 @@ export function BudgetScreen({
   const accessoryPurchaseGrid = (
       <ChildGrid<CostRow>
         columns={accessoryPurchaseColumns}
-        rows={rowsOf("material")}
+        rows={sizeFoldRows()}
         tableFrom="5xl"
         flatRows
         renderMobileRow={(row, i) => costCard(accessoryPurchaseColumns, row, i)}
@@ -4256,9 +4423,9 @@ export function BudgetScreen({
         cost_head_id: c.cost_head_id,
         stage_id: c.stage_id,
         from_bom: c.from_bom,
-        // 0574 — null each when not broken up. The schema derives `rate` from
-        // these when any is set, so the two cannot be sent disagreeing.
-        ...breakupOf(c),
+        // 0771 — the operations, blank end row dropped. The schema derives
+        // `rate` from them when any is picked, so the two cannot disagree.
+        cmt_ops: breakupOf(c.cmt_ops),
       })),
     };
   }
@@ -4417,7 +4584,10 @@ export function BudgetScreen({
             (form.description || (editId ? "Budget" : "New budget")),
           badges: (
             <span className="flex items-center gap-2">
-              <StatusPill tone={budgetStatusTone(status)}>{budgetStatusText(status)}</StatusPill>
+              {/* No editId = never saved = Draft; a saved `draft` reads Under Progress. */}
+              <StatusPill tone={budgetStatusTone(editId ? status : null)}>
+                {budgetStatusText(editId ? status : null)}
+              </StatusPill>
               {latestRevision && (
                 <span className="text-[11px] font-medium text-muted-foreground">
                   Revision {latestRevision.revision_no}
@@ -4596,9 +4766,10 @@ export function BudgetScreen({
                 .join(" · ")
             : "CMT breakup"
         }
-        values={breakupRow ?? BLANK_BREAKUP}
+        rows={breakupRow?.cmt_ops ?? []}
+        options={data.cmtProcesses}
         editable={editable}
-        onChange={(op, v) => breakupRow && setBreakup(breakupRow.key, op, v)}
+        onChange={(ops) => breakupRow && setBreakup(breakupRow.key, ops)}
       />
     </>
   );

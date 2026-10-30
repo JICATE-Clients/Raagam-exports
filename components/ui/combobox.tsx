@@ -335,8 +335,17 @@ export function Combobox({
         value={shownValue}
         placeholder={selected ? selected.label : (hint(placeholder) ?? "")}
         onFocus={openOnFocus ? openList : undefined}
-        onClick={() => {
-          if (!open) openList();
+        onClick={(e) => {
+          // A click anywhere in the box opens the list; on an OPEN list a click
+          // on the ▼ closes it, so the arrow toggles — the same rule as
+          // data-picker.tsx (client 2026-10-30). The ▼ is `pointer-events-none`
+          // (field-affordance.tsx), so its click lands here, told apart by x.
+          if (!open) return openList();
+          const box = e.currentTarget.getBoundingClientRect();
+          if (e.clientX >= box.right - (compact ? 24 : 32)) {
+            setOpen(false);
+            setQuery("");
+          }
         }}
         onChange={(e) => {
           if (locked) return;

@@ -1,7 +1,8 @@
 import type { AppUser } from "@/lib/auth/types";
 import { today } from "@/lib/calendar";
 import { getCalendar } from "@/lib/my-calendar/data";
-import { NoolGreeter, type NoolTask } from "@/components/dashboard/nool-greeter";
+import { getMyQueue } from "@/lib/approvals/service";
+import { NoolGreeter, type NoolTask, type NoolWaiting } from "@/components/dashboard/nool-greeter";
 
 const DAY_MS = 86_400_000;
 /** Whole days from `a` to `b`, both `YYYY-MM-DD` (parsed as UTC, so no DST drift). */
@@ -30,7 +31,14 @@ function dateLabel(): string {
  */
 export async function WelcomeSection({ user }: { user: AppUser }) {
   const t = today();
-  const data = await getCalendar(user, { scope: "mine", from: t, to: t, withOverdue: true });
+  // Both reads in one round trip. A failed queue read is a dash on the tile,
+  // never a 0 — "nothing waiting" is a real answer and must not be faked.
+  const [data, waiting] = await Promise.all([
+    getCalendar(user, { scope: "mine", from: t, to: t, withOverdue: true }),
+    getMyQueue({ limit: 200 })
+      .then(({ items, total }): NoolWaiting => ({ count: total, overdue: items.filter((i) => i.is_overdue).length }))
+      .catch((): NoolWaiting => null),
+  ]);
 
   const own = data.available && !data.autoTeam;
   const tasks: NoolTask[] = own
@@ -64,6 +72,7 @@ export async function WelcomeSection({ user }: { user: AppUser }) {
       tasks={tasks}
       note={note}
       calendarHref={`/my-calendar?cv=day&cd=${t}`}
+      waiting={waiting}
     />
   );
 }
@@ -75,7 +84,7 @@ export function WelcomeSkeleton({ name }: { name: string }) {
       <div className="flex items-center gap-3.5">
         <div className="h-[86px] w-[72px] flex-none animate-pulse rounded-xl bg-surface-muted sm:h-[108px] sm:w-[90px]" />
         <div className="space-y-2">
-          <p className="text-[1.4rem] font-bold leading-tight text-heading">
+          <p className="text-[1.6rem] font-semibold leading-[1.15] text-heading">
             Vanakkam, <span className="text-brand-blue">{name}</span>
           </p>
           <div className="h-3 w-56 animate-pulse rounded bg-surface-muted" />

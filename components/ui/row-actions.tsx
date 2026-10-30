@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { Eye, Pencil, Trash2, type LucideIcon } from "lucide-react";
+import { Pencil, Trash2, type LucideIcon } from "lucide-react";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { CardAction, CardActionContext, duoFor, toneFromClass } from "@/components/ui/card-action";
@@ -11,8 +11,7 @@ import { DropdownMenu, type DropdownItem } from "@/components/ui/dropdown-menu";
 // sheet is backwards, and deliberate — the alternative was a second read-only
 // sheet with the same job. There is no cycle: record-view-sheet does not import
 // this file.
-import { RecordViewSheet, type ViewSection } from "@/components/masters/record-view-sheet";
-import { pairsFromRow, titleFromRow } from "@/lib/record-pairs";
+import type { ViewSection } from "@/components/masters/record-view-sheet";
 import { cn } from "@/lib/utils";
 
 /**
@@ -270,9 +269,8 @@ export function RowActions({
    */
   row?: unknown;
   /**
-   * `false` suppresses the eye — for a grid whose columns already ARE the whole
-   * record, where a view sheet would repeat the row back. An array supplies
-   * hand-written sections instead of the row-derived ones.
+   * ACCEPTED AND UNUSED since 2026-10-30 — there is no automatic view any more
+   * (see the body). Kept so the call sites that pass `view={false}` still compile.
    */
   view?: false | ViewSection[];
   /** Omit — or pass `canEdit={false}` — to hide the pencil. */
@@ -329,15 +327,13 @@ export function RowActions({
    */
   deleteInMenu?: boolean;
   /**
-   * A control drawn FIRST, in the eye's slot — for a list whose primary row
-   * action is not "view" (Order Entry's Report, client 2026-09-29). Pair it
-   * with `view={false}`, or the eye renders beside it.
+   * A control drawn FIRST — the row's REPORT (Order Entry's Report, client
+   * 2026-09-29): a `RowIconAction` with `icon={FileText}` that opens the entry's
+   * report page. The Report icon means that and nothing else (2026-10-30).
    */
   lead?: ReactNode;
 }) {
   const [confirming, setConfirming] = useState(false);
-  const [viewing, setViewing] = useState(false);
-  const contextRow = useContext(RowRecordContext);
 
   const showEdit = !!onEdit && canEdit;
   /** The link form, only when there is no handler to prefer. */
@@ -347,28 +343,20 @@ export function RowActions({
   const editBlocked = !!editDisabledReason;
   const suffix = label ? ` ${label}` : "";
 
-  // THE EYE IS ON BY DEFAULT. A screen gets a View by doing nothing, because the
-  // opposite default is what left ~100 listing tables with no way to read a
-  // record short of opening its editor. Opt out with `view={false}`.
-  const record = row ?? contextRow;
-  const autoView = !onView && view !== false && record != null;
-  const handleView = onView ?? (autoView ? () => setViewing(true) : undefined);
-
-  // Rendered alongside BOTH branches below — a view opened from this row must
-  // survive the cluster flipping into its delete-confirm state.
-  const sheet =
-    autoView && viewing ? (
-      <RecordViewSheet
-        open
-        onClose={() => setViewing(false)}
-        title={label || titleFromRow(record)}
-        sections={
-          Array.isArray(view)
-            ? view
-            : [{ label: "Details", pairs: pairsFromRow(record) }]
-        }
-      />
-    ) : null;
+  /* NO AUTOMATIC VIEW (client 2026-10-30: "we no need view option, we need
+     report" — screenshots 3877 / 3878). The eye used to appear on every row by
+     default, built from the row's own fields; the client reads a row's icon as
+     THE ENTRY'S REPORT — a real report page like Order Entry's Garment Order
+     Sheet — and a card of fields is not one. So:
+       - a row's Report is the screen's own `lead` (FileText → the report page,
+         as Order Entry, Raise PO, the BOMs and Sample screens do);
+       - NO DETAILS BUTTON EITHER (client 2026-10-30, screenshot 3879: "remove
+         the details button, replace the report icon and report the entry");
+       - `onView`, `view` and `row` are still accepted so no call site breaks,
+         and draw nothing. */
+  void view;
+  void row;
+  void onView;
 
   // Deliberately does not collapse after Confirm: on success the row leaves the
   // list on refresh anyway, and on failure the strip stays put so the operator
@@ -390,7 +378,6 @@ export function RowActions({
             {isPending ? "…" : "Confirm"}
           </Button>
         </div>
-        {sheet}
       </>
     );
   }
@@ -398,13 +385,6 @@ export function RowActions({
   return (
     <div className="flex items-center justify-end gap-1 in-data-[density=compact]:gap-0.5">
       {lead}
-      {handleView && (
-        <Tooltip label="View">
-          <Button variant="ghost" size="icon" className={COMPACT_ICON} aria-label={`View${suffix}`} onClick={handleView}>
-            <Eye />
-          </Button>
-        </Tooltip>
-      )}
       {menuAs === "icons" &&
         menu.map((m) => (
           <RowIconAction
@@ -494,7 +474,6 @@ export function RowActions({
           label={`More actions${suffix}`}
         />
       )}
-      {sheet}
     </div>
   );
 }

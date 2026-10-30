@@ -17,7 +17,7 @@ const FAMILIES = [
   { dir: "roboto", query: "Roboto:wght@100..900", google: "Roboto", name: "Raagam Roboto", cssVar: "--font-roboto" },
   // The login screen's face and the dashboard welcome card's brand face.
   { dir: "urbanist", query: "Urbanist:wght@500..800", google: "Urbanist", name: "Raagam Urbanist", cssVar: "--font-urbanist" },
-  { dir: "baloo-2", query: "Baloo+2:wght@700", google: "Baloo 2", name: "Raagam Baloo 2", cssVar: "--font-baloo" },
+  { dir: "baloo-2", query: "Baloo+2:wght@600..700", google: "Baloo 2", name: "Raagam Baloo 2", cssVar: "--font-baloo" },
 ];
 
 let css = "";

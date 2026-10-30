@@ -88,6 +88,9 @@ function lineFor(total: number, open: number, late: number, highFived: boolean, 
 
 const segLength = (segs: Seg[]) => segs.reduce((n, s) => n + s.t.length, 0);
 
+/** The approvals waiting on this person (`approval_my_queue`); null when it could not be read. */
+export type NoolWaiting = { count: number; overdue: number } | null;
+
 export function NoolGreeter({
   name,
   dateLabel,
@@ -95,6 +98,7 @@ export function NoolGreeter({
   tasks,
   note,
   calendarHref,
+  waiting,
 }: {
   name: string;
   dateLabel: string;
@@ -103,6 +107,7 @@ export function NoolGreeter({
   /** Said instead of the day's line when the tasks cannot be shown (no staff link, no access). */
   note?: string;
   calendarHref: string;
+  waiting: NoolWaiting;
 }) {
   const open = tasks.filter((t) => !t.done).sort((a, b) => b.daysLate - a.daysLate);
   const done = tasks.filter((t) => t.done);
@@ -291,7 +296,7 @@ export function NoolGreeter({
       <style href="nool-greeter" precedence="medium">{NOOL_CSS}</style>
       <canvas ref={sparkRef} aria-hidden className="pointer-events-none absolute inset-0 z-[2] size-full" />
 
-      <div className="flex flex-wrap items-end gap-3.5">
+      <div className="flex flex-wrap items-end gap-3.5 lg:flex-nowrap">
         <div className="relative h-[86px] w-[72px] flex-none sm:h-[108px] sm:w-[90px]">
           <button
             ref={walkerRef}
@@ -307,20 +312,48 @@ export function NoolGreeter({
 
         <div
           className={cn(
-            "relative mt-2 min-w-0 max-w-[32rem] flex-1 self-start rounded-2xl border border-border bg-surface px-4 pb-2.5 pt-2 shadow-[0_10px_24px_-16px_rgba(4,147,219,0.55)] sm:flex-none",
+            "relative mt-2 min-w-0 max-w-[32rem] flex-1 self-start rounded-2xl border border-border bg-surface px-4 pb-2.5 pt-2 shadow-[0_10px_24px_-16px_rgba(4,147,219,0.55)]",
             "before:absolute before:-left-[7px] before:top-6 before:size-3 before:rotate-45 before:border-b before:border-l before:border-border before:bg-surface before:content-['']",
             bubble ? "ng-pop" : "invisible",
           )}
         >
           {/* Baloo 2, self-hosted (`.font-baloo`, app/fonts.css). */}
-          <h2 className="font-baloo text-[1.4rem] font-bold leading-tight text-heading">
-            Vanakkam, <span className="text-brand-blue">{name}</span>
+          <h2 className="font-baloo text-[1.6rem] font-semibold leading-[1.15] tracking-[-0.01em] text-heading">
+            Vanakkam, <span className="font-bold text-brand-blue">{name}</span>
           </h2>
-          <p className="min-h-[1.5em] text-[13.5px] text-muted-foreground" aria-live="polite">
+          <p className="mt-1 min-h-[1.5em] text-[14.5px] leading-relaxed text-foreground/80" aria-live="polite">
             {said}
             {Number.isFinite(typed) && <span className="ng-caret" aria-hidden />}
           </p>
-          <p className="mt-0.5 text-[11.5px] text-muted-foreground/80">{dateLabel}</p>
+          <p className="mt-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">{dateLabel}</p>
+        </div>
+
+        {/* "What needs me today?" (user 2026-10-30: the space beside the bubble
+            should be useful). Approvals come from the person's own queue, so this
+            tile works even without a staff link; the two task tiles read the same
+            rows as the list below and say "—" when there is no list to count. */}
+        <div className="grid w-full grid-cols-3 gap-2 self-center lg:ml-auto lg:w-[19rem] lg:flex-none">
+          <DayTile
+            href="/approvals"
+            label="Waiting on you"
+            value={waiting?.count}
+            sub={waiting && waiting.overdue > 0 ? `${waiting.overdue} overdue` : undefined}
+            tone={waiting && waiting.count > 0 ? "primary" : "muted"}
+          />
+          <DayTile
+            href={calendarHref}
+            label="Due today"
+            value={note ? undefined : open.filter((t) => t.date === today).length}
+            sub={note ? "Not linked" : undefined}
+            tone="muted"
+          />
+          <DayTile
+            href={calendarHref}
+            label="Overdue"
+            value={note ? undefined : late}
+            sub={note ? "Not linked" : undefined}
+            tone={!note && late > 0 ? "danger" : "muted"}
+          />
         </div>
 
       </div>
@@ -696,3 +729,39 @@ const NOOL_CSS = `
   .ng *, .ng-entering, .ng-pop, .ng-rise, .ng-pulse, .ng-caret { animation: none !important; transition: none !important; }
 }
 `;
+
+const TILE_TONE = {
+  primary: "border-primary/30 bg-primary-soft [&_.n]:text-primary",
+  danger: "border-danger/30 bg-danger-soft [&_.n]:text-danger",
+  muted: "border-border bg-surface [&_.n]:text-heading",
+} as const;
+
+/** One count beside Nool's bubble; the whole tile opens the list it counts. */
+function DayTile({
+  href,
+  label,
+  value,
+  sub,
+  tone,
+}: {
+  href: string;
+  label: string;
+  /** undefined = cannot be counted for this login (shown as a dash, never as 0). */
+  value?: number;
+  sub?: string;
+  tone: keyof typeof TILE_TONE;
+}) {
+  return (
+    <Link
+      href={href}
+      className={cn(
+        "grid gap-0.5 rounded-xl border px-3 py-2 transition-colors hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        TILE_TONE[tone],
+      )}
+    >
+      <span className="font-baloo n text-[1.5rem] font-bold leading-none tabular-nums">{value ?? "—"}</span>
+      <span className="text-xs text-muted-foreground">{label}</span>
+      {sub && <span className="text-[11px] font-semibold text-muted-foreground">{sub}</span>}
+    </Link>
+  );
+}

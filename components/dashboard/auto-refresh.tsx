@@ -1,9 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useTransition } from "react";
+import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { RefreshCw } from "lucide-react";
-import { cn } from "@/lib/utils";
 
 /** How often the figures re-read themselves (user 2026-10-28: "every minute"). */
 const EVERY_MS = 60_000;
@@ -23,12 +21,12 @@ const EVERY_MS = 60_000;
  *   query fans every minute; it catches up once on return instead;
  * - refresh while the operator is typing a custom date — the swap would not
  *   lose the value, but a re-render under the caret is still a jolt;
- * - keep its own clock. `asOf` is the server's render time, so "Updated" is
- *   when the numbers were actually read, never when the browser last ticked.
+ * - show anything. It drew "Live · updated 10:00" and a refresh button until
+ *   2026-10-30 (user: "just need to work, no need this UI") — the refresh is
+ *   the feature, the label was not.
  */
-export function AutoRefresh({ asOf }: { asOf: string }) {
+export function AutoRefresh() {
   const router = useRouter();
-  const [pending, start] = useTransition();
   const last = useRef(0);
 
   useEffect(() => {
@@ -39,7 +37,7 @@ export function AutoRefresh({ asOf }: { asOf: string }) {
       const a = document.activeElement;
       if (!force && a instanceof HTMLElement && a.matches("input, select, textarea")) return;
       last.current = Date.now();
-      start(() => router.refresh());
+      router.refresh();
     };
     const id = window.setInterval(() => refresh(), EVERY_MS);
     const onVisible = () => refresh();
@@ -50,27 +48,5 @@ export function AutoRefresh({ asOf }: { asOf: string }) {
     };
   }, [router]);
 
-  return (
-    <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
-      <span aria-hidden className="relative flex size-2">
-        <span className="absolute inline-flex size-full rounded-full bg-success opacity-60 motion-safe:animate-ping" />
-        <span className="relative inline-flex size-2 rounded-full bg-success" />
-      </span>
-      <span>
-        Live · updated <span className="tabular-nums">{asOf}</span>
-      </span>
-      <button
-        type="button"
-        onClick={() => {
-          last.current = Date.now();
-          start(() => router.refresh());
-        }}
-        aria-label="Refresh the dashboard now"
-        title="Refresh now"
-        className="grid size-7 place-items-center rounded-control text-muted-foreground hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        <RefreshCw className={cn("size-3.5", pending && "motion-safe:animate-spin")} />
-      </button>
-    </span>
-  );
+  return null;
 }

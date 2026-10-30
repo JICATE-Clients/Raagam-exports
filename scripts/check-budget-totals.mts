@@ -27,7 +27,6 @@
 import {
   BUDGET_SECTIONS,
   BUDGET_SOURCES,
-  CMT_OPERATIONS,
   GENERAL_CATEGORIES,
   PROCESS_TABS,
   PULLED_SOURCES,
@@ -869,48 +868,38 @@ check("a group with no rate has nothing to carry", carryRate([r(null), r(null)])
 check("no lines, nothing to carry", carryRate([]), null);
 
 // ---------------------------------------------------------------------------
-// 17. A CMT BREAKUP IS THE RATE, TO THE 4TH PLACE (0574)
+// 17. A CMT BREAKUP IS THE RATE, TO THE 4TH PLACE (0574 · 0771)
 //
-// The database holds `rate = Σ breakup` on numeric(14,4). A total that differs
-// from the stored columns in the fourth place is a save Postgres rejects over a
-// digit nobody typed.
+// The database holds `rate = obl_cmt_ops_total(cmt_ops)` on numeric(14,4). A
+// total that differs from the stored operations in the fourth place is a save
+// Postgres rejects over a digit nobody typed. Operations come from the CMT
+// master (0771), so a test operation is just an id, a name and a rate.
 // ---------------------------------------------------------------------------
 
-check(
-  "the five operations, 'Sewing / Making' as ONE",
-  CMT_OPERATIONS.map((o) => [o.key, o.label]),
-  [
-    ["cutting_rate", "Cutting"],
-    ["making_rate", "Sewing / Making"],
-    ["checking_rate", "Checking"],
-    ["ironing_rate", "Ironing"],
-    ["packing_rate", "Packing"],
-  ],
-);
+let opSeq = 0;
+const op = (rate: number | null, name = `OP ${++opSeq}`) => ({ cmt_process_id: `id-${name}`, name, rate });
+const ops = (...rates: (number | null)[]) => rates.map((r) => op(r));
 
-check("all blank is no breakup — the typed rate stands", cmtBreakupTotal({}), null);
+check("no operation is no breakup — the typed rate stands", cmtBreakupTotal([]), null);
+check("null is no breakup too", cmtBreakupTotal(null), null);
 check(
-  "nulls are blank too",
-  cmtBreakupTotal({ cutting_rate: null, making_rate: null, checking_rate: undefined }),
+  "the blank end row (no operation picked) is not part of it",
+  cmtBreakupTotal([{ cmt_process_id: null, name: "", rate: null }]),
   null,
 );
-check("one operation is that operation", cmtBreakupTotal({ making_rate: 8.5 }), 8.5);
 check(
-  "five operations add up",
-  cmtBreakupTotal({ cutting_rate: 1.5, making_rate: 8, checking_rate: 0.75, ironing_rate: 1, packing_rate: 1.25 }),
-  12.5,
+  "…even with a rate typed on it: a rate needs its operation",
+  cmtBreakupTotal([{ cmt_process_id: null, name: "", rate: 5 }]),
+  null,
 );
-check("0.1 + 0.2 is 0.3, exactly", cmtBreakupTotal({ cutting_rate: 0.1, making_rate: 0.2 }), 0.3);
-refute("…not 0.30000000000000004", cmtBreakupTotal({ cutting_rate: 0.1, making_rate: 0.2 }), 0.1 + 0.2);
-check("a value rounds to 4dp, as the column stores it", cmtBreakupTotal({ ironing_rate: 1.23456 }), 1.2346);
-const FIVE_ODD = {
-  cutting_rate: 1.23456,
-  making_rate: 1.23456,
-  checking_rate: 1.23456,
-  ironing_rate: 1.23456,
-  packing_rate: 1.23456,
-};
-/* EACH VALUE IS ROUNDED FIRST. Postgres stores five 1.2346s, which sum to
+check("one operation is that operation", cmtBreakupTotal(ops(8.5)), 8.5);
+check("operations add up", cmtBreakupTotal(ops(1.5, 8, 0.75, 1, 1.25)), 12.5);
+check("a picked operation with no rate adds 0, as SQL's sum skips null", cmtBreakupTotal(ops(2, null)), 2);
+check("0.1 + 0.2 is 0.3, exactly", cmtBreakupTotal(ops(0.1, 0.2)), 0.3);
+refute("…not 0.30000000000000004", cmtBreakupTotal(ops(0.1, 0.2)), 0.1 + 0.2);
+check("a value rounds to 4dp, as the rate stores it", cmtBreakupTotal(ops(1.23456)), 1.2346);
+const FIVE_ODD = ops(1.23456, 1.23456, 1.23456, 1.23456, 1.23456);
+/* EACH VALUE IS ROUNDED FIRST. `obl_cmt_ops_total` sums five 1.2346s to
    6.1730; rounding only the raw sum (6.1728) gives a rate the check rejects. */
 check("five such values sum as STORED: 5 x 1.2346", cmtBreakupTotal(FIVE_ODD), 6.173);
 refute("…not the raw sum rounded once", cmtBreakupTotal(FIVE_ODD), 6.1728);
@@ -918,11 +907,11 @@ refute("…not the raw sum rounded once", cmtBreakupTotal(FIVE_ODD), 6.1728);
    12.3456 — one ten-thousandth short of what Postgres stores. */
 check(
   "half rounds up on the decimal typed, as Postgres does (12.34565 → 12.3457)",
-  cmtBreakupTotal({ packing_rate: 12.34565 }),
+  cmtBreakupTotal(ops(12.34565)),
   12.3457,
 );
-refute("…not the binary 12.3456", cmtBreakupTotal({ packing_rate: 12.34565 }), 12.3456);
-/* The same helper the Zod schema rounds each stored column with, so a column
+refute("…not the binary 12.3456", cmtBreakupTotal(ops(12.34565)), 12.3456);
+/* The same helper the Zod schema rounds each stored rate with, so an operation
    and the rate it sums to can never be rounded by two different rules. */
 check(
   "round4 is the rule the breakup is summed with",
@@ -931,11 +920,11 @@ check(
 );
 check(
   "a negative operation refuses and names it",
-  refusalOf(cmtBreakupTotal({ cutting_rate: 1, making_rate: -2 })),
-  "Sewing / Making rate cannot be negative",
+  refusalOf(cmtBreakupTotal([op(1, "CUTTING"), op(-2, "SINGER")])),
+  "SINGER rate cannot be negative",
 );
-check("a breakup of zeros is 0 — operations done free", cmtBreakupTotal({ ironing_rate: 0, packing_rate: 0 }), 0);
-refute("…not null, which would mean no breakup", cmtBreakupTotal({ ironing_rate: 0, packing_rate: 0 }), null);
+check("a breakup of zeros is 0 — operations done free", cmtBreakupTotal(ops(0, 0)), 0);
+refute("…not null, which would mean no breakup", cmtBreakupTotal(ops(0, 0)), null);
 
 /* The blueprint's own figures: Cut Qty 5,321 (not Order Qty 5,028) x ₹12.50. */
 check(
@@ -948,13 +937,7 @@ check(
   lineAmount({
     source: "cmt",
     qty: 5321,
-    rate: cmtBreakupTotal({
-      cutting_rate: 1.5,
-      making_rate: 8,
-      checking_rate: 0.75,
-      ironing_rate: 1,
-      packing_rate: 1.25,
-    }) as number,
+    rate: cmtBreakupTotal(ops(1.5, 8, 0.75, 1, 1.25)) as number,
   }),
   66_512.5,
 );
@@ -1298,8 +1281,8 @@ check(
 
 check(
   "a CMT operation's refusal names the operation",
-  fieldOf(cmtBreakupTotal({ cutting_rate: 1, ironing_rate: -1 })),
-  ["ironing_rate", "Ironing rate cannot be negative"],
+  fieldOf(cmtBreakupTotal([op(1, "CUTTING"), op(-1, "IRONING")])),
+  ["cmt_ops", "IRONING rate cannot be negative"],
 );
 
 /* A TOTAL's refusal is about no single field, and says so by having none. */

@@ -146,11 +146,9 @@ export function DashboardHeader({
 export function DashboardToolbar({
   filters,
   carry,
-  asOf,
 }: {
   filters: DashboardFilters;
   carry: Carry;
-  asOf: string;
 }) {
   const custom = filters.range === "custom";
   const hidden = Object.entries(carry).filter(
@@ -162,9 +160,7 @@ export function DashboardToolbar({
       <RangeTabs current={filters.range} carry={carry} />
       {custom && <CustomRangeForm from={filters.from} to={filters.to} hidden={hidden} />}
       <span className="text-sm font-medium tabular-nums text-foreground">{windowLabel(filters)}</span>
-      <span className="ml-auto">
-        <AutoRefresh asOf={asOf} />
-      </span>
+      <AutoRefresh />
     </Card>
   );
 }

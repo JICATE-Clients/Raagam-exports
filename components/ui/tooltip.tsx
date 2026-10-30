@@ -111,6 +111,37 @@ export function Tooltip({
   const pressAt = useRef<{ x: number; y: number } | null>(null);
   const byTouch = useRef(false);
   const swallow = useRef(false);
+  /** Native `title`s lifted off the trigger and its ancestors while the pointer is over it. */
+  const muted = useRef<{ el: Element; title: string }[]>([]);
+
+  /*
+   * ONE POPUP, THE BLACK ONE (user 2026-10-30, screenshot 3864: an item name
+   * on Raise PO showed this bubble AND the browser's white `title` tooltip
+   * from the cell around it). Call sites wrap a value in `title=` as well as
+   * `<Truncated>` all over the app, so rather than chase each one, the bubble
+   * lifts every `title` on its own path to the page while the pointer is over
+   * it and puts them back on leave. The browser reads `title` at hover time,
+   * so with nothing to read it draws nothing. Only when this bubble can open:
+   * a disabled one (a value that fits) leaves the native title alone, since
+   * then it is the only reveal there is.
+   */
+  const muteTitles = useCallback(() => {
+    if (disabled || muted.current.length > 0) return;
+    for (let el: Element | null = wrapRef.current; el && el !== document.body; el = el.parentElement) {
+      const title = el.getAttribute("title");
+      if (title != null) {
+        muted.current.push({ el, title });
+        el.removeAttribute("title");
+      }
+    }
+  }, [disabled]);
+
+  const restoreTitles = useCallback(() => {
+    for (const { el, title } of muted.current) {
+      if (!el.hasAttribute("title")) el.setAttribute("title", title);
+    }
+    muted.current = [];
+  }, []);
 
   const clear = useCallback(() => {
     if (timer.current) {
@@ -216,6 +247,7 @@ export function Tooltip({
   }, [pos, hide]);
 
   useEffect(() => clear, [clear]);
+  useEffect(() => restoreTitles, [restoreTitles]);
 
   return (
     <span
@@ -223,9 +255,13 @@ export function Tooltip({
       className={cn("inline-flex", className)}
       onPointerEnter={(e) => {
         if (e.pointerType === "touch") return;
+        muteTitles();
         show();
       }}
-      onPointerLeave={hide}
+      onPointerLeave={() => {
+        restoreTitles();
+        hide();
+      }}
       onPointerDown={(e) => {
         if (e.pointerType !== "touch") {
           // A mouse click means the operator is acting on the control, not

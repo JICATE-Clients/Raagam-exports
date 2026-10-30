@@ -363,7 +363,9 @@ export function MobileCardList<Row>({
   }
 
   const showDelete = canDelete && !!onDelete;
-  const showFooter = showDelete || !!onView || !!onReports || !!onSend || !!extraActions || !!footerNote || !!hint;
+  // No View / Details on a card (client 2026-10-30) — `onView` is accepted, unused.
+  void onView;
+  const showFooter = showDelete || !!onReports || !!onSend || !!extraActions || !!footerNote || !!hint;
   const grid = columns > 1;
 
   /** View · Reports · Delete — one definition, so every layout offers a row
@@ -384,7 +386,6 @@ export function MobileCardList<Row>({
   const actions = (r: Row) => (
     <CardActionContext.Provider value>
       {!extraActionsAfterReports && extraActions?.(r)}
-      {onView && <CardAction label="View" tone="teal" icon={DUO.eye} onClick={() => onView(r)} />}
       {onReports && (canReportsRow?.(r) ?? true) && (
         <CardAction label="Reports" tone="violet" icon={DUO.doc} onClick={() => onReports(r)} />
       )}
@@ -405,7 +406,6 @@ export function MobileCardList<Row>({
    *  nothing to delete and no reports (2026-10-03, phone audit). */
   const rowHasAction = (r: Row) =>
     (!!extraActions && extraActions(r) != null) ||
-    !!onView ||
     (!!onReports && (canReportsRow?.(r) ?? true)) ||
     (!!onSend && (canSendRow?.(r) ?? true)) ||
     (showDelete && (canDeleteRow?.(r) ?? true));

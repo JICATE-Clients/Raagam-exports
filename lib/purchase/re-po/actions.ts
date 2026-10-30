@@ -10,11 +10,13 @@ import { startApproval } from "@/lib/approvals/actions";
 import { WORKFLOWS } from "@/lib/approvals/workflows";
 import { poItemClasses } from "@/lib/purchase/po-routing";
 import {
+  bomDiaOf,
   budgetWords,
   gstSlab,
   lineDescription,
   lineGst,
   lineKeyOf,
+  lineKindOf,
   qtyAllowed,
   withNote,
   poTotals,
@@ -228,10 +230,8 @@ export async function savePoFromRequirement(raw: RePoInput, mode: "draft" | "sub
     bags: number | null;
     bag_weight: number | null;
     rolls: number | null;
-    dia: string | null;
-    gsm?: number | null;
-    gauge?: string | null;
-    loop_length?: number | null;
+    gauge: string | null;
+    loop_length: number | null;
   }[] = [];
   for (const l of input.lines) {
     if (l.qty <= 0) continue; // qty 0 = "not ordered on this PO"
@@ -259,10 +259,8 @@ export async function savePoFromRequirement(raw: RePoInput, mode: "draft" | "sub
       bags: l.bags ?? null,
       bag_weight: l.bag_weight ?? null,
       rolls: l.rolls ?? null,
-      dia: l.dia ?? null,
-      gsm: l.gsm,
-      gauge: l.gauge === undefined ? undefined : l.gauge || null,
-      loop_length: l.loop_length,
+      gauge: l.gauge ?? null,
+      loop_length: l.loop_length ?? null,
     });
   }
   if (lines.length === 0) return { ok: false, error: "Every line has quantity 0 — there is nothing to order" };
@@ -388,12 +386,15 @@ export async function savePoFromRequirement(raw: RePoInput, mode: "draft" | "sub
       bags: l.bags,
       bag_weight: l.bag_weight,
       rolls: l.rolls ?? 0,
-      dia: l.dia,
-      // The cloth's construction (0762): the Fabric BOM's, unless the Purchase Manager typed
-      // this PO's own (user 2026-10-28) — the PO keeps it; the BOM is never written.
-      gsm: l.gsm === undefined ? l.req.gsm : l.gsm,
-      gauge: l.gauge === undefined ? l.req.gauge : l.gauge,
-      loop_length: l.loop_length === undefined ? l.req.loop_length : l.loop_length,
+      /* DIA · GSM ARE THE PLAN'S, NEVER TYPED (user 2026-10-30 spec). Read off the
+         requirement line the server just re-fetched, so a stale tab or a hand-made request
+         cannot put a figure on the vendor's PO that the plan does not hold. GAUGE · LOOP
+         LENGTH are PO-only and typed on Raise PO (user 2026-10-30, off the Fabric BOM).
+         The PO line keeps all four as it said them when raised (0762). */
+      dia: bomDiaOf(l.req),
+      gsm: lineKindOf(l.req.item_class) === "fabric" ? l.req.gsm : null,
+      gauge: lineKindOf(l.req.item_class) === "fabric" ? l.gauge : null,
+      loop_length: lineKindOf(l.req.item_class) === "fabric" ? l.loop_length : null,
       quantity: l.qty,
       uom_id: l.req.uom_id,
       unit_price: l.rate ?? 0,

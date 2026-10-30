@@ -138,13 +138,9 @@ function lineRowsOf(data: OrderBudgetInput) {
     no_of_units: l.no_of_units ?? null,
     style_ref_no: clean(l.style_ref_no),
     component_id: l.component_id ?? null,
-    // 0574 — the CMT breakup. `rate` above is already its sum (the schema's
-    // transform), which is what `chk_obl_cmt_breakup` requires.
-    cutting_rate: l.cutting_rate ?? null,
-    making_rate: l.making_rate ?? null,
-    checking_rate: l.checking_rate ?? null,
-    ironing_rate: l.ironing_rate ?? null,
-    packing_rate: l.packing_rate ?? null,
+    // 0771 — the CMT breakup. `rate` above is already its sum (the schema's
+    // transform), which is what `chk_obl_cmt_ops` requires.
+    cmt_ops: l.cmt_ops ?? null,
     // 0575 — the Expense / Income Head.
     cost_head_id: l.cost_head_id ?? null,
     // 0590 — the yarn stage.

@@ -49,11 +49,8 @@ export type BudgetScopeLine = {
   is_import?: boolean | null;
   no_of_pcs?: number | string | null;
   no_of_units?: number | string | null;
-  cutting_rate?: number | string | null;
-  making_rate?: number | string | null;
-  checking_rate?: number | string | null;
-  ironing_rate?: number | string | null;
-  packing_rate?: number | string | null;
+  /** The CMT breakup (0771), compared as what it costs per operation. */
+  cmt_ops?: readonly { cmt_process_id: string | null; rate: number | string | null }[] | null;
   specification?: string | null;
   notes?: string | null;
 };
@@ -133,11 +130,7 @@ function ownBody(l: BudgetScopeLine): string {
     !!l.is_import,
     num(l.no_of_pcs),
     num(l.no_of_units),
-    num(l.cutting_rate),
-    num(l.making_rate),
-    num(l.checking_rate),
-    num(l.ironing_rate),
-    num(l.packing_rate),
+    (l.cmt_ops ?? []).filter((o) => o.cmt_process_id).map((o) => [o.cmt_process_id, num(o.rate)]),
     txt(l.specification),
   ]);
 }
