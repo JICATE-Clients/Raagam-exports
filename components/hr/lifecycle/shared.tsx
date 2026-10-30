@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import type { PersonOption } from "@/lib/hr/timeoff-types";
 
 /**
- * HR ▸ Team Lifecycle (0766) — small pieces every lifecycle screen uses.
+ * HR ▸ Team Lifecycle (0771) — small pieces every lifecycle screen uses.
  * The person list is Time Off's (`listTimeoffPeople`): staff and workers in
  * one list, or just "me" for a self-service login.
  */

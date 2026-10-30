@@ -34,7 +34,7 @@ import { personKey, type PersonOption } from "@/lib/hr/timeoff-types";
 import { PersonCombobox } from "./shared";
 
 /**
- * HR ▸ Team Lifecycle ▸ People Documents (0766, MyJKKN §12.3).
+ * HR ▸ Team Lifecycle ▸ People Documents (0771, MyJKKN §12.3).
  *
  * Pick a person to see their checklist — every required document for staff or
  * workers, what is uploaded, and where it stands — and upload or replace one.

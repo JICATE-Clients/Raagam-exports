@@ -25,7 +25,7 @@ export interface EmployeeCategory {
   short_name: string | null;
   name: string;
   for_type: EmployeeCategoryFor;
-  /** One of the three fixed timing groups (0764); its hours are on Work Timing. */
+  /** One of the three fixed timing groups (0769); its hours are on Work Timing. */
   timing_group: TimingGroup | null;
   inactive: boolean;
   is_draft: boolean;
@@ -38,7 +38,7 @@ export const employeeCategoryInput = z.object({
   name: z.string().min(1, "Name is required"),
   for_type: z.enum(["staff", "worker", "staff_worker"]).default("staff"),
   // Required: every category keeps the hours of exactly one group (client
-  // 2026-10-28). Rows saved before 0764 may still be null until next edited.
+  // 2026-10-28). Rows saved before 0769 may still be null until next edited.
   timing_group: z.enum(["staff", "security", "production_staff"], {
     message: "Timing Group is required",
   }),

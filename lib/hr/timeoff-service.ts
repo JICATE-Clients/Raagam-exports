@@ -21,7 +21,7 @@ import type {
 import { CATEGORY_LABELS, fmtDays, fmtMinutes, hhmm, personKey } from "./timeoff-types";
 
 /**
- * Reads for HR ▸ Time Off (0765).
+ * Reads for HR ▸ Time Off (0770).
  *
  * RLS does the scoping: an HR viewer reads the unit they are working in, a
  * staff member reads only their own rows. `viewer()` is what the SCREEN needs

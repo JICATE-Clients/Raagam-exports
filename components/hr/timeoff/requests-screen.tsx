@@ -49,7 +49,7 @@ import {
 import { Fact, ReasonSheet, TypeDot, whenOf } from "./shared";
 
 /**
- * HR ▸ Time Off ▸ Leave Requests and ▸ Permissions (0765, MyJKKN §9.2–9.3,
+ * HR ▸ Time Off ▸ Leave Requests and ▸ Permissions (0770, MyJKKN §9.2–9.3,
  * §9.7). One screen, two modes: `leave` lists leave and comp-off bookings,
  * `permission` lists short time off in hours.
  *

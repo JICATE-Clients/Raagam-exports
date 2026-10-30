@@ -328,7 +328,7 @@ export default async function SubEntityPage({
         />
       );
     } else if (child.custom === "work_timing") {
-      // The three fixed timing groups (0764), not the legacy shift form.
+      // The three fixed timing groups (0769), not the legacy shift form.
       // "Today" is IST, resolved here so the screen never reads a viewer's clock.
       const [timings, categories] = await Promise.all([
         listGroupTimings(),

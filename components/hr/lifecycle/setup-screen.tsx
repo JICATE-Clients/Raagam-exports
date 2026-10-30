@@ -42,7 +42,7 @@ import {
 } from "@/lib/hr/lifecycle-types";
 
 /**
- * HR ▸ Team Lifecycle ▸ Lifecycle Setup (0766). Four tabs: joining checklist
+ * HR ▸ Team Lifecycle ▸ Lifecycle Setup (0771). Four tabs: joining checklist
  * templates (MyJKKN `admin/onboarding-checklists`), required documents
  * (`admin/required-documents`), exit steps (`admin/offboarding` — policy
  * `hr.offboarding.workflow_steps` there), and the numbers the exit and the

@@ -17,7 +17,7 @@ import { INTERVIEW_MODES, MODE_LABELS, ROUND_SUGGESTIONS, type Interview, type I
 import type { PersonOption } from "@/lib/hr/timeoff-types";
 
 /**
- * HR ▸ Recruitment (0767) — pieces the Candidates and Interviews screens share:
+ * HR ▸ Recruitment (0772) — pieces the Candidates and Interviews screens share:
  * the schedule / reschedule sheet and the 1–5 mark display.
  */
 

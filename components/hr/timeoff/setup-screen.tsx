@@ -41,7 +41,7 @@ import {
 import { TypeDot } from "./shared";
 
 /**
- * HR ▸ Time Off ▸ Leave Setup (0765, MyJKKN §9.4 / `admin/leave-types`,
+ * HR ▸ Time Off ▸ Leave Setup (0770, MyJKKN §9.4 / `admin/leave-types`,
  * `admin/academic-years`, and the blackout table MyJKKN never gave a screen).
  * Three tabs: Leave Types, Leave Years, Blackout Dates.
  */

@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { fmtDate } from "@/lib/format";
 import { hhmm, type TimeoffRequest } from "@/lib/hr/timeoff-types";
 
-/** Shared pieces of the HR ▸ Time Off screens (0765). */
+/** Shared pieces of the HR ▸ Time Off screens (0770). */
 
 /** One label/value line of a record summary. */
 export function Fact({ label, className, children }: { label: string; className?: string; children: ReactNode }) {

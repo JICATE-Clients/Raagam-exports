@@ -27,7 +27,7 @@ import {
 import { cn } from "@/lib/utils";
 
 /**
- * HR ▸ Time Off ▸ Leave Balances (0765, MyJKKN §9.9).
+ * HR ▸ Time Off ▸ Leave Balances (0770, MyJKKN §9.9).
  *
  * One row per person, one column per tracked leave type, showing what is
  * AVAILABLE. Every figure is derived (timeoff_balance_sheet): entitlement from

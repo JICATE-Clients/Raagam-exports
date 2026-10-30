@@ -34,7 +34,7 @@ import { ReasonSheet } from "@/components/hr/timeoff/shared";
 import { PersonCombobox, Progress, StepRow } from "./shared";
 
 /**
- * HR ▸ Team Lifecycle ▸ Joining Checklists (0766, MyJKKN §12.2).
+ * HR ▸ Team Lifecycle ▸ Joining Checklists (0771, MyJKKN §12.2).
  *
  * MyJKKN kept only the templates; a joiner's progress lived in a JSON copy on
  * the recruitment candidate and no HR screen showed it. Here "Start checklist"

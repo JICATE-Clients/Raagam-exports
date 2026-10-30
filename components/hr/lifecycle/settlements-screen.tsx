@@ -40,7 +40,7 @@ import {
 import { ReasonSheet } from "@/components/hr/timeoff/shared";
 
 /**
- * HR ▸ Team Lifecycle ▸ Full & Final (0766, MyJKKN §12.5 calculateFnf).
+ * HR ▸ Team Lifecycle ▸ Full & Final (0771, MyJKKN §12.5 calculateFnf).
  *
  * Opened for an exit (from the exit, or ?exit=<id>). The form starts from what
  * the records say — basic + DA or the daily wage, the joining date, unused

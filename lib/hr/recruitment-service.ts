@@ -16,7 +16,7 @@ import type {
 import { LIVE_STATUSES } from "./recruitment-types";
 
 /**
- * Reads for HR ▸ Recruitment (0767).
+ * Reads for HR ▸ Recruitment (0772).
  *
  * RLS does the scoping: HR reads the unit they are working in; a panel member
  * reads the interviews they sit on, those candidates, and their own marks.

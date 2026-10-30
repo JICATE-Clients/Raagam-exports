@@ -32,7 +32,7 @@ import { personKey, type PersonOption } from "@/lib/hr/timeoff-types";
 import { PersonCombobox } from "./shared";
 
 /**
- * HR ▸ Team Lifecycle ▸ Assets Issued (0766). MyJKKN's "My Assets" only READ
+ * HR ▸ Team Lifecycle ▸ Assets Issued (0771). MyJKKN's "My Assets" only READ
  * another module's table and had no link to the exit; here HR issues and takes
  * back company property, and an exit's "Company assets returned" step is
  * refused while anything is still issued. A lost or damaged item carries a

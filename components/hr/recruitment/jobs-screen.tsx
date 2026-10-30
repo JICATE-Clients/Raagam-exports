@@ -34,7 +34,7 @@ import {
 import { ReasonSheet } from "@/components/hr/timeoff/shared";
 
 /**
- * HR ▸ Recruitment ▸ Job Openings (0767, MyJKKN §7 jobs).
+ * HR ▸ Recruitment ▸ Job Openings (0772, MyJKKN §7 jobs).
  *
  * A job belongs to the unit it was raised in. Candidates are added only while
  * it is Open; when as many have joined as it has openings it fills itself.

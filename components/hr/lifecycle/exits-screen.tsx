@@ -47,7 +47,7 @@ import { Fact, ReasonSheet } from "@/components/hr/timeoff/shared";
 import { PersonCombobox, Progress, StepRow } from "./shared";
 
 /**
- * HR ▸ Team Lifecycle ▸ Exits (0766, MyJKKN §12.5 offboarding + §12.6
+ * HR ▸ Team Lifecycle ▸ Exits (0771, MyJKKN §12.5 offboarding + §12.6
  * terminations).
  *
  * MyJKKN could open a case and nothing more — no screen advanced a step,

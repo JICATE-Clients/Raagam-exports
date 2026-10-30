@@ -21,7 +21,7 @@ import { decideTimeoff } from "@/lib/hr/timeoff-actions";
 import type { QueueItem } from "@/lib/hr/timeoff-types";
 
 /**
- * HR ▸ Time Off ▸ Time Off Approvals (0765, MyJKKN `/hr/leave/approvals`).
+ * HR ▸ Time Off ▸ Time Off Approvals (0770, MyJKKN `/hr/leave/approvals`).
  *
  * One queue for every kind: leave and permission requests and encashments are
  * decided through the approval engine (so only the person on the current step

@@ -20,7 +20,7 @@ import { documentLink, reviewDocuments } from "@/lib/hr/lifecycle-actions";
 import { lifecycleLabel, lifecycleTone, type PersonDocument } from "@/lib/hr/lifecycle-types";
 
 /**
- * HR ▸ Team Lifecycle ▸ Document Verification (0766, MyJKKN
+ * HR ▸ Team Lifecycle ▸ Document Verification (0771, MyJKKN
  * `/hr/documents/verify`). Three views of the same uploads: waiting to be
  * checked, expiring within 30 days (or already past), and rejected ones still
  * waiting for a new upload. MyJKKN never marked anything expired; here

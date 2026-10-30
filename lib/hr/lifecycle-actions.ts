@@ -31,10 +31,10 @@ import {
 } from "./lifecycle-types";
 
 /**
- * HR ▸ Team Lifecycle (0766) — the write half.
+ * HR ▸ Team Lifecycle (0771) — the write half.
  *
  * Joining progress, document registration and review, exits and settlements
- * are written ONLY by the SECURITY DEFINER functions in 0766, which hold every
+ * are written ONLY by the SECURITY DEFINER functions in 0771, which hold every
  * rule (who may act for whom, one live exit per person, assets back before the
  * asset step, an approved settlement before the settled step). The catalogs,
  * settings and the asset register are plain table writes under RLS.

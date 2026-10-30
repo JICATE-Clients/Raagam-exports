@@ -41,7 +41,7 @@ import {
 import { Fact, ReasonSheet } from "./shared";
 
 /**
- * HR ▸ Time Off ▸ Leave Encashment (0765). A stub in MyJKKN (request only);
+ * HR ▸ Time Off ▸ Leave Encashment (0770). A stub in MyJKKN (request only);
  * here it is checked against the type's encashable limit and the balance,
  * priced at the person's day rate (staff: monthly salary ÷ 30; worker: shift
  * wage), approved through the engine, and marked paid by HR. Pending and

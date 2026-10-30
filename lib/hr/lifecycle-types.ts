@@ -4,7 +4,7 @@ import { statusTone } from "@/lib/ui/status-tone";
 import type { PersonKind } from "./timeoff-types";
 
 /**
- * HR ▸ Team Lifecycle (0766) — the MyJKKN lifecycle port. Shared shapes and
+ * HR ▸ Team Lifecycle (0771) — the MyJKKN lifecycle port. Shared shapes and
  * words. Every rule here is also a rule in SQL; these only let the screen say
  * it first.
  */

@@ -6,11 +6,11 @@ import {
 } from "@/lib/masters/group-timing-types";
 
 // ============================================================================
-// Today's attendance from raw punches, per timing group (0764). Pure — no
+// Today's attendance from raw punches, per timing group (0769). Pure — no
 // clock, no database — so it is testable and the dashboard and any later
 // screen read one rule.
 //
-// THE SHIFT DAY is the rule `hr_attendance_trend()` (0764) also follows: a
+// THE SHIFT DAY is the rule `hr_attendance_trend()` (0769) also follows: a
 // group's day D runs 24 h from (D + Punch In − 4 h), IST. Staff at 09:00 owns
 // 05:00 → 05:00; Security at 20:00 owns 16:00 → 16:00, so the 08:00 punch next
 // morning ENDS day D instead of starting D+1. Change one, change both.

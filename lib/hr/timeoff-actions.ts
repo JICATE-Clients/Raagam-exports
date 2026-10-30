@@ -25,10 +25,10 @@ import {
 } from "./timeoff-types";
 
 /**
- * HR ▸ Time Off (0765) — the write half.
+ * HR ▸ Time Off (0770) — the write half.
  *
  * Requests, claims and encashments are written ONLY by the SECURITY DEFINER
- * functions in 0765, which hold every rule (balance, overlap, notice, caps,
+ * functions in 0770, which hold every rule (balance, overlap, notice, caps,
  * who may act for whom). The actions here pass the operator's input through
  * and turn the database's sentence into a toast. The catalogs (types, years,
  * blackouts, entitlement overrides) are plain table writes under RLS.

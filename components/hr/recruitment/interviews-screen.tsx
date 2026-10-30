@@ -38,7 +38,7 @@ import { ReasonSheet } from "@/components/hr/timeoff/shared";
 import { ScheduleSheet, ScoreBadge } from "./shared";
 
 /**
- * HR ▸ Recruitment ▸ Interviews (0767, MyJKKN §7 interviews + scorecards).
+ * HR ▸ Recruitment ▸ Interviews (0772, MyJKKN §7 interviews + scorecards).
  *
  * Every round across every candidate in the unit. A panel member who signs in
  * for themself sees only the interviews they sit on, and enters their own

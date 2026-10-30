@@ -13,7 +13,7 @@ import type { RetirementDue } from "@/lib/hr/lifecycle-types";
 export const metadata = { title: "Retirements Due" };
 
 /**
- * HR ▸ Team Lifecycle ▸ Retirements Due (0766). MyJKKN ran a monthly job that
+ * HR ▸ Team Lifecycle ▸ Retirements Due (0771). MyJKKN ran a monthly job that
  * opened retirement cases by itself; a job is one more thing to schedule and
  * forget, so here the list is worked out whenever the page opens
  * (`lc_retirements_due`, from date of birth and the retirement age on

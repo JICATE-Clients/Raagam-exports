@@ -23,10 +23,10 @@ import {
 } from "./recruitment-types";
 
 /**
- * HR ▸ Recruitment (0767) — the write half.
+ * HR ▸ Recruitment (0772) — the write half.
  *
  * Candidates, their timeline, interviews and scorecards are written ONLY by
- * the SECURITY DEFINER functions in 0767, which hold every rule (who may act
+ * the SECURITY DEFINER functions in 0772, which hold every rule (who may act
  * in which unit, the stage map, one live interview at a time, a panel
  * member's own marks). Job openings are a plain table write under RLS.
  */

@@ -3,7 +3,7 @@ import type { StatusTone } from "@/lib/ui/status-tone";
 import { statusTone } from "@/lib/ui/status-tone";
 
 /**
- * HR ▸ Time Off (0765) — the MyJKKN Time Off port. Shared shapes and words.
+ * HR ▸ Time Off (0770) — the MyJKKN Time Off port. Shared shapes and words.
  * Every rule here is also a rule in SQL; these only let the screen say it first.
  */
 

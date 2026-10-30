@@ -26,7 +26,7 @@ import { claimCompOff, withdrawCompOff } from "@/lib/hr/timeoff-actions";
 import { fmtDays, statusLabel, timeoffTone, type CompOffCredit, type PersonOption } from "@/lib/hr/timeoff-types";
 
 /**
- * HR ▸ Time Off ▸ Compensatory Off (0765, MyJKKN §9.6).
+ * HR ▸ Time Off ▸ Compensatory Off (0770, MyJKKN §9.6).
  *
  * Claim a credit for each day worked off-schedule (up to 31 in one claim);
  * HR approves or rejects it on Time Off Approvals; an approved credit is

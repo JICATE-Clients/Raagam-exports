@@ -1,4 +1,4 @@
--- 0767 — HR ▸ RECRUITMENT (MyJKKN HR port, phase 3 — client 2026-10-29)
+-- 0772 — HR ▸ RECRUITMENT (MyJKKN HR port, phase 3 — client 2026-10-29)
 --
 -- Source: MyJKKN docs/HR-MODULE-SPEC.md §7, rebuilt on Raagam's units,
 -- departments, designations, people and approval engine:
@@ -23,7 +23,7 @@
 --   onboard-to-record (inserts a staff row) Mark Joined LINKS the record HR has
 --                                             made on People ▸ Staff / Workers
 --                                             and can start a Joining Checklist
---                                             (0766) in the same click
+--                                             (0771) in the same click
 --   hr-resumes bucket (legacy) / Drive      private bucket hr-resumes
 --
 -- NOT ported: the CVViZ intake with learned rules and AI résumé reading, the
@@ -36,14 +36,14 @@
 --
 -- What this file touches outside its own rc_* objects:
 --   * approval_apply_terminal() — one branch added by the anchor replace
---     0765 / 0766 used; every existing branch is unchanged.
+--     0770 / 0771 used; every existing branch is unchanged.
 --   * approval_flows — one catch-all row (rc_hire), only if none exists.
 --   * storage — one new PRIVATE bucket and its three policies.
 --   * lc_onboardings — Mark Joined may start a joining checklist, through
---     0766's own lc_start_onboarding().
+--     0771's own lc_start_onboarding().
 --   * staff / workers / departments / designations — READ only.
 --
--- Reuses 0765's timeoff_my_staff_id() / timeoff_person() and 0766's
+-- Reuses 0770's timeoff_my_staff_id() / timeoff_person() and 0771's
 -- lc_is_hr() / lc_start_onboarding().
 
 -- ════════════════════════════════════════════════════════════════════════════
@@ -79,7 +79,7 @@ create table if not exists public.rc_jobs (
   constraint rc_job_salary check (salary_min is null or salary_max is null or salary_max >= salary_min),
   constraint rc_job_exp    check (experience_min is null or experience_max is null or experience_max >= experience_min)
 );
-comment on table public.rc_jobs is 'HR ▸ Recruitment — job openings, per unit. 0767.';
+comment on table public.rc_jobs is 'HR ▸ Recruitment — job openings, per unit. 0772.';
 create index if not exists idx_rc_jobs_loc on public.rc_jobs (location_id, status);
 drop trigger if exists trg_rc_job_code on public.rc_jobs;
 create trigger trg_rc_job_code before insert on public.rc_jobs
@@ -196,7 +196,7 @@ create table if not exists public.rc_candidates (
   constraint rc_cand_hired check (num_nonnulls(hired_staff_id, hired_worker_id) <= 1)
 );
 comment on table public.rc_candidates is
-  'HR ▸ Recruitment — one candidate for one job, from application to joining. Written only by rc_* functions. 0767.';
+  'HR ▸ Recruitment — one candidate for one job, from application to joining. Written only by rc_* functions. 0772.';
 create index if not exists idx_rc_cand_job on public.rc_candidates (job_id, status);
 create index if not exists idx_rc_cand_loc on public.rc_candidates (location_id, status);
 create index if not exists idx_rc_cand_phone on public.rc_candidates (phone);
@@ -448,7 +448,7 @@ create table if not exists public.rc_interviews (
   created_at           timestamptz not null default now(),
   updated_at           timestamptz not null default now()
 );
-comment on table public.rc_interviews is 'HR ▸ Recruitment — interview rounds. A reschedule keeps the old row. 0767.';
+comment on table public.rc_interviews is 'HR ▸ Recruitment — interview rounds. A reschedule keeps the old row. 0772.';
 create index if not exists idx_rc_int_cand on public.rc_interviews (candidate_id, round_no);
 create index if not exists idx_rc_int_when on public.rc_interviews (location_id, scheduled_at);
 create index if not exists idx_rc_int_panel on public.rc_interviews using gin (panel);
@@ -474,7 +474,7 @@ create table if not exists public.rc_scorecards (
   unique (interview_id, interviewer_id)
 );
 comment on table public.rc_scorecards is
-  'HR ▸ Recruitment — one panel member''s marks for one interview, 1–5. Entered by the panel member or by HR from the paper sheet. 0767.';
+  'HR ▸ Recruitment — one panel member''s marks for one interview, 1–5. Entered by the panel member or by HR from the paper sheet. 0772.';
 drop trigger if exists trg_rc_score_updated on public.rc_scorecards;
 create trigger trg_rc_score_updated before update on public.rc_scorecards
   for each row execute function public.set_updated_at();
@@ -836,7 +836,7 @@ begin
     return;  -- already there (a re-run)
   end if;
   if position(v_anchor in v_def) = 0 then
-    raise exception '0767: approval_apply_terminal''s final refusal was not found — add the rc branch by hand.';
+    raise exception '0772: approval_apply_terminal''s final refusal was not found — add the rc branch by hand.';
   end if;
   execute replace(v_def, v_anchor, v_branch || v_anchor);
 end $$;

@@ -1,4 +1,4 @@
--- 0766 — HR ▸ TEAM LIFECYCLE (MyJKKN HR port, phase 2 — client 2026-10-29)
+-- 0771 — HR ▸ TEAM LIFECYCLE (MyJKKN HR port, phase 2 — client 2026-10-29)
 --
 -- A SEPARATE build beside the existing "Lifecycle Events" screen
 -- (hr_lifecycle_events), which is untouched. Source: MyJKKN
@@ -30,7 +30,7 @@
 -- NOT ported (Raagam already has its own): the HR Directory (People ▸ Staff /
 -- Workers) and photo review (the person photo upload, 0557).
 --
--- WHERE EACH RULE LIVES — in the database, as in 0765. Onboarding progress,
+-- WHERE EACH RULE LIVES — in the database, as in 0770. Onboarding progress,
 -- document registration and review, exits and settlements are written ONLY by
 -- the SECURITY DEFINER functions below; authenticated has no insert / update /
 -- delete grant on those tables. Catalogs and the asset register are plain
@@ -38,14 +38,14 @@
 --
 -- What this file touches outside its own lc_* objects:
 --   * approval_apply_terminal() — two branches added by the same anchor
---     replace 0765 used; every existing branch is unchanged.
+--     replace 0770 used; every existing branch is unchanged.
 --   * approval_flows — two catch-all rows, only if none exist for those keys.
 --   * storage — one new PRIVATE bucket and its four policies.
 --   * staff / workers — READ for names, pay and dates; WRITTEN only when HR
 --     completes an exit with "mark as left" ticked (date_of_leaving +
 --     is_active = false on that one person). Never by this migration itself.
 --
--- Reuses 0765's helpers: timeoff_today(), timeoff_my_staff_id(),
+-- Reuses 0770's helpers: timeoff_today(), timeoff_my_staff_id(),
 -- timeoff_person(), timeoff_may_act_for(), timeoff_stamp_location(),
 -- timeoff_year_of(), timeoff_balance_sheet().
 
@@ -63,7 +63,7 @@ create table if not exists public.lc_settings (
   gratuity_cap         numeric(14,2) not null default 2000000 check (gratuity_cap >= 0),
   updated_at           timestamptz not null default now()
 );
-comment on table public.lc_settings is 'HR ▸ Team Lifecycle settings — one row. 0766.';
+comment on table public.lc_settings is 'HR ▸ Team Lifecycle settings — one row. 0771.';
 insert into public.lc_settings (id) values (true) on conflict (id) do nothing;
 
 drop trigger if exists trg_lc_settings_updated on public.lc_settings;
@@ -112,7 +112,7 @@ create table if not exists public.lc_checklist_templates (
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-comment on table public.lc_checklist_templates is 'HR ▸ Team Lifecycle joining checklist templates. Shared across units. 0766.';
+comment on table public.lc_checklist_templates is 'HR ▸ Team Lifecycle joining checklist templates. Shared across units. 0771.';
 drop trigger if exists trg_lc_tpl_updated on public.lc_checklist_templates;
 create trigger trg_lc_tpl_updated before update on public.lc_checklist_templates
   for each row execute function public.set_updated_at();
@@ -159,7 +159,7 @@ create table if not exists public.lc_onboardings (
   updated_at     timestamptz not null default now(),
   constraint lc_onb_person check (num_nonnulls(staff_id, worker_id) = 1)
 );
-comment on table public.lc_onboardings is 'HR ▸ Team Lifecycle — one joiner''s checklist run. 0766.';
+comment on table public.lc_onboardings is 'HR ▸ Team Lifecycle — one joiner''s checklist run. 0771.';
 create unique index if not exists uq_lc_onb_live_staff  on public.lc_onboardings (staff_id)  where status = 'in_progress' and staff_id is not null;
 create unique index if not exists uq_lc_onb_live_worker on public.lc_onboardings (worker_id) where status = 'in_progress' and worker_id is not null;
 drop trigger if exists trg_lc_onb_code on public.lc_onboardings;
@@ -286,7 +286,7 @@ create table if not exists public.lc_required_documents (
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now()
 );
-comment on table public.lc_required_documents is 'HR ▸ Team Lifecycle — the documents every person must hand in. Shared. 0766.';
+comment on table public.lc_required_documents is 'HR ▸ Team Lifecycle — the documents every person must hand in. Shared. 0771.';
 drop trigger if exists trg_lc_reqdoc_updated on public.lc_required_documents;
 create trigger trg_lc_reqdoc_updated before update on public.lc_required_documents
   for each row execute function public.set_updated_at();
@@ -364,7 +364,7 @@ create table if not exists public.lc_documents (
   constraint lc_doc_dates  check (expires_on is null or issued_on is null or expires_on >= issued_on)
 );
 comment on table public.lc_documents is
-  'HR ▸ Team Lifecycle — a person''s uploaded document. "Expired" is derived (verified and expires_on < today), never stored. 0766.';
+  'HR ▸ Team Lifecycle — a person''s uploaded document. "Expired" is derived (verified and expires_on < today), never stored. 0771.';
 create index if not exists idx_lc_doc_staff  on public.lc_documents (staff_id)  where not superseded;
 create index if not exists idx_lc_doc_worker on public.lc_documents (worker_id) where not superseded;
 create index if not exists idx_lc_doc_status on public.lc_documents (status)    where not superseded;
@@ -533,7 +533,7 @@ create table if not exists public.lc_assets (
   constraint lc_asset_back   check (status = 'issued' or returned_on is not null),
   constraint lc_asset_dates  check (returned_on is null or returned_on >= issued_on)
 );
-comment on table public.lc_assets is 'HR ▸ Team Lifecycle — company property in a person''s hands. 0766.';
+comment on table public.lc_assets is 'HR ▸ Team Lifecycle — company property in a person''s hands. 0771.';
 create index if not exists idx_lc_asset_staff  on public.lc_assets (staff_id);
 create index if not exists idx_lc_asset_worker on public.lc_assets (worker_id);
 drop trigger if exists trg_lc_asset_code on public.lc_assets;
@@ -560,7 +560,7 @@ create table if not exists public.lc_exit_step_catalog (
   updated_at  timestamptz not null default now()
 );
 comment on table public.lc_exit_step_catalog is
-  'HR ▸ Team Lifecycle — the steps every exit is copied from when it opens. Keys asset_return and final_settlement are checked by the database. 0766.';
+  'HR ▸ Team Lifecycle — the steps every exit is copied from when it opens. Keys asset_return and final_settlement are checked by the database. 0771.';
 drop trigger if exists trg_lc_exitcat_updated on public.lc_exit_step_catalog;
 create trigger trg_lc_exitcat_updated before update on public.lc_exit_step_catalog
   for each row execute function public.set_updated_at();
@@ -606,7 +606,7 @@ create table if not exists public.lc_exits (
   constraint lc_exit_dates  check (last_working_day >= notice_date),
   constraint lc_exit_grounds check (separation_type <> 'termination' or length(btrim(coalesce(grounds, ''))) >= 20)
 );
-comment on table public.lc_exits is 'HR ▸ Team Lifecycle — exit cases. One live case per person. 0766.';
+comment on table public.lc_exits is 'HR ▸ Team Lifecycle — exit cases. One live case per person. 0771.';
 create unique index if not exists uq_lc_exit_live_staff  on public.lc_exits (staff_id)
   where status in ('pending_approval', 'open') and staff_id is not null;
 create unique index if not exists uq_lc_exit_live_worker on public.lc_exits (worker_id)
@@ -923,7 +923,7 @@ create table if not exists public.lc_settlements (
   unique (exit_id, version)
 );
 comment on table public.lc_settlements is
-  'HR ▸ Team Lifecycle — full & final settlement versions. One live (draft / pending / approved / paid) per exit. 0766.';
+  'HR ▸ Team Lifecycle — full & final settlement versions. One live (draft / pending / approved / paid) per exit. 0771.';
 create unique index if not exists uq_lc_fnf_live on public.lc_settlements (exit_id)
   where status in ('draft', 'pending', 'approved', 'paid');
 drop trigger if exists trg_lc_fnf_code on public.lc_settlements;
@@ -955,7 +955,7 @@ begin
   select * into p from public.lc_person_pay(e.staff_id, e.worker_id);
   select * into cfg from public.lc_settings where id;
 
-  -- Unused encashable leave this leave year (Time Off, 0765).
+  -- Unused encashable leave this leave year (Time Off, 0770).
   v_year := public.timeoff_year_of(e.last_working_day);
   if v_year is not null then
     select coalesce(sum(greatest(b.available, 0)), 0) into v_leave
@@ -1180,7 +1180,7 @@ begin
     return;  -- already there (a re-run)
   end if;
   if position(v_anchor in v_def) = 0 then
-    raise exception '0766: approval_apply_terminal''s final refusal was not found — add the lc branches by hand.';
+    raise exception '0771: approval_apply_terminal''s final refusal was not found — add the lc branches by hand.';
   end if;
   execute replace(v_def, v_anchor, v_branch || v_anchor);
 end $$;

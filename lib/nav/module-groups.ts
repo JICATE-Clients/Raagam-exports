@@ -1363,7 +1363,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
       // TIME OFF — the MyJKKN HR port, phase 1 (client 2026-10-29: "after this
       // compliance & setup bottom of this build these myjkkn things"). A
       // separate build beside Time & Attendance ▸ Leave & Encashment, which is
-      // untouched. Tables, rules and approvals in 0765_hr_time_off.sql.
+      // untouched. Tables, rules and approvals in 0770_hr_time_off.sql.
       {
         kind: "group",
         slug: "time-off",

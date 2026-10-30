@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 export const metadata = { title: "Leave Calendar" };
 
 /**
- * HR ▸ Time Off ▸ Leave Calendar (0765, MyJKKN `/hr/leave/calendar`).
+ * HR ▸ Time Off ▸ Leave Calendar (0770, MyJKKN `/hr/leave/calendar`).
  * Approved leave and permissions for one month in the unit being worked in.
  * Sundays are shaded and Master Data ▸ Holidays are named on their day.
  */

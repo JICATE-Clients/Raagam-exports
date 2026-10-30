@@ -19,7 +19,7 @@ import type {
 } from "./lifecycle-types";
 
 /**
- * Reads for HR ▸ Team Lifecycle (0766).
+ * Reads for HR ▸ Team Lifecycle (0771).
  *
  * RLS does the scoping: an HR viewer reads the unit they are working in, a
  * staff member reads only their own rows. The people list and the "who is

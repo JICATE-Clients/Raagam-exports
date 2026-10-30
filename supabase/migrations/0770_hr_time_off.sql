@@ -1,4 +1,4 @@
--- 0765 — HR ▸ TIME OFF (MyJKKN HR port, phase 1 — client 2026-10-29)
+-- 0770 — HR ▸ TIME OFF (MyJKKN HR port, phase 1 — client 2026-10-29)
 --
 -- A SEPARATE build beside the existing "Leave & Encashment" screen (hr_leaves),
 -- which is untouched. Source: MyJKKN docs/HR-MODULE-SPEC.md §9, rebuilt on
@@ -108,7 +108,7 @@ create table if not exists public.timeoff_years (
   constraint timeoff_year_span check (end_date > start_date)
 );
 comment on table public.timeoff_years is
-  'HR ▸ Time Off leave years (MyJKKN hr_academic_years). Shared across units — no location_id. 0765.';
+  'HR ▸ Time Off leave years (MyJKKN hr_academic_years). Shared across units — no location_id. 0770.';
 
 create or replace function public.timeoff_years_no_overlap()
 returns trigger language plpgsql set search_path = '' as $$
@@ -187,7 +187,7 @@ create table if not exists public.timeoff_leave_types (
   constraint timeoff_type_sto_min  check (sto_limit_mode <> 'minutes' or sto_total_minutes is not null)
 );
 comment on table public.timeoff_leave_types is
-  'HR ▸ Time Off leave type catalog (MyJKKN hr_leave_types). Shared across units — no location_id. 0765.';
+  'HR ▸ Time Off leave type catalog (MyJKKN hr_leave_types). Shared across units — no location_id. 0770.';
 create unique index if not exists uq_timeoff_type_code on public.timeoff_leave_types (upper(btrim(code)));
 drop trigger if exists trg_timeoff_types_updated on public.timeoff_leave_types;
 create trigger trg_timeoff_types_updated before update on public.timeoff_leave_types
@@ -1218,7 +1218,7 @@ begin
     return;  -- already there (a re-run)
   end if;
   if position(v_anchor in v_def) = 0 then
-    raise exception '0765: approval_apply_terminal''s final refusal was not found — add the timeoff branches by hand.';
+    raise exception '0770: approval_apply_terminal''s final refusal was not found — add the timeoff branches by hand.';
   end if;
   execute replace(v_def, v_anchor, v_branch || v_anchor);
 end $$;

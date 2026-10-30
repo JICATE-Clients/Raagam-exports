@@ -127,7 +127,7 @@ export const GROUP_HUB_ICONS: Readonly<Record<string, HubMark>> = {
   "/hr/statutory": { icon: FileCheck, tone: "danger" },
   "/hr/settings": { icon: Settings, tone: "primary" },
 
-  // Time Off (0765)
+  // Time Off (0770)
   "/hr/time-off/leave": { icon: CalendarOff, tone: "primary" },
   "/hr/time-off/permission": { icon: Timer, tone: "warning" },
   "/hr/time-off/comp-off": { icon: CalendarPlus, tone: "accent" },

@@ -75,7 +75,7 @@ import { PersonCombobox } from "@/components/hr/lifecycle/shared";
 import { ScheduleSheet, ScoreBadge } from "./shared";
 
 /**
- * HR ▸ Recruitment ▸ Candidates (0767, MyJKKN §7 applications + candidates).
+ * HR ▸ Recruitment ▸ Candidates (0772, MyJKKN §7 applications + candidates).
  *
  * One record carries a person from first contact to joining:
  *

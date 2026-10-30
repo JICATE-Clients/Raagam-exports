@@ -21,7 +21,7 @@ type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 /**
  * Legacy HR "Employee Category" master — twin of Designation: Name · For
  * (Staff / Worker / Staff-Worker) · Timing Group (Staff / Security /
- * Production Staff, 0764). Draft-capable via the inline status select
+ * Production Staff, 0769). Draft-capable via the inline status select
  * (`is_draft` persists exactly as before; short_name mirrors name).
  */
 const descriptor: SimpleMasterDescriptor<EmployeeCategory> = {

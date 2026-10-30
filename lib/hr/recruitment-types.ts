@@ -3,7 +3,7 @@ import type { StatusTone } from "@/lib/ui/status-tone";
 import { statusTone } from "@/lib/ui/status-tone";
 
 /**
- * HR ▸ Recruitment (0767) — the MyJKKN recruitment port. Shared shapes and
+ * HR ▸ Recruitment (0772) — the MyJKKN recruitment port. Shared shapes and
  * words. Every rule here is also a rule in SQL (rc_* functions); these only
  * let the screen say it first.
  */

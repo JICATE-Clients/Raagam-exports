@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 // ============================================================================
-// Timing Groups (0764). Client 2026-10-28: every employee category belongs to
+// Timing Groups (0769). Client 2026-10-28: every employee category belongs to
 // one of THREE fixed groups, and the group fixes the working day — Punch In,
 // Punch Out and a grace allowance, nothing else. "Male Staff" and "Female
 // Staff" are two categories and one group, because they keep the same hours.
