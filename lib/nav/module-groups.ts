@@ -1388,19 +1388,42 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           { href: "/logistics/order-categories", label: "Order Category Assign", description: "Assign orders to export categories" },
         ],
       },
-      // Vehicle & Transport (doc/vehicle program/plan.md D1, 2026-10-29). Trip
-      // detail (/logistics/transport/trips/[id]) is a document reached from the
-      // board, not a row.
+    ],
+  },
+
+  // Vehicle & Transport (doc/vehicle program/plan.md D1, 2026-10-29) — its OWN
+  // sidebar module since the same day (user: "move the transport as separate
+  // … new menu"); it was a group under Logistics. THE ROUTES DID NOT MOVE:
+  // the module root is `/logistics/transport`, and the sidebar picks a module
+  // by longest prefix (`activeModule`), so these screens light Transport, not
+  // Logistics. Same permission key (`logistics`) — a menu split, not an access
+  // change. Trip detail (/logistics/transport/trips/[id]) is a document reached
+  // from the board, not a row; the group slug is `operations`, not `trips`, so
+  // a hub page never sits on top of that document's segment.
+  "/logistics/transport": {
+    label: "Transport",
+    description: "Vehicles, trip requests, dispatch and the fleet board",
+    module: "logistics",
+    entries: [
       {
         kind: "group",
-        slug: "transport",
-        label: "Transport",
+        slug: "operations",
+        label: "Trips",
         icon: Truck,
-        description: "Vehicles, trip requests, dispatch and the fleet board",
+        description: "Book a vehicle, pool requests onto it and follow the trip",
         children: [
           { href: "/logistics/transport/requests", label: "Trip Requests", description: "Book a vehicle for an order's material", newUntil: "2026-11-30" },
           { href: "/logistics/transport/dispatch", label: "Dispatch", description: "Pool pending requests onto a vehicle", newUntil: "2026-11-30" },
           { href: "/logistics/transport/board", label: "Fleet Board", description: "Live trips, status and load per vehicle", newUntil: "2026-11-30" },
+        ],
+      },
+      {
+        kind: "group",
+        slug: "setup",
+        label: "Fleet Setup",
+        icon: Settings,
+        description: "The vehicles and the places they stop at",
+        children: [
           { href: "/logistics/transport/vehicles", label: "Vehicles", description: "Vehicle master — number, type, payload, GPS device", newUntil: "2026-11-30" },
           { href: "/logistics/transport/places", label: "Transport Places", description: "Units, vendors and other stops with their geofence", newUntil: "2026-11-30" },
         ],
