@@ -1,23 +1,26 @@
 "use client";
 
-import { useState, useTransition, type MouseEvent } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Clock, MoonStar, Pencil, Trash2 } from "lucide-react";
-import { KIND_LOOK } from "@/components/hr/timing-group-look";
+import { MoonStar, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { DataTable, type Column } from "@/components/ui/data-table";
 import { Input } from "@/components/ui/input";
 import { Field, FieldRow } from "@/components/ui/field";
-import { Sheet, type SheetOrigin } from "@/components/ui/sheet";
+import { Sheet } from "@/components/ui/sheet";
+import { ToggleGroup } from "@/components/ui/segmented";
+import { RowIconAction } from "@/components/ui/row-actions";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { saveCategoryTiming, deleteCategoryTiming } from "@/lib/masters/category-timing-actions";
 import {
   PERSON_KINDS,
   isOvernight,
+  nextTiming,
   shiftMinutes,
   timingOn,
   type CategoryTiming,
+  type PersonKind,
 } from "@/lib/masters/category-timing-types";
 import { categoryFitsKind, type EmployeeCategory } from "@/lib/masters/employee-category-types";
 import { fmtDate, fmtTime } from "@/lib/format";
@@ -35,17 +38,19 @@ function hours(min: number): string {
 
 /**
  * Master Data ▸ HR ▸ Work Timing — Punch In, Punch Out and a grace allowance
- * for EACH employee category, from a date (0774). Split into Staff and Worker
- * by the category's For (user 2026-10-30: "whatever category we are creating
- * … should be shown in work timing separately so that we can assign timing").
- * A new category appears here on its own, reading "No timing set".
+ * for EACH employee category, from a date (0774). Staff | Worker switch over
+ * one plain table, a row per category (user 2026-10-30: "whatever category we
+ * are creating … should be shown in work timing separately", then "can we
+ * make more simpler" — the first cut was a grid of cards). A new category
+ * appears here on its own, reading "Not set".
  *
  * A change of hours is a new dated revision, never an overwrite, so a past day
  * is judged by the hours of that day. The same Effective From again corrects
- * that revision.
+ * that revision; the revisions are listed in the edit panel.
  */
 // dup-check: exempt -- keyed by (category, effective_from); a later date is a
 // revision of the hours, the same date corrects it.
+// created-by: exempt -- a row per category's CURRENT hours, not a record listing.
 export function WorkTimingMasterScreen({
   rows,
   categories,
@@ -61,17 +66,18 @@ export function WorkTimingMasterScreen({
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
+  const [kind, setKind] = useState<PersonKind>("staff");
   const [editing, setEditing] = useState<EmployeeCategory | null>(null);
-  const [origin, setOrigin] = useState<SheetOrigin | null>(null);
   const [form, setForm] = useState<Form>({ in_time: "", out_time: "", grace_minutes: "0", effective_from: today });
   const [doomed, setDoomed] = useState<CategoryTiming | null>(null);
 
   const set = (patch: Partial<Form>) => setForm((f) => ({ ...f, ...patch }));
   const live = categories.filter((c) => !c.inactive);
+  const shown = live.filter((c) => categoryFitsKind(c.for_type, kind));
+  const canWrite = perms.canEdit || perms.canCreate;
 
-  function openEdit(c: EmployeeCategory, e: MouseEvent<HTMLButtonElement>) {
+  function openEdit(c: EmployeeCategory) {
     const now = timingOn(rows, c.id, today);
-    setOrigin(e.currentTarget.getBoundingClientRect());
     setForm({
       in_time: now?.in_time.slice(0, 5) ?? "",
       out_time: now?.out_time.slice(0, 5) ?? "",
@@ -119,135 +125,112 @@ export function WorkTimingMasterScreen({
     });
   }
 
+  const columns: Column<EmployeeCategory>[] = [
+    {
+      header: "Category",
+      cell: (c) => (
+        <span className="font-medium">
+          {c.name}
+          {c.is_draft ? <span className="ml-1.5 text-xs font-normal text-muted-foreground">(draft)</span> : null}
+        </span>
+      ),
+    },
+    {
+      header: "Punch In",
+      cell: (c) => {
+        const t = timingOn(rows, c.id, today);
+        return t ? <span className="tabular-nums">{fmtTime(t.in_time)}</span> : <span className="text-muted-foreground">Not set</span>;
+      },
+    },
+    {
+      header: "Punch Out",
+      cell: (c) => {
+        const t = timingOn(rows, c.id, today);
+        if (!t) return <span className="text-muted-foreground">—</span>;
+        return (
+          <span className="inline-flex items-center gap-1 tabular-nums">
+            {fmtTime(t.out_time)}
+            {isOvernight(t) && <MoonStar className="h-3.5 w-3.5 text-warning" aria-label="next morning" />}
+          </span>
+        );
+      },
+    },
+    {
+      header: "Hours",
+      cell: (c) => {
+        const t = timingOn(rows, c.id, today);
+        return t ? <span className="tabular-nums">{hours(shiftMinutes(t))}</span> : "—";
+      },
+    },
+    {
+      header: "Grace",
+      align: "right",
+      cell: (c) => {
+        const t = timingOn(rows, c.id, today);
+        return t ? <span className="tabular-nums">{t.grace_minutes} min</span> : "—";
+      },
+    },
+    {
+      header: "From",
+      cell: (c) => {
+        const t = timingOn(rows, c.id, today);
+        const next = nextTiming(rows, c.id, today);
+        return (
+          <span className="tabular-nums">
+            {t ? fmtDate(t.effective_from) : "—"}
+            {next && (
+              <span className="block text-xs text-muted-foreground">
+                Changes {fmtDate(next.effective_from)}
+              </span>
+            )}
+          </span>
+        );
+      },
+    },
+    {
+      header: "",
+      align: "right",
+      cell: (c) =>
+        canWrite ? <RowIconAction label="Set timing" name={c.name} icon={Pencil} onClick={() => openEdit(c)} /> : null,
+    },
+  ];
+
+  const history = editing ? rows.filter((r) => r.category_id === editing.id).slice().reverse() : [];
+  const current = editing ? timingOn(rows, editing.id, today) : null;
   const overnightDraft =
     form.in_time && form.out_time && isOvernight({ in_time: form.in_time, out_time: form.out_time });
   const canSave =
     !isPending && !!form.in_time && !!form.out_time && !!form.effective_from && form.in_time !== form.out_time;
 
   return (
-    <div className="space-y-6">
-      <p className="text-sm text-muted-foreground">
-        Set Punch In and Punch Out for each employee category. Categories appear under Staff or
-        Worker by their For on Employee Category. Punches in between are still recorded and shown on
-        Live Punches and the HR dashboard.
-      </p>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <ToggleGroup
+          label="Staff or Worker"
+          role="tablist"
+          value={kind}
+          onChange={setKind}
+          options={PERSON_KINDS.map((k) => ({
+            value: k.value,
+            label: `${k.label} (${live.filter((c) => categoryFitsKind(c.for_type, k.value)).length})`,
+          }))}
+        />
+        <p className="text-xs text-muted-foreground">Categories come from Employee Category, by their For.</p>
+      </div>
 
-      {PERSON_KINDS.map(({ value: kind, label }) => {
-        const look = KIND_LOOK[kind];
-        const Icon = look.icon;
-        const cats = live.filter((c) => categoryFitsKind(c.for_type, kind));
-        return (
-          <section key={kind} className="space-y-3">
-            <div className="flex items-center gap-2">
-              <span className={cn("flex h-7 w-7 items-center justify-center rounded-lg", look.well)}>
-                <Icon className="h-4 w-4" />
-              </span>
-              <h2 className="text-sm font-semibold text-heading">{label}</h2>
-              <span className="text-xs text-muted-foreground">
-                {cats.length} {cats.length === 1 ? "category" : "categories"}
-              </span>
-            </div>
-
-            {cats.length === 0 ? (
-              <p className="rounded-lg border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
-                No {label} categories yet. Add one on Employee Category with For = {label}.
-              </p>
-            ) : (
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                {cats.map((c) => {
-                  const t = timingOn(rows, c.id, today);
-                  const history = rows.filter((r) => r.category_id === c.id).slice().reverse();
-                  const upcoming = history.filter((r) => r.effective_from.slice(0, 10) > today);
-                  return (
-                    <Card key={c.id} className="relative flex min-w-0 flex-col overflow-hidden p-4">
-                      <span aria-hidden className={cn("absolute inset-x-0 top-0 h-[3px]", look.rule)} />
-                      <div className="flex items-center gap-3">
-                        <h3 className="min-w-0 flex-1 truncate text-sm font-semibold text-heading">
-                          {c.name}
-                          {c.is_draft ? <span className="ml-1.5 text-xs font-normal text-muted-foreground">(draft)</span> : null}
-                        </h3>
-                        {(perms.canEdit || perms.canCreate) && (
-                          <Button variant="outline" onClick={(e) => openEdit(c, e)}>
-                            <Pencil className="h-3.5 w-3.5" />
-                            {t ? "Change" : "Set timing"}
-                          </Button>
-                        )}
-                      </div>
-
-                      {t ? (
-                        <>
-                          <p className="mt-4 flex items-baseline gap-2 text-2xl font-semibold tabular-nums tracking-tight text-heading">
-                            {fmtTime(t.in_time)}
-                            <span className="text-base font-normal text-muted-foreground">→</span>
-                            {fmtTime(t.out_time)}
-                          </p>
-                          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                            <span className="inline-flex items-center gap-1">
-                              <Clock className="h-3.5 w-3.5" />
-                              {hours(shiftMinutes(t))} day
-                            </span>
-                            <span>In grace {t.grace_minutes} min</span>
-                            {isOvernight(t) && (
-                              <span className="inline-flex items-center gap-1 text-warning">
-                                <MoonStar className="h-3.5 w-3.5" />
-                                Out next morning
-                              </span>
-                            )}
-                          </div>
-                          <p className="mt-1 text-xs text-muted-foreground">From {fmtDate(t.effective_from)}</p>
-                        </>
-                      ) : (
-                        <p className="mt-4 text-sm text-muted-foreground">
-                          No timing set yet — nobody in this category is marked late or early.
-                        </p>
-                      )}
-
-                      {history.length > 0 && (
-                        <div className="mt-4 border-t border-border pt-3">
-                          <p className="text-[11px] font-medium text-muted-foreground">
-                            History{upcoming.length ? ` · ${upcoming.length} upcoming` : ""}
-                          </p>
-                          <ul className="mt-1 space-y-1">
-                            {history.map((r) => (
-                              <li key={r.id} className="flex items-center gap-2 text-xs">
-                                <span className="w-20 shrink-0 tabular-nums text-muted-foreground">
-                                  {fmtDate(r.effective_from)}
-                                </span>
-                                <span className={cn("flex-1 tabular-nums", r.id === t?.id && "font-semibold")}>
-                                  {fmtTime(r.in_time)} – {fmtTime(r.out_time)} · {r.grace_minutes}m
-                                  {r.id === t?.id ? " · now" : r.effective_from.slice(0, 10) > today ? " · upcoming" : ""}
-                                </span>
-                                {perms.canDelete && (
-                                  <button
-                                    type="button"
-                                    onClick={() => setDoomed(r)}
-                                    className="rounded p-1 text-muted-foreground hover:bg-surface-muted hover:text-danger"
-                                    aria-label={`Remove the ${fmtDate(r.effective_from)} timing`}
-                                  >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </button>
-                                )}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </Card>
-                  );
-                })}
-              </div>
-            )}
-          </section>
-        );
-      })}
+      <DataTable
+        columns={columns}
+        rows={shown}
+        getKey={(c) => c.id}
+        empty={`No ${kind === "staff" ? "Staff" : "Worker"} categories yet. Add one on Employee Category.`}
+      />
 
       <Sheet
         open={editing !== null}
         onClose={() => setEditing(null)}
-        title={`${editing?.name ?? ""} Timing`}
+        title={`${editing?.name ?? ""} — Timing`}
         size="sm"
         alignToPane
-        origin={origin}
         footer={
           <>
             <Button variant="outline" onClick={() => setEditing(null)}>
@@ -269,7 +252,7 @@ export function WorkTimingMasterScreen({
             </Field>
           </FieldRow>
           <FieldRow>
-            <Field label="In grace (min)" w="num" htmlFor="ct-grace">
+            <Field label="Grace (min)" w="num" htmlFor="ct-grace">
               <Input
                 id="ct-grace"
                 type="number"
@@ -294,8 +277,28 @@ export function WorkTimingMasterScreen({
               ? "Punch Out can't be the same as Punch In."
               : overnightDraft
                 ? "Punch Out is earlier than Punch In, so it is read as the next morning (night shift)."
-                : `Grace applies to Punch In only: late after Punch In + grace. Leaving before Punch Out is early — no grace.`}
+                : "Late after Punch In + grace. Leaving before Punch Out is early (no grace)."}
           </p>
+
+          {history.length > 0 && (
+            <div className="border-t border-border pt-3">
+              <p className="text-xs font-medium text-muted-foreground">Changes</p>
+              <ul className="mt-1.5 space-y-1">
+                {history.map((r) => (
+                  <li key={r.id} className="flex items-center gap-2 text-sm">
+                    <span className="w-24 shrink-0 tabular-nums text-muted-foreground">{fmtDate(r.effective_from)}</span>
+                    <span className={cn("flex-1 tabular-nums", r.id === current?.id && "font-semibold")}>
+                      {fmtTime(r.in_time)} – {fmtTime(r.out_time)} · {r.grace_minutes}m
+                      {r.id === current?.id ? " · now" : r.effective_from.slice(0, 10) > today ? " · upcoming" : ""}
+                    </span>
+                    {perms.canDelete && (
+                      <RowIconAction label="Remove" name={fmtDate(r.effective_from)} icon={Trash2} danger onClick={() => setDoomed(r)} />
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       </Sheet>
 
