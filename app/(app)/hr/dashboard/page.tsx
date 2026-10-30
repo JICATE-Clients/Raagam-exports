@@ -3,8 +3,8 @@ import { getHrDashboard } from "@/lib/hr/dashboard-service";
 import { HrDashboardView } from "./hr-dashboard";
 
 /**
- * HR ▸ Dashboard (client 2026-10-28): today's attendance by timing group
- * (Staff · Security · Production Staff), who is late, out or gone early, every
+ * HR ▸ Dashboard (client 2026-10-28): today's attendance, Staff and Worker
+ * (0774: each person judged by their category's hours), who is late, out or gone early, every
  * punch between In and Out, the week's trend and the devices.
  *
  * Its own row, FIRST in the HR sidebar above People (client: "there should be

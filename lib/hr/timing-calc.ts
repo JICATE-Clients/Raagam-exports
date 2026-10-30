@@ -1,19 +1,22 @@
 import {
+  nextTiming,
   timeToMinutes,
-  timingsOn,
-  type GroupTiming,
-  type TimingGroup,
-} from "@/lib/masters/group-timing-types";
+  timingOn,
+  type CategoryTiming,
+  type PersonKind,
+} from "@/lib/masters/category-timing-types";
 
 // ============================================================================
-// Today's attendance from raw punches, per timing group (0769). Pure — no
-// clock, no database — so it is testable and the dashboard and any later
-// screen read one rule.
+// Today's attendance from raw punches, Staff and Worker, each person judged by
+// THEIR employee category's hours (0774). Pure — no clock, no database — so it
+// is testable and the dashboard and any later screen read one rule.
 //
-// THE SHIFT DAY is the rule `hr_attendance_trend()` (0769) also follows: a
-// group's day D runs 24 h from (D + Punch In − 4 h), IST. Staff at 09:00 owns
-// 05:00 → 05:00; Security at 20:00 owns 16:00 → 16:00, so the 08:00 punch next
-// morning ENDS day D instead of starting D+1. Change one, change both.
+// THE SHIFT DAY is the rule `hr_attendance_trend_by_kind()` (0774) also
+// follows: a category's day D runs 24 h from (D + Punch In − 4 h), IST. A 09:00
+// day owns 05:00 → 05:00; a 20:00 night shift owns 16:00 → 16:00, so the 08:00
+// punch next morning ENDS day D instead of starting D+1. A person with no
+// category, or a category with no hours, is on the calendar day and is never
+// late. Change one, change both.
 //
 // Only Punch In and Punch Out are fixed. Punches in between alternate
 // out / back-in and are reported as MOVEMENTS, never judged against a time.
@@ -29,7 +32,10 @@ export interface Person {
   bio: string;
   name: string;
   code: string | null;
-  group: TimingGroup;
+  kind: PersonKind;
+  categoryId: string | null;
+  /** The category's name, or null when the person has none. */
+  categoryName: string | null;
 }
 
 export interface RawPunch {
@@ -59,13 +65,23 @@ export interface PersonDay {
   punches: number[];
 }
 
-export interface GroupDay {
-  group: TimingGroup;
-  /** The shift day (YYYY-MM-DD) being shown. */
+/** One category's hours as the dashboard shows them under Staff or Worker. */
+export interface ShiftInfo {
+  /** null = the people with no category at all. */
+  categoryId: string | null;
+  name: string;
+  /** The shift day (YYYY-MM-DD) in force for this category now. */
   day: string;
-  timing: GroupTiming | null;
-  inAt: number | null;
-  outAt: number | null;
+  timing: CategoryTiming | null;
+  /** The next dated revision after `day`, if one is scheduled. */
+  upcoming: CategoryTiming | null;
+  people: number;
+}
+
+export interface GroupDay {
+  group: PersonKind;
+  /** Every category with someone in it, in name order (no-category last). */
+  shifts: ShiftInfo[];
   people: PersonDay[];
 }
 
@@ -83,34 +99,33 @@ function addDays(day: string, n: number): string {
   return new Date(Date.parse(`${day}T00:00:00Z`) + n * DAY_MS).toISOString().slice(0, 10);
 }
 
-/** Start of shift day `day` for a group with these hours (calendar day without). */
-function windowStart(day: string, t: GroupTiming | null): number {
+/** Start of shift day `day` for a category with these hours (calendar day without). */
+function windowStart(day: string, t: CategoryTiming | null): number {
   return t ? istAt(day, timeToMinutes(t.in_time)) - LEAD_MS : istAt(day, 0);
 }
 
 /**
- * Which shift day a group is in at `now`, with its hours. Before today's window
- * opens (03:00 for a 09:00 Staff day) the current day is still yesterday's.
+ * Which shift day a category is in at `now`, with its hours. Before today's
+ * window opens (05:00 for a 09:00 day) the current day is still yesterday's.
  */
 export function currentShift(
-  group: TimingGroup,
-  timings: GroupTiming[],
+  categoryId: string | null,
+  timings: CategoryTiming[],
   now: number,
-): { day: string; timing: GroupTiming | null; start: number } {
+): { day: string; timing: CategoryTiming | null; start: number } {
   const today = istDay(now);
-  const t = timingsOn(timings, today)[group] ?? null;
+  const t = timingOn(timings, categoryId, today);
   if (now >= windowStart(today, t)) return { day: today, timing: t, start: windowStart(today, t) };
   const y = addDays(today, -1);
-  const ty = timingsOn(timings, y)[group] ?? null;
+  const ty = timingOn(timings, categoryId, y);
   return { day: y, timing: ty, start: windowStart(y, ty) };
 }
 
-/** The earliest instant any group's current day starts — what to fetch from. */
-export function fetchFrom(timings: GroupTiming[], now: number): number {
+/** The earliest instant any of these categories' current day starts — what to fetch from. */
+export function fetchFrom(categoryIds: (string | null)[], timings: CategoryTiming[], now: number): number {
   return Math.min(
-    ...(["staff", "security", "production_staff"] as const).map(
-      (g) => currentShift(g, timings, now).start,
-    ),
+    currentShift(null, timings, now).start,
+    ...categoryIds.map((c) => currentShift(c, timings, now).start),
   );
 }
 
@@ -125,7 +140,7 @@ function debounce(times: number[]): number[] {
 export function computeGroupDays(
   people: Person[],
   punches: RawPunch[],
-  timings: GroupTiming[],
+  timings: CategoryTiming[],
   now: number,
 ): GroupDay[] {
   const byBio = new Map<string, number[]>();
@@ -136,58 +151,88 @@ export function computeGroupDays(
     byBio.set(k, list);
   }
 
-  return (["staff", "security", "production_staff"] as const).map((group) => {
-    const { day, timing, start } = currentShift(group, timings, now);
-    const end = start + DAY_MS;
+  // One shift per category, worked out once and shared by everyone in it.
+  type Shift = {
+    day: string;
+    timing: CategoryTiming | null;
+    start: number;
+    end: number;
+    inAt: number | null;
+    outAt: number | null;
+    grace: number;
+  };
+  const shifts = new Map<string, Shift>();
+  const shiftFor = (categoryId: string | null): Shift => {
+    const key = categoryId ?? "";
+    const hit = shifts.get(key);
+    if (hit) return hit;
+    const { day, timing, start } = currentShift(categoryId, timings, now);
     const inAt = timing ? istAt(day, timeToMinutes(timing.in_time)) : null;
     let outAt = timing ? istAt(day, timeToMinutes(timing.out_time)) : null;
     if (inAt != null && outAt != null && outAt <= inAt) outAt += DAY_MS; // night shift
-    const grace = (timing?.grace_minutes ?? 0) * 60_000;
+    const sh = { day, timing, start, end: start + DAY_MS, inAt, outAt, grace: (timing?.grace_minutes ?? 0) * 60_000 };
+    shifts.set(key, sh);
+    return sh;
+  };
 
-    const rows: PersonDay[] = people
-      .filter((p) => p.group === group)
-      .map((person) => {
-        const ts = debounce(
-          (byBio.get(person.bio) ?? []).filter((t) => t >= start && t < end && t <= now).sort((a, b) => a - b),
-        );
-        if (!ts.length) {
-          const status: DayStatus = inAt != null && now > inAt + grace ? "absent" : "not_in";
-          return { person, status, firstAt: null, lastAt: null, lateMin: 0, earlyMin: 0, movements: [], punches: [] };
-        }
-        const first = ts[0];
-        const last = ts[ts.length - 1];
-        const lateMin = inAt != null && first > inAt + grace ? Math.round((first - inAt) / 60_000) : 0;
+  function dayOf(person: Person): PersonDay {
+    const { start, end, inAt, outAt, grace } = shiftFor(person.categoryId);
+    const ts = debounce(
+      (byBio.get(person.bio) ?? []).filter((t) => t >= start && t < end && t <= now).sort((a, b) => a - b),
+    );
+    if (!ts.length) {
+      const status: DayStatus = inAt != null && now > inAt + grace ? "absent" : "not_in";
+      return { person, status, firstAt: null, lastAt: null, lateMin: 0, earlyMin: 0, movements: [], punches: [] };
+    }
+    const first = ts[0];
+    const last = ts[ts.length - 1];
+    const lateMin = inAt != null && first > inAt + grace ? Math.round((first - inAt) / 60_000) : 0;
 
-        let status: DayStatus;
-        let earlyMin = 0;
-        let goneHome = false;
-        if (ts.length % 2 === 1) {
-          status = "inside";
-        } else if (outAt == null || last >= outAt) {
-          // GRACE IS FOR PUNCH IN ONLY (client 2026-10-28). Leaving even a
-          // minute before Punch Out is an early exit; grace never shortens
-          // the end of the day.
-          status = "left";
-          goneHome = true;
-        } else if (now >= outAt) {
-          // Out before time and never came back before Punch Out: left early.
-          status = "left_early";
-          earlyMin = Math.round((outAt - last) / 60_000);
-          goneHome = true;
-        } else {
-          status = "stepped_out";
-        }
+    let status: DayStatus;
+    let earlyMin = 0;
+    let goneHome = false;
+    if (ts.length % 2 === 1) {
+      status = "inside";
+    } else if (outAt == null || last >= outAt) {
+      // GRACE IS FOR PUNCH IN ONLY (client 2026-10-28). Leaving even a
+      // minute before Punch Out is an early exit; grace never shortens
+      // the end of the day.
+      status = "left";
+      goneHome = true;
+    } else if (now >= outAt) {
+      // Out before time and never came back before Punch Out: left early.
+      status = "left_early";
+      earlyMin = Math.round((outAt - last) / 60_000);
+      goneHome = true;
+    } else {
+      status = "stepped_out";
+    }
 
-        // Between the first In and (if they have gone home) the final Out,
-        // punches pair up as out → back.
-        const middle = ts.slice(1, goneHome ? -1 : undefined);
-        const movements: PersonDay["movements"] = [];
-        for (let i = 0; i < middle.length; i += 2) {
-          movements.push({ outAt: middle[i], backAt: middle[i + 1] ?? null });
-        }
-        return { person, status, firstAt: first, lastAt: last, lateMin, earlyMin, movements, punches: ts };
+    // Between the first In and (if they have gone home) the final Out,
+    // punches pair up as out → back.
+    const middle = ts.slice(1, goneHome ? -1 : undefined);
+    const movements: PersonDay["movements"] = [];
+    for (let i = 0; i < middle.length; i += 2) {
+      movements.push({ outAt: middle[i], backAt: middle[i + 1] ?? null });
+    }
+    return { person, status, firstAt: first, lastAt: last, lateMin, earlyMin, movements, punches: ts };
+  }
+
+  return (["staff", "worker"] as const).map((group) => {
+    const mine = people.filter((p) => p.kind === group);
+    const counts = new Map<string, { categoryId: string | null; name: string; people: number }>();
+    for (const p of mine) {
+      const key = p.categoryId ?? "";
+      const c = counts.get(key) ?? { categoryId: p.categoryId, name: p.categoryName ?? "No category", people: 0 };
+      c.people++;
+      counts.set(key, c);
+    }
+    const info: ShiftInfo[] = [...counts.values()]
+      .sort((x, y) => (x.categoryId ? 0 : 1) - (y.categoryId ? 0 : 1) || x.name.localeCompare(y.name))
+      .map((c) => {
+        const sh = shiftFor(c.categoryId);
+        return { ...c, day: sh.day, timing: sh.timing, upcoming: nextTiming(timings, c.categoryId, sh.day) };
       });
-
-    return { group, day, timing, inAt, outAt, people: rows };
+    return { group, shifts: info, people: mine.map(dayOf) };
   });
 }

@@ -38,8 +38,8 @@ export const employeeCategoryInput = z.object({
   name: z.string().min(1, "Name is required"),
   for_type: z.enum(["staff", "worker", "staff_worker"]).default("staff"),
   // Off the form since 2026-10-30 (user). Optional, so a save without it
-  // leaves the stored group untouched — Work Timing and the HR dashboard
-  // still read it.
+  // leaves the stored group untouched. Nothing reads it since 0774 — hours
+  // are per category now (hr_category_timings, on Work Timing).
   timing_group: z.enum(["staff", "security", "production_staff"]).optional(),
   inactive: z.boolean().default(false),
   is_draft: z.boolean().default(false),
