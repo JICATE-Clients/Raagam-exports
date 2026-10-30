@@ -1367,20 +1367,26 @@ export function DataPicker({
                typing open it — combobox.tsx calls this `openOnFocus={false}`. */
           }}
           onClick={(e) => {
-            if (open) return;
             // Touch has no typing in the field — a tap opens its sheet, as before.
-            if (!fine) return openList();
-            /* TYPE TO LIST, LIKE THE COSTING SHEET (client 2026-10-27, screenshot
-               3772: "in costing sheet we have one mechanism in the cell — instead
-               of listing directly, while typing the drop down will list data").
-               A click on the TEXT only puts the caret in the box; typing opens the
-               list already filtered (`onChange` below), the way `TypeOrPick` works
-               on the cost sheet. A click on the ▼ at the right edge still opens the
-               whole list, so the mouse keeps a way to browse; ↓ still opens it too.
+            if (!fine) return open ? undefined : openList();
+            /* A CLICK ANYWHERE IN THE BOX OPENS THE LIST (client 2026-10-30:
+               "clicking anywhere inside the text field box automatically opens the
+               options list, instead of forcing the user to precisely hit the small
+               arrow"). This REVERSES 2026-10-27's "type to list, like the costing
+               sheet", where a click on the text only placed the caret and only the
+               ▼ opened the list — so the ▼'s 24px was the whole mouse target of
+               ~160 pickers. Typing still filters (`onChange` below; `openList`
+               clears the query, so the caret lands in an empty search), ↓ still
+               opens, and FOCUS ALONE still does not (see `onFocus` above). The
+               free-text `TypeOrPick` cost-sheet cell keeps the 10-27 behaviour —
+               it is a typed value with no ▼, not a dropdown.
                The ▼ is `pointer-events-none` (field-affordance.tsx), so its click
-               lands here and is told apart by where it fell. */
+               lands here and is told apart by where it fell: on an OPEN list it
+               closes it, so the arrow still toggles. A click on the text of an
+               open list leaves it open, so the operator can keep typing. */
+            if (!open) return openList();
             const box = e.currentTarget.getBoundingClientRect();
-            if (e.clientX >= box.right - (compact ? 24 : 32)) openList();
+            if (e.clientX >= box.right - (compact ? 24 : 32)) close();
           }}
           onChange={(e) => {
             if (!fine) return; // touch types into the sheet's own search box
