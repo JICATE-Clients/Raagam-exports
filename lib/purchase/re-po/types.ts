@@ -138,6 +138,17 @@ export function lineKindOf(itemClass: string | null | undefined): LineKind {
 }
 
 /**
+ * A FABRIC LINE'S DIA, FROM THE FABRIC BOM (user 2026-10-30). The line is already sliced
+ * "DIA 30" off Fabric BOM ▸ Manual entry (0760), so that is its dia — read by the screen
+ * AND the save, never typed. Null on a line whose BOM carries no dia, and on every
+ * non-fabric line.
+ */
+export function bomDiaOf(l: Pick<RequirementLine, "item_class" | "slice_label">): string | null {
+  if (lineKindOf(l.item_class) !== "fabric") return null;
+  return /^\s*DIA\s+(.+?)\s*$/i.exec(l.slice_label ?? "")?.[1] ?? null;
+}
+
+/**
  * WHOLE BAGS ROUND UP — BY LESS THAN ONE BAG (user decision 2026-10-26; 0758 enforces
  * the same in `po_line_requirement_cap`). To Order 115 kg in 50 kg bags → at most 3.
  */
@@ -185,20 +196,9 @@ export const rePoLineInput = z.object({
   /** Yarn (0758): whole bags and the kg in one; qty is their product. Both or neither. */
   bags: z.number().int().min(0).nullish().transform((v) => v ?? null),
   bag_weight: z.number().positive().nullish().transform((v) => v ?? null),
-  /** Fabric (0758): rolls and dia. */
+  /** Fabric (0758): rolls — the one thing the Purchase Manager types. Dia, GSM, Gauge and
+   *  Loop length are NOT input: the save reads them off the Fabric BOM (user 2026-10-30). */
   rolls: z.number().int().min(0).nullish().transform((v) => v ?? null),
-  dia: z
-    .string()
-    .trim()
-    .max(20, "Dia is at most 20 characters")
-    .toUpperCase()
-    .nullish()
-    .transform((v) => v || null),
-  /** Fabric construction (0762), typed on the PO (user 2026-10-28). ABSENT = the Fabric BOM's
-   *  value; null = cleared on purpose. Only this PO line changes — never the BOM. */
-  gsm: z.number().positive().max(2000, "GSM is at most 2000").nullable().optional(),
-  gauge: z.string().trim().max(20, "Gauge is at most 20 characters").toUpperCase().nullable().optional(),
-  loop_length: z.number().positive().max(100, "Loop length is at most 100 mm").nullable().optional(),
   /** This line's GST % (0756); null / absent = the PO's default slab. */
   gst_pct: z
     .number()

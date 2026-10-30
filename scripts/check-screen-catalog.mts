@@ -69,6 +69,7 @@ const UNREGISTERED: Record<string, string> = {
   "/resolve/complaints": "redirect() to Resolve ▸ Inbox — complaints are worked there (sidebar de-dup 2026-10-26)",
   "/resolve/desk-hub": "redirect() to Resolve ▸ Reports — the Service Desk hub folded into Work + Reports 2026-10-26",
   "/admin/document-no-formats": "redirect() to Master Data ▸ System (declared in check-module-groups REDIRECTED)",
+  "/purchase/vendors": "redirect() to Master Data ▸ Associates ▸ Vendor — Vendors left the Purchase menu 2026-10-28",
   "/orders/changes": "redirect() — the Amendments hub moved",
   "/orders/confirmations": "redirect() — merged into another screen",
   "/orders/fabric-ta": "redirect() — Fabric T&A is a tab of the Fabric Plan editor (0609)",
