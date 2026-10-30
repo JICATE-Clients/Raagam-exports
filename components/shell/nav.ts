@@ -11,6 +11,7 @@ import {
   Factory,
   UsersRound,
   Ship,
+  Truck,
   Wallet,
   Cable,
   FileChartColumn,
@@ -142,6 +143,16 @@ export const NAV: NavItem[] = [
     module: "logistics",
     icon: Ship,
     children: moduleNavChildren("/logistics"),
+  },
+  {
+    // Its own module since 2026-10-29 (user: "move the transport as separate
+    // … new menu"). Rooted INSIDE Logistics' path on purpose — `activeModule`
+    // takes the longest prefix, so no route moved. Same `logistics` permission.
+    href: "/logistics/transport",
+    label: "Transport",
+    module: "logistics",
+    icon: Truck,
+    children: moduleNavChildren("/logistics/transport"),
   },
   {
     href: "/finance",

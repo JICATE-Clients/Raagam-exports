@@ -29,7 +29,7 @@ import { PanelLeftOpen } from "lucide-react";
 const RAIL_BANDS: { label?: string; hrefs: string[] }[] = [
   { hrefs: ["/", "/approvals"] },
   { label: "Sampling & Orders", hrefs: ["/sales", "/orders"] },
-  { label: "Bulk Production", hrefs: ["/planning", "/purchase", "/stores", "/production", "/logistics"] },
+  { label: "Bulk Production", hrefs: ["/planning", "/purchase", "/stores", "/production", "/logistics", "/logistics/transport"] },
   { label: "People & Accounts", hrefs: ["/hr", "/finance"] },
   // Out of the overview band into their own, under People & Accounts (user
   // 2026-10-29: "analytics and report also separate … move it under people

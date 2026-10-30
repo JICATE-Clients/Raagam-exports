@@ -1,7 +1,7 @@
-import { GroupHub } from "@/components/shell/group-hub";
+import { ModuleHub } from "@/components/shell/module-hub";
 
-// Sub-module hub — cards and permission come from lib/nav/module-groups.ts,
-// the same registry the sidebar reads.
-export default function Page() {
-  return <GroupHub moduleHref="/logistics" slug="transport" />;
+// Transport module landing page — one card per sub-module, from
+// lib/nav/module-groups.ts (the same registry the sidebar reads).
+export default function TransportPage() {
+  return <ModuleHub moduleHref="/logistics/transport" />;
 }
