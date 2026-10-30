@@ -96,6 +96,13 @@ const AMBIGUOUS = {
   // the grouping service already names `!iwo_id`.
   sample_product_groups: { internal_work_orders: ["iwo_id", "accessories_iwo_id"] },
   internal_work_orders: { sample_product_groups: ["iwo_id", "accessories_iwo_id"] },
+  // 0772's candidate points at `designations` twice (the offer proposed and the
+  // offer approved) and at `staff` twice (who referred them, the record they
+  // joined as) from birth. Declared the day it lands.
+  rc_candidates: {
+    designations: ["offer_designation_id", "approved_designation_id"],
+    staff: ["referred_by_staff_id", "hired_staff_id"],
+  },
 };
 
 /* KNOWN GAP, MEASURED 2026-09-11 AND DELIBERATELY NOT CLOSED HERE.

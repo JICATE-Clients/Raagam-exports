@@ -1,142 +1,105 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useState, useTransition, type MouseEvent } from "react";
 import { useRouter } from "next/navigation";
+import { Clock, MoonStar, Pencil, Trash2 } from "lucide-react";
+import { GROUP_LOOK } from "@/components/hr/timing-group-look";
 import { Button } from "@/components/ui/button";
-import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
+import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Field, FieldGrid } from "@/components/ui/field";
-import { Toggle } from "@/components/ui/toggle";
-import { type Column } from "@/components/ui/data-table";
-import { MasterListShell } from "@/components/masters/master-list-shell";
-import { StatusPill } from "@/components/ui/status-pill";
-import { Sheet } from "@/components/ui/sheet";
+import { Field, FieldRow } from "@/components/ui/field";
+import { Sheet, type SheetOrigin } from "@/components/ui/sheet";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
-import { LocationPicker } from "@/components/masters/location-picker";
-import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
+import { saveGroupTiming, deleteGroupTiming } from "@/lib/masters/group-timing-actions";
 import {
-  createWorkTiming,
-  updateWorkTiming,
-  deleteWorkTiming,
-} from "@/lib/masters/work-timing-actions";
-import type { WorkTiming, WorkTimingInput } from "@/lib/masters/work-timing-types";
-import type { EmployeeLocation } from "@/lib/masters/employee-types";
-import type { ConfigLookup } from "@/lib/masters/extras-types";
-import { fmtDate } from "@/lib/format";
+  TIMING_GROUPS,
+  isOvernight,
+  shiftMinutes,
+  timingsOn,
+  type GroupTiming,
+  type TimingGroup,
+} from "@/lib/masters/group-timing-types";
+import type { EmployeeCategory } from "@/lib/masters/employee-category-types";
+import { fmtDate, fmtTime } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
-// today as YYYY-MM-DD for the date inputs' default.
-function today() {
-  return new Date().toISOString().slice(0, 10);
+type Form = { in_time: string; out_time: string; grace_minutes: string; effective_from: string };
+
+function hours(min: number): string {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return m ? `${h} h ${m} m` : `${h} h`;
 }
 
-type HeaderForm = {
-  date: string;
-  location_id: string;
-  effective_from: string;
-};
-
-type LineRow = {
-  key: string;
-  shift_category_id: string;
-  no_of_shifts: string;
-  applicable_for_all_categories: boolean;
-};
-const blankLine = (key: string): LineRow => ({
-  key,
-  shift_category_id: "",
-  no_of_shifts: "",
-  applicable_for_all_categories: false,
-});
-
 /**
- * Legacy HR "Work Timing" master-detail: header (Entry No auto · Date ·
- * Location → locations · Effective From) + a Shift line grid (Shift Category →
- * config_lookups 'shift_category' · No Of Shifts · Applicable For All
- * Categories). Save / Save-As-Drafts (draft persists with `is_draft = true`).
+ * Master Data ▸ HR ▸ Work Timing — the client's three fixed timing groups
+ * (Staff · Security · Production Staff, 2026-10-28) and the ONLY thing each one
+ * fixes: Punch In, Punch Out and a grace allowance, from a date.
+ *
+ * Replaces the legacy shift-category / no-of-shifts form, which the client
+ * found "complicated" for a rule that is two times. Punches between In and Out
+ * are still recorded and shown (Live Punches, HR dashboard); they are just not
+ * held to a time.
+ *
+ * A change of hours is a new dated revision, never an overwrite, so a past day
+ * is judged by the hours of that day. The same Effective From again corrects
+ * that revision.
  */
-// dup-check: exempt -- header is an auto Entry No plus Location and Effective
-// From. The same location's timings are re-issued at a later date whenever a
-// shift pattern changes, and that second row is the revision, not a duplicate.
+// dup-check: exempt -- three fixed groups, keyed by (group, effective_from); a
+// later date is a revision of the hours, the same date corrects it.
 export function WorkTimingMasterScreen({
   rows,
-  locations,
-  shiftCategories,
+  categories,
+  today,
   perms,
 }: {
-  rows: WorkTiming[];
-  locations: EmployeeLocation[];
-  shiftCategories: ConfigLookup[];
+  rows: GroupTiming[];
+  categories: EmployeeCategory[];
+  /** Today in IST, YYYY-MM-DD — resolved on the server, never `Date.now()` in a render. */
+  today: string;
   perms: Perms;
 }) {
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
-  const [open, setOpen] = useState(false);
-  const [editId, setEditId] = useState<string | null>(null);
-  const [editNo, setEditNo] = useState<number | null>(null);
-  const [form, setForm] = useState<HeaderForm>({ date: today(), location_id: "", effective_from: today() });
-  const [lines, setLines] = useState<LineRow[]>([]);
-  const keySeq = useRef(0);
-  const newKey = () => `l${keySeq.current++}`;
+  const [group, setGroup] = useState<TimingGroup | null>(null);
+  const [origin, setOrigin] = useState<SheetOrigin | null>(null);
+  const [form, setForm] = useState<Form>({ in_time: "", out_time: "", grace_minutes: "0", effective_from: today });
+  const [doomed, setDoomed] = useState<GroupTiming | null>(null);
 
-  const set = (patch: Partial<HeaderForm>) => setForm((f) => ({ ...f, ...patch }));
+  const current = timingsOn(rows, today);
+  const set = (patch: Partial<Form>) => setForm((f) => ({ ...f, ...patch }));
 
-  function openAdd() {
-    setEditId(null);
-    setEditNo(null);
-    setForm({ date: today(), location_id: "", effective_from: today() });
-    setLines([blankLine(newKey())]);
-    setOpen(true);
-  }
-  function openEdit(r: WorkTiming) {
-    setEditId(r.id);
-    setEditNo(r.entry_no);
+  function openEdit(g: TimingGroup, e: MouseEvent<HTMLButtonElement>) {
+    const now = current[g];
+    setOrigin(e.currentTarget.getBoundingClientRect());
     setForm({
-      date: r.date?.slice(0, 10) || today(),
-      location_id: r.location_id ?? "",
-      effective_from: r.effective_from?.slice(0, 10) || today(),
+      in_time: now?.in_time.slice(0, 5) ?? "",
+      out_time: now?.out_time.slice(0, 5) ?? "",
+      grace_minutes: String(now?.grace_minutes ?? 0),
+      // A new revision starts today; the operator moves it to a later date
+      // to schedule a change, or back to correct one already in force.
+      effective_from: today,
     });
-    setLines(
-      r.lines.map((l) => ({
-        key: newKey(),
-        shift_category_id: l.shift_category_id ?? "",
-        no_of_shifts: l.no_of_shifts != null ? String(l.no_of_shifts) : "",
-        applicable_for_all_categories: l.applicable_for_all_categories,
-      })),
-    );
-    setOpen(true);
+    setGroup(g);
   }
 
-  function addLine() {
-    setLines((ls) => [...ls, blankLine(newKey())]);
-  }
-  function setLineAt(key: string, patch: Partial<LineRow>) {
-    setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
-  }
-  function removeLine(key: string) {
-    setLines((ls) => ls.filter((l) => l.key !== key));
-  }
-
-  function submit(asDraft: boolean) {
+  function save() {
+    if (!group) return;
     startTransition(async () => {
-      const payload: WorkTimingInput = {
-        date: form.date,
-        location_id: form.location_id || null,
+      const res = await saveGroupTiming({
+        timing_group: group,
+        in_time: form.in_time,
+        out_time: form.out_time,
+        grace_minutes: Number(form.grace_minutes || 0),
         effective_from: form.effective_from,
-        is_draft: asDraft,
-        lines: lines.map((l, i) => ({
-          sno: i + 1,
-          shift_category_id: l.shift_category_id || null,
-          no_of_shifts: l.no_of_shifts.trim() === "" ? null : Number(l.no_of_shifts),
-          applicable_for_all_categories: l.applicable_for_all_categories,
-        })),
-      };
-      const res = editId ? await updateWorkTiming(editId, payload) : await createWorkTiming(payload);
+      });
       if (res.ok) {
-        success(editId ? "Work timing updated." : asDraft ? "Saved as draft." : "Work timing added.");
-        setOpen(false);
+        success("Timing saved.");
+        setGroup(null);
         router.refresh();
       } else {
         error(res.error);
@@ -144,11 +107,14 @@ export function WorkTimingMasterScreen({
     });
   }
 
-  function remove(r: WorkTiming) {
+  function remove() {
+    if (!doomed) return;
+    const id = doomed.id;
     startTransition(async () => {
-      const res = await deleteWorkTiming(r.id);
+      const res = await deleteGroupTiming(id);
+      setDoomed(null);
       if (res.ok) {
-        success("Work timing deleted.");
+        success("Timing revision removed.");
         router.refresh();
       } else {
         error(res.error);
@@ -156,248 +122,188 @@ export function WorkTimingMasterScreen({
     });
   }
 
-  function statusPill(r: WorkTiming) {
-    return r.is_draft ? (
-      <StatusPill tone="warning">Draft</StatusPill>
-    ) : (
-      <StatusPill tone="success">Active</StatusPill>
-    );
-  }
-
-  /**
-   * ONE DECLARATION for the shift lines. `ChildGrid` renders the table header
-   * and each cell from this array, so a column cannot be added to the header
-   * and forgotten in the row — which is exactly what the hand-rolled markup
-   * this replaces made possible, since it wrote both by hand in two places.
-   *
-   * `width` is the card-mode track and the table's column hint: the picker
-   * column omits it and flexes, the count is fixed, the switch hugs.
-   *
-   * `ariaLabel` on the switch is NOT optional here. `Toggle`'s `label` is
-   * omitted because the column header already says it on screen — but a header
-   * is not associated with the control programmatically, so without this the
-   * grid would ship an unnamed checkbox.
-   */
-  const lineColumns: ChildGridColumn<LineRow>[] = [
-    {
-      header: "Shift Category",
-      cell: (l) => (
-        <LookupDialogPicker
-          kind="shift_category"
-          label="Shift Category"
-          options={shiftCategories}
-          value={l.shift_category_id || null}
-          onChange={(id) => setLineAt(l.key, { shift_category_id: id })}
-          canCreate={perms.canCreate}
-          canEdit={perms.canEdit}
-          compact
-        />
-      ),
-    },
-    {
-      header: "No Of Shifts",
-      width: "9rem",
-      align: "right",
-      cell: (l) => (
-        <Input
-          type="number"
-          min={0}
-          value={l.no_of_shifts}
-          onChange={(e) => setLineAt(l.key, { no_of_shifts: e.target.value })}
-          aria-label="No of shifts"
-        />
-      ),
-    },
-    {
-      header: "All Categories",
-      // A FIXED WIDTH, NOT `auto`. `auto` is this prop's CARD-mode
-      // spelling for "hug"; in the TABLE branch it lands on
-      // `<th style={{width:"auto"}}>`, which is the CSS default — so the
-      // column absorbed the table's leftover width and left a band of
-      // empty space beside a 40px switch (client 2026-09-09).
-      width: "8rem",
-      align: "center",
-      cell: (l) => (
-        <Toggle
-          checked={l.applicable_for_all_categories}
-          onChange={(v) => setLineAt(l.key, { applicable_for_all_categories: v })}
-          ariaLabel="Applies to every employee category"
-        />
-      ),
-    },
-  ];
-
-  const columns: Column<WorkTiming>[] = [
-    { header: "Entry No", cell: (r) => <span className="font-mono text-xs">{r.entry_no}</span> },
-    { header: "Date", cell: (r) => <span className="text-sm">{fmtDate(r.date)}</span> },
-    {
-      header: "Location",
-      cell: (r) => <span className="text-sm text-muted-foreground">{r.location?.name ?? "—"}</span>,
-    },
-    {
-      header: "Effective From",
-      cell: (r) => <span className="text-sm text-muted-foreground">{fmtDate(r.effective_from)}</span>,
-    },
-    {
-      header: "Shifts",
-      cell: (r) => <span className="text-sm text-muted-foreground">{r.lines.length || "—"}</span>,
-    },
-    { header: "Status", cell: (r) => statusPill(r) },
-  ];
+  const overnightDraft =
+    form.in_time && form.out_time && isOvernight({ in_time: form.in_time, out_time: form.out_time });
+  const canSave =
+    !isPending && !!form.in_time && !!form.out_time && !!form.effective_from && form.in_time !== form.out_time;
 
   return (
     <div className="space-y-4">
-      <MasterListShell
-        rows={rows}
-        getKey={(r) => r.id}
-        perms={perms}
-        searchText={(r) => [String(r.entry_no), r.location?.name].filter(Boolean).join(" ")}
-        searchPlaceholder="Search by entry no or location…"
-        statusOf={(r) => (r.is_draft ? "draft" : "active")}
-        addLabel="+ Add Work Timing"
-        onAdd={openAdd}
-        columns={columns}
-        actions={{ onEdit: openEdit, onDelete: remove }}
-        empty="No work timings yet."
-        mobile={{
-          title: (r) => `#${r.entry_no}${r.location?.name ? ` · ${r.location.name}` : ""}`,
-          meta: (r) =>
-            `${r.date?.slice(0, 10) ?? ""} · ${r.lines.length} shift${r.lines.length === 1 ? "" : "s"}`,
-          pill: (r) => statusPill(r),
-          onEdit: openEdit,
-          onDelete: remove,
-        }}
-        isPending={isPending}
-      />
+      <p className="text-sm text-muted-foreground">
+        Fix Punch In and Punch Out for each group. Every employee category belongs to one group
+        (set it on Employee Category). Punches in between are still recorded and shown on Live
+        Punches and the HR dashboard.
+      </p>
 
-      {/* editor */}
+      <div className="grid gap-4 md:grid-cols-3">
+        {TIMING_GROUPS.map(({ value: g, label }) => {
+          const t = current[g];
+          const look = GROUP_LOOK[g];
+          const Icon = look.icon;
+          const cats = categories.filter((c) => c.timing_group === g && !c.inactive);
+          const history = rows.filter((r) => r.timing_group === g).slice().reverse();
+          const upcoming = history.filter((r) => r.effective_from.slice(0, 10) > today);
+          return (
+            <Card key={g} className="relative flex min-w-0 flex-col overflow-hidden p-4">
+              <span aria-hidden className={cn("absolute inset-x-0 top-0 h-[3px]", look.rule)} />
+              <div className="flex items-center gap-3">
+                <span className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px]", look.well)}>
+                  <Icon className="h-[18px] w-[18px]" />
+                </span>
+                <h3 className="flex-1 text-sm font-semibold text-heading">{label}</h3>
+                {(perms.canEdit || perms.canCreate) && (
+                  <Button variant="outline" onClick={(e) => openEdit(g, e)}>
+                    <Pencil className="h-3.5 w-3.5" />
+                    {t ? "Change" : "Set timing"}
+                  </Button>
+                )}
+              </div>
+
+              {t ? (
+                <>
+                  <p className="mt-4 flex items-baseline gap-2 text-2xl font-semibold tabular-nums tracking-tight text-heading">
+                    {fmtTime(t.in_time)}
+                    <span className="text-base font-normal text-muted-foreground">→</span>
+                    {fmtTime(t.out_time)}
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                    <span className="inline-flex items-center gap-1">
+                      <Clock className="h-3.5 w-3.5" />
+                      {hours(shiftMinutes(t))} day
+                    </span>
+                    <span>In grace {t.grace_minutes} min</span>
+                    {isOvernight(t) && (
+                      <span className="inline-flex items-center gap-1 text-warning">
+                        <MoonStar className="h-3.5 w-3.5" />
+                        Out next morning
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">From {fmtDate(t.effective_from)}</p>
+                </>
+              ) : (
+                <p className="mt-4 text-sm text-muted-foreground">
+                  No timing set yet — nobody in this group is marked late or early.
+                </p>
+              )}
+
+              <div className="mt-4 border-t border-border pt-3">
+                <p className="text-[11px] font-medium text-muted-foreground">Employee categories</p>
+                {cats.length ? (
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">
+                    {cats.map((c) => (
+                      <span key={c.id} className="rounded-md bg-surface-muted px-2 py-0.5 text-xs">
+                        {c.name}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-1 text-xs text-muted-foreground">None linked yet.</p>
+                )}
+              </div>
+
+              {history.length > 0 && (
+                <div className="mt-3 border-t border-border pt-3">
+                  <p className="text-[11px] font-medium text-muted-foreground">
+                    History{upcoming.length ? ` · ${upcoming.length} upcoming` : ""}
+                  </p>
+                  <ul className="mt-1 space-y-1">
+                    {history.map((r) => (
+                      <li key={r.id} className="flex items-center gap-2 text-xs">
+                        <span className="w-20 shrink-0 tabular-nums text-muted-foreground">
+                          {fmtDate(r.effective_from)}
+                        </span>
+                        <span className={cn("flex-1 tabular-nums", r.id === t?.id && "font-semibold")}>
+                          {fmtTime(r.in_time)} – {fmtTime(r.out_time)} · {r.grace_minutes}m
+                          {r.id === t?.id ? " · now" : r.effective_from.slice(0, 10) > today ? " · upcoming" : ""}
+                        </span>
+                        {perms.canDelete && (
+                          <button
+                            type="button"
+                            onClick={() => setDoomed(r)}
+                            className="rounded p-1 text-muted-foreground hover:bg-surface-muted hover:text-danger"
+                            aria-label={`Remove the ${fmtDate(r.effective_from)} timing`}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </Card>
+          );
+        })}
+      </div>
+
       <Sheet
-        open={open}
-        onClose={() => setOpen(false)}
-        title={editId ? `Edit Work Timing #${editNo}` : "New Work Timing"}
+        open={group !== null}
+        onClose={() => setGroup(null)}
+        title={`${TIMING_GROUPS.find((x) => x.value === group)?.label ?? ""} Timing`}
+        size="sm"
+        alignToPane
+        origin={origin}
         footer={
           <>
-            <Button variant="outline" size="md" onClick={() => setOpen(false)}>
+            <Button variant="outline" onClick={() => setGroup(null)}>
               Cancel
             </Button>
-            <Button
-              variant="outline"
-              size="md"
-              disabled={isPending || !form.date || !form.effective_from}
-              onClick={() => submit(true)}
-            >
-              Save as Draft
-            </Button>
-            <Button
-              size="md"
-              disabled={isPending || !form.date || !form.effective_from}
-              onClick={() => submit(false)}
-            >
+            <Button disabled={!canSave} onClick={save}>
               {isPending ? "Saving…" : "Save"}
             </Button>
           </>
         }
       >
-        <div className="space-y-4">
-          {/*
-            Header first, lines under it — the two-column split this replaces put
-            the shift grid BESIDE the header fields, which is what forced the
-            grid into a narrow right-hand pane and the pane into a card with a
-            title band of its own.
-          */}
-          <FieldGrid className="max-w-3xl">
-            {/* Row 1 — Entry No · Date */}
-            <Field label="Entry No" size="lg" skipTab>
-              {/* `readOnly` + `skipTab`, not `disabled`: reachable by mouse, off
-                  the typing path. The old "(auto)" described the box. */}
-              <Input value={editNo != null ? `#${editNo}` : ""} readOnly />
+        <div className="space-y-3">
+          <FieldRow>
+            <Field label="Punch In" w="code" required htmlFor="gt-in">
+              <Input id="gt-in" type="time" required value={form.in_time} onChange={(e) => set({ in_time: e.target.value })} />
             </Field>
-
-            <Field label="Date" size="lg" required htmlFor="wt-date">
+            <Field label="Punch Out" w="code" required htmlFor="gt-out">
+              <Input id="gt-out" type="time" required value={form.out_time} onChange={(e) => set({ out_time: e.target.value })} />
+            </Field>
+          </FieldRow>
+          <FieldRow>
+            <Field label="In grace (min)" w="num" htmlFor="gt-grace">
               <Input
-                id="wt-date"
-                type="date"
-                // `.min(1)` in `workTimingInput`.
-                required
-                value={form.date}
-                onChange={(e) => set({ date: e.target.value })}
+                id="gt-grace"
+                type="number"
+                min={0}
+                max={180}
+                value={form.grace_minutes}
+                onChange={(e) => set({ grace_minutes: e.target.value })}
               />
             </Field>
-
-            {/* Row 2 — Location · Effective From */}
-            <Field label="Location" size="lg">
-              {/*
-                `compact` DROPS THE PICKER'S OWN LABEL. `LocationPicker` defaults
-                to drawing one, so inside a `<Field>` the word appeared twice —
-                and the inner label also pushed the control a row lower than the
-                date beside it, so the pair no longer lined up (client
-                2026-09-07: "there is 2 locations here").
-
-                The `Field`'s label is the one that stays: it is what the other
-                fields draw, so keeping it is what keeps this control on the same
-                baseline as Effective From. Dropping the outer one instead would
-                have left a single label — sitting lower than every other label
-                on the form.
-              */}
-              <LocationPicker
-                compact
-                locations={locations}
-                value={form.location_id || null}
-                onChange={(id) => set({ location_id: id ?? "" })}
-              />
-            </Field>
-
-            <Field label="Effective From" size="lg" required htmlFor="wt-eff">
+            <Field label="Effective From" w="code" required htmlFor="gt-from">
               <Input
-                id="wt-eff"
+                id="gt-from"
                 type="date"
-                // `.min(1)` in `workTimingInput`.
                 required
                 value={form.effective_from}
                 onChange={(e) => set({ effective_from: e.target.value })}
               />
             </Field>
-          </FieldGrid>
-
-          {/*
-            THE SHIFT LINES ARE A `ChildGrid` NOW, and the frames are what that
-            buys. The hand-rolled version drew three: a bordered panel, a grey
-            title band inside it, and `rounded-md border` around EVERY shift — so
-            a work timing with four shifts showed six boxes (client 2026-09-04:
-            "there are so many extra boxes and lines remove them"). A grid draws
-            one frame; rows are divided by a hairline inside it.
-
-            NO `forceCards`, DELIBERATELY. That prop answers "this row cannot fit
-            without scrolling sideways", which is true above about six columns
-            and false at three — the layout contract is explicit that below that
-            a table still fits and still reads better. `forceCards` here would
-            re-introduce a card per row, which is the thing being removed.
-
-            NO `label` either: the de-clutter rule drops a grid's caption band
-            where something already names it, and the columns do — "Shift
-            Category" heads the first one.
-
-            What the conversion adds beyond the look is the keyboard contract,
-            which a hand-rolled grid cannot inherit: Ctrl+Del removes a row from
-            any cell (it drives the row's own ✕ via `data-row-remove`), Tab off
-            the last cell lands on "+ Add shift" rather than escaping the
-            section, and the cursor lands in the row that button opens. The old
-            markup called `gridKeyNav` by hand and had none of the rest.
-
-            `seedRow` opens with one blank line so entering the first shift costs
-            no click — and it is what gives the keyboard a way in at all, since
-            Tab lands on fields and an empty grid has none.
-          */}
-          <ChildGrid<LineRow>
-            columns={lineColumns}
-            rows={lines}
-            onAdd={addLine}
-            onRemove={(l) => removeLine(l.key)}
-            addLabel="+ Add shift"
-            seedRow
-          />
+          </FieldRow>
+          <p className="text-xs text-muted-foreground">
+            {form.in_time && form.out_time && form.in_time === form.out_time
+              ? "Punch Out can't be the same as Punch In."
+              : overnightDraft
+                ? "Punch Out is earlier than Punch In, so it is read as the next morning (night shift)."
+                : `Grace applies to Punch In only: late after Punch In + grace. Leaving before Punch Out is early — no grace.`}
+          </p>
         </div>
       </Sheet>
+
+      <ConfirmDialog
+        open={doomed !== null}
+        title={`Remove the ${doomed ? fmtDate(doomed.effective_from) : ""} timing?`}
+        body="Days from that date will be judged by the revision before it."
+        confirmLabel="Remove"
+        isPending={isPending}
+        onConfirm={remove}
+        onCancel={() => setDoomed(null)}
+      />
     </div>
   );
 }

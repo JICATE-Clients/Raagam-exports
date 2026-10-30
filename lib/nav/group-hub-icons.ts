@@ -41,6 +41,15 @@ import {
   Laptop,
   Timer,
   ListTree,
+  CalendarPlus,
+  ClipboardCheck,
+  CalendarDays,
+  Scale,
+  FolderUp,
+  Cake,
+  Briefcase,
+  UserPlus,
+  CalendarClock,
 } from "lucide-react";
 import type { HubMark } from "@/components/masters/hub-icons";
 
@@ -91,14 +100,10 @@ export const GROUP_HUB_ICONS: Readonly<Record<string, HubMark>> = {
   // pay out (success), Allowances & Deductions adjusts (warning), Statutory
   // Docs is a compliance obligation (danger).
 
+  "/hr/dashboard": { icon: LayoutDashboard, tone: "primary" },
   // People
   "/hr/workers": { icon: HardHat, tone: "primary" },
   "/hr/staff": { icon: UserCog, tone: "info" },
-  // People runs Workers (primary) · Staff (info) · Salary Registry · Bank
-  // Details · Contractors (accent) · Lifecycle (warning), so these two take
-  // accent and primary — no two adjacent cards share a tone.
-  "/hr/salary-registry": { icon: Wallet, tone: "accent" },
-  "/hr/bank-details": { icon: Landmark, tone: "primary" },
   "/hr/contractors": { icon: Building2, tone: "accent" },
   "/hr/lifecycle": { icon: UserMinus, tone: "warning" },
 
@@ -107,7 +112,10 @@ export const GROUP_HUB_ICONS: Readonly<Record<string, HubMark>> = {
   "/hr/piece-records": { icon: Scissors, tone: "accent" },
   "/hr/leave": { icon: CalendarOff, tone: "primary" },
 
-  // Pay
+  // Pay — Salary Registry (accent) · Bank Details (primary) lead it, then
+  // Payroll Runs (success); no two adjacent cards share a tone.
+  "/hr/salary-registry": { icon: Wallet, tone: "accent" },
+  "/hr/bank-details": { icon: Landmark, tone: "primary" },
   "/hr/payroll": { icon: Banknote, tone: "success" },
   "/hr/payslip": { icon: ReceiptText, tone: "info" },
   "/hr/advances": { icon: HandCoins, tone: "success" },
@@ -118,6 +126,27 @@ export const GROUP_HUB_ICONS: Readonly<Record<string, HubMark>> = {
   // Compliance & Setup
   "/hr/statutory": { icon: FileCheck, tone: "danger" },
   "/hr/settings": { icon: Settings, tone: "primary" },
+
+  // Time Off (0770)
+  "/hr/time-off/leave": { icon: CalendarOff, tone: "primary" },
+  "/hr/time-off/permission": { icon: Timer, tone: "warning" },
+  "/hr/time-off/comp-off": { icon: CalendarPlus, tone: "accent" },
+  "/hr/time-off/approvals": { icon: ClipboardCheck, tone: "success" },
+  "/hr/time-off/calendar": { icon: CalendarDays, tone: "info" },
+  "/hr/time-off/balances": { icon: Scale, tone: "primary" },
+  "/hr/time-off/encashment": { icon: HandCoins, tone: "success" },
+  "/hr/time-off/setup": { icon: Settings, tone: "accent" },
+  "/hr/team/joining": { icon: ListChecks, tone: "primary" },
+  "/hr/team/documents": { icon: FolderUp, tone: "info" },
+  "/hr/team/verify": { icon: FileCheck, tone: "success" },
+  "/hr/team/assets": { icon: Laptop, tone: "accent" },
+  "/hr/team/exits": { icon: UserMinus, tone: "warning" },
+  "/hr/team/settlements": { icon: IndianRupee, tone: "success" },
+  "/hr/team/retirements": { icon: Cake, tone: "info" },
+  "/hr/team/setup": { icon: Settings, tone: "accent" },
+  "/hr/recruitment/jobs": { icon: Briefcase, tone: "primary" },
+  "/hr/recruitment/candidates": { icon: UserPlus, tone: "info" },
+  "/hr/recruitment/interviews": { icon: CalendarClock, tone: "accent" },
 
   // Resolve Hub — Reporting · Work · Administration
   "/resolve/report": { icon: TriangleAlert, tone: "danger" },

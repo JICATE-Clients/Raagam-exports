@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { TimingGroup } from "./group-timing-types";
 
 // ============================================================================
 // Employee Category — HR master (0262). Legacy EDP2 "Employee category" form: a
@@ -24,6 +25,8 @@ export interface EmployeeCategory {
   short_name: string | null;
   name: string;
   for_type: EmployeeCategoryFor;
+  /** One of the three fixed timing groups (0769); its hours are on Work Timing. */
+  timing_group: TimingGroup | null;
   inactive: boolean;
   is_draft: boolean;
   created_at: string;
@@ -34,6 +37,11 @@ export const employeeCategoryInput = z.object({
   short_name: z.string().optional().nullable(),
   name: z.string().min(1, "Name is required"),
   for_type: z.enum(["staff", "worker", "staff_worker"]).default("staff"),
+  // Required: every category keeps the hours of exactly one group (client
+  // 2026-10-28). Rows saved before 0769 may still be null until next edited.
+  timing_group: z.enum(["staff", "security", "production_staff"], {
+    message: "Timing Group is required",
+  }),
   inactive: z.boolean().default(false),
   is_draft: z.boolean().default(false),
 });

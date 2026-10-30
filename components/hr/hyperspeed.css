@@ -1,0 +1,16 @@
+/* Hyperspeed (React Bits) — see hyperspeed.jsx. */
+.hyperspeed {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  touch-action: pan-y;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+
+.hyperspeed canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}

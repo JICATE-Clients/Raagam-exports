@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { requirePermission } from "@/lib/auth/server";
+import { today } from "@/lib/calendar";
 import {
   listActiveWorkers,
   getAttendanceForDate,
@@ -136,14 +137,17 @@ export default async function AttendancePage({ searchParams }: Props) {
     );
   }
 
+  // The factory's calendar date (IST), not the server's. Vercel runs in UTC,
+  // so `new Date().toISOString()` / `getMonth()` answered with YESTERDAY for
+  // the first 5½ hours of every day — and the month view with last month on
+  // the 1st until 05:30. `today()` is the app's one IST date (lib/calendar.ts).
+  const todayIst = today();
+
   if (isMonth) {
     // "YYYY-MM", and it stays a string: see the note on dates in
     // attendance-service. `new Date(y, m, 0)` is the one Date used here and it
     // only counts days — day 0 of the NEXT month is the last day of this one.
-    const now = new Date();
-    const selectedMonth =
-      month ??
-      `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const selectedMonth = month ?? todayIst.slice(0, 7);
     const year = Number(selectedMonth.slice(0, 4));
     const mon = Number(selectedMonth.slice(5, 7));
     const daysInMonth = new Date(year, mon, 0).getDate();
@@ -179,8 +183,7 @@ export default async function AttendancePage({ searchParams }: Props) {
     );
   }
 
-  const today = new Date().toISOString().split("T")[0];
-  const selectedDate = date ?? today;
+  const selectedDate = date ?? todayIst;
 
   const [workers, existing, locations, settings] = await Promise.all([
     listActiveWorkers(locationId),
@@ -201,7 +204,15 @@ export default async function AttendancePage({ searchParams }: Props) {
         description="Record daily attendance, OT, and extra hours for workers."
         actions={viewSwitch}
       />
+      {/*
+        KEYED BY DATE + LOCATION. The sheet seeds its rows with a `useState`
+        initialiser, which runs once per mount — and Load only changes the URL,
+        so without a key the same instance stayed mounted and showed the
+        PREVIOUS date's ticks under the new date. Saving then wrote them onto
+        the wrong day. A new key is a fresh sheet for every date loaded.
+      */}
       <AttendanceClient
+        key={`${selectedDate}|${locationId ?? ""}`}
         workers={workers}
         attendanceByWorker={attendanceByWorker}
         locations={locations}

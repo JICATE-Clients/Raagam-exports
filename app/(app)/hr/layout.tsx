@@ -33,5 +33,14 @@ import { SkinProvider } from "@/components/ui/skin";
  * styling in one step, because nothing under `app/(app)/hr` names the skin.
  */
 export default function HrSkinLayout({ children }: { children: ReactNode }) {
-  return <SkinProvider skin="raagam">{children}</SkinProvider>;
+  return (
+    <SkinProvider skin="raagam">
+      {/* `data-module="hr"` scopes the HR-only rules in globals.css (no
+          visible scrollbars, client 2026-10-28). display:contents, like the
+          skin wrapper, so it adds no box and changes no layout. */}
+      <div data-module="hr" style={{ display: "contents" }}>
+        {children}
+      </div>
+    </SkinProvider>
+  );
 }

@@ -9,8 +9,10 @@ import {
   Banknote,
   BookOpen,
   Boxes,
+  Briefcase,
   Building2,
   CalendarClock,
+  CalendarOff,
   CalendarRange,
   ChartColumn,
   ClipboardPen,
@@ -22,6 +24,7 @@ import {
   Hammer,
   HardDrive,
   Landmark,
+  LayoutDashboard,
   Layers,
   LifeBuoy,
   ListTree,
@@ -40,6 +43,7 @@ import {
   Truck,
   UserCog,
   Users,
+  UserCheck,
   Wrench,
   type LucideIcon,
 } from "lucide-react";
@@ -236,6 +240,13 @@ export interface ModuleLink {
   kind: "link";
   href: string;
   label: string;
+  /**
+   * Draws the row as a HEADING — the group headings' icon slot and weight —
+   * instead of a plain screen row (user 2026-10-30: "dashboard also should
+   * look same like other headings"). For a link that stands at the same level
+   * as the groups beside it, such as a module's Dashboard.
+   */
+  icon?: LucideIcon;
   /**
    * BUILT, BUT ITS TABLE IS NOT IN THIS DATABASE — the same flag a `GroupChild`
    * carries, and it is here because its absence let one screen lie.
@@ -1283,6 +1294,10 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
     label: "HR & Payroll",
     module: "hr_payroll",
     entries: [
+      // FIRST, above People (client 2026-10-28: "there should be heading as
+      // dashboard"). Being first is also what makes the HR module row land
+      // here: ModuleHub on /hr redirects to the first reachable entry.
+      { kind: "link", href: "/hr/dashboard", label: "Dashboard", icon: LayoutDashboard },
       {
         kind: "group",
         slug: "people",
@@ -1296,16 +1311,6 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           { href: "/hr/lifecycle", label: "Lifecycle", description: "Joining, transfer, confirmation and exit" },
         ],
       },
-      // SUB-MODULES IN THEIR OWN RIGHT, not rows inside People (client
-      // 2026-09-12: "i want salry and banks shpuld ne here as people T&A pay
-      // not inside of the people").
-      //
-      // Third and stated placement: they were under Pay, then under People.
-      // `kind: "link"` is the shape for a screen with no siblings worth
-      // grouping — one sidebar row and one hub card each, BESIDE People rather
-      // than beneath it.
-      { kind: "link", href: "/hr/salary-registry", label: "Salary Registry" },
-      { kind: "link", href: "/hr/bank-details", label: "Bank Details" },
       {
         kind: "group",
         slug: "time",
@@ -1323,8 +1328,15 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         slug: "pay",
         label: "Pay",
         icon: Banknote,
-        description: "Payroll runs, payslips, advances and adjustments",
+        description: "Salary registry, bank details, payroll runs, payslips, advances and adjustments",
         children: [
+          // BACK UNDER PAY (client 2026-10-30: "put salary registry and bank
+          // details inside of the pay"). Fourth placement: Pay, then People,
+          // then standalone rows beside People (2026-09-12), now Pay again —
+          // first, because a salary and the account it is paid into are set
+          // up before any payroll is run.
+          { href: "/hr/salary-registry", label: "Salary Registry", description: "Each person's salary structure" },
+          { href: "/hr/bank-details", label: "Bank Details", description: "Bank accounts salaries are paid into" },
           { href: "/hr/payroll", label: "Payroll Runs", description: "Run payroll for a period" },
           { href: "/hr/payslip", label: "Payslips", description: "Generate and issue payslips" },
           { href: "/hr/advances", label: "Advances", description: "Advances and loans against pay" },
@@ -1346,6 +1358,56 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         children: [
           { href: "/hr/statutory", label: "Statutory Docs", description: "PF, ESI and other statutory records" },
           { href: "/hr/settings", label: "Settings", description: "Payroll heads, rules and periods" },
+        ],
+      },
+      // TIME OFF — the MyJKKN HR port, phase 1 (client 2026-10-29: "after this
+      // compliance & setup bottom of this build these myjkkn things"). A
+      // separate build beside Time & Attendance ▸ Leave & Encashment, which is
+      // untouched. Tables, rules and approvals in 0770_hr_time_off.sql.
+      {
+        kind: "group",
+        slug: "time-off",
+        label: "Time Off",
+        icon: CalendarOff,
+        description: "Leave, permissions, comp-off, approvals, balances and encashment",
+        children: [
+          { href: "/hr/time-off/leave", label: "Leave Requests", description: "Apply for leave, withdraw, cancel" },
+          { href: "/hr/time-off/permission", label: "Permissions", description: "Short time off, in hours" },
+          { href: "/hr/time-off/comp-off", label: "Compensatory Off", description: "Claim credits for days worked, book them as leave" },
+          { href: "/hr/time-off/approvals", label: "Time Off Approvals", description: "Approve or reject leave, permissions, claims and encashments" },
+          { href: "/hr/time-off/calendar", label: "Leave Calendar", description: "Who is on leave, by month" },
+          { href: "/hr/time-off/balances", label: "Leave Balances", description: "Entitled, used, pending and available, per person" },
+          { href: "/hr/time-off/encashment", label: "Leave Encashment", description: "Turn unused leave into pay" },
+          { href: "/hr/time-off/setup", label: "Leave Setup", description: "Leave types, leave years and blackout dates" },
+        ],
+      },
+      {
+        kind: "group",
+        slug: "team",
+        label: "Team Lifecycle",
+        icon: UserCheck,
+        description: "Joining checklists, documents, assets, exits and full & final settlement",
+        children: [
+          { href: "/hr/team/joining", label: "Joining Checklists", description: "Each new joiner's checklist, step by step" },
+          { href: "/hr/team/documents", label: "People Documents", description: "Upload Aadhaar, PAN, certificates and other papers" },
+          { href: "/hr/team/verify", label: "Document Verification", description: "Verify or reject uploaded documents; see what is expiring" },
+          { href: "/hr/team/assets", label: "Assets Issued", description: "ID cards, uniforms, phones and tools in each person's hands" },
+          { href: "/hr/team/exits", label: "Exits", description: "Resignations, retirements and terminations, step by step" },
+          { href: "/hr/team/settlements", label: "Full & Final", description: "Gratuity, leave encashment and recoveries, approved and paid" },
+          { href: "/hr/team/retirements", label: "Retirements Due", description: "People reaching retirement age soon" },
+          { href: "/hr/team/setup", label: "Lifecycle Setup", description: "Checklist templates, required documents, exit steps, settings" },
+        ],
+      },
+      {
+        kind: "group",
+        slug: "recruitment",
+        label: "Recruitment",
+        icon: Briefcase,
+        description: "Job openings, candidates, interviews and hiring approval",
+        children: [
+          { href: "/hr/recruitment/jobs", label: "Job Openings", description: "Vacancies per unit, with each one's candidate counts" },
+          { href: "/hr/recruitment/candidates", label: "Candidates", description: "Every applicant from first contact to joining" },
+          { href: "/hr/recruitment/interviews", label: "Interviews", description: "Interview rounds, panels and their marks" },
         ],
       },
     ],
@@ -1722,7 +1784,7 @@ export function moduleNavChildren(moduleHref: string): NavChild[] | undefined {
               .filter((c) => !c.cardOnly && c.status !== "todo")
               .map((c) => ({ href: c.href, label: c.label, newUntil: c.newUntil })),
           }
-        : { href: e.href, label: e.label },
+        : { href: e.href, label: e.label, icon: e.icon },
     );
 }
 
