@@ -50,6 +50,10 @@ import {
   Briefcase,
   UserPlus,
   CalendarClock,
+  CalendarRange,
+  ClipboardPen,
+  TrendingUp,
+  GraduationCap,
 } from "lucide-react";
 import type { HubMark } from "@/components/masters/hub-icons";
 
@@ -147,6 +151,11 @@ export const GROUP_HUB_ICONS: Readonly<Record<string, HubMark>> = {
   "/hr/recruitment/jobs": { icon: Briefcase, tone: "primary" },
   "/hr/recruitment/candidates": { icon: UserPlus, tone: "info" },
   "/hr/recruitment/interviews": { icon: CalendarClock, tone: "accent" },
+  // Performance & Growth (0773)
+  "/hr/performance/rounds": { icon: CalendarRange, tone: "primary" },
+  "/hr/performance/appraisals": { icon: ClipboardPen, tone: "info" },
+  "/hr/performance/promotions": { icon: TrendingUp, tone: "success" },
+  "/hr/performance/training": { icon: GraduationCap, tone: "accent" },
 
   // Resolve Hub — Reporting · Work · Administration
   "/resolve/report": { icon: TriangleAlert, tone: "danger" },
