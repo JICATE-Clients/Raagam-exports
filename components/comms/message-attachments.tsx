@@ -114,7 +114,7 @@ export function MessageAttachments({
                   onClick={() => onOpenFile(a)}
                   aria-label={`Open ${a.file_name}`}
                   title="Open in a new tab"
-                  className="rounded p-1 text-muted-foreground hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="rounded p-2 text-muted-foreground hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [@media(hover:hover)]:p-1"
                 >
                   <ExternalLink className="h-4 w-4" />
                 </button>
@@ -125,7 +125,7 @@ export function MessageAttachments({
                 disabled={downloading === a.id}
                 aria-label={`Download ${a.file_name}`}
                 title="Download"
-                className="rounded p-1 text-muted-foreground hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="rounded p-2 text-muted-foreground hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [@media(hover:hover)]:p-1"
               >
                 {downloading === a.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
               </button>

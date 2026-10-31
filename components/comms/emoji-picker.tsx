@@ -142,7 +142,12 @@ export function EmojiPicker({
       {shown.length === 0 ? (
         <p className="py-6 text-center text-xs text-muted-foreground">No emoji match “{q.trim()}”.</p>
       ) : (
-        <div role="grid" aria-label="Emoji" className="grid max-h-56 grid-cols-8 gap-0.5 overflow-y-auto">
+        <div
+          role="grid"
+          aria-label="Emoji"
+          // responsive: exempt -- an emoji grid, 8 cells of ~38px in a picker capped at calc(100vw - 2rem); it fits a 360px phone
+          className="grid max-h-56 grid-cols-8 gap-0.5 overflow-y-auto"
+        >
           {shown.map((e) => (
             // button-shape: exempt -- one emoji cell in a picker grid, a square glyph not a worded button
             <button

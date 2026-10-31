@@ -213,7 +213,7 @@ export function DetailsSheet({
                     onClick={() => run(() => removeMember(c.id, m.user_id), `${m.full_name ?? "Member"} removed.`)}
                     aria-label={`Remove ${m.full_name ?? "member"}`}
                     title="Remove from conversation"
-                    className="rounded-md p-1.5 text-muted-foreground hover:bg-surface-muted hover:text-danger"
+                    className="rounded-md p-2.5 text-muted-foreground hover:bg-surface-muted hover:text-danger [@media(hover:hover)]:p-1.5"
                   >
                     <UserMinus className="h-4 w-4" />
                   </button>

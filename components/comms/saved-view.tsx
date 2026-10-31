@@ -109,7 +109,7 @@ export function SavedView({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex items-center gap-2 border-b border-border px-3 py-2">
-        <Link href="/comms" className="rounded-md p-1.5 text-muted-foreground hover:bg-surface-muted @3xl/comms:hidden" aria-label="Back to conversations">
+        <Link href="/comms" className="rounded-md p-2.5 text-muted-foreground hover:bg-surface-muted @3xl/comms:hidden [@media(hover:hover)]:p-1.5" aria-label="Back to conversations">
           <ArrowLeft className="h-4 w-4" />
         </Link>
         <h1 className="flex-1 text-sm font-semibold text-heading">Saved messages</h1>
@@ -235,7 +235,7 @@ export function SavedView({
                   disabled={removing.has(it.message_id)}
                   aria-label="Remove from saved"
                   title="Remove from saved"
-                  className="self-start rounded-md p-1.5 text-muted-foreground hover:bg-surface-muted hover:text-danger"
+                  className="self-start rounded-md p-2.5 text-muted-foreground hover:bg-surface-muted hover:text-danger [@media(hover:hover)]:p-1.5"
                 >
                   {removing.has(it.message_id) ? <Loader2 className="h-4 w-4 animate-spin" /> : <BookmarkX className="h-4 w-4" />}
                 </button>

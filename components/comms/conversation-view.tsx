@@ -9,6 +9,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { createClient } from "@/lib/supabase/client";
 import { fmtDate } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import {
   attachmentUrl,
   deleteMessage,
@@ -30,7 +31,8 @@ import { announceChannelsChanged } from "./sidebar-channels";
 import type { ChannelAbilities } from "@/lib/comms/channels";
 import { applyReaction } from "@/lib/comms/reactions";
 import { MessageItem, type MessageActions } from "./message-item";
-import { MessageBody, dayKey } from "./message-body";
+import { MessageBody, dayKey, initials } from "./message-body";
+import { AVATAR_TINT, avatarStyle } from "./conversation-list";
 import { PinnedSheet } from "./pinned-sheet";
 import { ThreadSheet } from "./thread-sheet";
 
@@ -401,20 +403,40 @@ export function ConversationView({
       ? "Direct message"
       : `${activeCount} ${activeCount === 1 ? "member" : "members"}${conversation.department_name ? ` · ${conversation.department_name}` : ""}`);
 
+  // Pulse's direct and group chats wear the redesign (2026-10-29): bubbles, a
+  // coloured avatar in the header, quick replies. A channel keeps its rows.
+  const chat = conversation.kind === "channel" ? null : conversation.kind;
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex items-center gap-2 border-b border-border px-3 py-2">
-        {/* Always shown: no list sits beside the view any more (2026-10-26). */}
+      <header className={cn("flex items-center gap-2 border-b border-border px-3", chat ? "py-2.5" : "py-2")}>
+        {/* Inside Pulse's frame (`data-pulse`, comms-shell.tsx) the sidebar is
+            beside the conversation once the hub is wide, so the back arrow is
+            for narrow screens only; a conversation opened from outside Pulse
+            (a channel the person has not joined) keeps it always. */}
         <Link
           href={conversation.kind === "channel" ? "/comms/channels" : "/comms"}
-          className="rounded-md p-1.5 text-muted-foreground hover:bg-surface-muted"
+          className={cn(
+            "rounded-md p-2.5 text-muted-foreground hover:bg-surface-muted [@media(hover:hover)]:p-1.5",
+            "group-data-[pulse]/pulse:@3xl/comms:hidden",
+          )}
           aria-label={conversation.kind === "channel" ? "Back to channels" : "Back to chats"}
         >
           <ArrowLeft className="h-4 w-4" />
         </Link>
-        <KindIcon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+        {chat ? (
+          <span
+            aria-hidden
+            style={avatarStyle(conversation.title)}
+            className={cn("flex h-10 w-10 shrink-0 items-center justify-center text-sm font-bold", AVATAR_TINT, chat === "group" ? "rounded-xl" : "rounded-full")}
+          >
+            {chat === "group" && !conversation.name ? <Users className="h-5 w-5" /> : initials(conversation.title)}
+          </span>
+        ) : (
+          <KindIcon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+        )}
         <div className="min-w-0 flex-1">
-          <h1 className="break-words text-sm font-semibold text-heading">
+          <h1 className={cn("break-words font-semibold text-heading", chat ? "text-base" : "text-sm")}>
             {conversation.kind === "channel" ? conversation.title.replace(/^#/, "") : conversation.title}
           </h1>
           <p className="break-words text-xs text-muted-foreground">{subtitle}</p>
@@ -435,7 +457,7 @@ export function ConversationView({
       <div
         ref={listRef}
         onScroll={onScroll}
-        className="min-h-0 flex-1 overflow-y-auto py-2"
+        className={cn("min-h-0 flex-1 overflow-y-auto py-2", chat && "bg-surface-muted/60 @3xl/comms:px-[3%]")}
         role="log"
         aria-live="polite"
         aria-label={`Messages in ${conversation.title}`}
@@ -473,7 +495,11 @@ export function ConversationView({
           const newDay = !prev || dayKey(prev.created_at) !== dayKey(m.created_at);
           return (
             <div key={m.id}>
-              {newDay && (
+              {newDay && chat ? (
+                <div className="my-2 flex justify-center px-3" role="separator">
+                  <span className="rounded-full bg-primary-soft px-3.5 py-1 text-xs font-bold text-primary">{dayLabel(m.created_at)}</span>
+                </div>
+              ) : newDay && (
                 <div className="my-2 flex items-center gap-3 px-3" role="separator">
                   <span className="h-px flex-1 bg-border" />
                   <span className="text-[11px] font-semibold text-muted-foreground">{fmtDate(m.created_at)}</span>
@@ -482,6 +508,7 @@ export function ConversationView({
               )}
               <MessageItem
                 message={m}
+                bubble={chat}
                 grouped={!newDay && grouped(m, prev)}
                 names={names}
                 meId={meId}
@@ -543,6 +570,9 @@ export function ConversationView({
         )}
       </div>
 
+      {canPost && chat && (
+        <QuickReplies onPick={(text) => void send(text, [])} />
+      )}
       {canPost ? (
         <Composer
           key={id}
@@ -552,6 +582,7 @@ export function ConversationView({
           placeholder={`Message ${conversation.title}`}
           onSend={send}
           autoFocus
+          chat={!!chat}
         />
       ) : (
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border bg-surface-muted px-4 py-3 text-sm">
@@ -610,6 +641,41 @@ export function ConversationView({
         onConfirm={() => void doDelete()}
         onCancel={() => setConfirmDelete(null)}
       />
+    </div>
+  );
+}
+
+/** A chat's day pill: Today, Yesterday, else the date (DD/MM/YYYY). */
+function dayLabel(iso: string): string {
+  const d = new Date(iso);
+  const today = new Date();
+  if (dayKey(iso) === dayKey(today.toISOString())) return "Today";
+  today.setDate(today.getDate() - 1);
+  if (dayKey(iso) === dayKey(today.toISOString())) return "Yesterday";
+  return isNaN(d.getTime()) ? "" : fmtDate(iso);
+}
+
+/**
+ * One-tap replies above the box in a direct or group chat (the Pulse redesign,
+ * 2026-10-29). Each sends exactly its words through the same send as typing —
+ * so it is queued, retried and shown the same way.
+ */
+const QUICK_REPLIES = ["Noted, thanks!", "Will check and update", "Please share the details"];
+
+function QuickReplies({ onPick }: { onPick: (text: string) => void }) {
+  return (
+    <div className="flex flex-wrap gap-2 border-t border-border bg-surface px-4 pt-3" role="group" aria-label="Quick replies">
+      {QUICK_REPLIES.map((t) => (
+        // button-shape: exempt -- a quick-reply pill in the Pulse redesign (user 2026-10-29), a suggestion chip rather than an action button
+        <button
+          key={t}
+          type="button"
+          onClick={() => onPick(t)}
+          className="h-[30px] rounded-full border border-border bg-surface px-3 text-[13px] font-semibold text-foreground hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {t}
+        </button>
+      ))}
     </div>
   );
 }

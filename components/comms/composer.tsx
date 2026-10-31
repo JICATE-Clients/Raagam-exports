@@ -134,6 +134,7 @@ export function Composer({
   placeholder,
   onSend,
   autoFocus = false,
+  chat = false,
 }: {
   conversationId: string;
   members: CommMember[];
@@ -142,6 +143,9 @@ export function Composer({
   /** Resolve true when the message is accepted (or queued) and the box may clear. */
   onSend: (body: string | null, attachments: AttachmentInput[]) => Promise<boolean>;
   autoFocus?: boolean;
+  /** Pulse's direct and group chats (the colourful redesign, 2026-10-29):
+   *  a rounded, tinted box and a round coral Send. A channel keeps the plain box. */
+  chat?: boolean;
 }) {
   const supabase = useMemo(() => createClient(), []);
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -157,7 +161,10 @@ export function Composer({
   const [hi, setHi] = useState(0);
 
   const [dragging, setDragging] = useState(false);
-  const [showFormat, setShowFormat] = useState(true);
+  // The formatting bar: "auto" = shown on a desktop, folded on a phone, where
+  // its ten buttons would wrap to two rows over the message (2026-10-29). Aa
+  // then turns it on or off explicitly on either.
+  const [format, setFormat] = useState<"auto" | "on" | "off">("auto");
   // The emoji button that opened the picker, or null while it is shut.
   const [emojiAt, setEmojiAt] = useState<HTMLButtonElement | null>(null);
   const uploading = uploads.some((u) => u.status === "uploading" || u.status === "checking");
@@ -514,12 +521,21 @@ export function Composer({
         </ul>
       )}
 
-      <div className="rounded-lg border border-border bg-surface focus-within:border-primary focus-within:ring-1 focus-within:ring-primary">
-        {showFormat && (
+      <div
+        className={cn(
+          "border focus-within:border-primary focus-within:ring-1 focus-within:ring-primary",
+          chat ? "rounded-[18px] border-transparent bg-surface-muted" : "rounded-lg border-border bg-surface",
+        )}
+      >
+        {format !== "off" && (
           <div
             role="toolbar"
             aria-label="Formatting"
-            className="flex flex-wrap items-center gap-0.5 rounded-t-lg border-b border-border bg-surface-muted px-1 py-0.5"
+            className={cn(
+              "flex-wrap items-center gap-0.5 border-b border-border px-1 py-0.5",
+              chat ? "rounded-t-[18px] px-2" : "rounded-t-lg bg-surface-muted",
+              format === "on" ? "flex" : "hidden md:flex",
+            )}
           >
             {FORMAT.map((f) => (
               <span key={f.label} className="flex items-center">
@@ -558,7 +574,7 @@ export function Composer({
           onBlur={() => setMention(null)}
           className="max-h-48 min-h-14 w-full resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
         />
-        <div className="relative flex items-center gap-0.5 px-1 pb-1">
+        <div className="relative flex flex-wrap items-center gap-0.5 px-1 pb-1">
           <input
             ref={fileRef}
             type="file"
@@ -583,10 +599,15 @@ export function Composer({
             type="button"
             variant="ghost"
             size="icon"
-            onClick={() => setShowFormat((v) => !v)}
-            aria-label={showFormat ? "Hide formatting" : "Show formatting"}
-            aria-expanded={showFormat}
-            title={showFormat ? "Hide formatting" : "Show formatting"}
+            onClick={() => {
+              // What "auto" is showing right now decides which way Aa flips it.
+              // responsive: exempt -- reads the width in a click handler to match what CSS is showing; it chooses no layout
+              const shown = format === "on" || (format === "auto" && window.matchMedia("(min-width: 768px)").matches);
+              setFormat(shown ? "off" : "on");
+            }}
+            aria-label="Show or hide formatting"
+            aria-expanded={format === "auto" ? undefined : format === "on"}
+            title="Show or hide formatting"
           >
             <Type className="h-4 w-4" />
           </Button>
@@ -627,9 +648,26 @@ export function Composer({
             <Link2 className="h-4 w-4" />
           </Button>
           <span className="flex-1" />
-          <Button type="button" onClick={() => void submit()} disabled={!canSend} aria-label="Send message" title="Send (Enter)">
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-          </Button>
+          {chat ? (
+            // button-shape: exempt -- Pulse's round Send (user 2026-10-29, the colourful redesign), a single glyph in a circle like every chat app's
+            <button
+              type="button"
+              onClick={() => void submit()}
+              disabled={!canSend}
+              aria-label="Send message"
+              title="Send (Enter)"
+              className={cn(
+                "flex h-10 w-10 items-center justify-center rounded-full text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                canSend ? "bg-[#c94a32] shadow-[0_6px_14px_rgba(240,112,90,.35)] hover:bg-[#b23f29]" : "bg-muted-foreground/40",
+              )}
+            >
+              {busy ? <Loader2 className="h-[18px] w-[18px] animate-spin" /> : <Send className="h-[18px] w-[18px]" />}
+            </button>
+          ) : (
+            <Button type="button" onClick={() => void submit()} disabled={!canSend} aria-label="Send message" title="Send (Enter)">
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            </Button>
+          )}
           {emojiAt && (
             <EmojiPicker
               label="Insert an emoji"
@@ -652,7 +690,8 @@ export function Composer({
           ) : uploads.length > 0 ? (
             ATTACHMENT_TYPES_LABEL
           ) : (
-            "Enter to send · Shift+Enter for a new line · **bold** _italic_ `code` · drop files to attach"
+            // Keyboard tips — a phone has no Shift key or file drop to explain.
+            <span className="max-md:hidden">Enter to send · Shift+Enter for a new line · **bold** _italic_ `code` · drop files to attach</span>
           )}
         </span>
       </div>
