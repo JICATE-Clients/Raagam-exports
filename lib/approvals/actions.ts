@@ -209,11 +209,24 @@ export async function actOnSubject(params: {
   }
   const verdict = await canAct(run.id).catch(() => null);
   if (!verdict?.can_act) return fail("This is waiting on someone else's step, not yours");
+  /* AN OVERRIDE APPROVE WITH NO REMARK GETS ONE WRITTEN FOR IT (user 2026-10-31:
+     "removed the comment from UI but still while approving PO it's asking").
+     `approval_act` (0502) refuses an override with an empty comment, and the PO
+     screens — this function's only callers — ask for none, so an approver not
+     holding the step's role was refused with "Please provide the required
+     comment" and no box to type it in. The event row still says
+     `is_override = true`; this sentence just names it. Reject and Return keep
+     their own required reason. */
+  const comment =
+    params.comment?.trim() ||
+    (params.action === "approve" && verdict.is_override
+      ? `Approved as an override — not an approver on ${verdict.step_label ? `the ${verdict.step_label} step` : "this step"}.`
+      : undefined);
   return actOnRun({
     runId: run.id,
     action: params.action,
     lockVersion: run.lock_version,
-    comment: params.comment,
+    comment,
     subjectPath: params.subjectPath,
   });
 }
