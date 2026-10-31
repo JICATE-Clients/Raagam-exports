@@ -1,35 +1,10 @@
-import { requirePermission } from "@/lib/auth/server";
-import {
-  getProcessorVendors,
-  getLocations,
-  getItems,
-  getUoms,
-} from "@/lib/purchase/grn-service";
-import { PageHeader } from "@/components/ui/page-header";
-import { DcNewForm } from "../_components/dc-new-form";
+import { redirect } from "next/navigation";
 
-export default async function DcNewPage() {
-  await requirePermission("materials_purchase", "create");
-
-  const [vendors, locations, items, uoms] = await Promise.all([
-    getProcessorVendors(),
-    getLocations(),
-    getItems(),
-    getUoms(),
-  ]);
-
-  return (
-    <div className="space-y-4">
-      <PageHeader
-        title="New Delivery Challan"
-        description="Record material sent to a processor — track returns until closed."
-      />
-      <DcNewForm
-        vendors={vendors}
-        locations={locations}
-        items={items}
-        uoms={uoms}
-      />
-    </div>
-  );
+/**
+ * Retired 2026-10-31: a job-work DC always goes out against a Process Order (0786, user
+ * decision), so a new one is raised on Stores ▸ Process DC. A Production DC is raised on
+ * Stores ▸ Production DC; Rejection / Replacement DCs come from a GRN.
+ */
+export default function NewDcPage() {
+  redirect("/stores/process-dc?send=new");
 }

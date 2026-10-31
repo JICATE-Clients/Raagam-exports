@@ -15,13 +15,13 @@ export async function listProcessOrders(): Promise<ProcWithVendor[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("process_orders")
-    .select("*, vendors(name)")
+    .select("*, master_vendors!vendor_id(name)")
     // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
     .order("created_at", { ascending: true });
 
   return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) => {
-    const vendor = row.vendors as { name: string } | null;
-    const { vendors: _v, ...rest } = row;
+    const vendor = row.master_vendors as { name: string } | null;
+    const { master_vendors: _v, ...rest } = row;
     void _v;
     return {
       ...(rest as unknown as ProcessOrder),
@@ -37,7 +37,7 @@ export async function getProcessOrder(
 
   const { data: order } = await supabase
     .from("process_orders")
-    .select("*, vendors(name)")
+    .select("*, master_vendors!vendor_id(name)")
     .eq("id", id)
     .maybeSingle();
   if (!order) return null;
@@ -49,8 +49,8 @@ export async function getProcessOrder(
     .order("sort_order");
 
   const row = order as Record<string, unknown>;
-  const vendor = row.vendors as { name: string } | null;
-  const { vendors: _v, ...rest } = row;
+  const vendor = row.master_vendors as { name: string } | null;
+  const { master_vendors: _v, ...rest } = row;
   void _v;
 
   return {

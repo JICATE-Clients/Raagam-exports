@@ -17,6 +17,7 @@ import type { PoStatus } from "@/lib/purchase/types";
 import { PoDetail } from "./po-detail";
 import { PoReview } from "./po-review";
 import { PoTabTitle } from "./po-tab-title";
+import { PoChangeActions } from "./po-change-actions";
 import { getRequirementLines } from "@/lib/purchase/re-po/service";
 import { statusTone } from "@/lib/ui/status-tone";
 import { getPoBudgetVariance, type PoVariance } from "@/lib/purchase/po-escalation";
@@ -84,6 +85,8 @@ export default async function PoDetailPage({
                 Print PO
               </Link>
             ) : null}
+            {/* Rate amendment and cancellation go to the MD (0785). */}
+            {canEdit && ["approved", "partially_received"].includes(po.status) ? <PoChangeActions poId={po.id} /> : null}
           </div>
         }
       />

@@ -66,7 +66,7 @@ export function VendorReturnsClient({ rows, stores, vendors, canCreate }: Props)
       });
       if (r.ok) {
         success("Return created");
-        router.push(`/stores/vendor-returns/${r.id}`);
+        router.push(`/purchase/vendor-returns/${r.id}`);
       } else toastError(r.error);
     });
   }
@@ -75,7 +75,7 @@ export function VendorReturnsClient({ rows, stores, vendors, canCreate }: Props)
     {
       header: "Return #",
       cell: (r) => (
-        <Link href={`/stores/vendor-returns/${r.id}`} className="font-mono text-xs font-medium text-primary hover:underline">
+        <Link href={`/purchase/vendor-returns/${r.id}`} className="font-mono text-xs font-medium text-primary hover:underline">
           {r.code ?? "—"}
         </Link>
       ),

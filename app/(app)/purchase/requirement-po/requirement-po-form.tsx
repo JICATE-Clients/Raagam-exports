@@ -220,10 +220,11 @@ export function RequirementPoForm({
   /* ITEM CLASS IS MULTI-SELECT (user 2026-10-26). One PO may carry several classes —
      `savePoFromRequirement` already checks the vendor supplies every one of them. */
   const [classIds, setClassIds] = useState<string[]>(() => {
-    if (seed?.classIds?.length) return seed.classIds;
-    const first = initialOrderId ? lines.find((l) => l.source_id === initialOrderId)?.item_class_id : null;
-    return first ? [first] : [];
+    // AN RE OPENS ON ALL ITS CLASSES (user 2026-10-31, screenshot 3939, option 1): no
+    // "first class" guess — clicking an RE shows everything it still needs to buy.
+    return seed?.classIds?.length ? seed.classIds : [];
   });
+  /** A class TICKED on the pill. None ticked = All (2026-10-31); `effClassIds` is what applies. */
   const hasClass = classIds.length > 0;
   /** The TICKED orders — what this PO carries, in the order they were ticked. */
   const [orderIds, setOrderIds] = useState<string[]>(() =>
@@ -331,7 +332,17 @@ export function RequirementPoForm({
       .sort((a, b) => Number(b[1].orders.size > 0) - Number(a[1].orders.size > 0) || a[1].label.localeCompare(b[1].label))
       .map(([value, c]) => ({ value, label: c.label, count: c.orders.size }));
   }, [lines, itemClasses, filters.kind, filters.buyer, filters.order, orderIds, classIds]);
-  const classLines = useMemo(() => lines.filter((l) => !!l.item_class_id && classIds.includes(l.item_class_id)), [lines, classIds]);
+  /* ITEM CLASS IS OPTIONAL — "ALL" UNTIL NARROWED (user 2026-10-31, option 1). Nothing ticked
+     reads as every class the pills before it leave (the chosen orders' classes, once an RE
+     is picked), so an RE's whole requirement lists at once, grouped by class. Picking a
+     VENDOR narrows it to the classes that vendor supplies (its onChange ticks them), which
+     is what keeps one PO to what one vendor can supply. */
+  const effClassIds = useMemo(
+    () => (classIds.length ? classIds : classOptions.filter((o) => (o.count ?? 0) > 0).map((o) => o.value)),
+    [classIds, classOptions],
+  );
+  const anyClass = effClassIds.length > 0;
+  const classLines = useMemo(() => lines.filter((l) => !!l.item_class_id && effClassIds.includes(l.item_class_id)), [lines, effClassIds]);
   /* NO CATEGORY FOR YARN (user 2026-10-30): a yarn has no sub-category in the master, so
      with only Yarn ticked the Category pill is hidden and its picks cleared. Yarn beside
      Trims keeps it — the trims still have categories to narrow by. */
@@ -339,7 +350,7 @@ export function RequirementPoForm({
     ids.length > 0 && ids.every((id) => lineKindOf(classOptions.find((o) => o.value === id)?.label) === "yarn");
   /* Before a class is picked the filters read EVERY line, so Order Type and Buyer —
      which lead the row — have something to count. The tick list waits for a class. */
-  const scopeLines = hasClass ? classLines : lines;
+  const scopeLines = anyClass ? classLines : lines;
 
   /* THE VENDOR IS CHOSEN, NEVER ASSUMED (V7 point 5). Best on-time first, so the
      reliable vendor is the one at the top — with its lead days beside it, because a
@@ -347,15 +358,17 @@ export function RequirementPoForm({
      SEVERAL CLASSES → ONLY THE VENDORS MAPPED TO ALL OF THEM: one PO is one vendor, and the
      save refuses a vendor missing any class on it. */
   const classVendors = useMemo(() => {
-    const [first, ...rest] = classIds;
-    if (!first) return [];
-    return (vendorsByClass[first] ?? [])
-      .filter((v) => rest.every((c) => (vendorsByClass[c] ?? []).some((x) => x.id === v.id)))
+    // UNDER ALL (2026-10-31): every vendor of ANY class listed — picking one then ticks the
+    // classes it supplies. Ticked classes keep the old rule: vendors of ALL of them.
+    const pool = hasClass
+      ? (vendorsByClass[classIds[0]] ?? []).filter((v) => classIds.slice(1).every((c) => (vendorsByClass[c] ?? []).some((x) => x.id === v.id)))
+      : [...new Map(effClassIds.flatMap((c) => vendorsByClass[c] ?? []).map((v) => [v.id, v] as const)).values()];
+    return pool
       // LOCAL / IMPORT SCOPES THE LIST (0773, user 2026-10-31): Import lists only vendors
       // outside India, Local only the Indian ones (and any with no country recorded).
       .filter((v) => v.is_import === (poType === "import"))
       .sort((a, b) => (b.on_time_pct ?? -1) - (a.on_time_pct ?? -1) || a.name.localeCompare(b.name));
-  }, [vendorsByClass, classIds, poType]);
+  }, [vendorsByClass, classIds, effClassIds, hasClass, poType]);
   const vendor = classVendors.find((v) => v.id === vendorPick) ?? null;
   const vendorId = vendor?.id ?? "";
   const vendorName = vendor?.name ?? "";
@@ -456,7 +469,8 @@ export function RequirementPoForm({
 
   const gridRows: GridRow[] = inOrders
     .slice()
-    .sort((a, b) => a.item_name.localeCompare(b.item_name))
+    // Grouped by class, then by name — several classes list Yarn together, Trims together.
+    .sort((a, b) => (a.item_class ?? "").localeCompare(b.item_class ?? "") || a.item_name.localeCompare(b.item_name))
     .map((l) => {
       const key = lineKeyOf(l);
       return {
@@ -1441,7 +1455,10 @@ export function RequirementPoForm({
     for (const [key, ms] of byKey) {
       const act = ms.filter(isActive);
       const rates = [...new Set(act.map((m) => m.row.rate.trim()))];
+      // Compared trimmed, but SHOWN as typed (user 2026-10-31): showing the trimmed copy ate
+      // the space the moment it was typed, so "CUT SEAL" came out "CUTSEAL". The save trims.
       const notes = [...new Set(ms.map((m) => (m.row.note ?? "").trim()))];
+      const typedNote = ms[0].row.note ?? "";
       const gsts = [...new Set(ms.map((m) => m.row.gst ?? slab.pct))];
       const def = defaultFor(earliest(ms.map((m) => m.delivery_date)));
       const dates = [...new Set(act.map((m) => m.row.date || defaultFor(m.delivery_date)?.date || ""))];
@@ -1455,7 +1472,7 @@ export function RequirementPoForm({
         qty: act.reduce((a, m) => a + num(m.row.qty), 0),
         rate: rates.length === 1 ? rates[0] : "",
         mixedRate: rates.length > 1,
-        note: notes.length === 1 ? notes[0] : "",
+        note: notes.length === 1 ? typedNote : "",
         mixedNote: notes.length > 1,
         gst: gsts.length === 1 ? gsts[0] : null,
         date: dates.length === 1 ? dates[0] : (def?.date ?? ""),
@@ -1611,7 +1628,7 @@ export function RequirementPoForm({
   ];
 
   const canSave =
-    !isPending && hasClass && orderIds.length > 0 && !!vendorId && active.length > 0 && undated === 0 && (poType === "local" || num(exRate) > 0);
+    !isPending && anyClass && orderIds.length > 0 && !!vendorId && active.length > 0 && undated === 0 && (poType === "local" || num(exRate) > 0);
   // Above budget → the reason is mandatory before it can go to the MD (user 2026-10-27).
   const canSubmit = canSave && unpriced === 0 && (!goesToMd || unreasoned === 0);
   /* EACH WARNING UNDER ITS OWN FIELD (user 2026-10-29: "Choose the item class … its in
@@ -1621,10 +1638,11 @@ export function RequirementPoForm({
      tick list's head, the rate box), and the bar below says only what belongs to the
      LINES — a count of rates or dates still to type, or where Submit will send it. */
   const fieldErrors = {
-    itemClass: !hasClass ? "Choose the item class." : null,
-    orders: hasClass && orderIds.length === 0 ? "Tick the orders for this PO." : null,
+    // Item Class is optional since 2026-10-31 — none ticked is All.
+    itemClass: null,
+    orders: anyClass && orderIds.length === 0 ? "Tick the orders for this PO." : null,
     vendor:
-      hasClass && !vendorId
+      anyClass && !vendorId
         ? classVendors.length === 0
           ? "No vendor mapped — add one in Master Data ▸ Vendors."
           : "Choose the vendor."
@@ -1664,7 +1682,7 @@ export function RequirementPoForm({
      better colouring"): amber = something still to do, red = Submit goes to the MD,
      green = ready. Fixed colour pairs, as in FilterPill — the skin cannot repaint them. */
   const hintKind: "todo" | "md" | "ready" =
-    unpriced > 0 || !vendorId || undated > 0 || orderIds.length === 0 || !hasClass || active.length === 0 ? "todo" : goesToMd ? "md" : "ready";
+    unpriced > 0 || !vendorId || undated > 0 || orderIds.length === 0 || !anyClass || active.length === 0 ? "todo" : goesToMd ? "md" : "ready";
   const HINT_CHIP = {
     todo: { box: "border-[#f1d48a] bg-[#fff7e0] text-[#8a5800]", dot: "bg-[#d9a400]" },
     md: { box: "border-[#f5b8b0] bg-[#fdecea] text-[#b42318]", dot: "bg-[#d92d20]" },
@@ -1715,7 +1733,9 @@ export function RequirementPoForm({
           lineExtras(
             g.first.key,
             `${g.first.item_name} ${describeGroup(g)}`,
-            common(g.members.map((m) => (m.row.note ?? "").trim())),
+            // Compared trimmed, SHOWN as typed — a trimmed copy ate each space as it was typed
+            // (user 2026-10-31, screenshot 3937). The save trims.
+            common(g.members.map((m) => (m.row.note ?? "").trim())) == null ? null : (g.first.row.note ?? ""),
             groupSkip(g),
             (v) => setMembers(g.members, { note: v }),
             lineDescription(g.first),
@@ -2246,7 +2266,7 @@ export function RequirementPoForm({
               label="Item Class"
               family="item"
               icon={Layers}
-              required
+              anyLabel="All"
               error={fieldErrors.itemClass}
               options={classOptions}
               multiple
@@ -2296,7 +2316,7 @@ export function RequirementPoForm({
               wide
               placeholder="Choose vendor"
               error={fieldErrors.vendor}
-              disabled={!hasClass}
+              disabled={!anyClass}
               options={classVendors.map((v) => ({
                 value: v.id,
                 label: v.name,
@@ -2316,6 +2336,13 @@ export function RequirementPoForm({
               onChange={(v) => {
                 setDirty(true);
                 setVendorPick(v);
+                // Under All, the vendor decides the classes: tick the ones it supplies, and drop
+                // ticked orders left with nothing of them (as narrowing the class pill does).
+                if (!hasClass && v) {
+                  const vc = effClassIds.filter((c) => (vendorsByClass[c] ?? []).some((x) => x.id === v));
+                  setClassIds(vc);
+                  setOrderIds((prev) => prev.filter((id) => lines.some((l) => l.source_id === id && !!l.item_class_id && vc.includes(l.item_class_id))));
+                }
                 // CGST + SGST OR IGST FOLLOWS THE VENDOR (user 2026-10-31): same state as the
                 // unit → CGST + SGST, another state → IGST, the % kept. Applied on the PICK, so
                 // a slab changed by hand on Commercial stays until the vendor is changed again;
@@ -2334,7 +2361,7 @@ export function RequirementPoForm({
               icon={Clock}
               collapse
               wide
-              disabled={!hasClass}
+              disabled={!anyClass}
               note={leadNote}
               tone={filters.orderBy.includes("late") ? "danger" : undefined}
               options={ORDER_BY_BANDS.map((b) => ({ ...b, count: count("orderBy", b.value), tone: b.value === "late" ? "danger" : undefined }))}
@@ -2348,7 +2375,7 @@ export function RequirementPoForm({
               family="status"
               icon={Wallet}
               collapse
-              disabled={!hasClass}
+              disabled={!anyClass}
               options={BUDGET_STATES.map((b) => ({ ...b, count: count("budget", b.value) }))}
               anyCount={anyCount("budget")}
               multiple
@@ -2360,7 +2387,7 @@ export function RequirementPoForm({
               family="status"
               icon={TrendingUp}
               collapse
-              disabled={!hasClass}
+              disabled={!anyClass}
               options={PROGRESS_STATES.map((p) => ({ ...p, count: count("progress", p.value) }))}
               anyCount={anyCount("progress")}
               multiple
@@ -2375,7 +2402,7 @@ export function RequirementPoForm({
               under the grid; they are two pages of one document, so they take the app's
               document tab strip (components/ui/tabs.tsx). Items counts the lines still
               without a rate — what holds Submit — so the blocker shows from either tab. */}
-          {!hasClass ? null : (
+          {!anyClass ? null : (
             <div className="border-t border-[#dde4eb] px-2 pt-1">
               <Tabs
                 defaultKey="items"

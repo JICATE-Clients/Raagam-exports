@@ -35,6 +35,8 @@ export type RejectionPrintData = {
   status: string;
   returnDate: string | null;
   fromGrn: boolean;
+  /** 0781: a Rejection DC (debited, not resent) or a Replacement DC (resent, no debit). */
+  dcKind: "rejection" | "replacement";
   company: { name: string | null; address: string | null; unit: string | null; gstin: string | null; logo: string | null };
   vendor: { name: string | null; address: string | null; gstin: string | null };
   grn: { code: string | null; date: string | null; invoiceNo: string | null; invoiceDate: string | null; dcNo: string | null } | null;
@@ -163,6 +165,13 @@ export async function getRejectionPrint(vendorReturnId: string): Promise<Rejecti
     status: String(d.status ?? ""),
     returnDate: str("return_date"),
     fromGrn: !!grnId,
+    // Before 0781 a DC had no kind: it is a Replacement DC only if every line is "replace"
+    // and it carries no debit note.
+    dcKind:
+      str("dc_kind") === "replacement" ||
+      (!str("dc_kind") && !str("debit_note_id") && lines.length > 0 && lines.every((l) => l.action === "replace"))
+        ? "replacement"
+        : "rejection",
     company: {
       name: coStr("company_name") ?? coStr("company_short_name"),
       address: registeredAddressOf(co),

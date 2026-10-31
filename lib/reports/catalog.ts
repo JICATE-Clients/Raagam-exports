@@ -12,6 +12,10 @@
 
 import {
   ArrowLeftRight,
+  Factory,
+  Layers,
+  Percent,
+  Truck,
   Boxes,
   ClipboardList,
   FileText,
@@ -119,6 +123,36 @@ export const REPORTS: ReportDefinition[] = [
     description: "Post-approval edits made under a permission override — old → new, by whom and why",
     icon: ShieldAlert,
     module: "orders",
+  },
+  /* JOB WORK & TRANSIT (doc/stores/dc-plan.md Phase 4, 0784-0788) - read straight off the
+     Process / Production DCs and Process Receipts, so they cannot disagree with Stores. */
+  {
+    slug: "stock-at-vendor",
+    label: "Stock at Vendor",
+    description: "Material out at dyers, knitters, printers and embroiderers - days out and overdue",
+    icon: Factory,
+    module: "stores",
+  },
+  {
+    slug: "in-transit",
+    label: "Material In Transit",
+    description: "Sent between Raagam HO, Unit 2 and Unit 3 and not yet received",
+    icon: Truck,
+    module: "stores",
+  },
+  {
+    slug: "bin-stock",
+    label: "Bin Stock & Aging",
+    description: "Stock per store, bin, item and lot - and how long each lot has sat there",
+    icon: Layers,
+    module: "stores",
+  },
+  {
+    slug: "process-loss",
+    label: "Process Loss by Vendor",
+    description: "Actual against allowed loss per processor - and the excess flagged on bills",
+    icon: Percent,
+    module: "stores",
   },
 ];
 

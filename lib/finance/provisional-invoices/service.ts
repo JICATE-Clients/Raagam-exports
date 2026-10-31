@@ -21,3 +21,22 @@ export {
   getBuyerOptions,
   getCurrencyOptions,
 } from "@/lib/finance/notes/service";
+
+/**
+ * ONE provisional invoice, for its print page (`/finance/provisional-invoices/<id>/print`).
+ * A failed query is an error, never "not found" — only a missing row is null.
+ */
+export async function getProvisionalInvoice(
+  id: string,
+): Promise<(ProvisionalInvoiceRow & { created_by_name?: string | null }) | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("provisional_invoices")
+    .select("*, buyers(id, name)")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) return null;
+  const [row] = await withCreators([data as unknown as ProvisionalInvoiceRow]);
+  return row as ProvisionalInvoiceRow & { created_by_name?: string | null };
+}

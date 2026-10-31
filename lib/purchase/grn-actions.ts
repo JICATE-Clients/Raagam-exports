@@ -68,7 +68,15 @@ export async function createGrn(payload: GrnInput): Promise<CreateGrnResult> {
   }));
   for (const l of lines) {
     if (l.rejected_qty > l.received_qty) {
-      return { ok: false, error: `${l.description}: Shortage / Rej cannot exceed Today Recd` };
+      return { ok: false, error: `${l.description}: the failed qty cannot exceed Today Recd` };
+    }
+    /* A BIN SPLIT HOLDS EXACTLY THE ACCEPTED QTY (0782) — the failed qty goes to the
+       Rejection store, not a bin. grn_post refuses the same at post time. */
+    if (l.bins.length > 0) {
+      const held = l.bins.reduce((a, b) => a + b.qty, 0);
+      if (Math.abs(held - l.accepted_qty) > 1e-6) {
+        return { ok: false, error: `${l.description}: the bins hold ${held}, the accepted qty is ${l.accepted_qty}` };
+      }
     }
   }
 
@@ -136,7 +144,7 @@ export async function createGrn(payload: GrnInput): Promise<CreateGrnResult> {
   if (poLineIds.length > 0) {
     const { data: plRows, error: plRowsErr } = await supabase
       .from("po_line_items")
-      .select("id, item_id, quantity, received_qty, closed_qty, purchase_orders!purchase_order_id(master_vendor_id)")
+      .select("id, item_id, quantity, received_qty, closed_qty, balance_closed_qty, purchase_orders!purchase_order_id(master_vendor_id)")
       .in("id", poLineIds);
     if (plRowsErr) return { ok: false, error: plRowsErr.message };
     for (const r of (plRows ?? []) as unknown as {
@@ -145,9 +153,13 @@ export async function createGrn(payload: GrnInput): Promise<CreateGrnResult> {
       quantity: number;
       received_qty: number;
       closed_qty: number;
+      balance_closed_qty: number;
       purchase_orders: { master_vendor_id: string | null } | null;
     }[]) {
-      stillOrdered.set(r.id, (Number(r.quantity) || 0) - (Number(r.closed_qty) || 0) - (Number(r.received_qty) || 0));
+      stillOrdered.set(
+        r.id,
+        (Number(r.quantity) || 0) - (Number(r.closed_qty) || 0) - (Number(r.balance_closed_qty) || 0) - (Number(r.received_qty) || 0),
+      );
       if (r.purchase_orders?.master_vendor_id !== headerFields.master_vendor_id) {
         return { ok: false, error: "A PO on this GRN is from a different vendor — receive each vendor's goods on its own GRN" };
       }
@@ -191,7 +203,8 @@ export async function createGrn(payload: GrnInput): Promise<CreateGrnResult> {
     for (const l of lines) {
       const owed = l.po_line_item_id ? due.get(l.po_line_item_id) : undefined;
       if (owed === undefined) return { ok: false, error: `${l.description}: not on that Rejection DC` };
-      if (l.accepted_qty > owed + 1e-9) {
+      // EXCESS LOCKED (user 2026-10-31): what ARRIVES may not exceed what is owed.
+      if (l.received_qty > owed + 1e-9) {
         return { ok: false, error: `${l.description}: only ${owed} is owed as a replacement` };
       }
       l.rejection_action = "replace";
@@ -225,14 +238,19 @@ export async function createGrn(payload: GrnInput): Promise<CreateGrnResult> {
         const cur = owed.get(r.po_line_item_id);
         owed.set(r.po_line_item_id, { qty: (cur?.qty ?? 0) + due, dc: r.vendor_returns?.code ?? cur?.dc ?? "a Rejection DC" });
       }
+      /* EXCESS QUANTITY LOCKED (user 2026-10-31): Today Recd may not exceed the line's
+         pending balance — ordered, less closed, less received, less anything owed back as
+         a replacement (that comes in on its DC's own row). No tolerance, no override. */
       for (const l of lines) {
-        const o = l.po_line_item_id ? owed.get(l.po_line_item_id) : undefined;
-        if (!o) continue;
-        const room = Math.max(0, (stillOrdered.get(l.po_line_item_id!) ?? 0) - o.qty);
-        if (l.accepted_qty > room + 1e-9) {
+        if (!l.po_line_item_id) continue;
+        const o = owed.get(l.po_line_item_id);
+        const room = Math.max(0, (stillOrdered.get(l.po_line_item_id) ?? 0) - (o?.qty ?? 0));
+        if (l.received_qty > room + 1e-9) {
           return {
             ok: false,
-            error: `${l.description}: ${o.qty} of it is owed as a replacement on ${o.dc} — receive that on its row under Pending; this GRN can take ${room}`,
+            error: o
+              ? `${l.description}: ${o.qty} of it is owed as a replacement on ${o.dc} — receive that on its row under Pending; this GRN can take ${room}`
+              : `Excess quantity blocked: ${l.description} has ${room} pending on its PO`,
           };
         }
       }
@@ -284,13 +302,16 @@ export async function createGrn(payload: GrnInput): Promise<CreateGrnResult> {
   }
   const grnId = (grn as { id: string }).id;
 
-  const { error: lineErr } = await supabase.from("grn_line_items").insert(
-    lines.map((l, i) => ({
-      ...l,
-      grn_id: grnId,
-      sort_order: l.sort_order ?? i,
-    })),
-  );
+  const { data: savedLines, error: lineErr } = await supabase
+    .from("grn_line_items")
+    .insert(
+      lines.map(({ bins: _bins, ...l }, i) => ({
+        ...l,
+        grn_id: grnId,
+        sort_order: l.sort_order ?? i,
+      })),
+    )
+    .select("id, sort_order");
   if (lineErr) {
     /* A GRN WITHOUT ITS LINES IS NOT A SAVE. This used to log and return ok,
        which left an empty draft and told the keeper it had worked. Now that the
@@ -298,6 +319,20 @@ export async function createGrn(payload: GrnInput): Promise<CreateGrnResult> {
        failure mode, so the header goes too and the reason reaches the screen. */
     await supabase.from("grns").delete().eq("id", grnId);
     return { ok: false, error: friendlyGrnError(lineErr.message) };
+  }
+
+  /* THE BIN SPLIT (0782), matched to its line by sort order (unique per GRN here). */
+  const idBySort = new Map(((savedLines ?? []) as { id: string; sort_order: number }[]).map((r) => [r.sort_order, r.id]));
+  const binRows = lines.flatMap((l, i) => {
+    const lineId = idBySort.get(l.sort_order ?? i);
+    return lineId ? l.bins.map((b, j) => ({ grn_line_id: lineId, bin_id: b.bin_id, qty: b.qty, sort_order: j })) : [];
+  });
+  if (binRows.length > 0) {
+    const { error: binErr } = await supabase.from("grn_line_bins").insert(binRows);
+    if (binErr) {
+      await supabase.from("grns").delete().eq("id", grnId);
+      return { ok: false, error: friendlyGrnError(binErr.message) };
+    }
   }
 
   revalidateGrn(grnId);
@@ -560,6 +595,18 @@ export async function recordDcReturn(
     sent_qty: number;
     returned_qty: number;
   };
+
+  /* A DC AGAINST A PROCESS ORDER COMES BACK ON ITS PROCESS RECEIPT (0787): output item,
+     loss against the allowed %, stock and the draft bill in one step. Recording the return
+     here would skip all four — so it is refused, with the way in named. */
+  const { data: owner } = await supabase
+    .from("delivery_challans")
+    .select("process_order_id")
+    .eq("id", line.delivery_challan_id)
+    .maybeSingle();
+  if ((owner as { process_order_id: string | null } | null)?.process_order_id) {
+    return { ok: false, error: "This DC has a Process Order — receive it with Receive back on Stores ▸ Processing ▸ Process DC" };
+  }
   const newReturned = Math.min(
     line.sent_qty,
     (line.returned_qty ?? 0) + qty,

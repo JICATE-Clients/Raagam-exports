@@ -4,6 +4,7 @@ import { letterheadLogoOf, registeredAddressOf } from "@/lib/orders/fabric-bom/l
 import { getPurchaseOrder } from "@/lib/purchase/po-service";
 import { getRequirementLines } from "@/lib/purchase/re-po/service";
 import { lineDescription, lineKeyOf, withNote, type RequirementLine } from "@/lib/purchase/re-po/types";
+import { amountInWords } from "@/lib/purchase/amount-words";
 
 /**
  * THE VENDOR PO PRINT (user 2026-10-27: "how the final PO print will display the item
@@ -28,6 +29,10 @@ export type PoPrintRow = {
   key: string;
   /** RE / SWO / IWO No the line was ordered against. */
   sourceNo: string | null;
+  /** The order's buyer (PO FORMAT.pdf "Customer"); null on an SWO / IWO. */
+  customer: string | null;
+  /** The item class, for the sheet's title ("YARN PURCHASE ORDER"). */
+  itemClass: string | null;
   description: string;
   /** What the sheet prints, on two lines (user 2026-10-27): the item with its note,
    *  then the colour / shade beneath it. `description` stays the one-line GRN text. */
@@ -40,6 +45,11 @@ export type PoPrintRow = {
   rate: number;
   amount: number;
   gstPct: number;
+  /** PO FORMAT.pdf's rate line: GST per unit ("Duty/Tax") and the rate with it ("Net Rate"). */
+  gstPerUnit: number;
+  netRate: number;
+  /** The vendor's quotation the rate came from, when the line carries one. */
+  quoteNo: string | null;
   delivery: string | null;
   /** Yarn (0758) — set only when the line was bought in whole bags. */
   bags: number | null;
@@ -65,7 +75,30 @@ export type PoPrintData = {
   currency: string;
   exchangeRate: number | null;
   gstKind: "igst" | "cgst_sgst";
-  company: { name: string | null; address: string | null; unit: string | null; gstin: string | null; logo: string | null };
+  /** "YARN PURCHASE ORDER" when every line is one class, else "PURCHASE ORDER". */
+  title: string;
+  company: {
+    name: string | null;
+    address: string | null;
+    unit: string | null;
+    gstin: string | null;
+    logo: string | null;
+    phone: string | null;
+    email: string | null;
+  };
+  /** The header block of PO FORMAT.pdf (user 2026-10-31) — blank stays blank, never guessed. */
+  head: {
+    reference: string | null;
+    /** The earliest line's delivery — "DELIVERY DATE" on the sample. */
+    deliveryDate: string | null;
+    paymentTerms: string | null;
+    portOfShipment: string | null;
+    placeOfDelivery: string | null;
+    transporter: string | null;
+    invoiceTo: string | null;
+  };
+  /** Quantity totals by unit — one figure when every line is KGS, as on the sample. */
+  totalQty: { uom: string; qty: number }[];
   vendor: { name: string | null; address: string | null; gstin: string | null };
   /** The PO's own terms, in the order the Commercial tab asks them. */
   terms: { label: string; value: string }[];
@@ -75,6 +108,11 @@ export type PoPrintData = {
   gstBySlab: { pct: number; amount: number }[];
   charges: { label: string; kind: "add" | "less"; amount: number }[];
   total: number;
+  /** INR only: the payable rounded to the rupee, and the round-off that got it there. */
+  roundOff: number;
+  netValue: number;
+  /** "RUPEES TWO LAKHS … ONLY" — the net value said in words. */
+  valueInWords: string;
   /** INR total of an import PO (the header's figure). */
   totalInr: number | null;
   notes: string | null;
@@ -182,6 +220,8 @@ export async function getPoPrint(poId: string): Promise<PoPrintData | null> {
       row: {
         key: groupKey,
         sourceNo: req?.source_no ?? null,
+        customer: req?.customer ?? null,
+        itemClass: req?.item_class ?? ((l.item_class as string | null) || null),
         description,
         name,
         spec,
@@ -191,6 +231,9 @@ export async function getPoPrint(poId: string): Promise<PoPrintData | null> {
         rate,
         amount: num(l.amount),
         gstPct,
+        gstPerUnit: (rate * gstPct) / 100,
+        netRate: rate * (1 + gstPct / 100),
+        quoteNo: ((l.quote_no as string | null) || (l.quote_reference as string | null) || null),
         delivery: (l.delivery_date as string | null) ?? null,
         bags,
         bagWeight: l.bag_weight == null ? null : num(l.bag_weight),
@@ -230,15 +273,23 @@ export async function getPoPrint(poId: string): Promise<PoPrintData | null> {
   }));
   const chargesNet = charges.reduce((a, c) => a + (c.kind === "less" ? -1 : 1) * c.amount, 0);
   const total = money(taxable + gstBySlab.reduce((a, g) => a + g.amount, 0) + chargesNet);
+  // ROUNDED TO THE RUPEE, AS THE SAMPLE IS ("Round of 0.22 · Net Value 2,87,310.00"). INR only:
+  // a foreign currency is paid to its cent.
+  const netValue = isImport ? total : Math.round(total);
+  const roundOff = money(netValue - total);
+  const qtyByUom = new Map<string, number>();
+  for (const r of rows) qtyByUom.set(r.uom ?? "", (qtyByUom.get(r.uom ?? "") ?? 0) + r.qty);
+  const classes = [...new Set(rows.map((r) => r.itemClass?.trim().toUpperCase()).filter(Boolean))];
 
   const term = (label: string, k: string) => (str(k) ? { label, value: str(k)! } : null);
+  // Payment, place of delivery and invoice-to sit in the header block now (`head`) — said once.
   const terms = [
-    term("Payment Terms", "payment_terms"),
     term("Pay Mode", "pay_mode"),
     term("Ship Mode", "ship_mode"),
     term("Ship Type", "ship_type"),
-    term("Place of Delivery", "place_of_delivery"),
-    term("Invoice Send To", "invoice_send_to"),
+    term("Delivery Instructions", "delivery_instructions"),
+    term("Quality", "quality_requirements"),
+    term("Warranty", "warranty_terms"),
     term("VAT/GST Against", "vat_against"),
     term("Duty Against", "duty_against"),
     str("freight_type") ? { label: "Freight", value: str("freight_type") === "itemwise" ? "ITEM-WISE" : "CONSOLIDATED" } : null,
@@ -256,12 +307,28 @@ export async function getPoPrint(poId: string): Promise<PoPrintData | null> {
     currency: (isImport ? str("foreign_currency_code") : null) ?? "INR",
     exchangeRate: isImport ? fx : null,
     gstKind: raw.gst_kind === "igst" ? "igst" : "cgst_sgst",
+    title: classes.length === 1 ? `${classes[0]} PURCHASE ORDER` : "PURCHASE ORDER",
+    head: {
+      reference: str("reference"),
+      deliveryDate: rows.map((r) => r.delivery).filter((d): d is string => !!d).sort()[0] ?? str("expected_date"),
+      paymentTerms: str("payment_terms"),
+      portOfShipment: str("port_of_shipment"),
+      placeOfDelivery: str("place_of_delivery"),
+      transporter: str("transport_name"),
+      invoiceTo: str("invoice_send_to"),
+    },
+    totalQty: [...qtyByUom.entries()].map(([uom, qty]) => ({ uom, qty: Number(qty.toFixed(3)) })),
+    roundOff,
+    netValue,
+    valueInWords: amountInWords(netValue, (isImport ? str("foreign_currency_code") : null) ?? "INR"),
     company: {
       name: coStr("company_name") ?? coStr("company_short_name"),
       address: registeredAddressOf(co),
       unit: ((locRes.data ?? null) as { name: string | null } | null)?.name ?? null,
       gstin: coStr("gstin"),
       logo: letterheadLogoOf(co),
+      phone: coStr("phone") ?? coStr("mobile"),
+      email: coStr("email"),
     },
     vendor: { name: vendorRow?.name ?? po.vendor_name ?? null, address: address || null, gstin: vendorRow?.gst_no ?? null },
     terms,

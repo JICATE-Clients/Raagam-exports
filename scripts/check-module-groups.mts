@@ -499,6 +499,9 @@ const OLD_NAV_LEAVES: Record<string, string[]> = {
 // through MODULE_GROUPS and never consults this table — an entry for it now
 // would be dead weight that reads as a live rule.
 const REDIRECTED: Record<string, string> = {
+  // Vendor Returns MOVED to Purchase ▸ Receiving beside Goods Receipts (user
+  // 2026-10-31) — every return is a DC a GRN raised. The Stores address answers.
+  "/stores/vendor-returns": "/purchase/vendor-returns",
   // Document No Format is the legacy Configure ▸ System screen, filed under
   // Administration by the 2026-07-18 dissolution of that submodule and moved
   // back when System was restored (client 2026-08-12). The Admin row is gone —
@@ -520,6 +523,12 @@ const REDIRECTED: Record<string, string> = {
   "/sales/planning": "/sales/management",
   "/sales/approval": "/sales/management",
   "/sales/revise": "/sales/management",
+  // Process Issues and Process Receipts were the old job-work pair: an issue booked the
+  // goods as CONSUMED (not moved) through an admin client, best-effort. Both are replaced by
+  // Stores ▸ Process DC (0786 send against a Process Order, 0787 receive back with loss and
+  // the draft bill), user 2026-10-31 (doc/stores/dc-plan.md).
+  "/stores/process-issues": "/stores/process-dc",
+  "/stores/process-receipts": "/stores/process-dc",
   // Material BOM was never an amendment screen — one door, and the revision
   // case is `bomStatus`'s `recalculate` state in place. The URL was named after
   // `material_bom_amendments` (0265), which took ITS name from the legacy

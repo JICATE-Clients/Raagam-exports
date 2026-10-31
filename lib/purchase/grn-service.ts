@@ -57,6 +57,8 @@ export type GrnLineWithPo = GrnLineItem & {
   /** Where the accepted goods were put (0777) — names, for the detail page. */
   store_name: string | null;
   bin_code: string | null;
+  /** The accepted qty bin by bin when the line was split (0782); [] = one bin or none. */
+  bin_split: { code: string; qty: number }[];
 };
 
 /* THE EMBED IS NAMED AFTER THE RELATIONSHIP, so both of these say
@@ -134,7 +136,9 @@ export async function getGrnLines(grnId: string): Promise<GrnLineWithPo[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("grn_line_items")
-    .select("*, purchase_orders(code), stores(name), bins(bin_code)")
+    // `bins!bin_id`, never bare: grn_line_bins (0782) is a second path to bins, so a bare
+    // embed is PGRST201-ambiguous. The split rides along for the Bin cell.
+    .select("*, purchase_orders(code), stores(name), bins!bin_id(bin_code), grn_line_bins(qty, sort_order, bins!bin_id(bin_code))")
     .eq("grn_id", grnId)
     .order("sort_order");
 
@@ -143,12 +147,19 @@ export async function getGrnLines(grnId: string): Promise<GrnLineWithPo[]> {
       purchase_orders: { code: string | null } | null;
       stores: { name: string } | null;
       bins: { bin_code: string } | null;
+      grn_line_bins: { qty: number; sort_order: number; bins: { bin_code: string } | null }[] | null;
     })[]
-  ).map((row) => ({
+  ).map(({ grn_line_bins: split, ...row }) => ({
     ...row,
     po_code: row.purchase_orders?.code ?? null,
     store_name: row.stores?.name ?? null,
-    bin_code: row.bins?.bin_code ?? null,
+    // A split line reads "B1 30 · B2 20" (0782); otherwise its one bin.
+    bin_split: [...(split ?? [])]
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map((b) => ({ code: b.bins?.bin_code ?? "?", qty: Number(b.qty) || 0 })),
+    bin_code: split && split.length > 0
+      ? [...split].sort((a, b) => a.sort_order - b.sort_order).map((b) => `${b.bins?.bin_code ?? "?"} ${b.qty}`).join(" · ")
+      : (row.bins?.bin_code ?? null),
   }));
 }
 
@@ -261,6 +272,8 @@ export async function listDcs(): Promise<DcWithVendor[]> {
   const { data } = await supabase
     .from("delivery_challans")
     .select("*, master_vendors(id, name)")
+    // Job-work DCs only — a Production DC (0784) lives on Stores ▸ Production DC.
+    .eq("dc_kind", "process")
     // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
     .order("created_at", { ascending: true });
 
@@ -374,11 +387,16 @@ export async function getGrnReceivingLocations(): Promise<{
   options: { id: string; code: string; name: string; postable: boolean }[];
   defaultId: string | null;
 }> {
-  const { location, source, allowed } = await getCurrentLocation();
-  // Only a STORED current unit satisfies the policy; a unit resolved from the
-  // default/fallback is what the top bar shows, but the column the policy reads
-  // is still empty until the operator switches once.
-  const postableId = source === "stored" ? (location?.id ?? null) : null;
+  const { location, allowed } = await getCurrentLocation();
+  // THE UNIT THE TOP BAR SHOWS IS THE UNIT THAT POSTS (fixed 2026-10-31, screenshot
+  // 3934). This used to accept only a STORED choice, on the reasoning that the policy
+  // read `profiles.current_location_id` alone — so an operator on their DEFAULT unit
+  // (Raagam HO, never switched) was told "Pick your working unit in the top bar first"
+  // while the top bar named one. That reasoning is out of date: `is_current_location()`
+  // compares with `current_location()`, which walks the same chain as
+  // `resolveCurrentLocation` — stored, then default, then the house unit, then a single
+  // allocated unit (0489 · 0681). Whatever this resolves, the policy accepts.
+  const postableId = location?.id ?? null;
   return {
     options: allowed.map((l) => ({
       id: l.id,
@@ -486,7 +504,10 @@ export async function getReplacementsDue(): Promise<ReplacementDue[]> {
 /** The Debit Note and Rejection DC a posted GRN raised, and the DC a replacement fills. */
 export type GrnPaper = {
   debitNote: { id: string; code: string | null; amount: number; status: string } | null;
+  /** The Rejection DC ('return' lines, with the debit note) — 0781 split it from the next. */
   rejectionDc: { id: string; code: string | null; status: string } | null;
+  /** The Replacement DC ('replace' lines, no debit note) — the vendor resends these. */
+  replacementDc: { id: string; code: string | null; status: string } | null;
   replaces: { id: string; code: string | null } | null;
 };
 
@@ -496,7 +517,7 @@ export async function getGrnPaper(grn: Pick<Grn, "id" | "vendor_return_id">): Pr
   // A reader without Finance / Stores access gets nothing back for that half — said as "—".
   const [dn, dc, rep] = await Promise.all([
     supabase.from("finance_notes").select("id, code, amount, status").eq("grn_id", grn.id).maybeSingle(),
-    supabase.from("vendor_returns").select("id, code, status").eq("grn_id", grn.id).maybeSingle(),
+    supabase.from("vendor_returns").select("id, code, status, dc_kind").eq("grn_id", grn.id),
     grn.vendor_return_id
       ? supabase.from("vendor_returns").select("id, code").eq("id", grn.vendor_return_id).maybeSingle()
       : Promise.resolve({ data: null }),
@@ -505,7 +526,15 @@ export async function getGrnPaper(grn: Pick<Grn, "id" | "vendor_return_id">): Pr
     debitNote: dn.data
       ? { ...(dn.data as { id: string; code: string | null; status: string }), amount: Number((dn.data as { amount: number }).amount) || 0 }
       : null,
-    rejectionDc: (dc.data as GrnPaper["rejectionDc"]) ?? null,
+    // Before 0781 a GRN raised one DC with no kind — read as a Rejection DC, as it was printed.
+    rejectionDc:
+      ((dc.data ?? []) as { id: string; code: string | null; status: string; dc_kind: string | null }[]).find(
+        (d) => d.dc_kind !== "replacement",
+      ) ?? null,
+    replacementDc:
+      ((dc.data ?? []) as { id: string; code: string | null; status: string; dc_kind: string | null }[]).find(
+        (d) => d.dc_kind === "replacement",
+      ) ?? null,
     replaces: (rep.data as GrnPaper["replaces"]) ?? null,
   };
 }

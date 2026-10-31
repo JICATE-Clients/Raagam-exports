@@ -40,7 +40,6 @@ export default async function GrnListPage() {
         defaultLocationId={receiving.defaultId}
         // `stores:approve` is the Store Manager key — the one that may authorise an
         // over-receipt. createGrn and the 0620 trigger re-check.
-        canAuthorize={hasPermission(user, "stores", "approve")}
         canCreate={hasPermission(user, "materials_purchase", "create")}
         stores={place.stores}
         bins={place.bins}

@@ -12,6 +12,7 @@ import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 import { fmtNumber } from "@/lib/format";
 import {
   raiseRateAmendment,
@@ -36,19 +37,26 @@ interface Props {
   canCreate: boolean;
   canEdit: boolean;
   canApprove: boolean;
+  /** From the PO page's "Amend rate" (`?po=`): the PO to raise against. */
+  initialPoId?: string | null;
 }
 
-export function RateAmendmentsClient({ rows, pos, canCreate, canEdit, canApprove }: Props) {
+export function RateAmendmentsClient({ rows, pos, canCreate, canEdit, canApprove, initialPoId = null }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
-  const [open, setOpen] = useState(false);
+  const startWith = initialPoId && pos.some((p) => p.id === initialPoId) ? initialPoId : "";
+  const [open, setOpen] = useState(!!startWith);
   useCreateIntent(() => setOpen(true));
 
-  const [poId, setPoId] = useState("");
+  const [poId, setPoId] = useState(startWith);
   const [lineId, setLineId] = useState("");
   const [revisedRate, setRevisedRate] = useState("");
   const [reason, setReason] = useState("");
+  /* REJECT TAKES A REASON (0785): the run's reject end records it on the amendment. */
+  const [rejecting, setRejecting] = useState<RateAmendmentWithRefs | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
+  useUnsavedGuard((open && (!!revisedRate || !!reason.trim())) || !!rejectReason.trim() || isPending);
 
   const selectedPo = pos.find((p) => p.id === poId) ?? null;
   const selectedLine = selectedPo?.lines.find((l) => l.id === lineId) ?? null;
@@ -90,6 +98,10 @@ export function RateAmendmentsClient({ rows, pos, canCreate, canEdit, canApprove
     { header: "PO", cell: (r) => <span className="text-sm">{r.po_code ?? "—"}</span> },
     { header: "Previous", align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtNumber(r.previous_rate)}</span> },
     { header: "Revised", align: "right", cell: (r) => <span className="tabular-nums text-sm font-semibold">{fmtNumber(r.revised_rate)}</span> },
+    {
+      header: "Decision",
+      cell: (r) => (r.decision_remark ? <span className="text-xs text-muted-foreground">{r.decision_remark}</span> : null),
+    },
     { header: "Status", cell: (r) => <StatusPill tone={tone(r.status)}>{PUR_APPROVAL_STATUS_LABELS[r.status]}</StatusPill> },
     {
       header: "Actions",
@@ -97,14 +109,14 @@ export function RateAmendmentsClient({ rows, pos, canCreate, canEdit, canApprove
         <div className="flex flex-wrap gap-1">
           {canEdit && r.status === "draft" && (
             <Button size="sm" variant="subtle" className="px-2 text-xs" disabled={isPending}
-              onClick={() => run(() => submitRateAmendment(r.id), "Submitted")}>Submit</Button>
+              onClick={() => run(() => submitRateAmendment(r.id), "Sent to the MD for approval")}>Submit</Button>
           )}
           {canApprove && r.status === "submitted" && (
             <>
               <Button size="sm" variant="subtle" className="px-2 text-xs" disabled={isPending}
                 onClick={() => run(() => approveRateAmendment(r.id), "Approved — PO updated")}>Approve</Button>
               <Button size="sm" variant="outline" className="px-2 text-xs text-danger hover:border-danger" disabled={isPending}
-                onClick={() => run(() => rejectRateAmendment(r.id), "Rejected")}>Reject</Button>
+                onClick={() => { setRejecting(r); setRejectReason(""); }}>Reject</Button>
             </>
           )}
         </div>
@@ -172,6 +184,37 @@ export function RateAmendmentsClient({ rows, pos, canCreate, canEdit, canApprove
         ) : (
           <div className="flex justify-end"><Button onClick={() => setOpen(true)}>Raise amendment</Button></div>
         ))}
+
+      {rejecting && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Reject {rejecting.code ?? "amendment"}</CardTitle>
+          </CardHeader>
+          <CardBody>
+            <div className="flex flex-wrap items-end gap-3" data-focus-scope="">
+              <div className="min-w-[240px] flex-1">
+                <Label htmlFor="ra-reject">Reason</Label>
+                <Input id="ra-reject" value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} required autoFocus />
+              </div>
+              <Button type="button" variant="outline" onClick={() => setRejecting(null)} disabled={isPending}>Cancel</Button>
+              <Button
+                type="button"
+                variant="danger"
+                disabled={isPending || !rejectReason.trim()}
+                onClick={() =>
+                  run(async () => {
+                    const r = await rejectRateAmendment(rejecting.id, rejectReason);
+                    if (r.ok) { setRejecting(null); setRejectReason(""); }
+                    return r;
+                  }, "Rejected")
+                }
+              >
+                Reject
+              </Button>
+            </div>
+          </CardBody>
+        </Card>
+      )}
 
       <Tabs
         items={[

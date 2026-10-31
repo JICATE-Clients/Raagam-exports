@@ -21,7 +21,6 @@ import { useMemo, useState, useTransition } from "react";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
 import { Field, FieldGrid } from "@/components/ui/field";
 import { useToast } from "@/components/ui/toast";
 import { fmtNumber } from "@/lib/format";
@@ -41,22 +40,24 @@ export function DcGenerateSheet({
   onClose,
   amendmentId,
   candidates,
-  locations,
-  defaultLocationId,
   onDone,
 }: {
   open: boolean;
   onClose: () => void;
   amendmentId: string;
   candidates: DcCandidate[];
-  locations: { id: string; code: string; name: string }[];
-  defaultLocationId: string | null;
+  /** No longer shown: the DC leaves from the working unit, where its Process Order lives (0788). */
+  locations?: { id: string; code: string; name: string }[];
+  defaultLocationId?: string | null;
   onDone: () => void;
 }) {
   const { success, error: toastError } = useToast();
   const [isPending, start] = useTransition();
   const [dcDate, setDcDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [locationId, setLocationId] = useState(defaultLocationId ?? "");
+  /* THE JOB-WORK RATE per row (₹ per unit sent) — it goes on the Process Order raised with
+     the challan (0788), and the draft bill on receipt is that rate × what was processed.
+     Blank = 0: the order is still raised; the rate can be settled before the bill is paid. */
+  const [rates, setRates] = useState<Record<string, string>>({});
   /* Everything is checked to begin with: the operator opened this having already
      decided to send material out. Unchecking is the exception. */
   const [skipped, setSkipped] = useState<Set<string>>(new Set());
@@ -85,13 +86,17 @@ export function DcGenerateSheet({
     if (groups.length === 0) return;
     start(async () => {
       const codes: string[] = [];
+      const drafts: string[] = [];
       for (const g of groups) {
         const res = await createDcFromBom({
           amendmentId,
           vendorId: g.vendorId,
           dcDate,
-          locationId: locationId || null,
+          locationId: null,
           rowUids: g.rows.map((r) => r.rowUid),
+          rates: Object.fromEntries(
+            g.rows.map((r) => [r.rowUid, parseFloat(rates[r.rowUid] ?? "") || 0]),
+          ),
         });
         if (!res.ok) {
           /* STOPS AT THE FIRST FAILURE and reports it. The challans already
@@ -107,12 +112,12 @@ export function DcGenerateSheet({
           return;
         }
         codes.push(res.dcId);
+        if (!res.dispatched && res.note) drafts.push(`${g.vendorName}: ${res.note}`);
       }
-      success(
-        codes.length === 1
-          ? "Delivery Challan raised"
-          : `${codes.length} Delivery Challans raised`,
-      );
+      const raised =
+        codes.length === 1 ? "Process Order and Delivery Challan raised" : `${codes.length} Process Orders and Delivery Challans raised`;
+      if (drafts.length) toastError(`${raised}, but ${drafts.join("; ")}`);
+      else success(`${raised} and dispatched`);
       onDone();
       onClose();
     });
@@ -155,18 +160,6 @@ export function DcGenerateSheet({
               onChange={(e) => setDcDate(e.target.value)}
             />
           </Field>
-          {/* The goods physically leave from a PLACE, and only the operator
-              knows which. Defaulted from the order, shown, and changeable. */}
-          <Field label="Despatched from" size="md">
-            <Select value={locationId} onChange={(e) => setLocationId(e.target.value)}>
-              <option value="">—</option>
-              {locations.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
         </FieldGrid>
 
         {groups.map((g) => (
@@ -191,6 +184,17 @@ export function DcGenerateSheet({
                 <span className="shrink-0 tabular-nums text-[13px] font-medium">
                   {fmtNumber(r.qtyOut)}
                 </span>
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  inputMode="decimal"
+                  aria-label={`Job-work rate, ${r.materialName}`}
+                  placeholder="Rate ₹"
+                  className="h-8 w-24 shrink-0 text-right tabular-nums"
+                  value={rates[r.rowUid] ?? ""}
+                  onChange={(e) => setRates((prev) => ({ ...prev, [r.rowUid]: e.target.value }))}
+                />
               </label>
             ))}
           </div>
