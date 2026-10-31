@@ -131,10 +131,12 @@ export function ContextSidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
   }
   const activeHref = activeChildHref(pathname, leaves);
   // The group to open: the one holding the screen in view, else the first
-  // captioned group (a module's root page sits in no group).
+  // captioned group (a module's root page sits in no group). HR & Payroll
+  // takes no fallback: its Dashboard opens with every group folded, and a
+  // group unfolds only when clicked (user 2026-10-31: People stayed open).
   const openOnArrival =
     blocks.find((b) => b.label && b.rows.some((r) => r.href === activeHref))?.key ??
-    blocks.find((b) => b.label)?.key ??
+    (mod?.href === "/hr" ? null : blocks.find((b) => b.label)?.key) ??
     null;
 
   // Records only (an order, a PO) — a screen is already listed above, so

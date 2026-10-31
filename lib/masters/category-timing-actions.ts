@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
-import { categoryTimingInput, type CategoryTimingInput } from "./category-timing-types";
+import { BREAKS, categoryTimingInput, type CategoryTimingInput } from "./category-timing-types";
 
 type Result = { ok: true } | { ok: false; error: string };
 
@@ -27,6 +27,15 @@ export async function saveCategoryTiming(data: CategoryTimingInput): Promise<Res
   const p = categoryTimingInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
+  // With no break entered the break columns are left out, so a save still
+  // works on a database where 0775 has not been applied yet.
+  const row: Partial<typeof p.data> = { ...p.data };
+  if (BREAKS.every((b) => !p.data[b.start] && !p.data[b.end])) {
+    for (const b of BREAKS) {
+      delete row[b.start];
+      delete row[b.end];
+    }
+  }
 
   const { data: existing, error: findErr } = await s
     .from("hr_category_timings")
@@ -38,11 +47,11 @@ export async function saveCategoryTiming(data: CategoryTimingInput): Promise<Res
 
   if (existing) {
     if (!(await can("masters", "edit"))) return fail("Forbidden");
-    const { error } = await s.from("hr_category_timings").update(p.data).eq("id", existing.id);
+    const { error } = await s.from("hr_category_timings").update(row).eq("id", existing.id);
     if (error) return fail(error.message);
   } else {
     if (!(await can("masters", "create"))) return fail("Forbidden");
-    const { error } = await s.from("hr_category_timings").insert(p.data);
+    const { error } = await s.from("hr_category_timings").insert(row as typeof p.data);
     if (error) return fail(error.message);
   }
   rev();

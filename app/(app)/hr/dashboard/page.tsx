@@ -1,5 +1,7 @@
 import { requirePermission } from "@/lib/auth/server";
-import { getHrDashboard } from "@/lib/hr/dashboard-service";
+import { filterHrDashboard, getHrDashboard } from "@/lib/hr/dashboard-service";
+import { HrDashboardFilter } from "@/components/hr/dashboard-filter";
+import type { PersonKind } from "@/lib/masters/category-timing-types";
 import { HrDashboardView } from "./hr-dashboard";
 
 /**
@@ -14,10 +16,41 @@ import { HrDashboardView } from "./hr-dashboard";
  *
  * "Now" is read once, on the server, and handed down: the view never reaches
  * for a viewer's clock, and every figure answers for the same instant.
+ *
+ * One side at a time, Staff or Worker, narrowed to any of its departments
+ * (user 2026-10-31) — `?kind=` and `?dept=` in the URL, applied here.
  */
-export default async function HrDashboardPage() {
+export default async function HrDashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ kind?: string; dept?: string; show?: string }>;
+}) {
   await requirePermission("hr_payroll", "view");
+  const sp = await searchParams;
+  const kind: PersonKind = sp.kind === "worker" ? "worker" : "staff";
+  const depts = (sp.dept ?? "")
+    .split(",")
+    .filter(Boolean)
+    .map((d) => (d === "none" ? "" : d));
+
   const now = new Date().getTime();
-  const data = await getHrDashboard(now);
-  return <HrDashboardView data={data} />;
+  const full = await getHrDashboard(now);
+  const view = filterHrDashboard(full, { kind, depts });
+  const counts = {
+    staff: full.groups.find((g) => g.group === "staff")?.people.length ?? 0,
+    worker: full.groups.find((g) => g.group === "worker")?.people.length ?? 0,
+  };
+
+  return (
+    <HrDashboardView
+      data={view.data}
+      query={new URLSearchParams({ kind, ...(sp.dept ? { dept: sp.dept } : {}) }).toString()}
+      weekNote={
+        view.picked.length > 0 && !full.trendByDept
+          ? "The week shows every department until migration 0776 is applied."
+          : undefined
+      }
+      filter={<HrDashboardFilter kind={kind} counts={counts} depts={view.depts} picked={view.picked} />}
+    />
+  );
 }

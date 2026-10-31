@@ -8,7 +8,9 @@ export async function listCategoryTimings(): Promise<CategoryTiming[]> {
   const s = await createClient();
   const { data, error } = await s
     .from("hr_category_timings")
-    .select("id, category_id, in_time, out_time, grace_minutes, effective_from, created_at, created_by, updated_at")
+    // `*`, not a column list: the break columns (0775) arrive with the migration,
+    // and naming them before it is applied would fail the whole read.
+    .select("*")
     .order("effective_from", { ascending: true });
   // A failed read is an error, not "no hours set" — the two look the same on
   // screen and mean opposite things.

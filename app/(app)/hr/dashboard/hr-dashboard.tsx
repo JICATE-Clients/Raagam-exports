@@ -3,15 +3,12 @@ import Link from "next/link";
 import {
   Activity,
   ArrowRight,
-  RefreshCw,
-  AlarmClock,
   CalendarDays,
+  Clock,
   Fingerprint,
   Gauge as Gauge2,
-  LogOut,
   PieChart,
   ArrowUpRight,
-  DoorOpen,
   Moon,
   TriangleAlert,
   Wifi,
@@ -19,15 +16,15 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { AutoRefresh } from "@/components/hr/auto-refresh";
-import { FlipCard } from "@/components/hr/flip-card";
-import { HeroHyperspeed } from "@/components/hr/hero-hyperspeed";
 import { RadarPanel } from "@/components/hr/radar-panel";
-import { CelebrateScene, GroupFigure, HurryScene, TeamScene, WaitingScene, WorkingScene } from "@/components/hr/people-art";
+import { HurryScene, TeamScene, WaitingScene } from "@/components/hr/people-art";
 import { kindLabel, isOvernight, shiftMinutes, type PersonKind } from "@/lib/masters/category-timing-types";
 import type { HrDashboard } from "@/lib/hr/dashboard-service";
-import type { DayStatus, GroupDay, PersonDay, ShiftInfo } from "@/lib/hr/timing-calc";
+import type { DayStatus, GroupDay, PersonDay } from "@/lib/hr/timing-calc";
 import { fmtDate, fmtTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { DashboardPeople, type PeopleKey, type PeopleRow } from "@/components/hr/dashboard-people";
+import { Truncated } from "@/components/ui/truncated";
 
 /*
  * HR ▸ Dashboard — a professional analytics view (client 2026-10-28: "professional,
@@ -61,11 +58,6 @@ const GROUP: Record<PersonKind, { hex: string; dot: string; chip: string; band: 
   staff: { hex: "#4f46e5", shadow: "shadow-indigo-500/20 hover:shadow-indigo-500/30", band: "from-indigo-500 to-violet-600", dot: "bg-sky-400", chip: "bg-indigo-50 text-indigo-700 ring-indigo-600/15 dark:bg-indigo-500/10 dark:text-indigo-300" },
   worker: { hex: "#0d9488", shadow: "shadow-emerald-500/20 hover:shadow-emerald-500/30", band: "from-emerald-500 to-teal-600", dot: "bg-emerald-400", chip: "bg-teal-50 text-teal-700 ring-teal-600/15 dark:bg-teal-500/10 dark:text-teal-300" },
 };
-
-/** One line per category: its hours, or that none are set. */
-function shiftLine(x: ShiftInfo): string {
-  return x.timing ? `${fmtTime(x.timing.in_time)} – ${fmtTime(x.timing.out_time)}` : "No timing set";
-}
 
 function clock(ms: number): string {
   return new Date(ms).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "numeric", minute: "2-digit" });
@@ -288,7 +280,10 @@ function Kpi({
   art,
   tone,
   bar,
+  href,
 }: {
+  /** Opens this card's people in the People panel below. */
+  href?: string;
   label: string;
   value: string | number;
   unit?: string;
@@ -299,8 +294,12 @@ function Kpi({
   bar?: number;
 }) {
   const t = KPI_TONE[tone];
+  const Box = href ? Link : "div";
   return (
-    <div className={cn("group/kpi relative isolate min-w-0 overflow-hidden rounded-2xl border bg-gradient-to-br to-white px-5 py-4 shadow-lg transition duration-300 hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-2xl dark:to-slate-900", t.card)}>
+    <Box
+      href={href as string}
+      className={cn("group/kpi relative isolate flex h-full min-w-0 flex-col overflow-hidden rounded-2xl border bg-gradient-to-br to-white px-5 py-4 shadow-lg transition duration-300 hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:to-slate-900", t.card)}
+    >
       <span aria-hidden className={cn("pointer-events-none absolute -right-8 -top-8 -z-10 h-28 w-28 rounded-full blur-2xl transition-transform duration-500 group-hover/kpi:scale-150", t.blob)} />
       <span aria-hidden className={cn("absolute inset-x-0 bottom-0 h-1 bg-gradient-to-r", t.bar)} />
       <div className="flex items-center justify-between gap-2">
@@ -324,13 +323,13 @@ function Kpi({
         {value}
         {unit && <span className="text-sm font-medium text-slate-400">{unit}</span>}
       </p>
-      <div className={cn("mt-2 text-xs font-medium", t.text)}>{note}</div>
+      <div className={cn("mb-3 mt-2 text-xs font-medium", t.text)}>{note}</div>
       {bar != null && (
-        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/70 ring-1 ring-slate-200/60 dark:bg-slate-800 dark:ring-0">
+        <div className="mt-auto h-1.5 overflow-hidden rounded-full bg-white/70 ring-1 ring-slate-200/60 dark:bg-slate-800 dark:ring-0">
           <div className={cn("h-full rounded-full bg-gradient-to-r", t.bar)} style={{ width: `${Math.min(100, bar)}%` }} />
         </div>
       )}
-    </div>
+    </Box>
   );
 }
 
@@ -425,14 +424,38 @@ function Gauge({ pct }: { pct: number }) {
  * Page
  * ------------------------------------------------------------------ */
 
-export function HrDashboardView({ data }: { data: HrDashboard }) {
+export function HrDashboardView({
+  data,
+  filter,
+  weekNote,
+  query = "",
+}: {
+  data: HrDashboard;
+  /** The Staff | Worker switch and department filter, under the header. */
+  filter?: React.ReactNode;
+  /** Said under the week chart when it can't follow the filter. */
+  weekNote?: string;
+  /** The dashboard filter's query (kind, dept), kept on a card's link. */
+  query?: string;
+}) {
   const { groups, now } = data;
   const all = groups.flatMap((g) => g.people);
   const enrolled = all.length;
   const present = count(groups, isPresent);
   const late = count(groups, (d) => isPresent(d) && d.lateMin > 0);
   const onTime = present - late;
-  const absent = count(groups, (d) => d.status === "absent");
+  // Approved Time Off today (0770). Someone on Leave or On Duty who hasn't
+  // punched is counted there, not as Absent; Permission is short time off and
+  // doesn't excuse the day.
+  const offOf = new Map(data.timeOff.map((t) => [t.bio, t.kind]));
+  const onLeave = data.timeOff.filter((t) => t.kind === "leave").length;
+  const onDuty = data.timeOff.filter((t) => t.kind === "on_duty").length;
+  const onPermission = data.timeOff.filter((t) => t.kind === "permission").length;
+  const excused = (d: PersonDay) => {
+    const k = offOf.get(d.person.bio);
+    return k === "leave" || k === "on_duty";
+  };
+  const absent = count(groups, (d) => d.status === "absent" && !excused(d));
   const notIn = count(groups, (d) => d.status === "not_in");
   const inside = count(groups, (d) => d.status === "inside");
   const outNow = count(groups, (d) => d.status === "stepped_out");
@@ -485,9 +508,36 @@ export function HrDashboardView({ data }: { data: HrDashboard }) {
   const wTop = Math.ceil(wMax / 4) * 4;
   const avgWeek = week.length ? Math.round(week.reduce((t, w) => t + w.present, 0) / week.length) : 0;
 
-  const lateList = all.filter((d) => isPresent(d) && d.lateMin > 0).sort((a, b) => b.lateMin - a.lateMin);
-  const outList = all.filter((d) => d.status === "stepped_out").sort((a, b) => (a.lastAt ?? 0) - (b.lastAt ?? 0));
-  const earlyList = all.filter((d) => d.status === "left_early").sort((a, b) => b.earlyMin - a.earlyMin);
+  // Every person once, tagged with each top card they count under — the
+  // People panel lists them by the same tests the cards count with.
+  const offType = new Map(data.timeOff.map((t) => [t.bio, t.type]));
+  const peopleRows: PeopleRow[] = all.map((d) => {
+    const off = offOf.get(d.person.bio);
+    const tags: PeopleKey[] = ["onroll"];
+    if (isPresent(d)) tags.push("present", d.lateMin > 0 ? "late" : "ontime");
+    if (off === "leave") tags.push("leave");
+    if (off === "on_duty") tags.push("onduty");
+    if (off === "permission") tags.push("permission");
+    if (d.status === "absent" && !excused(d)) tags.push("absent");
+    if (d.status === "left_early") tags.push("early");
+    if (d.status === "inside") tags.push("premises");
+    if (d.status === "stepped_out") tags.push("out");
+    return {
+      bio: d.person.bio,
+      name: d.person.name,
+      code: d.person.code,
+      category: d.person.categoryName,
+      deptId: d.person.departmentId ?? "",
+      dept: d.person.departmentName ?? "No department",
+      in: tags,
+      firstAt: d.firstAt,
+      lastAt: d.lastAt,
+      lateMin: d.lateMin,
+      earlyMin: d.earlyMin,
+      offType: off ? (offType.get(d.person.bio) ?? null) : null,
+    };
+  });
+  const show = (key: PeopleKey) => `?${query ? `${query}&` : ""}show=${key}#people`;
   const online = data.devices.filter((d) => d.last_seen && now - Date.parse(d.last_seen) <= ONLINE_WINDOW_MS);
   // Radar blips = punches in the last 15 minutes (the sweep caps them at 16).
   const recentPunches = all.reduce((t, d) => t + d.punches.filter((p) => p >= now - 15 * 60_000).length, 0);
@@ -521,10 +571,6 @@ export function HrDashboardView({ data }: { data: HrDashboard }) {
         <header className="relative isolate flex flex-wrap items-end justify-between gap-4 overflow-hidden rounded-2xl bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-600 px-6 py-6 text-white shadow-lg shadow-indigo-500/20">
           <div aria-hidden className="absolute -right-16 -top-20 -z-10 h-56 w-56 rounded-full bg-white/15 blur-2xl" />
           <div aria-hidden className="absolute -bottom-24 left-1/3 -z-10 h-56 w-56 rounded-full bg-cyan-300/25 blur-3xl" />
-          {/* Light-trail road behind everything (client 2026-10-28), with a
-              soft wash on the left so the title stays readable over it. */}
-          <HeroHyperspeed />
-          <div aria-hidden className="pointer-events-none absolute inset-y-0 left-0 -z-10 w-2/5 bg-gradient-to-r from-indigo-700/55 to-transparent" />
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-white/75">HR &amp; Payroll</p>
             <h1 className="mt-1 text-2xl font-semibold tracking-tight md:text-3xl">Workforce overview</h1>
@@ -557,6 +603,8 @@ export function HrDashboardView({ data }: { data: HrDashboard }) {
           </div>
         </header>
 
+        {filter}
+
         {(missingTimings.length > 0 || data.noCategory > 0 || data.unlinkedIds > 0) && (
           <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/20 dark:bg-amber-500/5 dark:text-amber-200">
             <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
@@ -585,18 +633,80 @@ export function HrDashboardView({ data }: { data: HrDashboard }) {
         )}
 
         {/* ── KPI strip ────────────────────────────────────── */}
-        <section className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
+        {/* The day's head-count first (user 2026-10-31: "on roll, present,
+            leave, on duty, permission, absent", then late and left early),
+            then the rest. One grid, every cell the same size: equal columns,
+            and `auto-rows-fr` makes every row as tall as the tallest card. */}
+        <section className="grid auto-rows-fr grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
+          <Kpi
+            label="On roll"
+            href={show("onroll")}
+            value={enrolled}
+            note="on the punch reader"
+            art="/hr/3d/onroll.png"
+            tone="indigo"
+          />
           <Kpi
             label="Present"
+            href={show("present")}
             value={present}
             unit={`/ ${enrolled}`}
             note={`${pctOf(present, enrolled)}% attendance`}
             art="/hr/3d/present.png"
-            tone="indigo"
+            tone="emerald"
             bar={pctOf(present, enrolled)}
           />
           <Kpi
+            label="Leave"
+            href={show("leave")}
+            value={onLeave}
+            note={onLeave ? `${pctOf(onLeave, enrolled)}% on approved leave` : "nobody on leave"}
+            art="/hr/3d/leave.png"
+            tone="sky"
+          />
+          <Kpi
+            label="On duty"
+            href={show("onduty")}
+            value={onDuty}
+            note={onDuty ? "away on company work" : "nobody on duty outside"}
+            art="/hr/3d/onduty.png"
+            tone="violet"
+          />
+          <Kpi
+            label="Permission"
+            href={show("permission")}
+            value={onPermission}
+            note={onPermission ? "short time off today" : "no permission today"}
+            art="/hr/3d/permission.png"
+            tone="amber"
+          />
+          <Kpi
+            label="Absent"
+            href={show("absent")}
+            value={absent}
+            note={notIn ? `${notIn} not due yet` : `${pctOf(absent, enrolled)}% of workforce`}
+            art="/hr/3d/absent.png"
+            tone="rose"
+          />
+          <Kpi
+            label="Late arrivals"
+            href={show("late")}
+            value={late}
+            note={late ? `avg ${mins(avgLate)} late` : "none today"}
+            art="/hr/3d/late.png"
+            tone="amber"
+          />
+          <Kpi
+            label="Left early"
+            href={show("early")}
+            value={leftEarly}
+            note={`${mins(lostMin)} lost today`}
+            art="/hr/3d/left.png"
+            tone="violet"
+          />
+          <Kpi
             label="On-time rate"
+            href={show("ontime")}
             value={`${pctOf(onTime, present)}%`}
             note={`${onTime} arrived on time`}
             art="/hr/3d/ontime.png"
@@ -604,32 +714,12 @@ export function HrDashboardView({ data }: { data: HrDashboard }) {
             bar={pctOf(onTime, present)}
           />
           <Kpi
-            label="Late arrivals"
-            value={late}
-            note={late ? `avg ${mins(avgLate)} late` : "none today"}
-            art="/hr/3d/late.png"
-            tone="amber"
-          />
-          <Kpi
-            label="Absent"
-            value={absent}
-            note={notIn ? `${notIn} not due yet` : `${pctOf(absent, enrolled)}% of workforce`}
-            art="/hr/3d/absent.png"
-            tone="rose"
-          />
-          <Kpi
             label="On premises"
+            href={show("premises")}
             value={inside}
             note={`${outNow} out right now`}
             art="/hr/3d/premises.png"
             tone="sky"
-          />
-          <Kpi
-            label="Left early"
-            value={leftEarly}
-            note={`${mins(lostMin)} lost today`}
-            art="/hr/3d/left.png"
-            tone="violet"
           />
         </section>
 
@@ -727,160 +817,67 @@ export function HrDashboardView({ data }: { data: HrDashboard }) {
           </Panel>
         </div>
 
-        {/* ── Staff / Worker — flip cards: today on the front, each category's hours on the back ── */}
-        <div className="grid gap-6 lg:grid-cols-2">
-          {groups.map((g) => {
-            const n = g.people.length;
-            const ot = g.people.filter((d) => isPresent(d) && d.lateMin === 0).length;
-            const lt = g.people.filter((d) => isPresent(d) && d.lateMin > 0).length;
-            const ab = g.people.filter((d) => d.status === "absent").length;
-            const ni = g.people.filter((d) => d.status === "not_in").length;
-            const ins = g.people.filter((d) => d.status === "inside").length;
-            const seg = [
-              { v: ot, cls: "bg-gradient-to-r from-emerald-500 to-teal-400" },
-              { v: lt, cls: "bg-gradient-to-r from-amber-400 to-orange-500" },
-              { v: ab, cls: "bg-gradient-to-r from-rose-500 to-pink-500" },
-              { v: ni, cls: "bg-slate-200 dark:bg-slate-700" },
-            ];
-            // The hours on the front: one line when every category keeps the
-            // same hours, otherwise a count — the back lists them all.
-            const timed = g.shifts.filter((x) => x.timing);
-            const lines = [...new Set(timed.map(shiftLine))];
-            const anyOvernight = timed.some((x) => x.timing && isOvernight(x.timing));
-            const untimed = g.shifts.filter((x) => !x.timing).length;
-            // The soonest scheduled change across this side's categories.
-            const upcoming = g.shifts
-              .filter((x) => x.upcoming)
-              .sort((a, b) => a.upcoming!.effective_from.localeCompare(b.upcoming!.effective_from))[0];
-
-            const front = (
-              <div key="front" className="group/grp flex h-full flex-col bg-white dark:bg-slate-900">
-                <div className={cn("relative isolate flex items-start justify-between gap-3 overflow-hidden bg-gradient-to-br px-5 py-4 text-white", GROUP[g.group].band)}>
-                  <span aria-hidden className="absolute -right-8 -top-10 -z-10 h-28 w-28 rounded-full bg-white/25 blur-xl transition-transform duration-500 group-hover/grp:scale-150" />
-                  <div>
-                    <h3 className="text-sm font-semibold">{kindLabel(g.group)}</h3>
-                    <p className="mt-1 flex items-center gap-1 text-xs text-white/85">
-                      {lines.length === 0
-                        ? "No timing set"
-                        : lines.length === 1 && untimed === 0
-                          ? lines[0]
-                          : `${g.shifts.length} categories · ${timed.length} timed`}
-                      {anyOvernight && <Moon className="h-3 w-3" />}
-                    </p>
-                    <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-semibold ring-1 ring-white/25">
-                      <RefreshCw className="h-3 w-3" /> Flip for shift
-                    </span>
-                  </div>
-                  <GroupFigure group={g.group === "staff" ? "staff" : "production_staff"} className="-mb-4 ml-auto h-20 shrink-0 drop-shadow-lg transition-transform duration-500 group-hover/grp:-translate-y-1 group-hover/grp:rotate-[-4deg]" />
-                  <div className="text-right">
-                    <p className="text-[28px] font-semibold leading-none tracking-tight tabular-nums">
-                      {pctOf(ot + lt, n)}
-                      <span className="text-base text-white/70">%</span>
-                    </p>
-                    <p className="mt-1 text-xs text-white/80">
-                      {ot + lt} of {n} present
-                    </p>
-                  </div>
-                </div>
-                <div className="flex flex-1 flex-col justify-center px-5 pb-4 pt-3">
-                  <div className="flex h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                    {seg.map((x, i) => (x.v ? <div key={i} className={x.cls} style={{ width: `${(x.v / Math.max(1, n)) * 100}%` }} /> : null))}
-                  </div>
-                  <dl className="mt-4 grid grid-cols-4 divide-x divide-slate-100 text-center dark:divide-slate-800">
-                    {[
-                      ["On time", ot, "text-emerald-600 dark:text-emerald-400"],
-                      ["Late", lt, "text-orange-600 dark:text-amber-400"],
-                      ["Inside", ins, "text-sky-600 dark:text-sky-400"],
-                      ["Absent", ab, "text-rose-600 dark:text-rose-400"],
-                    ].map(([k, v, cls]) => (
-                      <div key={k as string} className="px-1">
-                        <dd className={cn("text-lg font-semibold tabular-nums", cls as string)}>{v as number}</dd>
-                        <dt className="text-[11px] text-slate-500">{k as string}</dt>
-                      </div>
-                    ))}
-                  </dl>
-                </div>
-              </div>
-            );
-
-            const back = (
-              <div key="back" className={cn("relative isolate flex h-full flex-col overflow-hidden bg-gradient-to-br p-5 text-white", GROUP[g.group].band)}>
-                <span aria-hidden className="absolute -bottom-16 -right-10 -z-10 h-48 w-48 rounded-full bg-white/20 blur-2xl" />
-                <span aria-hidden className="absolute -left-10 -top-12 -z-10 h-36 w-36 rounded-full bg-black/10 blur-2xl" />
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-white/80">{kindLabel(g.group)} · Shifts</p>
-                  <span className="inline-flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-semibold ring-1 ring-white/25">
-                    <RefreshCw className="h-3 w-3" /> Flip back
-                  </span>
-                </div>
-                {g.shifts.length ? (
-                  <ul className="mt-3 min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1 text-xs">
-                    {g.shifts.map((x) => (
-                      <li key={x.categoryId ?? "none"} className="flex items-center gap-2 rounded-lg bg-white/15 px-2.5 py-1.5 ring-1 ring-white/15">
-                        <span className="min-w-0 flex-1 truncate font-semibold">
-                          {x.name} <span className="font-normal text-white/75">· {x.people}</span>
+        {/* ── Shift timings — each category's hours for the side in view.
+            Today's figures are NOT repeated here: the KPI strip at the top
+            already says them (user 2026-10-31: "this is what in up also"). ── */}
+        {groups.map((g) => {
+          const untimed = g.shifts.filter((x) => !x.timing).length;
+          const upcoming = g.shifts
+            .filter((x) => x.upcoming)
+            .sort((a, b) => a.upcoming!.effective_from.localeCompare(b.upcoming!.effective_from))[0];
+          return (
+            <Panel
+              key={g.group}
+              title="Shift timings"
+              subtitle={`${kindLabel(g.group)} · by category${upcoming?.upcoming ? ` · ${upcoming.name} changes ${fmtDate(upcoming.upcoming.effective_from)}` : ""}`}
+              accent="indigo"
+              icon={Clock}
+              action={
+                <Link
+                  href="/masters/hr/work-timing"
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:underline dark:text-indigo-400"
+                >
+                  {untimed ? "Set timing" : "Change timing"} <ArrowUpRight className="h-3.5 w-3.5" />
+                </Link>
+              }
+            >
+              {g.shifts.length ? (
+                <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {g.shifts.map((x) => (
+                    <li
+                      key={x.categoryId ?? "none"}
+                      className="flex items-center gap-3 rounded-xl border border-slate-200/70 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-900"
+                    >
+                      <span className="min-w-0 flex-1">
+                        <Truncated text={x.name} className="block text-sm font-semibold text-slate-900 dark:text-slate-100" />
+                        <span className="text-xs text-slate-500">{x.people} {x.people === 1 ? "person" : "people"}</span>
+                      </span>
+                      {x.timing ? (
+                        <span className="shrink-0 text-right">
+                          <span className="flex items-center justify-end gap-1 text-sm font-semibold tabular-nums text-slate-800 dark:text-slate-100">
+                            {fmtTime(x.timing.in_time)}
+                            <ArrowRight className="h-3 w-3 text-slate-400" />
+                            {fmtTime(x.timing.out_time)}
+                            {isOvernight(x.timing) && <Moon className="h-3 w-3 text-indigo-500" />}
+                          </span>
+                          <span className="text-xs tabular-nums text-slate-500">
+                            {mins(shiftMinutes(x.timing))} · {x.timing.grace_minutes}m grace
+                          </span>
                         </span>
-                        <span className="flex shrink-0 items-center gap-1 tabular-nums">
-                          {x.timing ? (
-                            <>
-                              {fmtTime(x.timing.in_time)}
-                              <ArrowRight className="h-3 w-3 text-white/70" />
-                              {fmtTime(x.timing.out_time)}
-                              <span className="text-white/75">
-                                · {mins(shiftMinutes(x.timing))} · {x.timing.grace_minutes}m grace
-                              </span>
-                              {isOvernight(x.timing) && <Moon className="h-3 w-3" />}
-                            </>
-                          ) : (
-                            <span className="text-white/80">No timing set</span>
-                          )}
+                      ) : (
+                        <span className="shrink-0 rounded-md bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+                          No timing set
                         </span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="mt-4 text-sm text-white/90">Nobody here is enrolled on the punch reader yet.</p>
-                )}
-                <div className="mt-auto flex items-end justify-between gap-3 pt-3">
-                  <div className="min-w-0 rounded-xl bg-white/15 px-3 py-2 text-xs ring-1 ring-white/20">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-white/70">Next change</p>
-                    <p className="mt-0.5 truncate font-semibold">
-                      {upcoming?.upcoming
-                        ? `${upcoming.name} from ${fmtDate(upcoming.upcoming.effective_from)}: ${fmtTime(upcoming.upcoming.in_time)} – ${fmtTime(upcoming.upcoming.out_time)}`
-                        : "None scheduled"}
-                    </p>
-                  </div>
-                  <Link
-                    href="/masters/hr/work-timing"
-                    className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-slate-900 shadow-md transition hover:bg-white/90"
-                  >
-                    {untimed ? "Set timing" : "Change timing"} <ArrowUpRight className="h-3.5 w-3.5" />
-                  </Link>
-                </div>
-              </div>
-            );
-
-            return (
-              <FlipCard
-                key={g.group}
-                front={front}
-                back={back}
-                ariaLabel={`${kindLabel(g.group)}: flip to see each category's timing`}
-                width={2000}
-                height={236}
-                radius={16}
-                background="transparent"
-                color="inherit"
-                tiltMax={8}
-                hoverScale={1.02}
-                glareOpacity={0.25}
-                shadowColor={GROUP[g.group].hex}
-                shadowOpacity={0.35}
-                className="w-full"
-              />
-            );
-          })}
-        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-slate-500">Nobody here is enrolled on the punch reader yet.</p>
+              )}
+            </Panel>
+          );
+        })}
 
         {/* ── Week + punctuality ───────────────────────────── */}
         <div className="grid gap-6 xl:grid-cols-3">
@@ -888,7 +885,7 @@ export function HrDashboardView({ data }: { data: HrDashboard }) {
             title="Attendance, last 7 days"
             accent="sky"
             icon={CalendarDays}
-            subtitle={`Average ${avgWeek} present per day`}
+            subtitle={weekNote ?? `Average ${avgWeek} present per day`}
             className="xl:col-span-2"
             action={
               <div className="flex items-center gap-4 text-xs text-slate-500">
@@ -969,91 +966,8 @@ export function HrDashboardView({ data }: { data: HrDashboard }) {
           </Panel>
         </div>
 
-        {/* ── Exceptions ───────────────────────────────────── */}
-        <div className="grid gap-6 xl:grid-cols-3">
-          {[
-            {
-              title: "Late arrivals",
-              accent: "amber" as const,
-              icon: AlarmClock,
-              head2: "bg-amber-50/90 dark:bg-amber-500/10",
-              rowHover: "hover:bg-amber-50/70 dark:hover:bg-amber-500/10",
-              rows: lateList,
-              empty: "No late arrivals today.",
-              art: <CelebrateScene className="h-28" />,
-              head: ["Arrived", "Late by"],
-              cells: (d: PersonDay) => [clock(d.firstAt!), <span key="v" className="font-semibold text-amber-600 dark:text-amber-400">+{mins(d.lateMin)}</span>],
-            },
-            {
-              title: "Out of premises",
-              accent: "cyan" as const,
-              icon: DoorOpen,
-              head2: "bg-cyan-50/90 dark:bg-cyan-500/10",
-              rowHover: "hover:bg-cyan-50/70 dark:hover:bg-cyan-500/10",
-              rows: outList,
-              empty: "Everyone who came in is on the premises.",
-              art: <WorkingScene className="h-28" shirt="#06b6d4" />,
-              head: ["Since", "Away"],
-              cells: (d: PersonDay) => [clock(d.lastAt!), <span key="v" className="font-semibold text-sky-600 dark:text-sky-400">{mins(Math.round((now - d.lastAt!) / 60_000))}</span>],
-            },
-            {
-              title: "Early departures",
-              accent: "rose" as const,
-              icon: LogOut,
-              head2: "bg-rose-50/90 dark:bg-rose-500/10",
-              rowHover: "hover:bg-rose-50/70 dark:hover:bg-rose-500/10",
-              rows: earlyList,
-              empty: "No early departures today.",
-              art: <WorkingScene className="h-28" shirt="#f43f5e" />,
-              head: ["Left", "Early by"],
-              cells: (d: PersonDay) => [clock(d.lastAt!), <span key="v" className="font-semibold text-rose-600 dark:text-rose-400">−{mins(d.earlyMin)}</span>],
-            },
-          ].map((t) => (
-            <Panel
-              key={t.title}
-              title={t.title}
-              accent={t.accent}
-              icon={t.icon}
-              bodyClass="p-0"
-              action={<span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-semibold tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300">{t.rows.length}</span>}
-            >
-              {t.rows.length ? (
-                <div className="max-h-80 overflow-y-auto">
-                  <table className="w-full">
-                    <thead className={cn("sticky top-0 backdrop-blur", t.head2)}>
-                      <tr>
-                        <th className={TH}>Employee</th>
-                        <th className={cn(TH, "text-right")}>{t.head[0]}</th>
-                        <th className={cn(TH, "text-right")}>{t.head[1]}</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                      {t.rows.map((d) => {
-                        const [a, b] = t.cells(d);
-                        return (
-                          <tr key={d.person.bio} className={cn("transition-colors", t.rowHover)}>
-                            <td className={TD}>
-                              <p className="truncate font-medium text-slate-900 dark:text-slate-100">{d.person.name}</p>
-                              <p className="mt-0.5 flex items-center gap-1.5 text-xs text-slate-500">
-                                <Dot className={GROUP[d.person.kind].dot} />
-                                {d.person.categoryName ?? kindLabel(d.person.kind)}
-                                {d.person.code ? ` · ${d.person.code}` : ""}
-                              </p>
-                            </td>
-                            <td className={cn(TD, "text-right tabular-nums text-slate-600 dark:text-slate-300")}>{a}</td>
-                            <td className={cn(TD, "text-right tabular-nums")}>{b}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <Empty art={t.art}>{t.empty}</Empty>
-              )}
-            </Panel>
-          ))}
-        </div>
+        {/* ── People — the names behind any top card ───────── */}
+        <DashboardPeople rows={peopleRows} now={now} />
 
         {/* ── Activity log + devices ───────────────────────── */}
         <div className="grid gap-6 xl:grid-cols-3">

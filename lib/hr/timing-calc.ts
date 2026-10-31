@@ -36,6 +36,9 @@ export interface Person {
   categoryId: string | null;
   /** The category's name, or null when the person has none. */
   categoryName: string | null;
+  departmentId: string | null;
+  /** The department's name, or null when the person has none. */
+  departmentName: string | null;
 }
 
 export interface RawPunch {
