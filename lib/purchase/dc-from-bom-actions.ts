@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { can, getAppUser } from "@/lib/auth/server";
+import { can } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
 
 /**
@@ -41,133 +41,63 @@ export async function createDcFromBom(input: {
   amendmentId: string;
   vendorId: string;
   dcDate: string;
+  /** Kept for the caller's shape; the DC leaves from the WORKING unit (0788). */
   locationId: string | null;
   rowUids: string[];
-}): Promise<Result> {
+  /** Job-work rate per BOM row (row_uid → ₹ per unit sent) — goes on the Process Order. */
+  rates?: Record<string, number>;
+}): Promise<Result & { dispatched?: boolean; note?: string }> {
   if (!(await can("materials_purchase", "create"))) throw new Error("Forbidden");
 
-  const { amendmentId, vendorId, dcDate, locationId, rowUids } = input;
+  const { amendmentId, vendorId, dcDate, rowUids, rates = {} } = input;
   if (!rowUids.length) return fail("Nothing selected to send out");
   if (!vendorId) return fail("Pick the processor this material is going to");
   if (!dcDate) return fail("A challan needs a date");
 
   const s = await createClient();
 
-  const { data: rows, error: rowErr } = await s
-    .from("material_bom_amendment_processes")
-    .select(
-      "row_uid, item_id, vendor_id, qty_out, process:processes(name), item:items(id, name)",
-    )
-    .eq("amendment_id", amendmentId)
-    .in("row_uid", rowUids);
-  if (rowErr) return fail(rowErr.message);
-
-  type Row = {
-    row_uid: string;
-    item_id: string | null;
-    vendor_id: string | null;
-    qty_out: number | null;
-    process: { name: string | null } | { name: string | null }[] | null;
-    item: { id: string; name: string | null } | { id: string; name: string | null }[] | null;
-  };
-  const one = <T,>(v: T | T[] | null): T | null =>
-    Array.isArray(v) ? (v[0] ?? null) : v;
-
-  const picked = (rows ?? []) as unknown as Row[];
-  if (picked.length !== rowUids.length) {
-    // A row vanished between the screen reading it and this running — a parallel
-    // save, most likely. Refuse rather than raise a challan for a subset the
-    // operator did not choose.
-    return fail("Some of those lines are no longer on the BOM — reopen it and try again");
-  }
-
-  for (const r of picked) {
-    if (!r.item_id) return fail("Every line sent out must name a material");
-    if (!(Number(r.qty_out) > 0)) return fail("Every line sent out must have a Qty Out");
-    if (r.vendor_id !== vendorId) {
-      return fail("All lines on one challan must go to the same processor");
-    }
-  }
+  /*
+   * A PROCESS ORDER IS RAISED WITH IT (0788, user 2026-10-31: "automatically create a
+   * Process Order in the background"). One database function writes the issued order (rate,
+   * RE, Allowed Loss % from the rows) and a draft Process DC against it, each line tied to
+   * its BOM row — so the "already sent" guard still holds — in one transaction.
+   */
+  const { data: dcId, error } = await s.rpc("bom_process_dc_raise", {
+    p_amendment_id: amendmentId,
+    p_vendor_id: vendorId,
+    p_dc_date: dcDate,
+    p_row_uids: rowUids,
+    p_rates: rates,
+  });
+  if (error || !dcId) return fail(error?.message ?? "Could not create the challan");
 
   /*
-   * ALREADY SENT? The partial unique index is the real guard and would refuse the
-   * insert anyway, but a `23505` reaches the operator as a database error. This
-   * turns it into a sentence, and it is a genuine race rather than a formality:
-   * two operators on one BOM, or a double-clicked button.
+   * THEN IT IS DISPATCHED — the goods leave the Material store for the Processing store
+   * ("at vendor"). Stock that is not in yet keeps the DC a DRAFT, dispatched later on
+   * Stores ▸ Process DC; the order and the challan are kept either way.
    */
-  const { data: already } = await s
-    .from("dc_line_items")
-    .select("mba_process_row_uid")
-    .in("mba_process_row_uid", rowUids);
-  if ((already ?? []).length > 0) {
-    return fail("One of those lines already has a challan — reopen the BOM to see it");
-  }
-
-  /*
-   * `purpose` NAMES THE PROCESSES ON THIS CHALLAN, joined where a consignment
-   * carries more than one. A single process name would be a lie on a mixed
-   * challan, and 0008's own column comment gives exactly these examples
-   * ("Button Coloring, Knitting, Dyeing").
-   */
-  const purposes = [
-    ...new Set(picked.map((r) => one(r.process)?.name).filter((v): v is string => !!v)),
-  ];
-  const purpose = purposes.length ? purposes.join(" · ") : "Job work";
-
-  const user = await getAppUser();
-
-  const { data: dc, error } = await s
-    .from("delivery_challans")
-    .insert({
-      vendor_id: vendorId,
-      location_id: locationId,
-      dc_date: dcDate,
-      purpose,
-      status: "issued",
-      created_by: user?.id ?? null,
-    })
-    .select("id, code")
-    .single();
-
-  if (error || !dc) return fail(error?.message ?? "Could not create the challan");
-  const dcId = (dc as { id: string }).id;
-
-  const { error: lineErr } = await s.from("dc_line_items").insert(
-    picked.map((r, i) => ({
-      delivery_challan_id: dcId,
-      item_id: r.item_id,
-      // NOT NULL, and it is what the challan PRINTS — so it names the material
-      // and what is being done to it, not just an id.
-      description: `${one(r.item)?.name ?? "Material"} — ${one(r.process)?.name ?? "Job work"}`,
-      sent_qty: Number(r.qty_out),
-      returned_qty: 0,
-      sort_order: i,
-      mba_amendment_id: amendmentId,
-      mba_process_row_uid: r.row_uid,
-    })),
-  );
-
-  if (lineErr) {
-    /*
-     * ROLL THE HEADER BACK. `createDc` logs this and returns ok, which leaves a
-     * numbered challan describing nothing — and DC numbers come from a sequence,
-     * so the gap is permanent. Two statements are not a transaction, but deleting
-     * an empty header is the recoverable half.
-     */
-    await s.from("delivery_challans").delete().eq("id", dcId);
-    return fail(`Could not write the challan lines: ${lineErr.message}`);
-  }
+  const { error: dispErr } = await s.rpc("process_dc_dispatch", { p_dc_id: dcId });
+  const dispatched = !dispErr;
 
   await writeAudit({
     action: "dc.created_from_bom",
     entityType: "delivery_challans",
-    entityId: dcId,
-    locationId,
-    metadata: { amendment_id: amendmentId, lines: picked.length, purpose },
+    entityId: String(dcId),
+    metadata: { amendment_id: amendmentId, lines: rowUids.length, dispatched },
   });
 
   revalidatePath("/purchase/dc");
-  revalidatePath(`/purchase/dc/${dcId}`);
+  revalidatePath("/stores/process-dc");
+  revalidatePath("/stores/process-orders");
   revalidatePath("/orders/material-bom");
-  return { ok: true, dcId };
+  return {
+    ok: true,
+    dcId: String(dcId),
+    dispatched,
+    note: dispatched
+      ? undefined
+      : /Insufficient stock/i.test(dispErr!.message)
+        ? "kept as a draft — the Material store does not hold this yet; dispatch it on Stores ▸ Process DC"
+        : `kept as a draft — ${dispErr!.message}`,
+  };
 }

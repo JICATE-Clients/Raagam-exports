@@ -595,6 +595,18 @@ export async function recordDcReturn(
     sent_qty: number;
     returned_qty: number;
   };
+
+  /* A DC AGAINST A PROCESS ORDER COMES BACK ON ITS PROCESS RECEIPT (0787): output item,
+     loss against the allowed %, stock and the draft bill in one step. Recording the return
+     here would skip all four — so it is refused, with the way in named. */
+  const { data: owner } = await supabase
+    .from("delivery_challans")
+    .select("process_order_id")
+    .eq("id", line.delivery_challan_id)
+    .maybeSingle();
+  if ((owner as { process_order_id: string | null } | null)?.process_order_id) {
+    return { ok: false, error: "This DC has a Process Order — receive it with Receive back on Stores ▸ Processing ▸ Process DC" };
+  }
   const newReturned = Math.min(
     line.sent_qty,
     (line.returned_qty ?? 0) + qty,
