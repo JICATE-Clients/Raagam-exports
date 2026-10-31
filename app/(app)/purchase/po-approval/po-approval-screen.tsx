@@ -17,6 +17,16 @@
  * PO. Request Rework is `rejectPo` (back to draft with the note), Reject is `declinePo`.
  * Both go through the PO's approval run (0764) when it has one, so the trail and My
  * Approvals stay right; both need a remark, asked before the action is taken.
+ *
+ * APPROVE IS ONE CLICK, AND SEVERAL AT ONCE (user 2026-10-31, screenshot 3950: "approve
+ * also one click, no need to show that … no need to ask there also, and allow choose
+ * multiple PO and approve"). The row's ✓ approves outright — it used to open the full
+ * view first, where Approve was asked again. Pending rows carry a tick box; ticking some
+ * shows a bar with "Approve N". Each PO still goes through `approvePo` on its own, so
+ * every gate holds per PO (TBA, reopened budget, the approver's signature, the run's
+ * item-class step) and one refusal never stops the rest — the toast names which failed
+ * and why. The PO No still opens the full view for reading; Rework and Reject keep their
+ * remark, which they cannot do without.
  */
 
 import { useEffect, useMemo, useState, useTransition } from "react";
@@ -163,6 +173,8 @@ export function PoApprovalScreen({
   const facetMatch = facets.matches;
   const setFacet = facets.set;
   const [search, setSearch] = useState("");
+  /** The ticked POs — only ever pending ones this user may approve (pruned below). */
+  const [picked, setPicked] = useState<Set<string>>(() => new Set());
   const base = useMemo(() => {
     const q = search.trim().toLowerCase();
     return rows.filter((r) => {
@@ -179,6 +191,10 @@ export function PoApprovalScreen({
   });
   const quickMatches = quick.matches;
   const filtered = useMemo(() => base.filter(quickMatches), [base, quickMatches]);
+  const decidable = (r: RaisedPo) => canApprove && r.status === "pending_approval";
+  // A tick survives only while its row is on screen and still approvable.
+  const pickable = filtered.filter(decidable).map((r) => r.id);
+  const selected = new Set(pickable.filter((id) => picked.has(id)));
 
   function open(r: RaisedPo, intent: "rework" | null = null) {
     setRemark("");
@@ -190,6 +206,29 @@ export function PoApprovalScreen({
     setAsk(null);
     setRemark("");
   }
+  /** Approve each PO in turn through `approvePo` — its gates per PO; refusals reported, never fatal. */
+  function approveMany(ids: string[]) {
+    if (!ids.length) return;
+    start(async () => {
+      let done = 0;
+      const failed: string[] = [];
+      for (const id of ids) {
+        const code = rows.find((r) => r.id === id)?.code ?? "PO";
+        try {
+          const res = await approvePo(id);
+          if (res.ok) done += 1;
+          else failed.push(`${code}: ${res.error}`);
+        } catch (e) {
+          failed.push(`${code}: ${e instanceof Error ? e.message : "could not be approved"}`);
+        }
+      }
+      if (done) success(done === 1 ? "Purchase order approved" : `${done} purchase orders approved`);
+      if (failed.length) toastError(failed.join(" · "));
+      setPicked(new Set());
+      router.refresh();
+    });
+  }
+
   function run(act: () => Promise<{ ok: true } | { ok: false; error: string }>, done: string) {
     start(async () => {
       const res = await act();
@@ -265,12 +304,12 @@ export function PoApprovalScreen({
       cell: (r) => <StatusPill tone={poStatusTone(r.status)}>{poStatusText(r.status)}</StatusPill>,
     },
     /* THE DECISIONS, as on Orders ▸ Approval: the report first (the eye's slot), then
-       Request Rework and Approve. Each opens the full view — a PO is read before it is
-       signed. Drawn on every row so the column never jitters; one that cannot apply is
-       greyed and says why. */
+       Request Rework (opens the full view for its remark) and Approve — ONE CLICK, no
+       second ask (2026-10-31). Drawn on every row so the column never jitters; one that
+       cannot apply is greyed and says why. */
     rowActionsColumn<RaisedPo>(
       (r) => {
-        const decidable = canApprove && r.status === "pending_approval";
+        const canDecide = decidable(r);
         const why = !canApprove ? "Needs the Purchase ▸ Approve permission" : "Only a PO pending approval";
         const printable = !["draft", "pending_approval", "cancelled"].includes(r.status);
         return (
@@ -283,26 +322,26 @@ export function PoApprovalScreen({
               onClick={printable ? () => router.push(`/purchase/orders/${r.id}/print`) : undefined}
               disabledReason={printable ? null : "Print opens once the PO is approved"}
             />
-            <Tooltip label={decidable ? "Request Rework" : `Request Rework — ${why}`}>
+            <Tooltip label={canDecide ? "Request Rework" : `Request Rework — ${why}`}>
               <Button
                 variant="ghost"
                 size="icon"
                 aria-label={`Request Rework ${r.code ?? ""}`}
                 className="text-warning"
-                disabled={!decidable}
+                disabled={!canDecide || isPending}
                 onClick={() => open(r, "rework")}
               >
                 <RotateCcw aria-hidden className="size-4" />
               </Button>
             </Tooltip>
-            <Tooltip label={decidable ? "Approve" : `Approve — ${why}`}>
+            <Tooltip label={canDecide ? "Approve" : `Approve — ${why}`}>
               <Button
                 variant="ghost"
                 size="icon"
                 aria-label={`Approve ${r.code ?? ""}`}
                 className="text-success"
-                disabled={!decidable}
-                onClick={() => open(r)}
+                disabled={!canDecide || isPending}
+                onClick={() => approveMany([r.id])}
               >
                 <Check aria-hidden className="size-4" />
               </Button>
@@ -346,11 +385,51 @@ export function PoApprovalScreen({
           right={`${filtered.length} of ${rows.length}`}
         />
 
-        <div>
+        <div className="space-y-2">
+          {/* THE BULK BAR — only while something is ticked. */}
+          {selected.size > 0 ? (
+            <div className="flex flex-wrap items-center gap-3 rounded-md border border-primary/30 bg-primary/5 px-3 py-1.5 text-sm">
+              <span className="font-semibold">
+                {selected.size} PO{selected.size === 1 ? "" : "s"} selected
+              </span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm" // toolbar-size: exempt -- the bulk-selection bar, a dense bar by AGENTS.md
+                disabled={isPending}
+                onClick={() => setPicked(new Set())}
+              >
+                Clear
+              </Button>
+              <Button
+                type="button"
+                size="sm" // toolbar-size: exempt -- the bulk-selection bar, a dense bar by AGENTS.md
+                className="ml-auto"
+                disabled={isPending}
+                onClick={() => approveMany([...selected])}
+              >
+                <Check aria-hidden className="size-4" />
+                {isPending ? "Approving…" : `Approve ${selected.size}`}
+              </Button>
+            </div>
+          ) : null}
           <DataTable
             columns={hugCreated(withCreatedColumns(columns, filtered))}
             rows={filtered}
             getKey={(r) => r.id}
+            // Tick boxes only where Approve can act; the others ignore a tick.
+            selectable={canApprove && pickable.length > 0}
+            selectedKeys={selected}
+            onToggle={(id) =>
+              pickable.includes(id) &&
+              setPicked((cur) => {
+                const next = new Set(cur);
+                if (next.has(id)) next.delete(id);
+                else next.add(id);
+                return next;
+              })
+            }
+            onToggleAll={() => setPicked(selected.size === pickable.length ? new Set() : new Set(pickable))}
             dense
             empty={quick.value === "pending" && facets.activeCount === 0 ? "No PO is waiting for approval." : "No PO matches these filters."}
           />
