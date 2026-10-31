@@ -129,7 +129,7 @@ export function PoApprovalOverview({
   po: PoWithDetails;
   uoms: Uom[];
   sourceNos: Record<string, string>;
-  /** Line id → budget rate (₹, ex-GST); null when the reader is not an approver. */
+  /** Line id → budget rate (₹, GST-inclusive since 2026-10-31); null when the reader is not an approver. */
   variance: PoVariance | null;
   statusPill: ReactNode;
   /** The run's steps, or null when the PO has no run (sent before 0764). */
@@ -158,7 +158,8 @@ export function PoApprovalOverview({
   const chargesNet = po.additional_charges.reduce((a, c) => a + (c.charge_type === "less" ? -1 : 1) * fgn(c), 0);
   const total = taxable + gst + chargesNet;
 
-  const impact = poBudgetImpact(lines, variance ?? {}, { fx });
+  // GST-inclusive on both sides (re-po/types.ts, 2026-10-31).
+  const impact = poBudgetImpact(lines, variance ?? {}, { fx, defaultGstPct: gstPct });
   const known = !!variance;
   const budgetOf = (l: Line) => (variance ? impact.budgetOf(l) : null);
   const budgeted = lines.filter((l) => budgetOf(l) != null);
@@ -255,7 +256,7 @@ export function PoApprovalOverview({
           <Tile
             label="Budget"
             value={known && budgeted.length ? money(budgetTotal) : "—"}
-            sub={known ? `ex-GST · ${budgeted.length} of ${lines.length} line${lines.length === 1 ? "" : "s"}` : "approvers only"}
+            sub={known ? `incl. GST · ${budgeted.length} of ${lines.length} line${lines.length === 1 ? "" : "s"}` : "approvers only"}
           />
           <Tile
             label="Profit impact"
@@ -340,7 +341,7 @@ export function PoApprovalOverview({
                     <th scope="col" className="px-3 py-1.5 text-right font-semibold">Rate</th>
                     {known ? (
                       <>
-                        <th scope="col" className="px-3 py-1.5 text-right font-semibold">Budget</th>
+                        <th scope="col" className="px-3 py-1.5 text-right font-semibold">Budget incl. GST</th>
                         <th scope="col" className="px-3 py-1.5 text-right font-semibold">Over by</th>
                       </>
                     ) : null}
@@ -351,7 +352,7 @@ export function PoApprovalOverview({
                   {lines.map((l) => {
                     const b = budgetOf(l);
                     const bRate = b == null ? null : b / fx;
-                    const diff = bRate == null ? 0 : Number(l.unit_price) - bRate;
+                    const diff = bRate == null ? 0 : impact.netRateOf(l) - bRate;
                     const over = diff > 1e-9;
                     const src = l.garment_order_id ?? l.iwo_id;
                     return (
@@ -366,7 +367,10 @@ export function PoApprovalOverview({
                         <td className="whitespace-nowrap px-3 py-1.5 text-right">
                           {fmtNumber(l.quantity)} <span className="text-[11px] text-muted-foreground">{(l.uom_id && uomCode[l.uom_id]) || ""}</span>
                         </td>
-                        <td className={cn("px-3 py-1.5 text-right", over && "font-semibold text-danger")}>{fmtFixed(l.unit_price, 2)}</td>
+                        <td className={cn("px-3 py-1.5 text-right", over && "font-semibold text-danger")}>
+                          {fmtFixed(l.unit_price, 2)}
+                          {known ? <span className="block text-[11px] font-normal text-muted-foreground">incl. GST {fmtFixed(impact.netRateOf(l), 2)}</span> : null}
+                        </td>
                         {known ? (
                           <>
                             <td className="px-3 py-1.5 text-right text-muted-foreground">

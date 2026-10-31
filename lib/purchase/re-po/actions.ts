@@ -20,6 +20,7 @@ import {
   qtyAllowed,
   withNote,
   poTotals,
+  budgetRateOf,
   rePoInput,
   type BudgetFlag,
   type LastPurchase,
@@ -329,8 +330,8 @@ export async function savePoFromRequirement(raw: RePoInput, mode: "draft" | "sub
           uom_id: l.req.uom_id,
           slice_label: l.req.slice_label,
           colour: l.req.colour,
-          // Ex-GST budget: the basic rate, as typed (re-po/types.ts, 2026-10-28).
-          rate: l.rate == null ? null : l.rate * fx,
+          // GST-inclusive budget (re-po/types.ts, 2026-10-31): the rate with this line's GST.
+          rate: l.rate == null ? null : budgetRateOf(l.rate, l.gst_pct ?? slab.pct) * fx,
         })),
       );
       aboveCount = flags.filter((f) => f.above).length;

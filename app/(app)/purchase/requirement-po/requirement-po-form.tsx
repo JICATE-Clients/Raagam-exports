@@ -62,6 +62,7 @@ import {
   maxBags,
   withNote,
   poTotals,
+  budgetRateOf,
   type BudgetFlag,
   type ClassVendor,
   type LastPurchase,
@@ -169,9 +170,9 @@ function sizeGroupsOf(rows: readonly GridRow[]): SizeGroup[] {
 /** Why a rate outruns its budget (user 2026-10-27) — the reasons the Purchase Manager picks
  *  from before an above-budget PO goes to the MD. OTHER takes their own words. */
 const BUDGET_REASONS = ["MARKET PRICE INCREASE", "SUPPLIER NON-NEGOTIABLE", "MOQ / WHOLE BAG ROUNDING"] as const;
-/** On the Budget control's hover — the one comparison, said once (2026-10-28: budgets are ex-GST). */
+/** On the Budget control's hover — the one comparison, said once (2026-10-31: budgets include GST). */
 const GST_RULE =
-  "Each line's rate is compared with the approved budget rate, both without GST. Printing stays locked until the MD approves.";
+  "Each line's rate plus its GST is compared with the approved budget rate, which includes GST. Printing stays locked until the MD approves.";
 /** A line with NO approved budget is not "above" anything — it has its own reasons (2026-10-28). */
 const NO_BUDGET_REASONS = ["ITEM NOT IN APPROVED BUDGET"] as const;
 
@@ -726,7 +727,8 @@ export function RequirementPoForm({
   // ---------- the hidden budget check: asked per priced line, 400 ms after typing stops ----------
   const checkSignature = budgetLines
     .filter((r) => num(r.row.rate) > 0)
-    .map((r) => `${r.key}=${r.row.rate}`)
+    // The GST is part of the compared rate now (2026-10-31), so changing it re-asks.
+    .map((r) => `${r.key}=${r.row.rate}@${r.row.gst ?? slab.pct}`)
     .join("|") + `|fx=${fx}`;
   useEffect(() => {
     const priced = budgetLines.filter((r) => num(r.row.rate) > 0);
@@ -740,8 +742,8 @@ export function RequirementPoForm({
           uom_id: r.uom_id,
           slice_label: r.slice_label,
           colour: r.colour,
-          // Ex-GST budget: the basic rate, as typed (re-po/types.ts, 2026-10-28).
-          rate: num(r.row.rate) * fx,
+          // GST-inclusive budget (re-po/types.ts, 2026-10-31): the rate with this line's GST.
+          rate: budgetRateOf(num(r.row.rate), r.row.gst ?? slab.pct) * fx,
         })),
       ).then((res) => {
         if (!res.ok) return toastError(res.error);
@@ -972,7 +974,7 @@ export function RequirementPoForm({
   /**
    * GST UNDER THE RATE (user 2026-10-31, screenshot 3928: "move it under rate"). The slab
    * taxes the basic rate, so it reads beneath it in the same tinted column — basic rate on
-   * top (what the budget compares, ex-GST), its GST % below. Tab: Rate, then GST.
+   * top, its GST % below; the budget compares the two together (Net Rate). Tab: Rate, then GST.
    */
   const rateWithGst = (
     rate: ReactNode,
@@ -1237,7 +1239,7 @@ export function RequirementPoForm({
   );
   /* NET RATE AND VALUE (user 2026-10-31): Net Rate = Basic Rate + GST % of it; Value
      (was "Amount") = Net Rate × Qty, so the row reads what the line costs paid out. The
-     budget still compares the BASIC rate (ex-GST) — `budgetMarkOf` is untouched. */
+     budget compares this NET rate — it includes GST (re-po/types.ts, 2026-10-31). */
   /* ONE LINE PER ROW (user 2026-10-31, screenshot 3930: "looks shaky, no clean
      alignment"). The typed boxes are 32px (`CELL_INPUT` h-8) and centre their figure at
      20px from the cell top; read-only text sat at the top of its cell (~14px) and the
