@@ -1247,7 +1247,6 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         description: "Process orders and the job-work DCs sent and received against them",
         children: [
           { href: "/stores/process-orders", label: "Process Orders", description: "Orders raised on a processing store" },
-          { href: "/stores/process-dc", label: "Process DC", description: "Send material to a processor against its Process Order" },
         ],
       },
       {
@@ -1261,7 +1260,6 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         ],
       },
       { kind: "link", href: "/stores/transfers", label: "Transfers" },
-      { kind: "link", href: "/stores/production-dc", label: "Production DC" },
     ],
   },
 

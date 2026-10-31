@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { FileText } from "lucide-react";
+import { FileText, PackageCheck, Undo2 } from "lucide-react";
 import { MasterListShell } from "@/components/masters/master-list-shell";
 import type { Column } from "@/components/ui/data-table";
 import { ToggleGroup } from "@/components/ui/segmented";
@@ -47,9 +47,20 @@ const STATUS_LABEL: Record<string, string> = {
 };
 const OVERRIDES = { issued: "warning", dispatched: "warning", returned: "warning", replaced: "success", closed: "success" } as const;
 
-export function DcRegisterScreen({ rows, canCreate }: { rows: DcRegisterRow[]; canCreate: boolean }) {
+export function DcRegisterScreen({
+  rows,
+  canCreate,
+  initialType = null,
+}: {
+  rows: DcRegisterRow[];
+  canCreate: boolean;
+  /** The tab the URL asked for (`?type=`), so closing the drawer lands where it opened. */
+  initialType?: string | null;
+}) {
   const router = useRouter();
-  const [word, setWord] = useState<Word>("all");
+  const [word, setWord] = useState<Word>(
+    initialType === "process" || initialType === "production" || initialType === "rejection" || initialType === "replacement" ? initialType : "all",
+  );
   const counts = useMemo(() => {
     const c: Record<Word, number> = { all: rows.length, process: 0, production: 0, rejection: 0, replacement: 0 };
     for (const r of rows) c[r.kind]++;
@@ -69,11 +80,11 @@ export function DcRegisterScreen({ rows, canCreate }: { rows: DcRegisterRow[]; c
     },
     { header: "Type", cell: (r) => <StatusPill tone={KIND_TONE[r.kind]}>{KIND_LABEL[r.kind]}</StatusPill> },
     { header: "Date", cell: (r) => <span className="text-sm">{fmtDate(r.date)}</span> },
-    { header: "Vendor / Units", cell: (r) => <Truncated>{r.party}</Truncated> },
-    { header: "Against", cell: (r) => <Truncated className="text-sm">{r.against ?? "—"}</Truncated> },
+    { header: "Party / Transfer Units", cell: (r) => <Truncated>{r.party}</Truncated> },
+    { header: "Reference", cell: (r) => <Truncated className="text-sm">{r.against ?? "—"}</Truncated> },
     { header: "Qty", align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtNumber(r.qty)}</span> },
     {
-      header: "Still Out",
+      header: "Balance Out",
       align: "right",
       cell: (r) =>
         r.outstanding > 0 ? <span className="tabular-nums text-sm font-semibold">{fmtNumber(r.outstanding)}</span> : <span className="text-muted-foreground">—</span>,
@@ -84,8 +95,9 @@ export function DcRegisterScreen({ rows, canCreate }: { rows: DcRegisterRow[]; c
     },
   ];
 
-  // New: Production when that word is lit, otherwise Process. Rejection / Replacement come from a GRN.
-  const newKind = word === "production" ? "production" : word === "process" || word === "all" ? "process" : null;
+  // + NEW DELIVERY CHALLAN opens the hub's drawer on the type in view (Process for All); the
+  // drawer's DC Type selector switches it. Rejection / Replacement show what is open there.
+  const newType = word === "all" ? "process" : word;
 
   return (
     <MasterListShell<DcRegisterRow>
@@ -105,16 +117,24 @@ export function DcRegisterScreen({ rows, canCreate }: { rows: DcRegisterRow[]; c
         />
       }
       getKey={(r) => r.key}
-      perms={{ canCreate: canCreate && !!newKind, canEdit: true, canDelete: false }}
-      addLabel={newKind === "production" ? "New Production DC" : "New Process DC"}
-      onAdd={() => router.push(newKind === "production" ? "/stores/production-dc?send=new" : "/stores/process-dc?send=new")}
+      perms={{ canCreate, canEdit: true, canDelete: false }}
+      addLabel="New Delivery Challan"
+      onAdd={() => router.push(`/purchase/dc?new=${newType}&type=${newType}`)}
       searchText={(r) => [r.code, KIND_LABEL[r.kind], r.party, r.against].filter(Boolean).join(" ")}
       searchPlaceholder="Search DC No, vendor, unit, GRN or order…"
       columns={columns}
       actions={{
         onEdit: open,
         menuAs: "icons",
-        menu: (r) => (r.print ? [{ label: "Print DC", icon: FileText, onClick: () => router.push(r.print!) }] : []),
+        // The row's next step, then its print (no ⋮ — AGENTS.md "Row actions").
+        menu: (r) => [
+          ...(r.action === "receive-back"
+            ? [{ label: "Receive back", icon: Undo2, onClick: () => router.push(r.href) }]
+            : r.action === "receive-stock"
+              ? [{ label: "Receive stock", icon: PackageCheck, onClick: () => router.push(r.href) }]
+              : []),
+          ...(r.print ? [{ label: "Print DC", icon: FileText, onClick: () => router.push(r.print!) }] : []),
+        ],
       }}
       rowLabel={(r) => r.code ?? "DC"}
       empty={

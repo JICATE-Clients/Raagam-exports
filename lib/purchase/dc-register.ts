@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { withCreators } from "@/lib/created-by";
+import { getCurrentLocation } from "@/lib/auth/location";
 
 /**
  * EVERY DELIVERY CHALLAN IN ONE REGISTER (user 2026-10-31, screenshot 3949: "DC should list
@@ -35,6 +36,8 @@ export type DcRegisterRow = {
   outstanding: number;
   href: string;
   print: string | null;
+  /** The action this unit can take on the row now, from the hub (user 2026-10-31). */
+  action: "receive-back" | "receive-stock" | null;
   created_at: string;
   created_by: string | null;
 };
@@ -43,6 +46,8 @@ const uniq = (xs: (string | null | undefined)[]) => [...new Set(xs.filter((x): x
 
 export async function listDcRegister(): Promise<DcRegisterRow[]> {
   const s = await createClient();
+  const { location } = await getCurrentLocation();
+  const here = location?.id ?? null;
   const [dcRes, vrRes] = await Promise.all([
     s
       .from("delivery_challans")
@@ -132,8 +137,16 @@ export async function listDcRegister(): Promise<DcRegisterRow[]> {
           status: d.status,
           qty: a.qty,
           outstanding: d.status === "dispatched" ? a.qty : 0,
-          href: d.status === "draft" ? `/stores/production-dc?send=${d.id}` : `/stores/production-dc/${d.id}/print`,
+          // Worked from the hub (user 2026-10-31): a draft reopens its form in the drawer; an
+          // incoming one is received there; anything else opens its print.
+          href:
+            d.status === "draft"
+              ? `/purchase/dc?edit=${d.id}&type=production`
+              : d.status === "dispatched" && d.to_location_id === here
+                ? `/purchase/dc?receive=${d.id}&type=production`
+                : `/stores/production-dc/${d.id}/print`,
           print: d.status === "draft" ? null : `/stores/production-dc/${d.id}/print`,
+          action: d.status === "dispatched" && d.to_location_id === here ? "receive-stock" : null,
           created_at: d.created_at,
           created_by: d.created_by,
         };
@@ -150,15 +163,16 @@ export async function listDcRegister(): Promise<DcRegisterRow[]> {
         status: d.status,
         qty: a.qty,
         outstanding: d.status === "draft" ? 0 : a.out,
-        // A DC against a Process Order is worked on Stores ▸ Process DC; an older one here.
+        // A DC against a Process Order is worked from the hub's drawer; an older one on its page.
         href: viaOrder
           ? d.status === "draft"
-            ? `/stores/process-dc?send=${d.id}`
+            ? `/purchase/dc?edit=${d.id}&type=process`
             : d.status === "closed"
               ? `/stores/process-dc/${d.id}/print`
-              : `/stores/process-dc?receive=${d.id}`
+              : `/purchase/dc?receive=${d.id}&type=process`
           : `/purchase/dc/${d.id}`,
         print: viaOrder && d.status !== "draft" ? `/stores/process-dc/${d.id}/print` : null,
+        action: viaOrder && (d.status === "issued" || d.status === "partially_returned") ? "receive-back" : null,
         created_at: d.created_at,
         created_by: d.created_by,
       };
@@ -181,6 +195,7 @@ export async function listDcRegister(): Promise<DcRegisterRow[]> {
         outstanding: kind === "replacement" && v.status !== "cancelled" ? a.out : 0,
         href: `/purchase/vendor-returns/${v.id}`,
         print: v.status === "cancelled" ? null : `/purchase/vendor-returns/${v.id}/print`,
+        action: null,
         created_at: v.created_at,
         created_by: v.created_by,
       };

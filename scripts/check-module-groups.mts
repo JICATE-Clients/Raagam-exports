@@ -527,8 +527,13 @@ const REDIRECTED: Record<string, string> = {
   // goods as CONSUMED (not moved) through an admin client, best-effort. Both are replaced by
   // Stores ▸ Process DC (0786 send against a Process Order, 0787 receive back with loss and
   // the draft bill), user 2026-10-31 (doc/stores/dc-plan.md).
-  "/stores/process-issues": "/stores/process-dc",
-  "/stores/process-receipts": "/stores/process-dc",
+  "/stores/process-issues": "/purchase/dc?type=process",
+  "/stores/process-receipts": "/purchase/dc?type=process",
+  // Process DC and Production DC folded into the one Delivery Challans hub (user 2026-10-31,
+  // "single screen"): register + Send / Receive drawers at Purchase ▸ Receiving ▸ Delivery
+  // Challans. Old links map onto the hub's own address.
+  "/stores/process-dc": "/purchase/dc?type=process",
+  "/stores/production-dc": "/purchase/dc?type=production",
   // Material BOM was never an amendment screen — one door, and the revision
   // case is `bomStatus`'s `recalculate` state in place. The URL was named after
   // `material_bom_amendments` (0265), which took ITS name from the legacy

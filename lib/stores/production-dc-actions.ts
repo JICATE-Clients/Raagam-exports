@@ -43,7 +43,7 @@ function friendly(message: string): string {
 }
 
 function revalidate(id?: string) {
-  revalidatePath("/stores/production-dc");
+  revalidatePath("/purchase/dc");
   if (id) revalidatePath(`/stores/production-dc/${id}/print`);
 }
 

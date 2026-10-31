@@ -1,10 +1,6 @@
 import { redirect } from "next/navigation";
 
-/**
- * Retired 2026-10-31: a job-work DC always goes out against a Process Order (0786, user
- * decision), so a new one is raised on Stores ▸ Process DC. A Production DC is raised on
- * Stores ▸ Production DC; Rejection / Replacement DCs come from a GRN.
- */
+/** Retired 2026-10-31: a new DC is raised in the Delivery Challans hub's drawer. */
 export default function NewDcPage() {
-  redirect("/stores/process-dc?send=new");
+  redirect("/purchase/dc?new=process&type=process");
 }

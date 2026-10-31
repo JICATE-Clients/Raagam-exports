@@ -52,7 +52,10 @@ export function ProcessDcSendForm({
   stock,
   existing,
   initialOrderId,
+  home = "/purchase/dc",
 }: {
+  /** Where Cancel and a saved draft go back to — the Delivery Challans hub. */
+  home?: string;
   orders: OpenProcessOrder[];
   stores: StoreOption[];
   bins: BinOption[];
@@ -152,7 +155,7 @@ export function ProcessDcSendForm({
       if (result.ok) {
         setDirty(false);
         success(dispatch ? "Dispatched — the goods are at the processor" : "Saved as a draft");
-        router.push(dispatch ? `/stores/process-dc/${result.id}/print` : "/stores/process-dc");
+        router.push(dispatch ? `/stores/process-dc/${result.id}/print` : home);
       } else {
         toastError(result.error);
         router.refresh();
@@ -364,7 +367,7 @@ export function ProcessDcSendForm({
       </Card>
 
       <div data-focus-region="footer" className="flex flex-wrap items-center gap-3">
-        <Button variant="outline" onClick={() => router.push("/stores/process-dc")} disabled={isPending}>
+        <Button variant="outline" onClick={() => router.push(home)} disabled={isPending}>
           Cancel
         </Button>
         <Button variant="outline" onClick={() => save(false)} disabled={!canSave}>
