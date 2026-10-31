@@ -119,10 +119,11 @@ export function PoReview({
      currency and the money it costs is counted in rupees. Every rupee a line pays above
      its budget rate comes straight off the order's profit, so that sum IS the impact. */
   const fx = isImport ? Number(po.exchange_rate ?? 0) || 1 : 1;
-  /* THE BUDGET RATE IS EX-GST (user 2026-10-28, re-po/types.ts): it stands beside the basic
-     Rate column as entered, and the same lines read "above" here as on Raise PO. */
+  /* THE BUDGET RATE INCLUDES GST (user 2026-10-31, re-po/types.ts): it is compared with the
+     line's rate plus its GST, shown under the Rate, so the same lines read "above" here as on
+     Raise PO. */
   // One calculation with the My Approvals card (`poBudgetImpact`, 0764).
-  const impact = poBudgetImpact(lines, variance ?? {}, { fx });
+  const impact = poBudgetImpact(lines, variance ?? {}, { fx, defaultGstPct: gstPct });
   const budgetOf = (l: ReviewLine) => (variance ? impact.budgetOf(l) : null);
   const overLines = variance ? impact.over : [];
   const unbudgetedLines = variance ? impact.unbudgeted : [];
@@ -160,12 +161,22 @@ export function PoReview({
         </span>
       ),
     },
-    { header: `Rate (${cur})`, align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtFixed(r.unit_price, 2)}</span> },
+    {
+      header: `Rate (${cur})`,
+      align: "right",
+      // The basic rate, and under it the rate with GST — the figure the budget is held to.
+      cell: (r) => (
+        <span className="block whitespace-nowrap tabular-nums text-sm">
+          {fmtFixed(r.unit_price, 2)}
+          {variance ? <span className="block text-xs text-muted-foreground">incl. GST {fmtFixed(impact.netRateOf(r), 2)}</span> : null}
+        </span>
+      ),
+    },
     ...(variance
       ? [
           {
-            // Ex-GST, as the Rate column beside it.
-            header: `Budget (${cur})`,
+            // GST-inclusive, as the "incl. GST" figure under the Rate.
+            header: `Budget incl. GST (${cur})`,
             align: "right" as const,
             cell: (r: ReviewLine) => {
               const b = budgetOf(r);
@@ -182,7 +193,7 @@ export function PoReview({
             cell: (r: ReviewLine) => {
               const b = budgetOf(r);
               if (b == null) return <span className="text-xs text-muted-foreground">—</span>;
-              const diff = Number(r.unit_price) - b / fx;
+              const diff = impact.netRateOf(r) - b / fx;
               return diff > 1e-9 ? (
                 <span className="block whitespace-nowrap tabular-nums text-sm font-semibold text-danger">
                   +{fmtFixed(diff, 2)}

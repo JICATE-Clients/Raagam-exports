@@ -384,38 +384,48 @@ export function budgetWords(above: number, unbudgeted: number): string {
 }
 
 /*
- * THE BUDGET RATE IS EX-GST, AND SO IS THE PO RATE IT IS COMPARED WITH (user 2026-10-28,
- * screenshot 3811 — reversing the same morning's "budgets include GST"). A washcare label
- * budgeted at 0.50 and bought at 0.50 + 12% read ABOVE, because 0.56 > 0.50, and went to the
- * MD. GST on bought items is recoverable input credit, not a cost to the order, so the
- * typed basic rate is compared with the budget rate as entered, and GST only goes on the
- * PO's totals. `po_budget_check` compares `rate > budget_rate` — send the basic rate (× fx).
+ * THE BUDGET RATE INCLUDES GST, SO THE PO RATE IT IS COMPARED WITH DOES TOO (user
+ * 2026-10-31, confirmed against the 2026-10-28 decision it reverses). The approved budget
+ * rate is a GST-inclusive ceiling: a line is within budget while Basic Rate × (1 + GST %)
+ * is at or under it, so the most a line can be typed at is budget ÷ (1 + GST %) — a 0.50
+ * budget at 12 % allows a basic rate of 0.44. This REVERSES 2026-10-28 (screenshot 3811),
+ * which compared the basic rate because a washcare label at 0.50 + 12 % read above a 0.50
+ * budget; that label is above budget again, on purpose. `po_budget_check` compares
+ * `rate > budget_rate` and knows nothing of GST — send `budgetRateOf` (× fx).
  */
+
+/** What a PO rate is compared with the budget AS: the rate with its GST added (2026-10-31). */
+export function budgetRateOf(rate: number, gstPct: number): number {
+  return rate * (1 + gstPct / 100);
+}
 
 /**
  * WHAT A PO'S RATES COST THE ORDER, AGAINST ITS BUDGET — the MD's figure. One function
  * for the PO page's review and the My Approvals card (0764), so the two never print
  * different impacts for one PO.
  *
- * `variance` is line id → budget rate in RUPEES, ex-GST (`getPoBudgetVariance`),
+ * `variance` is line id → budget rate in RUPEES, GST-inclusive (`getPoBudgetVariance`),
  * null where the line has no approved budget. An import line's rate is in its own
  * currency, so it is put into rupees with `fx`. Every rupee a line pays above its
  * budget comes straight off the order's profit, so that sum IS the impact — counted
- * ex-GST, as the order was costed (GST on bought items is recoverable).
+ * GST-inclusive, as the budget rate is (2026-10-31).
  */
 export function poBudgetImpact<L extends { id: string; unit_price: number | string; quantity: number | string; gst_pct?: number | string | null }>(
   lines: readonly L[],
   variance: Readonly<Record<string, number | null>>,
-  opts: { fx: number },
+  opts: { fx: number; /** the PO's slab, for a line saved before lines carried their own (0756) */ defaultGstPct?: number },
 ) {
-  // Ex-GST, as the basic Rate beside it (see above).
+  // GST-INCLUSIVE on both sides (see above): the budget rate as approved, the line's rate
+  // with its own GST added. In the PO's currency; × fx puts it in rupees beside the budget.
   const budgetOf = (l: L) => variance[l.id] ?? null;
-  const over = lines.filter((l) => budgetOf(l) != null && Number(l.unit_price) * opts.fx > budgetOf(l)! + 1e-9);
+  const netRateOf = (l: L) => budgetRateOf(Number(l.unit_price), Number(l.gst_pct ?? opts.defaultGstPct ?? 0));
+  const over = lines.filter((l) => budgetOf(l) != null && netRateOf(l) * opts.fx > budgetOf(l)! + 1e-9);
   const unbudgeted = lines.filter((l) => budgetOf(l) == null && Number(l.quantity) > 0);
-  const profitHit = over.reduce((a, l) => a + (Number(l.unit_price) * opts.fx - budgetOf(l)!) * Number(l.quantity), 0);
+  const profitHit = over.reduce((a, l) => a + (netRateOf(l) * opts.fx - budgetOf(l)!) * Number(l.quantity), 0);
   const budgetedSpend = over.reduce((a, l) => a + budgetOf(l)! * Number(l.quantity), 0);
   return {
     budgetOf,
+    netRateOf,
     over,
     unbudgeted,
     profitHit,
