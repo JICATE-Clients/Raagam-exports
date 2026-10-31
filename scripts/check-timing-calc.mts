@@ -14,7 +14,7 @@ const T = (cat: string, i: string, o: string, grace = 10): CategoryTiming => ({
 const timings = [T("office", "09:00:00", "18:00:00"), T("security", "20:00:00", "08:00:00")];
 const ist = (d: string, hm: string) => new Date(`${d}T${hm}:00+05:30`).toISOString();
 const P = (bio: string, kind: Person["kind"], categoryId: string | null): Person => ({
-  bio, name: bio, code: null, kind, categoryId, categoryName: categoryId,
+  bio, name: bio, code: null, kind, categoryId, categoryName: categoryId, departmentId: null, departmentName: null,
 });
 const people: Person[] = ["A", "B", "C", "D", "E", "F", "G", "H"].map((b) => P(b, "staff", "office"));
 people.push(P("S", "staff", "security"));

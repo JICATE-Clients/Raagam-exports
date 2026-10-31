@@ -3,9 +3,9 @@ import Link from "next/link";
 import {
   Activity,
   ArrowRight,
-  RefreshCw,
   AlarmClock,
   CalendarDays,
+  Clock,
   Fingerprint,
   Gauge as Gauge2,
   LogOut,
@@ -19,13 +19,11 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { AutoRefresh } from "@/components/hr/auto-refresh";
-import { FlipCard } from "@/components/hr/flip-card";
-import { HeroHyperspeed } from "@/components/hr/hero-hyperspeed";
 import { RadarPanel } from "@/components/hr/radar-panel";
-import { CelebrateScene, GroupFigure, HurryScene, TeamScene, WaitingScene, WorkingScene } from "@/components/hr/people-art";
+import { CelebrateScene, HurryScene, TeamScene, WaitingScene, WorkingScene } from "@/components/hr/people-art";
 import { kindLabel, isOvernight, shiftMinutes, type PersonKind } from "@/lib/masters/category-timing-types";
 import type { HrDashboard } from "@/lib/hr/dashboard-service";
-import type { DayStatus, GroupDay, PersonDay, ShiftInfo } from "@/lib/hr/timing-calc";
+import type { DayStatus, GroupDay, PersonDay } from "@/lib/hr/timing-calc";
 import { fmtDate, fmtTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Truncated } from "@/components/ui/truncated";
@@ -62,11 +60,6 @@ const GROUP: Record<PersonKind, { hex: string; dot: string; chip: string; band: 
   staff: { hex: "#4f46e5", shadow: "shadow-indigo-500/20 hover:shadow-indigo-500/30", band: "from-indigo-500 to-violet-600", dot: "bg-sky-400", chip: "bg-indigo-50 text-indigo-700 ring-indigo-600/15 dark:bg-indigo-500/10 dark:text-indigo-300" },
   worker: { hex: "#0d9488", shadow: "shadow-emerald-500/20 hover:shadow-emerald-500/30", band: "from-emerald-500 to-teal-600", dot: "bg-emerald-400", chip: "bg-teal-50 text-teal-700 ring-teal-600/15 dark:bg-teal-500/10 dark:text-teal-300" },
 };
-
-/** One line per category: its hours, or that none are set. */
-function shiftLine(x: ShiftInfo): string {
-  return x.timing ? `${fmtTime(x.timing.in_time)} – ${fmtTime(x.timing.out_time)}` : "No timing set";
-}
 
 function clock(ms: number): string {
   return new Date(ms).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "numeric", minute: "2-digit" });
@@ -426,7 +419,17 @@ function Gauge({ pct }: { pct: number }) {
  * Page
  * ------------------------------------------------------------------ */
 
-export function HrDashboardView({ data }: { data: HrDashboard }) {
+export function HrDashboardView({
+  data,
+  filter,
+  weekNote,
+}: {
+  data: HrDashboard;
+  /** The Staff | Worker switch and department filter, under the header. */
+  filter?: React.ReactNode;
+  /** Said under the week chart when it can't follow the filter. */
+  weekNote?: string;
+}) {
   const { groups, now } = data;
   const all = groups.flatMap((g) => g.people);
   const enrolled = all.length;
@@ -524,10 +527,6 @@ export function HrDashboardView({ data }: { data: HrDashboard }) {
         <header className="relative isolate flex flex-wrap items-end justify-between gap-4 overflow-hidden rounded-2xl bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-600 px-6 py-6 text-white shadow-lg shadow-indigo-500/20">
           <div aria-hidden className="absolute -right-16 -top-20 -z-10 h-56 w-56 rounded-full bg-white/15 blur-2xl" />
           <div aria-hidden className="absolute -bottom-24 left-1/3 -z-10 h-56 w-56 rounded-full bg-cyan-300/25 blur-3xl" />
-          {/* Light-trail road behind everything (client 2026-10-28), with a
-              soft wash on the left so the title stays readable over it. */}
-          <HeroHyperspeed />
-          <div aria-hidden className="pointer-events-none absolute inset-y-0 left-0 -z-10 w-2/5 bg-gradient-to-r from-indigo-700/55 to-transparent" />
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-white/75">HR &amp; Payroll</p>
             <h1 className="mt-1 text-2xl font-semibold tracking-tight md:text-3xl">Workforce overview</h1>
@@ -559,6 +558,8 @@ export function HrDashboardView({ data }: { data: HrDashboard }) {
             </Link>
           </div>
         </header>
+
+        {filter}
 
         {(missingTimings.length > 0 || data.noCategory > 0 || data.unlinkedIds > 0) && (
           <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/20 dark:bg-amber-500/5 dark:text-amber-200">
@@ -730,160 +731,67 @@ export function HrDashboardView({ data }: { data: HrDashboard }) {
           </Panel>
         </div>
 
-        {/* ── Staff / Worker — flip cards: today on the front, each category's hours on the back ── */}
-        <div className="grid gap-6 lg:grid-cols-2">
-          {groups.map((g) => {
-            const n = g.people.length;
-            const ot = g.people.filter((d) => isPresent(d) && d.lateMin === 0).length;
-            const lt = g.people.filter((d) => isPresent(d) && d.lateMin > 0).length;
-            const ab = g.people.filter((d) => d.status === "absent").length;
-            const ni = g.people.filter((d) => d.status === "not_in").length;
-            const ins = g.people.filter((d) => d.status === "inside").length;
-            const seg = [
-              { v: ot, cls: "bg-gradient-to-r from-emerald-500 to-teal-400" },
-              { v: lt, cls: "bg-gradient-to-r from-amber-400 to-orange-500" },
-              { v: ab, cls: "bg-gradient-to-r from-rose-500 to-pink-500" },
-              { v: ni, cls: "bg-slate-200 dark:bg-slate-700" },
-            ];
-            // The hours on the front: one line when every category keeps the
-            // same hours, otherwise a count — the back lists them all.
-            const timed = g.shifts.filter((x) => x.timing);
-            const lines = [...new Set(timed.map(shiftLine))];
-            const anyOvernight = timed.some((x) => x.timing && isOvernight(x.timing));
-            const untimed = g.shifts.filter((x) => !x.timing).length;
-            // The soonest scheduled change across this side's categories.
-            const upcoming = g.shifts
-              .filter((x) => x.upcoming)
-              .sort((a, b) => a.upcoming!.effective_from.localeCompare(b.upcoming!.effective_from))[0];
-
-            const front = (
-              <div key="front" className="group/grp flex h-full flex-col bg-white dark:bg-slate-900">
-                <div className={cn("relative isolate flex items-start justify-between gap-3 overflow-hidden bg-gradient-to-br px-5 py-4 text-white", GROUP[g.group].band)}>
-                  <span aria-hidden className="absolute -right-8 -top-10 -z-10 h-28 w-28 rounded-full bg-white/25 blur-xl transition-transform duration-500 group-hover/grp:scale-150" />
-                  <div>
-                    <h3 className="text-sm font-semibold">{kindLabel(g.group)}</h3>
-                    <p className="mt-1 flex items-center gap-1 text-xs text-white/85">
-                      {lines.length === 0
-                        ? "No timing set"
-                        : lines.length === 1 && untimed === 0
-                          ? lines[0]
-                          : `${g.shifts.length} categories · ${timed.length} timed`}
-                      {anyOvernight && <Moon className="h-3 w-3" />}
-                    </p>
-                    <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-semibold ring-1 ring-white/25">
-                      <RefreshCw className="h-3 w-3" /> Flip for shift
-                    </span>
-                  </div>
-                  <GroupFigure group={g.group === "staff" ? "staff" : "production_staff"} className="-mb-4 ml-auto h-20 shrink-0 drop-shadow-lg transition-transform duration-500 group-hover/grp:-translate-y-1 group-hover/grp:rotate-[-4deg]" />
-                  <div className="text-right">
-                    <p className="text-[28px] font-semibold leading-none tracking-tight tabular-nums">
-                      {pctOf(ot + lt, n)}
-                      <span className="text-base text-white/70">%</span>
-                    </p>
-                    <p className="mt-1 text-xs text-white/80">
-                      {ot + lt} of {n} present
-                    </p>
-                  </div>
-                </div>
-                <div className="flex flex-1 flex-col justify-center px-5 pb-4 pt-3">
-                  <div className="flex h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                    {seg.map((x, i) => (x.v ? <div key={i} className={x.cls} style={{ width: `${(x.v / Math.max(1, n)) * 100}%` }} /> : null))}
-                  </div>
-                  <dl className="mt-4 grid grid-cols-4 divide-x divide-slate-100 text-center dark:divide-slate-800">
-                    {[
-                      ["On time", ot, "text-emerald-600 dark:text-emerald-400"],
-                      ["Late", lt, "text-orange-600 dark:text-amber-400"],
-                      ["Inside", ins, "text-sky-600 dark:text-sky-400"],
-                      ["Absent", ab, "text-rose-600 dark:text-rose-400"],
-                    ].map(([k, v, cls]) => (
-                      <div key={k as string} className="px-1">
-                        <dd className={cn("text-lg font-semibold tabular-nums", cls as string)}>{v as number}</dd>
-                        <dt className="text-[11px] text-slate-500">{k as string}</dt>
-                      </div>
-                    ))}
-                  </dl>
-                </div>
-              </div>
-            );
-
-            const back = (
-              <div key="back" className={cn("relative isolate flex h-full flex-col overflow-hidden bg-gradient-to-br p-5 text-white", GROUP[g.group].band)}>
-                <span aria-hidden className="absolute -bottom-16 -right-10 -z-10 h-48 w-48 rounded-full bg-white/20 blur-2xl" />
-                <span aria-hidden className="absolute -left-10 -top-12 -z-10 h-36 w-36 rounded-full bg-black/10 blur-2xl" />
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-white/80">{kindLabel(g.group)} · Shifts</p>
-                  <span className="inline-flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-semibold ring-1 ring-white/25">
-                    <RefreshCw className="h-3 w-3" /> Flip back
-                  </span>
-                </div>
-                {g.shifts.length ? (
-                  <ul className="mt-3 min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1 text-xs">
-                    {g.shifts.map((x) => (
-                      <li key={x.categoryId ?? "none"} className="flex items-center gap-2 rounded-lg bg-white/15 px-2.5 py-1.5 ring-1 ring-white/15">
-                        <span className="min-w-0 flex-1 truncate font-semibold">
-                          {x.name} <span className="font-normal text-white/75">· {x.people}</span>
+        {/* ── Shift timings — each category's hours for the side in view.
+            Today's figures are NOT repeated here: the KPI strip at the top
+            already says them (user 2026-10-31: "this is what in up also"). ── */}
+        {groups.map((g) => {
+          const untimed = g.shifts.filter((x) => !x.timing).length;
+          const upcoming = g.shifts
+            .filter((x) => x.upcoming)
+            .sort((a, b) => a.upcoming!.effective_from.localeCompare(b.upcoming!.effective_from))[0];
+          return (
+            <Panel
+              key={g.group}
+              title="Shift timings"
+              subtitle={`${kindLabel(g.group)} · by category${upcoming?.upcoming ? ` · ${upcoming.name} changes ${fmtDate(upcoming.upcoming.effective_from)}` : ""}`}
+              accent="indigo"
+              icon={Clock}
+              action={
+                <Link
+                  href="/masters/hr/work-timing"
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:underline dark:text-indigo-400"
+                >
+                  {untimed ? "Set timing" : "Change timing"} <ArrowUpRight className="h-3.5 w-3.5" />
+                </Link>
+              }
+            >
+              {g.shifts.length ? (
+                <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {g.shifts.map((x) => (
+                    <li
+                      key={x.categoryId ?? "none"}
+                      className="flex items-center gap-3 rounded-xl border border-slate-200/70 bg-white px-4 py-3 dark:border-slate-700 dark:bg-slate-900"
+                    >
+                      <span className="min-w-0 flex-1">
+                        <Truncated text={x.name} className="block text-sm font-semibold text-slate-900 dark:text-slate-100" />
+                        <span className="text-xs text-slate-500">{x.people} {x.people === 1 ? "person" : "people"}</span>
+                      </span>
+                      {x.timing ? (
+                        <span className="shrink-0 text-right">
+                          <span className="flex items-center justify-end gap-1 text-sm font-semibold tabular-nums text-slate-800 dark:text-slate-100">
+                            {fmtTime(x.timing.in_time)}
+                            <ArrowRight className="h-3 w-3 text-slate-400" />
+                            {fmtTime(x.timing.out_time)}
+                            {isOvernight(x.timing) && <Moon className="h-3 w-3 text-indigo-500" />}
+                          </span>
+                          <span className="text-xs tabular-nums text-slate-500">
+                            {mins(shiftMinutes(x.timing))} · {x.timing.grace_minutes}m grace
+                          </span>
                         </span>
-                        <span className="flex shrink-0 items-center gap-1 tabular-nums">
-                          {x.timing ? (
-                            <>
-                              {fmtTime(x.timing.in_time)}
-                              <ArrowRight className="h-3 w-3 text-white/70" />
-                              {fmtTime(x.timing.out_time)}
-                              <span className="text-white/75">
-                                · {mins(shiftMinutes(x.timing))} · {x.timing.grace_minutes}m grace
-                              </span>
-                              {isOvernight(x.timing) && <Moon className="h-3 w-3" />}
-                            </>
-                          ) : (
-                            <span className="text-white/80">No timing set</span>
-                          )}
+                      ) : (
+                        <span className="shrink-0 rounded-md bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+                          No timing set
                         </span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="mt-4 text-sm text-white/90">Nobody here is enrolled on the punch reader yet.</p>
-                )}
-                <div className="mt-auto flex items-end justify-between gap-3 pt-3">
-                  <div className="min-w-0 rounded-xl bg-white/15 px-3 py-2 text-xs ring-1 ring-white/20">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-white/70">Next change</p>
-                    <p className="mt-0.5 truncate font-semibold">
-                      {upcoming?.upcoming
-                        ? `${upcoming.name} from ${fmtDate(upcoming.upcoming.effective_from)}: ${fmtTime(upcoming.upcoming.in_time)} – ${fmtTime(upcoming.upcoming.out_time)}`
-                        : "None scheduled"}
-                    </p>
-                  </div>
-                  <Link
-                    href="/masters/hr/work-timing"
-                    className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-slate-900 shadow-md transition hover:bg-white/90"
-                  >
-                    {untimed ? "Set timing" : "Change timing"} <ArrowUpRight className="h-3.5 w-3.5" />
-                  </Link>
-                </div>
-              </div>
-            );
-
-            return (
-              <FlipCard
-                key={g.group}
-                front={front}
-                back={back}
-                ariaLabel={`${kindLabel(g.group)}: flip to see each category's timing`}
-                width={2000}
-                height={236}
-                radius={16}
-                background="transparent"
-                color="inherit"
-                tiltMax={8}
-                hoverScale={1.02}
-                glareOpacity={0.25}
-                shadowColor={GROUP[g.group].hex}
-                shadowOpacity={0.35}
-                className="w-full"
-              />
-            );
-          })}
-        </div>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-slate-500">Nobody here is enrolled on the punch reader yet.</p>
+              )}
+            </Panel>
+          );
+        })}
 
         {/* ── Week + punctuality ───────────────────────────── */}
         <div className="grid gap-6 xl:grid-cols-3">
@@ -891,7 +799,7 @@ export function HrDashboardView({ data }: { data: HrDashboard }) {
             title="Attendance, last 7 days"
             accent="sky"
             icon={CalendarDays}
-            subtitle={`Average ${avgWeek} present per day`}
+            subtitle={weekNote ?? `Average ${avgWeek} present per day`}
             className="xl:col-span-2"
             action={
               <div className="flex items-center gap-4 text-xs text-slate-500">
