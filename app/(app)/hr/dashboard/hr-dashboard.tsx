@@ -3,15 +3,12 @@ import Link from "next/link";
 import {
   Activity,
   ArrowRight,
-  AlarmClock,
   CalendarDays,
   Clock,
   Fingerprint,
   Gauge as Gauge2,
-  LogOut,
   PieChart,
   ArrowUpRight,
-  DoorOpen,
   Moon,
   TriangleAlert,
   Wifi,
@@ -20,12 +17,13 @@ import {
 } from "lucide-react";
 import { AutoRefresh } from "@/components/hr/auto-refresh";
 import { RadarPanel } from "@/components/hr/radar-panel";
-import { CelebrateScene, HurryScene, TeamScene, WaitingScene, WorkingScene } from "@/components/hr/people-art";
+import { HurryScene, TeamScene, WaitingScene } from "@/components/hr/people-art";
 import { kindLabel, isOvernight, shiftMinutes, type PersonKind } from "@/lib/masters/category-timing-types";
 import type { HrDashboard } from "@/lib/hr/dashboard-service";
 import type { DayStatus, GroupDay, PersonDay } from "@/lib/hr/timing-calc";
 import { fmtDate, fmtTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { DashboardPeople, type PeopleKey, type PeopleRow } from "@/components/hr/dashboard-people";
 import { Truncated } from "@/components/ui/truncated";
 
 /*
@@ -282,7 +280,10 @@ function Kpi({
   art,
   tone,
   bar,
+  href,
 }: {
+  /** Opens this card's people in the People panel below. */
+  href?: string;
   label: string;
   value: string | number;
   unit?: string;
@@ -293,8 +294,12 @@ function Kpi({
   bar?: number;
 }) {
   const t = KPI_TONE[tone];
+  const Box = href ? Link : "div";
   return (
-    <div className={cn("group/kpi relative isolate min-w-0 overflow-hidden rounded-2xl border bg-gradient-to-br to-white px-5 py-4 shadow-lg transition duration-300 hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-2xl dark:to-slate-900", t.card)}>
+    <Box
+      href={href as string}
+      className={cn("group/kpi relative isolate flex h-full min-w-0 flex-col overflow-hidden rounded-2xl border bg-gradient-to-br to-white px-5 py-4 shadow-lg transition duration-300 hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:to-slate-900", t.card)}
+    >
       <span aria-hidden className={cn("pointer-events-none absolute -right-8 -top-8 -z-10 h-28 w-28 rounded-full blur-2xl transition-transform duration-500 group-hover/kpi:scale-150", t.blob)} />
       <span aria-hidden className={cn("absolute inset-x-0 bottom-0 h-1 bg-gradient-to-r", t.bar)} />
       <div className="flex items-center justify-between gap-2">
@@ -318,13 +323,13 @@ function Kpi({
         {value}
         {unit && <span className="text-sm font-medium text-slate-400">{unit}</span>}
       </p>
-      <div className={cn("mt-2 text-xs font-medium", t.text)}>{note}</div>
+      <div className={cn("mb-3 mt-2 text-xs font-medium", t.text)}>{note}</div>
       {bar != null && (
-        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/70 ring-1 ring-slate-200/60 dark:bg-slate-800 dark:ring-0">
+        <div className="mt-auto h-1.5 overflow-hidden rounded-full bg-white/70 ring-1 ring-slate-200/60 dark:bg-slate-800 dark:ring-0">
           <div className={cn("h-full rounded-full bg-gradient-to-r", t.bar)} style={{ width: `${Math.min(100, bar)}%` }} />
         </div>
       )}
-    </div>
+    </Box>
   );
 }
 
@@ -423,12 +428,15 @@ export function HrDashboardView({
   data,
   filter,
   weekNote,
+  query = "",
 }: {
   data: HrDashboard;
   /** The Staff | Worker switch and department filter, under the header. */
   filter?: React.ReactNode;
   /** Said under the week chart when it can't follow the filter. */
   weekNote?: string;
+  /** The dashboard filter's query (kind, dept), kept on a card's link. */
+  query?: string;
 }) {
   const { groups, now } = data;
   const all = groups.flatMap((g) => g.people);
@@ -436,7 +444,18 @@ export function HrDashboardView({
   const present = count(groups, isPresent);
   const late = count(groups, (d) => isPresent(d) && d.lateMin > 0);
   const onTime = present - late;
-  const absent = count(groups, (d) => d.status === "absent");
+  // Approved Time Off today (0770). Someone on Leave or On Duty who hasn't
+  // punched is counted there, not as Absent; Permission is short time off and
+  // doesn't excuse the day.
+  const offOf = new Map(data.timeOff.map((t) => [t.bio, t.kind]));
+  const onLeave = data.timeOff.filter((t) => t.kind === "leave").length;
+  const onDuty = data.timeOff.filter((t) => t.kind === "on_duty").length;
+  const onPermission = data.timeOff.filter((t) => t.kind === "permission").length;
+  const excused = (d: PersonDay) => {
+    const k = offOf.get(d.person.bio);
+    return k === "leave" || k === "on_duty";
+  };
+  const absent = count(groups, (d) => d.status === "absent" && !excused(d));
   const notIn = count(groups, (d) => d.status === "not_in");
   const inside = count(groups, (d) => d.status === "inside");
   const outNow = count(groups, (d) => d.status === "stepped_out");
@@ -489,9 +508,36 @@ export function HrDashboardView({
   const wTop = Math.ceil(wMax / 4) * 4;
   const avgWeek = week.length ? Math.round(week.reduce((t, w) => t + w.present, 0) / week.length) : 0;
 
-  const lateList = all.filter((d) => isPresent(d) && d.lateMin > 0).sort((a, b) => b.lateMin - a.lateMin);
-  const outList = all.filter((d) => d.status === "stepped_out").sort((a, b) => (a.lastAt ?? 0) - (b.lastAt ?? 0));
-  const earlyList = all.filter((d) => d.status === "left_early").sort((a, b) => b.earlyMin - a.earlyMin);
+  // Every person once, tagged with each top card they count under — the
+  // People panel lists them by the same tests the cards count with.
+  const offType = new Map(data.timeOff.map((t) => [t.bio, t.type]));
+  const peopleRows: PeopleRow[] = all.map((d) => {
+    const off = offOf.get(d.person.bio);
+    const tags: PeopleKey[] = ["onroll"];
+    if (isPresent(d)) tags.push("present", d.lateMin > 0 ? "late" : "ontime");
+    if (off === "leave") tags.push("leave");
+    if (off === "on_duty") tags.push("onduty");
+    if (off === "permission") tags.push("permission");
+    if (d.status === "absent" && !excused(d)) tags.push("absent");
+    if (d.status === "left_early") tags.push("early");
+    if (d.status === "inside") tags.push("premises");
+    if (d.status === "stepped_out") tags.push("out");
+    return {
+      bio: d.person.bio,
+      name: d.person.name,
+      code: d.person.code,
+      category: d.person.categoryName,
+      deptId: d.person.departmentId ?? "",
+      dept: d.person.departmentName ?? "No department",
+      in: tags,
+      firstAt: d.firstAt,
+      lastAt: d.lastAt,
+      lateMin: d.lateMin,
+      earlyMin: d.earlyMin,
+      offType: off ? (offType.get(d.person.bio) ?? null) : null,
+    };
+  });
+  const show = (key: PeopleKey) => `?${query ? `${query}&` : ""}show=${key}#people`;
   const online = data.devices.filter((d) => d.last_seen && now - Date.parse(d.last_seen) <= ONLINE_WINDOW_MS);
   // Radar blips = punches in the last 15 minutes (the sweep caps them at 16).
   const recentPunches = all.reduce((t, d) => t + d.punches.filter((p) => p >= now - 15 * 60_000).length, 0);
@@ -509,8 +555,6 @@ export function HrDashboardView({
 
   const TH = "px-5 py-2 text-left text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500 dark:text-slate-400";
   const TD = "px-5 py-2.5 text-sm";
-  // The three exception cards show this many people each, then "View all".
-  const EXC_ROWS = 6;
 
   return (
     /*
@@ -589,18 +633,80 @@ export function HrDashboardView({
         )}
 
         {/* ── KPI strip ────────────────────────────────────── */}
-        <section className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
+        {/* The day's head-count first (user 2026-10-31: "on roll, present,
+            leave, on duty, permission, absent", then late and left early),
+            then the rest. One grid, every cell the same size: equal columns,
+            and `auto-rows-fr` makes every row as tall as the tallest card. */}
+        <section className="grid auto-rows-fr grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
+          <Kpi
+            label="On roll"
+            href={show("onroll")}
+            value={enrolled}
+            note="on the punch reader"
+            art="/hr/3d/onroll.png"
+            tone="indigo"
+          />
           <Kpi
             label="Present"
+            href={show("present")}
             value={present}
             unit={`/ ${enrolled}`}
             note={`${pctOf(present, enrolled)}% attendance`}
             art="/hr/3d/present.png"
-            tone="indigo"
+            tone="emerald"
             bar={pctOf(present, enrolled)}
           />
           <Kpi
+            label="Leave"
+            href={show("leave")}
+            value={onLeave}
+            note={onLeave ? `${pctOf(onLeave, enrolled)}% on approved leave` : "nobody on leave"}
+            art="/hr/3d/leave.png"
+            tone="sky"
+          />
+          <Kpi
+            label="On duty"
+            href={show("onduty")}
+            value={onDuty}
+            note={onDuty ? "away on company work" : "nobody on duty outside"}
+            art="/hr/3d/onduty.png"
+            tone="violet"
+          />
+          <Kpi
+            label="Permission"
+            href={show("permission")}
+            value={onPermission}
+            note={onPermission ? "short time off today" : "no permission today"}
+            art="/hr/3d/permission.png"
+            tone="amber"
+          />
+          <Kpi
+            label="Absent"
+            href={show("absent")}
+            value={absent}
+            note={notIn ? `${notIn} not due yet` : `${pctOf(absent, enrolled)}% of workforce`}
+            art="/hr/3d/absent.png"
+            tone="rose"
+          />
+          <Kpi
+            label="Late arrivals"
+            href={show("late")}
+            value={late}
+            note={late ? `avg ${mins(avgLate)} late` : "none today"}
+            art="/hr/3d/late.png"
+            tone="amber"
+          />
+          <Kpi
+            label="Left early"
+            href={show("early")}
+            value={leftEarly}
+            note={`${mins(lostMin)} lost today`}
+            art="/hr/3d/left.png"
+            tone="violet"
+          />
+          <Kpi
             label="On-time rate"
+            href={show("ontime")}
             value={`${pctOf(onTime, present)}%`}
             note={`${onTime} arrived on time`}
             art="/hr/3d/ontime.png"
@@ -608,32 +714,12 @@ export function HrDashboardView({
             bar={pctOf(onTime, present)}
           />
           <Kpi
-            label="Late arrivals"
-            value={late}
-            note={late ? `avg ${mins(avgLate)} late` : "none today"}
-            art="/hr/3d/late.png"
-            tone="amber"
-          />
-          <Kpi
-            label="Absent"
-            value={absent}
-            note={notIn ? `${notIn} not due yet` : `${pctOf(absent, enrolled)}% of workforce`}
-            art="/hr/3d/absent.png"
-            tone="rose"
-          />
-          <Kpi
             label="On premises"
+            href={show("premises")}
             value={inside}
             note={`${outNow} out right now`}
             art="/hr/3d/premises.png"
             tone="sky"
-          />
-          <Kpi
-            label="Left early"
-            value={leftEarly}
-            note={`${mins(lostMin)} lost today`}
-            art="/hr/3d/left.png"
-            tone="violet"
           />
         </section>
 
@@ -880,108 +966,8 @@ export function HrDashboardView({
           </Panel>
         </div>
 
-        {/* ── Exceptions ───────────────────────────────────── */}
-        <div className="grid gap-6 xl:grid-cols-3">
-          {[
-            {
-              title: "Late arrivals",
-              accent: "amber" as const,
-              icon: AlarmClock,
-              head2: "bg-amber-50/90 dark:bg-amber-500/10",
-              rowHover: "hover:bg-amber-50/70 dark:hover:bg-amber-500/10",
-              rows: lateList,
-              empty: "No late arrivals today.",
-              art: <CelebrateScene className="h-28" />,
-              head: ["Arrived", "Late by"],
-              cells: (d: PersonDay) => [clock(d.firstAt!), <span key="v" className="font-semibold text-amber-600 dark:text-amber-400">+{mins(d.lateMin)}</span>],
-            },
-            {
-              title: "Out of premises",
-              accent: "cyan" as const,
-              icon: DoorOpen,
-              head2: "bg-cyan-50/90 dark:bg-cyan-500/10",
-              rowHover: "hover:bg-cyan-50/70 dark:hover:bg-cyan-500/10",
-              rows: outList,
-              empty: "Everyone who came in is on the premises.",
-              art: <WorkingScene className="h-28" shirt="#06b6d4" />,
-              head: ["Since", "Away"],
-              cells: (d: PersonDay) => [clock(d.lastAt!), <span key="v" className="font-semibold text-sky-600 dark:text-sky-400">{mins(Math.round((now - d.lastAt!) / 60_000))}</span>],
-            },
-            {
-              title: "Early departures",
-              accent: "rose" as const,
-              icon: LogOut,
-              head2: "bg-rose-50/90 dark:bg-rose-500/10",
-              rowHover: "hover:bg-rose-50/70 dark:hover:bg-rose-500/10",
-              rows: earlyList,
-              empty: "No early departures today.",
-              art: <WorkingScene className="h-28" shirt="#f43f5e" />,
-              head: ["Left", "Early by"],
-              cells: (d: PersonDay) => [clock(d.lastAt!), <span key="v" className="font-semibold text-rose-600 dark:text-rose-400">−{mins(d.earlyMin)}</span>],
-            },
-          ].map((t) => (
-            <Panel
-              key={t.title}
-              title={t.title}
-              accent={t.accent}
-              icon={t.icon}
-              bodyClass="p-0"
-              action={<span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-semibold tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300">{t.rows.length}</span>}
-            >
-              {/* NO SCROLL BOX (user 2026-10-31): the card shows its first
-                  EXC_ROWS people at the card's own width — a fixed layout, so
-                  a long name truncates instead of pushing a scrollbar under
-                  the table — and the rest are one "View all" away. */}
-              {t.rows.length ? (
-                <div className="flex flex-1 flex-col">
-                  <table className="w-full table-fixed">
-                    <thead className={t.head2}>
-                      <tr>
-                        <th className={cn(TH, "px-4")}>Employee</th>
-                        <th className={cn(TH, "w-[5.25rem] px-2 text-right")}>{t.head[0]}</th>
-                        <th className={cn(TH, "w-[5.75rem] pl-2 pr-4 text-right")}>{t.head[1]}</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                      {t.rows.slice(0, EXC_ROWS).map((d) => {
-                        const [a, b] = t.cells(d);
-                        return (
-                          <tr key={d.person.bio} className={cn("transition-colors", t.rowHover)}>
-                            <td className={cn(TD, "px-4")}>
-                              <Truncated text={d.person.name} className="block font-medium text-slate-900 dark:text-slate-100" />
-                              <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-slate-500">
-                                <Dot className={GROUP[d.person.kind].dot} />
-                                <Truncated
-                                  text={`${d.person.categoryName ?? kindLabel(d.person.kind)}${d.person.code ? ` · ${d.person.code}` : ""}`}
-                                  className="min-w-0"
-                                />
-                              </p>
-                            </td>
-                            <td className={cn(TD, "px-2 text-right tabular-nums text-slate-600 dark:text-slate-300")}>{a}</td>
-                            <td className={cn(TD, "pl-2 pr-4 text-right tabular-nums")}>{b}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                  {t.rows.length > EXC_ROWS && (
-                    <Link
-                      href="/hr/attendance?view=live"
-                      className="mt-auto flex items-center justify-between border-t border-slate-100 px-4 py-2.5 text-xs font-semibold text-indigo-600 hover:bg-slate-50 dark:border-slate-800 dark:text-indigo-400 dark:hover:bg-slate-800/50"
-                    >
-                      +{t.rows.length - EXC_ROWS} more
-                      <span className="inline-flex items-center gap-1">
-                        View all <ArrowUpRight className="h-3.5 w-3.5" />
-                      </span>
-                    </Link>
-                  )}
-                </div>
-              ) : (
-                <Empty art={t.art}>{t.empty}</Empty>
-              )}
-            </Panel>
-          ))}
-        </div>
+        {/* ── People — the names behind any top card ───────── */}
+        <DashboardPeople rows={peopleRows} now={now} />
 
         {/* ── Activity log + devices ───────────────────────── */}
         <div className="grid gap-6 xl:grid-cols-3">

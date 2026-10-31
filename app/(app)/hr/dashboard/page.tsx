@@ -23,7 +23,7 @@ import { HrDashboardView } from "./hr-dashboard";
 export default async function HrDashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ kind?: string; dept?: string }>;
+  searchParams: Promise<{ kind?: string; dept?: string; show?: string }>;
 }) {
   await requirePermission("hr_payroll", "view");
   const sp = await searchParams;
@@ -44,6 +44,7 @@ export default async function HrDashboardPage({
   return (
     <HrDashboardView
       data={view.data}
+      query={new URLSearchParams({ kind, ...(sp.dept ? { dept: sp.dept } : {}) }).toString()}
       weekNote={
         view.picked.length > 0 && !full.trendByDept
           ? "The week shows every department until migration 0776 is applied."

@@ -57,6 +57,7 @@ export function HrDashboardFilter({
       />
       <div className="flex min-w-0 flex-1 items-center gap-2 sm:flex-none">
         <Building2 className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+        <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">Department</span>
         <MultiSelect
           label="Departments"
           compact
