@@ -90,17 +90,22 @@ export async function listPayables(): Promise<PayableWithVendor[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("payables")
-    .select("*, vendors(name)")
+    // THE MASTER VENDOR FIRST (0777 · 0787): bills raised by a GRN or a Process Receipt name
+    // only `master_vendor_id` — the legacy `vendor_id` is null on them, so reading it alone
+    // printed "—" on every draft bill. Named FK, so a second FK can never make it ambiguous.
+    .select("*, vendors(name), master_vendors!master_vendor_id(name)")
     // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
     .order("created_at", { ascending: true });
 
   return withCreators(((data ?? []) as Record<string, unknown>[]).map((row) => {
     const vendor = row.vendors as { name: string } | null;
-    const { vendors: _v, ...rest } = row;
+    const master = row.master_vendors as { name: string } | null;
+    const { vendors: _v, master_vendors: _m, ...rest } = row;
     void _v;
+    void _m;
     return {
       ...(rest as unknown as Payable),
-      vendor_name: vendor?.name ?? null,
+      vendor_name: master?.name ?? vendor?.name ?? null,
     };
   }));
 }
@@ -110,7 +115,10 @@ export async function getPayable(id: string): Promise<PayableWithDetails | null>
 
   const { data: payable } = await supabase
     .from("payables")
-    .select("*, vendors(name)")
+    // THE MASTER VENDOR FIRST (0777 · 0787): bills raised by a GRN or a Process Receipt name
+    // only `master_vendor_id` — the legacy `vendor_id` is null on them, so reading it alone
+    // printed "—" on every draft bill. Named FK, so a second FK can never make it ambiguous.
+    .select("*, vendors(name), master_vendors!master_vendor_id(name)")
     .eq("id", id)
     .maybeSingle();
   if (!payable) return null;
@@ -123,12 +131,14 @@ export async function getPayable(id: string): Promise<PayableWithDetails | null>
 
   const row = payable as Record<string, unknown>;
   const vendor = row.vendors as { name: string } | null;
-  const { vendors: _v, ...rest } = row;
+  const master = row.master_vendors as { name: string } | null;
+  const { vendors: _v, master_vendors: _m, ...rest } = row;
   void _v;
+  void _m;
 
   return {
     ...(rest as unknown as Payable),
-    vendor_name: vendor?.name ?? null,
+    vendor_name: master?.name ?? vendor?.name ?? null,
     payments: (payments ?? []) as PayablePayment[],
   };
 }
