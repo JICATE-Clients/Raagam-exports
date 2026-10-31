@@ -164,7 +164,7 @@ Phases 2, 3 and 5 can run in parallel after Phase 1.
 
 ## User rules, 2026-10-31 (built same day — 0781, 0782)
 - **Entry header, one row:** Store Location (working unit) · GRN Date · Vendor · Document Type
-  (Invoice / DC / Replacement) · PO No or Replacement DC · its No · its Date (today). No Notes.
+  (Invoice / DC — Replacement removed 10-31, a Replacement GRN opens from its Pending row) · PO No or Replacement DC · its No · its Date (today). No Notes.
 - **Grid:** no Shortage / Reason columns; **Lot No** (was Roll / Batch). QC opens on **Passed**.
 - **QC Failed → popup:** failed qty + reason + **Rejection** (debit note, Rejection DC, requirement
   reopens) or **Replacement** (Replacement DC, NO debit note, vendor resends on a Replacement GRN).

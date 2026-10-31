@@ -26,7 +26,7 @@ import { fmtNumber } from "@/lib/format";
  * STORE KEEPER GRN ENTRY (2026-09-23; reworked 2026-10-31 to the user's GRN rules).
  *
  * Header, one row: Store Location (the working unit) · GRN Date · Vendor · Document Type
- * (Invoice / DC / Replacement) · PO No — or, for a Replacement, the Replacement DC it fills,
+ * (Invoice / DC) · PO No — or, on a Replacement GRN opened from Pending, the Replacement DC it fills,
  * which LOCKS the vendor to that DC's — · the vendor's document No · its Date (today).
  * Picking the PO loads EVERY line with something pending; the cursor lands on the first
  * row's Today Recd.
@@ -48,7 +48,10 @@ import { fmtNumber } from "@/lib/format";
  * → Lot No → the next row's Today Recd. No keydown handler here.
  */
 
-type DocType = "invoice" | "dc" | "replacement";
+/* Invoice or DC only (user 2026-10-31, screenshot 3945: "only invoice and bill, remove
+   replacement"). A Replacement GRN is not a document TYPE the keeper picks — it opens from
+   its Replacement DC's row under Pending, fixed to that DC (`replacement` prop). */
+type DocType = "invoice" | "dc";
 
 interface BinSplit {
   key: string;
@@ -214,7 +217,7 @@ export function GrnNewForm({
      Delivery Challan, or a Replacement delivery against our Replacement DC. One type, one
      number, one date (today unless changed). An Invoice is stored in invoice_no, a DC or a
      replacement's challan in dc_no, the date in invoice_date either way. */
-  const [docType, setDocType] = useState<DocType>(replacement ? "replacement" : "invoice");
+  const [docType, setDocType] = useState<DocType>(replacement ? "dc" : "invoice");
   const [docNo, setDocNo] = useState("");
   const [docDate, setDocDate] = useState(() => today());
   const [repl, setRepl] = useState<ReplacementDue | null>(replacement);
@@ -245,7 +248,7 @@ export function GrnNewForm({
     if (el) focusField(el);
   }, [landToken]);
 
-  const isRepl = docType === "replacement";
+  const isRepl = !!replacement;
 
   // ---------- options ----------
   const locationOptions: ComboboxOption[] = locations.map((l) => ({
@@ -320,12 +323,6 @@ export function GrnNewForm({
 
   function changeDocType(next: DocType) {
     touch();
-    if ((next === "replacement") !== isRepl) {
-      // Switching between buying and replacing starts the document over.
-      setRepl(null);
-      setPoId("");
-      setLines([]);
-    }
     setDocType(next);
   }
 
@@ -364,7 +361,7 @@ export function GrnNewForm({
         grn_date: grnDate,
         invoice_no: docType === "invoice" ? docNo.trim() || null : null,
         invoice_date: docDate || null,
-        dc_no: docType !== "invoice" ? docNo.trim() || null : null,
+        dc_no: docType === "dc" ? docNo.trim() || null : null,
         kind: isRepl ? "replacement" : "regular",
         vendor_return_id: isRepl ? (repl?.id ?? null) : null,
         notes: null,
@@ -407,8 +404,9 @@ export function GrnNewForm({
   }
 
   /*
-   * Item 176 · PO Qty 112 · Today 112 · Store 112 · Bin 176 · Lot No 112 · QC 112 ·
-   * Close bal. 88 · Status 88 = 1088, + 40 chrome (the `#`; no ✕ — `hideRemove`, the rows
+   * Item 176 · PO Qty 112 · Today 112 · QC 112 · Store 112 · Bin 176 · Lot No 112 ·
+   * Close bal. 88 · Status 88 = 1088 (QC before Store / Bin, user 2026-10-31: what
+   * failed is settled first, then the ACCEPTED qty is put away), + 40 chrome (the `#`; no ✕ — `hideRemove`, the rows
    * are the PO's own lines) = 1128 <= 1155 -> tableFrom="5xl". Bin is `term` for its split
    * rows (bin + qty + ✕); Today is `range` for its excess message.
    */
@@ -458,6 +456,52 @@ export function GrnNewForm({
           </>
         );
       },
+    },
+    {
+      header: "QC",
+      width: FIELD_WIDTH_CSS.range,
+      // Off the typing path: the arrows and the mouse reach it, Tab steps over.
+      cell: (l) => (
+        <div data-focus-optional>
+          <Select
+            aria-label={`QC status, ${l.description}`}
+            className="h-8"
+            value={l.qcStatus}
+            onChange={(e) => {
+              const next = e.target.value as QcStatus;
+              // FAILED ASKS FIRST (user 2026-10-31): Rejection or Replacement, in a popup.
+              // The status only becomes Failed once the popup is confirmed.
+              if (next === "failed") {
+                setFailKey(l.key);
+                setFailSeq((n) => n + 1);
+                return;
+              }
+              updateLine(l.key, { qcStatus: next, fail: null });
+            }}
+          >
+            {QC_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </Select>
+          {l.fail ? (
+            // button-shape: exempt -- an inline text link reopening the line's QC Failed choice
+            <button
+              type="button"
+              tabIndex={-1}
+              className="mt-0.5 block text-left text-[11px] text-danger hover:underline"
+              onClick={() => {
+                setFailKey(l.key);
+                setFailSeq((n) => n + 1);
+              }}
+            >
+              {fmtNumber(l.fail.qty)} {isRepl || l.fail.action === "replace" ? "Replacement" : "Rejection"}
+            </button>
+          ) : null}
+          <FieldError id={`grn-fail-${l.key}-error`}>{failProblem(l)}</FieldError>
+        </div>
+      ),
     },
     {
       // WHERE IT IS PUT (grn.md §2A): the unit's store — opens on the material store.
@@ -577,52 +621,6 @@ export function GrnNewForm({
       ),
     },
     {
-      header: "QC",
-      width: FIELD_WIDTH_CSS.range,
-      // Off the typing path: the arrows and the mouse reach it, Tab steps over.
-      cell: (l) => (
-        <div data-focus-optional>
-          <Select
-            aria-label={`QC status, ${l.description}`}
-            className="h-8"
-            value={l.qcStatus}
-            onChange={(e) => {
-              const next = e.target.value as QcStatus;
-              // FAILED ASKS FIRST (user 2026-10-31): Rejection or Replacement, in a popup.
-              // The status only becomes Failed once the popup is confirmed.
-              if (next === "failed") {
-                setFailKey(l.key);
-                setFailSeq((n) => n + 1);
-                return;
-              }
-              updateLine(l.key, { qcStatus: next, fail: null });
-            }}
-          >
-            {QC_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </Select>
-          {l.fail ? (
-            // button-shape: exempt -- an inline text link reopening the line's QC Failed choice
-            <button
-              type="button"
-              tabIndex={-1}
-              className="mt-0.5 block text-left text-[11px] text-danger hover:underline"
-              onClick={() => {
-                setFailKey(l.key);
-                setFailSeq((n) => n + 1);
-              }}
-            >
-              {fmtNumber(l.fail.qty)} {isRepl || l.fail.action === "replace" ? "Replacement" : "Rejection"}
-            </button>
-          ) : null}
-          <FieldError id={`grn-fail-${l.key}-error`}>{failProblem(l)}</FieldError>
-        </div>
-      ),
-    },
-    {
       // VENDOR WILL NOT SEND THE REST (0782): only offered while short of the balance.
       header: "Close bal.",
       width: FIELD_WIDTH_CSS.hug,
@@ -652,7 +650,7 @@ export function GrnNewForm({
     },
   ];
 
-  const docLabel = docType === "invoice" ? "Invoice" : docType === "dc" ? "DC" : "Vendor DC";
+  const docLabel = docType === "invoice" ? "Invoice" : "DC";
 
   return (
     <div data-focus-scope className="space-y-5">
@@ -726,7 +724,6 @@ export function GrnNewForm({
               <Select id="grn-doc-type" value={docType} onChange={(e) => changeDocType(e.target.value as DocType)}>
                 <option value="invoice">Invoice</option>
                 <option value="dc">DC</option>
-                <option value="replacement">Replacement</option>
               </Select>
             </Field>
             {isRepl ? (
@@ -740,6 +737,8 @@ export function GrnNewForm({
                 <Combobox
                   id="grn-repl"
                   options={replOptions}
+                  // Fixed: a Replacement GRN opens from its DC's row under Pending.
+                  disabled
                   value={repl?.id ?? ""}
                   openOnFocus={false}
                   onChange={(v) => {

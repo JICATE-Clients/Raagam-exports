@@ -98,6 +98,13 @@ export default async function GrnDetailPage({
               {isDraft ? "Draft" : "Posted"}
             </StatusPill>
             {isDraft && <PostGrnButton grnId={grnId} />}
+            {/* The GRN slip, with each line's bin breakdown (user 2026-10-31). */}
+            <Link
+              href={`/purchase/grn/${grnId}/print`}
+              className="text-sm font-semibold text-primary hover:underline"
+            >
+              Print GRN
+            </Link>
             <Link
               href="/purchase/grn"
               className="text-sm text-muted-foreground hover:text-foreground"

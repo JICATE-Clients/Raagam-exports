@@ -57,6 +57,8 @@ export type GrnLineWithPo = GrnLineItem & {
   /** Where the accepted goods were put (0777) — names, for the detail page. */
   store_name: string | null;
   bin_code: string | null;
+  /** The accepted qty bin by bin when the line was split (0782); [] = one bin or none. */
+  bin_split: { code: string; qty: number }[];
 };
 
 /* THE EMBED IS NAMED AFTER THE RELATIONSHIP, so both of these say
@@ -152,6 +154,9 @@ export async function getGrnLines(grnId: string): Promise<GrnLineWithPo[]> {
     po_code: row.purchase_orders?.code ?? null,
     store_name: row.stores?.name ?? null,
     // A split line reads "B1 30 · B2 20" (0782); otherwise its one bin.
+    bin_split: [...(split ?? [])]
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map((b) => ({ code: b.bins?.bin_code ?? "?", qty: Number(b.qty) || 0 })),
     bin_code: split && split.length > 0
       ? [...split].sort((a, b) => a.sort_order - b.sort_order).map((b) => `${b.bins?.bin_code ?? "?"} ${b.qty}`).join(" · ")
       : (row.bins?.bin_code ?? null),
