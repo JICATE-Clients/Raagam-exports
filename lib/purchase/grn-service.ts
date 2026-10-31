@@ -9,6 +9,7 @@ import { getCurrentLocation } from "@/lib/auth/location";
 // ---------- enriched types ----------
 
 export type GrnWithVendor = Grn & {
+  /** The supplier (master vendor, 0777). Named `vendors` so every reader stays as it was. */
   vendors: Pick<Vendor, "id" | "name"> | null;
   line_count: number;
   /** Display name of `over_receipt_authorized_by` — set by `getGrn` only. */
@@ -20,8 +21,11 @@ export type OpenPoLine = {
   id: string;
   purchase_order_id: string;
   po_code: string | null;
+  /** The PO's MASTER vendor (0777) — what every PO names since 0737. */
   vendor_id: string;
   vendor_name: string;
+  /** The item the PO line buys — copied onto the GRN line (0777). */
+  item_id: string | null;
   description: string;
   quantity: number;
   received_qty: number;
@@ -32,10 +36,27 @@ export type OpenPoLine = {
   /** The PO's approved over-receipt tolerance, percent (0620). */
   tolerance_pct: number;
   sort_order: number;
+  /** The rest is what the Receiving screen's filter cascade reads (0778). */
+  po_date: string | null;
+  delivery_date: string | null;
+  group_kind: GrnGroupKind;
+  /** The RE (garment order) or the IWO behind the line; null for a General PO. */
+  order_id: string | null;
+  order_no: string | null;
+  buyer: string | null;
+  item_class_id: string | null;
+  item_class: string | null;
+  category: string | null;
 };
+
+/** Where a PO line's need came from (grn.md §1 "Group Type"). */
+export type GrnGroupKind = "re" | "swo" | "iwo" | "general";
 
 export type GrnLineWithPo = GrnLineItem & {
   po_code: string | null;
+  /** Where the accepted goods were put (0777) — names, for the detail page. */
+  store_name: string | null;
+  bin_code: string | null;
 };
 
 /* THE EMBED IS NAMED AFTER THE RELATIONSHIP, so both of these say
@@ -59,7 +80,8 @@ export async function listGrns(): Promise<GrnWithVendor[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("grns")
-    .select("*, vendors(id, name)")
+    // THE MASTER VENDOR, under the old key (0777) — the list and detail read `vendors.name`.
+    .select("*, vendors:master_vendors!master_vendor_id(id, name)")
     // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
     .order("created_at", { ascending: true });
 
@@ -87,7 +109,7 @@ export async function getGrn(id: string): Promise<GrnWithVendor | null> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("grns")
-    .select("*, vendors(id, name)")
+    .select("*, vendors:master_vendors!master_vendor_id(id, name)")
     .eq("id", id)
     .maybeSingle();
   if (!data) return null;
@@ -112,17 +134,21 @@ export async function getGrnLines(grnId: string): Promise<GrnLineWithPo[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("grn_line_items")
-    .select("*, purchase_orders(code)")
+    .select("*, purchase_orders(code), stores(name), bins(bin_code)")
     .eq("grn_id", grnId)
     .order("sort_order");
 
   return (
     (data ?? []) as unknown as (GrnLineItem & {
       purchase_orders: { code: string | null } | null;
+      stores: { name: string } | null;
+      bins: { bin_code: string } | null;
     })[]
   ).map((row) => ({
     ...row,
     po_code: row.purchase_orders?.code ?? null,
+    store_name: row.stores?.name ?? null,
+    bin_code: row.bins?.bin_code ?? null,
   }));
 }
 
@@ -141,81 +167,91 @@ export async function getGrnLines(grnId: string): Promise<GrnLineWithPo[]> {
  */
 export async function getOpenPoLines(vendorId?: string): Promise<OpenPoLine[]> {
   const supabase = await createClient();
+  /* ONE READ (0778): the PO, its line, the UOM, the order, the buyer and the item class
+     come back together — what the Receiving screen's filter cascade reads. */
+  const { data, error } = await supabase.rpc("grn_open_po_lines");
+  if (error) throw new Error(`Open POs: ${error.message}`);
+  const rows = (data ?? []) as Record<string, unknown>[];
+  const n = (v: unknown) => Number(v) || 0;
+  const str = (v: unknown) => (v == null ? null : String(v));
+  return rows
+    .filter((r) => !vendorId || r.master_vendor_id === vendorId)
+    .map((r) => {
+      const quantity = n(r.quantity);
+      const received = n(r.received_qty);
+      return {
+        id: String(r.id),
+        purchase_order_id: String(r.purchase_order_id),
+        po_code: str(r.po_code),
+        po_date: str(r.po_date),
+        vendor_id: str(r.master_vendor_id) ?? "",
+        vendor_name: str(r.vendor_name) ?? "",
+        item_id: str(r.item_id),
+        description: String(r.description ?? ""),
+        quantity,
+        received_qty: received,
+        open_balance: poLineOpenBalance({ quantity, received_qty: received }),
+        uom_id: str(r.uom_id),
+        uom_code: str(r.uom_code),
+        tolerance_pct: n(r.tolerance_pct ?? 3),
+        sort_order: n(r.sort_order),
+        delivery_date: str(r.delivery_date),
+        group_kind: (str(r.group_kind) ?? "general") as GrnGroupKind,
+        order_id: str(r.order_id),
+        order_no: str(r.order_no),
+        buyer: str(r.buyer),
+        item_class_id: str(r.item_class_id),
+        item_class: str(r.item_class),
+        category: str(r.category),
+      };
+    });
+}
 
-  let poQuery = supabase
-    .from("purchase_orders")
-    .select("id, code, vendor_id, over_receipt_tolerance_pct, vendors!vendor_id(id, name)")
-    .in("status", ["approved", "partially_received"])
-    // Entry order, so the PO picker lists them 1, 2, 3.
-    .order("created_at", { ascending: true });
+/** Where a received line can be put: the working unit's stores and bins (grn.md §2A). */
+export type GrnStoreOption = { id: string; code: string; name: string; store_type: string };
+export type GrnBinOption = { id: string; code: string; description: string | null };
 
-  if (vendorId) {
-    poQuery = poQuery.eq("vendor_id", vendorId);
-  }
-
-  const { data: posData, error: poErr } = await poQuery;
-  if (poErr) throw new Error(`Open POs: ${poErr.message}`);
-  const pos = (posData ?? []) as unknown as {
-    id: string;
-    code: string | null;
-    vendor_id: string;
-    over_receipt_tolerance_pct: number | null;
-    vendors: { id: string; name: string } | null;
-  }[];
-
-  if (pos.length === 0) return [];
-
-  const poIds = pos.map((p) => p.id);
-  const poMap = new Map(pos.map((p) => [p.id, p]));
-
-  const { data: linesData, error: lineErr } = await supabase
-    .from("po_line_items")
-    .select("id, purchase_order_id, description, quantity, received_qty, uom_id, sort_order")
-    .in("purchase_order_id", poIds)
-    .order("sort_order");
-  if (lineErr) throw new Error(`Open PO lines: ${lineErr.message}`);
-
-  const lines = (linesData ?? []) as {
-    id: string;
-    purchase_order_id: string;
-    description: string;
-    quantity: number;
-    received_qty: number;
-    uom_id: string | null;
-    sort_order: number;
-  }[];
-
-  // UOM codes by a second read rather than an embed: `po_line_items` carries
-  // both `uom_id` and `billing_uom_id` to `uoms`, so a bare `uoms(code)` embed
-  // is PGRST201-ambiguous (AGENTS.md, "A SECOND FK BREAKS EVERY EXISTING EMBED").
-  const uomIds = Array.from(new Set(lines.map((l) => l.uom_id).filter(Boolean))) as string[];
-  const uomCode = new Map<string, string>();
-  if (uomIds.length > 0) {
-    const { data: uomRows } = await supabase.from("uoms").select("id, code").in("id", uomIds);
-    for (const u of (uomRows ?? []) as { id: string; code: string }[]) uomCode.set(u.id, u.code);
-  }
-
-  return lines.map((line) => {
-    const po = poMap.get(line.purchase_order_id);
-    return {
-      id: line.id,
-      purchase_order_id: line.purchase_order_id,
-      po_code: po?.code ?? null,
-      vendor_id: po?.vendor_id ?? "",
-      vendor_name: po?.vendors?.name ?? "",
-      description: line.description,
-      quantity: Number(line.quantity) || 0,
-      received_qty: Number(line.received_qty) || 0,
-      open_balance: poLineOpenBalance({
-        quantity: Number(line.quantity) || 0,
-        received_qty: Number(line.received_qty) || 0,
-      }),
-      uom_id: line.uom_id,
-      uom_code: line.uom_id ? (uomCode.get(line.uom_id) ?? null) : null,
-      tolerance_pct: Number(po?.over_receipt_tolerance_pct ?? 3),
-      sort_order: line.sort_order ?? 0,
-    };
-  });
+/**
+ * THE WORKING UNIT'S STORES AND BINS — the Store and Bin pickers on a GRN line.
+ *
+ * Stores: the unit's active stores a delivery can be put into — material and purchase.
+ * Rejection, surplus and processing stores are not a receiving destination (rejected
+ * stock is moved to the rejection store by the post itself). Bins: the unit's own plus
+ * the shared ones (no unit), active only. Until Phase 5 ties a bin to a store, any bin
+ * of the unit may be picked under any store.
+ */
+export async function getGrnStoresAndBins(): Promise<{
+  stores: GrnStoreOption[];
+  bins: GrnBinOption[];
+  defaultStoreId: string | null;
+}> {
+  const supabase = await createClient();
+  const { location } = await getCurrentLocation();
+  if (!location) return { stores: [], bins: [], defaultStoreId: null };
+  const [storesRes, binsRes] = await Promise.all([
+    supabase
+      .from("stores")
+      .select("id, code, name, store_type")
+      .eq("location_id", location.id)
+      .eq("is_active", true)
+      .in("store_type", ["material", "purchase"])
+      .order("code"),
+    supabase
+      .from("bins")
+      .select("id, bin_code, description, location_id, inactive")
+      .or(`location_id.eq.${location.id},location_id.is.null`)
+      .order("bin_code"),
+  ]);
+  if (storesRes.error) throw new Error(`Stores: ${storesRes.error.message}`);
+  if (binsRes.error) throw new Error(`Bins: ${binsRes.error.message}`);
+  const stores = (storesRes.data ?? []) as GrnStoreOption[];
+  const bins = ((binsRes.data ?? []) as { id: string; bin_code: string; description: string | null; inactive: boolean | null }[])
+    .filter((b) => !b.inactive)
+    .map((b) => ({ id: b.id, code: b.bin_code, description: b.description }));
+  // Accepted goods land in the MATERIAL store when nothing else is picked — what postGrn
+  // has always done — so that is the default the line opens with.
+  const defaultStoreId = stores.find((st) => st.store_type === "material")?.id ?? stores[0]?.id ?? null;
+  return { stores, bins, defaultStoreId };
 }
 
 // ---------- DC ----------
@@ -372,4 +408,104 @@ export async function getUoms(): Promise<Pick<Uom, "id" | "code" | "name">[]> {
     .eq("is_active", true)
     .order("code");
   return (data ?? []) as Pick<Uom, "id" | "code" | "name">[];
+}
+
+// ---------- rejection paper + replacements (0780) ----------
+
+/** A Rejection DC still owed a replacement — a Pending row on the Receiving screen. */
+export type ReplacementDue = {
+  /** The Rejection DC (vendor_returns). */
+  id: string;
+  code: string | null;
+  vendor_id: string;
+  vendor_name: string;
+  /** The GRN that rejected the goods. */
+  grn_code: string | null;
+  /** What is still owed, per PO line. */
+  lines: { po_line_item_id: string; due: number }[];
+};
+
+/**
+ * REJECTION DCs STILL OWED A REPLACEMENT (grn.md §2C). Only DCs a GRN raised (`grn_id`
+ * set), only their "replace" lines, only what is not yet replaced — a "return" line is
+ * re-bought on a new PO instead. A cancelled or closed DC owes nothing. Two reads, no
+ * embed: grns ↔ vendor_returns point at each other (0780), and the vendor is named off
+ * the master by id.
+ */
+export async function getReplacementsDue(): Promise<ReplacementDue[]> {
+  const supabase = await createClient();
+  const { data: docs, error } = await supabase
+    .from("vendor_returns")
+    .select("id, code, grn_id, master_vendor_id, status")
+    .not("grn_id", "is", null)
+    .in("status", ["draft", "returned"])
+    .order("created_at", { ascending: true });
+  if (error) throw new Error(`Rejection DCs: ${error.message}`);
+  const rows = (docs ?? []) as { id: string; code: string | null; grn_id: string; master_vendor_id: string | null }[];
+  if (rows.length === 0) return [];
+  const [linesRes, grnsRes, vendorsRes] = await Promise.all([
+    supabase
+      .from("vendor_return_lines")
+      .select("vendor_return_id, po_line_item_id, return_qty, replacement_qty, rejection_action")
+      .in("vendor_return_id", rows.map((r) => r.id)),
+    supabase.from("grns").select("id, code").in("id", rows.map((r) => r.grn_id)),
+    supabase
+      .from("master_vendors")
+      .select("id, name")
+      .in("id", rows.map((r) => r.master_vendor_id).filter((v): v is string => !!v)),
+  ]);
+  if (linesRes.error) throw new Error(`Rejection DC lines: ${linesRes.error.message}`);
+  const grnCode = new Map(((grnsRes.data ?? []) as { id: string; code: string | null }[]).map((g) => [g.id, g.code]));
+  const vendorName = new Map(((vendorsRes.data ?? []) as { id: string; name: string }[]).map((v) => [v.id, v.name]));
+  const byDoc = new Map<string, { po_line_item_id: string; due: number }[]>();
+  for (const l of (linesRes.data ?? []) as {
+    vendor_return_id: string;
+    po_line_item_id: string | null;
+    return_qty: number;
+    replacement_qty: number;
+    rejection_action: string | null;
+  }[]) {
+    const due = (Number(l.return_qty) || 0) - (Number(l.replacement_qty) || 0);
+    if (!l.po_line_item_id || (l.rejection_action ?? "replace") !== "replace" || due <= 0) continue;
+    const arr = byDoc.get(l.vendor_return_id) ?? [];
+    arr.push({ po_line_item_id: l.po_line_item_id, due });
+    byDoc.set(l.vendor_return_id, arr);
+  }
+  return rows
+    .filter((r) => byDoc.has(r.id))
+    .map((r) => ({
+      id: r.id,
+      code: r.code,
+      vendor_id: r.master_vendor_id ?? "",
+      vendor_name: (r.master_vendor_id && vendorName.get(r.master_vendor_id)) || "",
+      grn_code: grnCode.get(r.grn_id) ?? null,
+      lines: byDoc.get(r.id) ?? [],
+    }));
+}
+
+/** The Debit Note and Rejection DC a posted GRN raised, and the DC a replacement fills. */
+export type GrnPaper = {
+  debitNote: { id: string; code: string | null; amount: number; status: string } | null;
+  rejectionDc: { id: string; code: string | null; status: string } | null;
+  replaces: { id: string; code: string | null } | null;
+};
+
+export async function getGrnPaper(grn: Pick<Grn, "id" | "vendor_return_id">): Promise<GrnPaper> {
+  const supabase = await createClient();
+  // Separate reads, never an embed: grns ↔ vendor_returns is ambiguous both ways (0780).
+  // A reader without Finance / Stores access gets nothing back for that half — said as "—".
+  const [dn, dc, rep] = await Promise.all([
+    supabase.from("finance_notes").select("id, code, amount, status").eq("grn_id", grn.id).maybeSingle(),
+    supabase.from("vendor_returns").select("id, code, status").eq("grn_id", grn.id).maybeSingle(),
+    grn.vendor_return_id
+      ? supabase.from("vendor_returns").select("id, code").eq("id", grn.vendor_return_id).maybeSingle()
+      : Promise.resolve({ data: null }),
+  ]);
+  return {
+    debitNote: dn.data
+      ? { ...(dn.data as { id: string; code: string | null; status: string }), amount: Number((dn.data as { amount: number }).amount) || 0 }
+      : null,
+    rejectionDc: (dc.data as GrnPaper["rejectionDc"]) ?? null,
+    replaces: (rep.data as GrnPaper["replaces"]) ?? null,
+  };
 }

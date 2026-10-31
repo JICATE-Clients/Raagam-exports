@@ -113,6 +113,10 @@ export interface VendorReturn {
   return_date: string | null;
   status: VendorReturnStatus;
   notes: string | null;
+  /** A REJECTION DC raised by a posted GRN (0780) — its lines are that GRN's rejections. */
+  grn_id: string | null;
+  master_vendor_id: string | null;
+  debit_note_id: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;

@@ -121,9 +121,15 @@ export function PoPrintSheet({ data }: { data: PoPrintData }) {
                         </div>
                       ) : null}
                       {/* THE CLOTH'S CONSTRUCTION for the knitter (0762) — as planning stated it. */}
-                      {r.gsm != null || r.gauge || r.loopLength != null ? (
+                      {/* Ply and Gauge apart, LL in cm as typed (0774, user 2026-10-31). */}
+                      {r.gsm != null || r.ply || r.gauge || r.loopLength != null ? (
                         <div className="mt-0.5 text-[11px] text-[#5b6472] tabular-nums">
-                          {[r.gsm != null ? `${r.gsm} GSM` : null, r.gauge ? `Gauge ${r.gauge}` : null, r.loopLength != null ? `LL ${r.loopLength} mm` : null]
+                          {[
+                            r.gsm != null ? `${r.gsm} GSM` : null,
+                            r.gauge ? `Gauge ${r.gauge}` : null,
+                            r.ply ? `Ply ${r.ply}` : null,
+                            r.loopLength != null ? `LL (cm) ${r.loopLength}` : null,
+                          ]
                             .filter(Boolean)
                             .join(" · ")}
                         </div>

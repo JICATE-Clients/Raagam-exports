@@ -46,6 +46,12 @@ export default async function VendorReturnDetailPage({
         actions={
           <div className="flex items-center gap-2">
             <StatusPill tone={tone(doc.status)}>{VENDOR_RETURN_STATUS_LABELS[doc.status]}</StatusPill>
+            {/* A Rejection DC raised by a GRN prints as the challan + debit note copy (0780). */}
+            {doc.grn_id && doc.status !== "cancelled" ? (
+              <Link href={`/stores/vendor-returns/${returnId}/print`} className="text-sm font-semibold text-primary hover:underline">
+                Print DC
+              </Link>
+            ) : null}
             <Link href="/stores/vendor-returns" className="text-sm text-muted-foreground hover:text-foreground">
               Back to list
             </Link>
@@ -59,6 +65,7 @@ export default async function VendorReturnDetailPage({
         items={items}
         canEdit={canEdit}
         canDelete={canDelete}
+        fromGrn={!!doc.grn_id}
       />
     </div>
   );

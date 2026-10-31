@@ -77,6 +77,7 @@ export function CommercialSection({
   currency,
   gst,
   gstOptions,
+  gstHint,
   onGst,
   terms,
   onTerms,
@@ -90,6 +91,8 @@ export function CommercialSection({
      totals and the budget check read GST. */
   gst: string;
   gstOptions: { value: string; label: string }[];
+  /** Why the slab is CGST + SGST or IGST (the vendor's state vs the unit's), under the box. */
+  gstHint?: string | null;
   onGst: (v: string) => void;
   terms: string;
   onTerms: (v: string) => void;
@@ -160,13 +163,28 @@ export function CommercialSection({
       label: "GST",
       required: true,
       cell: (
-        <Select id="rpo-gst" aria-label="GST" required className={TCELL} value={gst} onChange={(e) => onGst(e.target.value)}>
-          {gstOptions.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </Select>
+        <div>
+          <Select
+            id="rpo-gst"
+            aria-label="GST"
+            aria-describedby={gstHint ? "rpo-gst-hint" : undefined}
+            required
+            className={TCELL}
+            value={gst}
+            onChange={(e) => onGst(e.target.value)}
+          >
+            {gstOptions.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </Select>
+          {gstHint ? (
+            <p id="rpo-gst-hint" className="px-2 pb-1 text-[11px] leading-tight text-muted-foreground">
+              {gstHint}
+            </p>
+          ) : null}
+        </div>
       ),
     },
     {

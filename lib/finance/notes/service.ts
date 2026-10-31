@@ -5,6 +5,8 @@ import { withCreators } from "@/lib/created-by";
 
 export type FinanceNoteRow = FinanceNote & {
   vendors: { id: string; name: string } | null;
+  /** A debit note raised by a GRN rejection names the MASTER vendor (0780). */
+  master_vendors: { id: string; name: string } | null;
   buyers: { id: string; name: string } | null;
 };
 
@@ -14,7 +16,7 @@ export async function getFinanceNotes(): Promise<FinanceNoteRow[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("finance_notes")
-    .select("*, vendors(id, name), buyers(id, name)")
+    .select("*, vendors(id, name), master_vendors(id, name), buyers(id, name)")
     // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
     .order("created_at", { ascending: true });
   return withCreators((data ?? []) as unknown as FinanceNoteRow[]);

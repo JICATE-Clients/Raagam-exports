@@ -50,7 +50,10 @@ export type PoPrintRow = {
   /** Fabric construction (0762) — copied from planning when the PO was raised. */
   gsm: number | null;
   gauge: string | null;
-  loopLength: number | null;
+  /** Ply, apart from Gauge (0774). */
+  ply: string | null;
+  /** LL (cm) — free text since 0774. */
+  loopLength: string | null;
 };
 
 export type PoPrintData = {
@@ -152,7 +155,7 @@ export async function getPoPrint(poId: string): Promise<PoPrintData | null> {
     const bags = l.bags == null ? null : num(l.bags);
     // A sized line folds; a yarn line in bags or a fabric line with rolls stays its own row,
     // because its bags / rolls belong to it alone.
-    const foldable = !!req?.size_name && bags == null && !num(l.rolls) && l.gsm == null && l.gauge == null && l.loop_length == null;
+    const foldable = !!req?.size_name && bags == null && !num(l.rolls) && l.gsm == null && l.gauge == null && l.ply == null && l.loop_length == null;
     const groupKey = foldable
       ? [src, req!.item_id, req!.slice_base.toUpperCase(), (req!.colour ?? "").toUpperCase(), l.uom_id, rate, note ?? "", gstPct].join("|")
       : String(l.id);
@@ -195,7 +198,8 @@ export async function getPoPrint(poId: string): Promise<PoPrintData | null> {
         dia: (l.dia as string | null) ?? null,
         gsm: l.gsm == null ? null : num(l.gsm),
         gauge: (l.gauge as string | null) ?? null,
-        loopLength: l.loop_length == null ? null : num(l.loop_length),
+        ply: (l.ply as string | null) ?? null,
+        loopLength: l.loop_length == null || String(l.loop_length).trim() === "" ? null : String(l.loop_length),
       },
       sizeOrder: foldable && req?.size_name ? [req.size_sort ?? 1e9] : [],
     });

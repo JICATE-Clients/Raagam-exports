@@ -98,6 +98,7 @@ export async function getVendorsForClass(itemClassId: string): Promise<ClassVend
     lead_days: v.lead_days == null ? null : Number(v.lead_days),
     on_time_pct: v.on_time_pct == null ? null : Number(v.on_time_pct),
     received_lines: num(v.received_lines),
+    is_import: v.is_import === true,
   }));
 }
 

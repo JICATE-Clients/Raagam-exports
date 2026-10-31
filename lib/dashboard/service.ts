@@ -952,7 +952,8 @@ export async function getActivity(caps: DashboardCaps): Promise<ActivityItem[]> 
       rows(
         await sb
           .from("grns")
-          .select("id, code, created_at, vendors(name)")
+          // The master vendor under the old key (0777) — GRNs no longer write the legacy one.
+          .select("id, code, created_at, vendors:master_vendors!master_vendor_id(name)")
           .eq("status", "posted")
           .order("created_at", { ascending: false })
           .limit(5),

@@ -70,6 +70,8 @@ export type ClassVendor = {
   /** On or before the promised date, over every received line. NULL = no history yet. */
   on_time_pct: number | null;
   received_lines: number;
+  /** A vendor outside India (0773) — listed only on an Import PO; the rest only on Local. */
+  is_import: boolean;
 };
 
 /** One requirement line's identity across the screen and the action. */
@@ -116,6 +118,28 @@ export const GST_SLABS = [
 ] as const;
 export type GstSlabId = (typeof GST_SLABS)[number]["id"];
 export const gstSlab = (id: string) => GST_SLABS.find((g) => g.id === id) ?? GST_SLABS[1];
+
+/** The two-digit GST state code at the start of a GSTIN or a `states.code` ("33" = Tamil Nadu). */
+export function gstStateCode(v: string | null | undefined): string | null {
+  const m = /^\s*(\d{2})/.exec(v ?? "");
+  return m ? m[1] : null;
+}
+
+/**
+ * CGST + SGST OR IGST, FROM WHERE THE TWO SIDES ARE (user 2026-10-31). Same state → CGST +
+ * SGST (the slab halved); different states → IGST (the whole slab). Null when either side
+ * is unknown — the caller then keeps whatever is chosen rather than guess. A default only:
+ * the Commercial tab's GST stays editable for the exceptions (an SEZ supply, an exemption).
+ */
+export function gstKindFor(vendorState: string | null | undefined, unitState: string | null | undefined): "cgst_sgst" | "igst" | null {
+  if (!vendorState || !unitState) return null;
+  return vendorState === unitState ? "cgst_sgst" : "igst";
+}
+
+/** The slab of `kind` at the same %, so switching CGST+SGST ↔ IGST never changes the rate. */
+export function slabOfKind(kind: "cgst_sgst" | "igst", pct: number): GstSlabId {
+  return (GST_SLABS.find((g) => g.kind === kind && g.pct === pct) ?? GST_SLABS.find((g) => g.kind === kind)!).id;
+}
 
 /**
  * A LINE'S OWN GST % (user 2026-10-26, 0756). One PO carries thread at 5 %, labels at
@@ -208,7 +232,22 @@ export const rePoLineInput = z.object({
     .toUpperCase()
     .nullish()
     .transform((v) => (v ? v : null)),
-  loop_length: z.number().positive().nullish().transform((v) => v ?? null),
+  /** Ply, apart from Gauge (0774, user 2026-10-31) — "SINGLE", "2-PLY". Blank → null. */
+  ply: z
+    .string()
+    .trim()
+    .max(40, "Ply is at most 40 characters")
+    .toUpperCase()
+    .nullish()
+    .transform((v) => (v ? v : null)),
+  /** LL (cm), FREE TEXT (0774, user 2026-10-31): "2.80", "2.85-2.90", "AS PER SAMPLE". */
+  loop_length: z
+    .string()
+    .trim()
+    .max(40, "LL is at most 40 characters")
+    .toUpperCase()
+    .nullish()
+    .transform((v) => (v ? v : null)),
   /** This line's GST % (0756); null / absent = the PO's default slab. */
   gst_pct: z
     .number()

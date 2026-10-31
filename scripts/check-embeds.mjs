@@ -71,7 +71,14 @@ const AMBIGUOUS = {
   // 0620 put `over_receipt_authorized_by` on `grns`, which already had
   // `created_by` to `profiles`. Nothing embeds either today; declared the day
   // the second FK lands, per the rule in the header.
-  grns: { profiles: ["created_by", "over_receipt_authorized_by"] },
+  // 0780: a Replacement GRN names its Rejection DC (`grns.vendor_return_id`) and a
+  // Rejection DC names the GRN that raised it (`vendor_returns.grn_id`) — FKs both ways,
+  // so a bare embed either direction is PGRST201. Name the column.
+  grns: {
+    profiles: ["created_by", "over_receipt_authorized_by"],
+    vendor_returns: ["vendor_return_id", "grn_id"],
+  },
+  vendor_returns: { grns: ["grn_id", "vendor_return_id"] },
   // 0604 pointed `garment_order_amendments.re_amendment_id` at
   // `order_budget_revisions`, whose `garment_order_id` already pointed back —
   // so the pair is ambiguous in BOTH directions: PGRST201 lists a one-to-many
