@@ -1168,6 +1168,12 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         description: "Goods receipts and delivery challans",
         children: [
           { href: "/purchase/grn", label: "Goods Receipts", description: "Partial receipt, QC accept or reject, posts to Stores" },
+          /* MOVED HERE FROM Stores ▸ Receipts & Returns (user 2026-10-31): every vendor
+             return is the Rejection / Replacement DC a GRN raises, and its replacement comes
+             back on a GRN — so it sits beside Goods Receipts. NOT inside Delivery Challans:
+             those are job-work DCs to processors, a different document. The old
+             /stores/vendor-returns address redirects here. */
+          { href: "/purchase/vendor-returns", label: "Vendor Returns", description: "Rejection / replacement DCs raised from a GRN" },
           { href: "/purchase/dc", label: "Delivery Challans", description: "Issue material to processors and record returns" },
         ],
       },
@@ -1237,10 +1243,9 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         slug: "receipts",
         label: "Receipts & Returns",
         icon: ArrowDownToLine,
-        description: "Customer-supplied receipts and vendor returns",
+        description: "Customer-supplied receipts (vendor returns moved to Purchase ▸ Receiving)",
         children: [
           { href: "/stores/csp-receipts", label: "CSP Receipts", description: "Customer-supplied and consignment material" },
-          { href: "/stores/vendor-returns", label: "Vendor Returns", description: "Return to vendor, with replacement" },
         ],
       },
       { kind: "link", href: "/stores/transfers", label: "Transfers" },

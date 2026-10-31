@@ -12,7 +12,7 @@ import { activeTone } from "@/lib/ui/status-tone";
 const operations = [
   { href: "/stores/opening-stock", label: "Opening Stock", desc: "Set initial balances", icon: PackagePlus },
   { href: "/stores/requisitions", label: "Requisitions (MRS)", desc: "Issue material to departments", icon: ClipboardList },
-  { href: "/stores/vendor-returns", label: "Vendor Returns", desc: "Return + replacement", icon: Undo2 },
+  { href: "/purchase/vendor-returns", label: "Vendor Returns", desc: "Return + replacement", icon: Undo2 },
   { href: "/stores/csp-receipts", label: "CSP Receipts", desc: "Customer-supplied material", icon: Boxes },
 ];
 import type { StoreType } from "@/lib/stores/types";

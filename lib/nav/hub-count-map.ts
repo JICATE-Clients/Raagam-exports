@@ -163,7 +163,7 @@ export const HUB_COUNT_TABLES: Record<string, string | null> = {
   "/stores/interdept": "interdept_deliveries",
   "/stores/process-orders": "process_orders",
   "/stores/csp-receipts": "csp_receipts",
-  "/stores/vendor-returns": "vendor_returns",
+  "/purchase/vendor-returns": "vendor_returns",
   // Adjustments and Transfers write `stock_ledger` entries rather than a
   // document of their own, so the only available count is "every stock
   // movement ever recorded, of any kind" — a large number that is not the

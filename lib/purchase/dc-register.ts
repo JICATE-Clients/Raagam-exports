@@ -179,8 +179,8 @@ export async function listDcRegister(): Promise<DcRegisterRow[]> {
         status: v.status,
         qty: a.qty,
         outstanding: kind === "replacement" && v.status !== "cancelled" ? a.out : 0,
-        href: `/stores/vendor-returns/${v.id}`,
-        print: v.status === "cancelled" ? null : `/stores/vendor-returns/${v.id}/print`,
+        href: `/purchase/vendor-returns/${v.id}`,
+        print: v.status === "cancelled" ? null : `/purchase/vendor-returns/${v.id}/print`,
         created_at: v.created_at,
         created_by: v.created_by,
       };

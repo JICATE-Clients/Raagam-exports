@@ -128,7 +128,7 @@ export default async function GrnDetailPage({
                 <div>
                   <dt className="text-xs text-muted-foreground">Replaces goods on</dt>
                   <dd className="mt-0.5">
-                    <Link href={`/stores/vendor-returns/${paper.replaces.id}`} className="text-primary hover:underline">
+                    <Link href={`/purchase/vendor-returns/${paper.replaces.id}`} className="text-primary hover:underline">
                       {paper.replaces.code ?? "Rejection DC"}
                     </Link>
                   </dd>
@@ -138,13 +138,13 @@ export default async function GrnDetailPage({
                 <div>
                   <dt className="text-xs text-muted-foreground">Rejection DC</dt>
                   <dd className="mt-0.5">
-                    <Link href={`/stores/vendor-returns/${paper.rejectionDc.id}`} className="text-primary hover:underline">
+                    <Link href={`/purchase/vendor-returns/${paper.rejectionDc.id}`} className="text-primary hover:underline">
                       {paper.rejectionDc.code ?? "—"}
                     </Link>{" "}
                     <span className="text-xs text-muted-foreground">({paper.rejectionDc.status})</span>{" "}
                     {/* The challan the goods go back on, with the debit note copy (0780). */}
                     <Link
-                      href={`/stores/vendor-returns/${paper.rejectionDc.id}/print`}
+                      href={`/purchase/vendor-returns/${paper.rejectionDc.id}/print`}
                       className="text-xs font-semibold text-primary hover:underline"
                     >
                       Print DC
@@ -156,13 +156,13 @@ export default async function GrnDetailPage({
                 <div>
                   <dt className="text-xs text-muted-foreground">Replacement DC</dt>
                   <dd className="mt-0.5">
-                    <Link href={`/stores/vendor-returns/${paper.replacementDc.id}`} className="text-primary hover:underline">
+                    <Link href={`/purchase/vendor-returns/${paper.replacementDc.id}`} className="text-primary hover:underline">
                       {paper.replacementDc.code ?? "—"}
                     </Link>{" "}
                     <span className="text-xs text-muted-foreground">({paper.replacementDc.status})</span>{" "}
                     {/* The challan the goods go back on, no debit note (0781). */}
                     <Link
-                      href={`/stores/vendor-returns/${paper.replacementDc.id}/print`}
+                      href={`/purchase/vendor-returns/${paper.replacementDc.id}/print`}
                       className="text-xs font-semibold text-primary hover:underline"
                     >
                       Print DC

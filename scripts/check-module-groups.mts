@@ -499,6 +499,9 @@ const OLD_NAV_LEAVES: Record<string, string[]> = {
 // through MODULE_GROUPS and never consults this table — an entry for it now
 // would be dead weight that reads as a live rule.
 const REDIRECTED: Record<string, string> = {
+  // Vendor Returns MOVED to Purchase ▸ Receiving beside Goods Receipts (user
+  // 2026-10-31) — every return is a DC a GRN raised. The Stores address answers.
+  "/stores/vendor-returns": "/purchase/vendor-returns",
   // Document No Format is the legacy Configure ▸ System screen, filed under
   // Administration by the 2026-07-18 dissolution of that submodule and moved
   // back when System was restored (client 2026-08-12). The Admin row is gone —

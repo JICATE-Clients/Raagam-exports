@@ -333,7 +333,7 @@ export const SECTION_ACTIONS: Record<string, string[]> = {
 
   "/stores/opening-stock": ["New Opening Stock", "Import"],
   "/stores/requisitions": ["New MRS"],
-  "/stores/vendor-returns": ["New Return"],
+  "/purchase/vendor-returns": ["New Return"],
   "/stores/csp-receipts": ["New CSP Receipt"],
 
   "/hr/workers": ["New Worker", "Bulk Import"],

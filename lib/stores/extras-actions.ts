@@ -312,8 +312,8 @@ export async function deleteMrs(id: string): Promise<R> {
 // Vendor Returns
 // ============================================================================
 function revalidateVrt(id?: string): void {
-  if (id) revalidatePath(`/stores/vendor-returns/${id}`);
-  revalidatePath("/stores/vendor-returns");
+  if (id) revalidatePath(`/purchase/vendor-returns/${id}`);
+  revalidatePath("/purchase/vendor-returns");
   revalidatePath("/stores");
 }
 
@@ -356,9 +356,12 @@ export async function deleteVrtLine(id: string, docId: string): Promise<R> {
 export async function postVendorReturn(docId: string): Promise<R> {
   await guard("edit");
   const s = await createClient();
-  const { data: doc } = await s.from("vendor_returns").select("status, store_id, return_date").eq("id", docId).maybeSingle();
+  const { data: doc } = await s.from("vendor_returns").select("status, store_id, return_date, dc_kind").eq("id", docId).maybeSingle();
   if (!doc || doc.status !== "draft") return bad("Only a draft return can be posted");
-  const { data: lines } = await s.from("vendor_return_lines").select("item_id, return_qty").eq("vendor_return_id", docId);
+  const { data: lines } = await s
+    .from("vendor_return_lines")
+    .select("item_id, return_qty, replacement_qty")
+    .eq("vendor_return_id", docId);
   const err = await postLedger(
     ((lines ?? []) as { item_id: string; return_qty: number }[]).map((l) => ({
       store_id: doc.store_id as string,
@@ -371,7 +374,18 @@ export async function postVendorReturn(docId: string): Promise<R> {
     })),
   );
   if (err) return err;
-  const { error } = await s.from("vendor_returns").update({ status: "returned" }).eq("id", docId);
+  /* POSTING FINISHES A RETURN THAT IS OWED NOTHING (user 2026-10-31, screenshot
+     3951: "if post it, it closes — why ask to close again"). A Rejection DC, or a
+     manual return with no replacement qty, goes straight to `closed`. Only one
+     the vendor still owes stays `returned`, and it leaves that state by itself:
+     a Replacement DC when its Replacement GRN fills it (0781 → `replaced`), a
+     manual one through Record replacement. There is no Close button any more. */
+  const kind = (doc as { dc_kind: string | null }).dc_kind;
+  const owed =
+    kind === "replacement" ||
+    (kind == null &&
+      ((lines ?? []) as { replacement_qty: number | null }[]).some((l) => (Number(l.replacement_qty) || 0) > 0));
+  const { error } = await s.from("vendor_returns").update({ status: owed ? "returned" : "closed" }).eq("id", docId);
   if (error) return bad(error.message);
   await writeAudit({ action: "vendor_return.posted", entityType: "vendor_return", entityId: docId });
   revalidateVrt(docId);

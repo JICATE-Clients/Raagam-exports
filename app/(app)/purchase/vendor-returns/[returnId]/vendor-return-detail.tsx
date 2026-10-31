@@ -17,7 +17,6 @@ import {
   deleteVrtLine,
   postVendorReturn,
   recordReplacement,
-  closeVendorReturn,
   cancelVendorReturn,
   deleteVendorReturn,
 } from "@/lib/stores/extras-actions";
@@ -146,17 +145,16 @@ export function VendorReturnDetail({ docId, status, lines, items, canEdit, canDe
               ) : (
                 <Button disabled={isPending} onClick={() => run(() => recordReplacement(docId), "Replacement received")}>Record replacement</Button>
               )}
-              <Button variant="outline" disabled={isPending} onClick={() => run(() => closeVendorReturn(docId), "Closed")}>Close</Button>
+              {/* NO CLOSE BUTTON (user 2026-10-31, screenshot 3951). Posting already
+                  finished the return; one the vendor still owes moves on by itself
+                  when the replacement is received, and `replaced` is final. */}
             </>
-          )}
-          {status === "replaced" && (
-            <Button variant="outline" disabled={isPending} onClick={() => run(() => closeVendorReturn(docId), "Closed")}>Close</Button>
           )}
           {canDelete && !fromGrn && (status === "draft" || status === "cancelled") && (
             <Button variant="outline" className="text-danger hover:border-danger" disabled={isPending}
               onClick={() => run(async () => {
                 const r = await deleteVendorReturn(docId);
-                if (r.ok) router.push("/stores/vendor-returns");
+                if (r.ok) router.push("/purchase/vendor-returns");
                 return r;
               }, "Deleted")}>Delete</Button>
           )}
