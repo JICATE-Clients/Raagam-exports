@@ -75,7 +75,7 @@ export function NotificationsList({
       <header className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
         <Link
           href="/comms"
-          className="rounded-md p-1.5 text-muted-foreground hover:bg-surface-muted @3xl/comms:hidden"
+          className="rounded-md p-2.5 text-muted-foreground hover:bg-surface-muted @3xl/comms:hidden [@media(hover:hover)]:p-1.5"
           aria-label="Back to conversations"
         >
           <ArrowLeft className="h-4 w-4" />

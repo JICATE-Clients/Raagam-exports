@@ -29,12 +29,18 @@ export default async function CommsLayout({ children }: { children: ReactNode })
   // The same call Chats makes — `cache()` in the service answers both with one
   // RPC — so a missing 0737 is caught here, before any page reaches it.
   let workspace: Workspace | null;
+  let chats: Awaited<ReturnType<typeof listMyConversations>>;
   try {
-    [, workspace] = await Promise.all([listMyConversations(), getWorkspace()]);
+    [chats, workspace] = await Promise.all([listMyConversations(), getWorkspace()]);
   } catch (e) {
     if (isCommsMissing(e)) return <CommsNotInstalled />;
     throw e;
   }
   if (workspace?.my_status === "deactivated") return <WorkspaceDeactivated workspace={workspace} />;
-  return <CommsShell top={workspace ? <WorkspaceBar workspace={workspace} /> : null}>{children}</CommsShell>;
+  // `chats` feeds Pulse's list pane (comms-shell.tsx, "PULSE IS TWO PANES").
+  return (
+    <CommsShell top={workspace ? <WorkspaceBar workspace={workspace} /> : null} chats={chats}>
+      {children}
+    </CommsShell>
+  );
 }
