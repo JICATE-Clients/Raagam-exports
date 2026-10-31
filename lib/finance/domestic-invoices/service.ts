@@ -18,3 +18,22 @@ export async function getDomesticInvoices(): Promise<DomesticInvoiceRow[]> {
 }
 
 export { getBuyerOptions } from "@/lib/finance/notes/service";
+
+/**
+ * ONE invoice, for its print page (`/finance/domestic-invoices/<id>/print`). A failed query
+ * is an error, never "not found" — only a missing row is null.
+ */
+export async function getDomesticInvoice(
+  id: string,
+): Promise<(DomesticInvoiceRow & { created_by_name?: string | null }) | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("domestic_garment_invoices")
+    .select("*, buyers(id, name)")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) return null;
+  const [row] = await withCreators([data as unknown as DomesticInvoiceRow]);
+  return row as DomesticInvoiceRow & { created_by_name?: string | null };
+}

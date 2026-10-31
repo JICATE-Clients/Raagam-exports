@@ -24,7 +24,8 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
-import { RowActions } from "@/components/ui/row-actions";
+import { FileText } from "lucide-react";
+import { RowActions, RowIconAction } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { StatusPill } from "@/components/ui/status-pill";
 import { fmtMoney, fmtDate } from "@/lib/format";
@@ -140,16 +141,23 @@ export function DomesticInvoicesClient({
           <StatusPill tone={dgiStatusTone(r.status)}>{DGI_STATUS_LABELS[r.status]}</StatusPill>
         ),
     },
-    ...(canDelete
-      ? [
-          rowActionsColumn<DomesticInvoiceRow>((r) => (
-            <RowActions
-              onDelete={() => handleDelete(r.id)}
-              isPending={isPending}
-            />
-          )),
-        ]
-      : []),
+    // A row's Report opens its print (AGENTS.md "Row actions": FileText as `lead`, view={false}).
+    rowActionsColumn<DomesticInvoiceRow>((r) => (
+      <RowActions
+        lead={
+          <RowIconAction
+            label="Report"
+            name={r.code}
+            icon={FileText}
+            onClick={() => router.push(`/finance/domestic-invoices/${r.id}/print`)}
+          />
+        }
+        view={false}
+        canDelete={canDelete}
+        onDelete={() => handleDelete(r.id)}
+        isPending={isPending}
+      />
+    )),
   ];
 
   return (

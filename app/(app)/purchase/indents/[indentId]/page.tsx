@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Printer } from "lucide-react";
+import { buttonClasses } from "@/components/ui/button";
 import { requirePermission, can } from "@/lib/auth/server";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
@@ -51,6 +53,11 @@ export default async function IndentDetailPage({
         actions={
           <div className="flex items-center gap-2">
             <StatusPill tone={tone(indent.status)}>{INDENT_STATUS_LABELS[indent.status]}</StatusPill>
+            {/* The printed indent (compact document shape, 2026-10-31). */}
+            <Link href={`/purchase/indents/${indentId}/print`} className={buttonClasses({ variant: "outline", size: "md" })}>
+              <Printer aria-hidden className="size-4" />
+              Print
+            </Link>
             <Link href="/purchase/indents" className="text-sm text-muted-foreground hover:text-foreground">
               Back to list
             </Link>
