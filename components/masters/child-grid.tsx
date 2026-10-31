@@ -1549,6 +1549,7 @@ export function ChildGrid<T extends { key: string }>({
   inlineCards = false,
   across = false,
   fill = false,
+  autoFit = false,
   flushRows = false,
   hideIndex = false,
   hideHeader = false,
@@ -2138,6 +2139,21 @@ export function ChildGrid<T extends { key: string }>({
    * `dyeColumns`).
    */
   fill?: boolean;
+  /**
+   * HUG, BUT LET THE CONTENT SIZE THE COLUMNS (Raise PO, user 2026-10-31: "compact
+   * this field size" — the Item column was soaking up the whole pane — after asking
+   * the same day that a rate "dynamically adjusts like Order Entry's Quantities tab").
+   *
+   * The two asks fight under the existing modes. Leave one column unsized and the
+   * table is `w-full` with that column taking every spare pixel; size them all and
+   * `hugsContent` runs FIXED layout, where a `field-sizing: content` box can no
+   * longer widen its column. `autoFit` is the third shape: the card and the table
+   * hug (`w-fit` / `w-auto`) but the table keeps AUTOMATIC layout, so each declared
+   * `width` is a floor and a longer value widens its own column. A column with no
+   * width is as wide as its content — cap it inside the cell (`max-w-…` on the
+   * cell's root) if its text can run long. Opt-in; no other grid changes.
+   */
+  autoFit?: boolean;
   /**
    * Inline rows that read as FIELDS rather than as cards — for a grid sharing a
    * row with a plain `Field`, where the two must line up.
@@ -2818,7 +2834,7 @@ export function ChildGrid<T extends { key: string }>({
    * `fill` opts out — see the prop. A grid standing alone should hug; a grid
    * sharing a row with another one has an edge to line up with instead.
    */
-  const hugsContent = !fill && columns.length > 0 && columns.every((c) => c.width);
+  const hugsContent = !fill && columns.length > 0 && (autoFit || columns.every((c) => c.width));
   /**
    * THE TABLE'S OWN WIDTH, STATED — WITHOUT IT `table-fixed` IS A NO-OP.
    * `table-layout: fixed` only takes effect on a table whose `width` is not
@@ -2835,7 +2851,7 @@ export function ChildGrid<T extends { key: string }>({
    * declared step and its text truncates inside it. The two chrome columns are
    * the same literals the `<colgroup>` below states.
    */
-  const hugWidth = hugsContent
+  const hugWidth = hugsContent && !autoFit
     ? `calc(${[!hideIndex && "2.5rem", ...columns.map((c) => c.width), !hideRemove && REMOVE_IN_CELL_W]
         .filter(Boolean)
         .join(" + ")})`
@@ -3110,7 +3126,8 @@ export function ChildGrid<T extends { key: string }>({
               // together and every picker read "— S…" (client 2026-08-11). Fixed
               // layout honours the declarations and lets the table exceed its
               // container, which is what `overflow-x-auto` on the wrapper is for.
-              hugsContent ? "w-auto table-fixed" : "w-full min-w-[420px]",
+              // `autoFit`: hug with AUTOMATIC layout — widths are floors, content grows them.
+              autoFit && hugsContent ? "w-auto" : hugsContent ? "w-auto table-fixed" : "w-full min-w-[420px]",
               /* PHONE: AT LEAST THE PANE (2026-10-03, phone audit). A hugging
                  table narrower than the screen left Colour cut at "AQUA FO…"
                  beside empty card; `min-width` stretches it, and fixed layout
@@ -3223,7 +3240,12 @@ export function ChildGrid<T extends { key: string }>({
                   className="border-b border-border last:border-0 hover:bg-surface-muted/40"
                 >
                   {!hideIndex && (
-                    <td className="px-2 py-1.5 text-center align-top text-xs text-muted-foreground">{startIndex + i + 1}</td>
+                    /* THE ROW NUMBER SITS ON THE ROW'S LINE (user 2026-10-31, Raise PO screenshot
+                       3930: "no clean alignment"). It was `py-1.5` beside cells that are `py-1`,
+                       and a 16px text line beside 36px controls, so the number rode ~6px above
+                       every value in the row. Same top padding as the cells, and a line as tall
+                       as `Input` is (h-9, h-8 in an editor), puts it on the controls' centre. */
+                    <td className="px-2 py-1 text-center align-top text-xs leading-9 text-muted-foreground @2xl/editor:leading-8">{startIndex + i + 1}</td>
                   )}
                   {columns.map((c, ci) => (c.spanRows && localI > 0) ? null : (
                     <td

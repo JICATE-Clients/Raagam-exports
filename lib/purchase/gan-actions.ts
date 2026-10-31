@@ -84,6 +84,25 @@ export async function completeGanCheck(
     .eq("id", checkId);
   if (error) return { ok: false, error: error.message };
 
+  /* THE RESULT REACHES THE GRN LINE (grn-plan.md Phase 4). A quality check named a line
+     and its verdict, but nothing carried the verdict back, so the line kept "Pending" and
+     the keeper re-typed it — or did not. While the GRN is still a draft, the line's QC
+     status follows the check: pass → Passed, fail → Failed, conditional → Partial. The
+     REJECTED QTY is still the keeper's to enter (a check says the goods failed, not how
+     many) — the GRN page flags a Failed line with nothing rejected. A posted GRN is left
+     as posted. */
+  const { data: chk } = await supabase.from("gan_quality_checks").select("grn_line_id").eq("id", checkId).maybeSingle();
+  const lineId = (chk as { grn_line_id: string | null } | null)?.grn_line_id;
+  if (lineId) {
+    const { data: g } = await supabase.from("grns").select("status").eq("id", grnId).maybeSingle();
+    if ((g as { status: string } | null)?.status === "draft") {
+      const qc = overallResult === "pass" ? "passed" : overallResult === "fail" ? "failed" : "partial";
+      const { error: lineErr } = await supabase.from("grn_line_items").update({ qc_status: qc }).eq("id", lineId).eq("grn_id", grnId);
+      if (lineErr) return { ok: false, error: `Check saved, but the GRN line's QC status was not: ${lineErr.message}` };
+      revalidatePath(`/purchase/grn/${grnId}`);
+    }
+  }
+
   await writeAudit({
     action: "gan_check.completed",
     entityType: "gan_quality_check",

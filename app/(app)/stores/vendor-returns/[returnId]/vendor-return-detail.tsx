@@ -27,17 +27,24 @@ import type { ItemOption } from "@/lib/stores/extras-service";
 interface Props {
   docId: string;
   status: VendorReturnStatus;
+  /**
+   * A REJECTION DC raised by a posted GRN (0780). Its lines ARE the GRN's rejections, so
+   * they are not edited here, it is not deleted, and its replacement is RECEIVED on a
+   * Replacement GRN (Purchase ▸ Goods Receipts) — never "Record replacement" here, which
+   * would book the stock with no PO line, no tolerance and no debit-note settlement.
+   */
+  fromGrn?: boolean;
   lines: VendorReturnLine[];
   items: ItemOption[];
   canEdit: boolean;
   canDelete: boolean;
 }
 
-export function VendorReturnDetail({ docId, status, lines, items, canEdit, canDelete }: Props) {
+export function VendorReturnDetail({ docId, status, lines, items, canEdit, canDelete, fromGrn = false }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
-  const editable = status === "draft";
+  const editable = status === "draft" && !fromGrn;
 
   const [itemId, setItemId] = useState("");
   const [returnQty, setReturnQty] = useState("");
@@ -132,14 +139,20 @@ export function VendorReturnDetail({ docId, status, lines, items, canEdit, canDe
           )}
           {status === "returned" && (
             <>
-              <Button disabled={isPending} onClick={() => run(() => recordReplacement(docId), "Replacement received")}>Record replacement</Button>
+              {fromGrn ? (
+                <span className="text-sm text-muted-foreground">
+                  The replacement is received on Purchase ▸ Goods Receipts — it is listed there under Pending.
+                </span>
+              ) : (
+                <Button disabled={isPending} onClick={() => run(() => recordReplacement(docId), "Replacement received")}>Record replacement</Button>
+              )}
               <Button variant="outline" disabled={isPending} onClick={() => run(() => closeVendorReturn(docId), "Closed")}>Close</Button>
             </>
           )}
           {status === "replaced" && (
             <Button variant="outline" disabled={isPending} onClick={() => run(() => closeVendorReturn(docId), "Closed")}>Close</Button>
           )}
-          {canDelete && (status === "draft" || status === "cancelled") && (
+          {canDelete && !fromGrn && (status === "draft" || status === "cancelled") && (
             <Button variant="outline" className="text-danger hover:border-danger" disabled={isPending}
               onClick={() => run(async () => {
                 const r = await deleteVendorReturn(docId);

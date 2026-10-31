@@ -309,13 +309,25 @@ export interface PoAdditionalCharge {
 export interface Grn {
   id: string;
   code: string | null;
+  /** Legacy `public.vendors` — no longer written (0777). */
   vendor_id: string | null;
+  /** The supplier, a MASTER vendor — the same one the PO names (0777). */
+  master_vendor_id: string | null;
   location_id: string | null;
   grn_date: string | null;
   status: GrnStatus;
   notes: string | null;
-  /** Vendor's delivery challan / invoice number (0620). */
+  /** Vendor's delivery challan / invoice number (0620) — read-only since 0777, which split it. */
   challan_no: string | null;
+  /** The vendor's invoice that came with the goods (0777). */
+  invoice_no: string | null;
+  invoice_date: string | null;
+  /** The vendor's delivery challan number (0777). */
+  dc_no: string | null;
+  /** regular, or a replacement for goods rejected earlier (0780). */
+  kind: "regular" | "replacement";
+  /** A replacement's Rejection DC (0780). */
+  vendor_return_id: string | null;
   /** Store Manager who authorised receipt beyond the PO tolerance (0620). */
   over_receipt_authorized_by: string | null;
   over_receipt_authorized_at: string | null;
@@ -336,6 +348,11 @@ export interface GrnLineItem {
   rejected_qty: number;
   qc_status: QcStatus;
   rejection_reason: string | null;
+  /** Where a rejected qty goes (0780): replaced on this PO, or closed and re-bought. */
+  rejection_action: "replace" | "return";
+  /** Where the accepted goods were put (0777). */
+  store_id: string | null;
+  bin_id: string | null;
   /** Roll / batch number of the goods on this line (0620). */
   roll_batch_no: string | null;
   sort_order: number;
@@ -596,23 +613,41 @@ export const grnLineInput = z.object({
    */
   po_line_item_id: z.string().uuid().optional().nullable(),
   purchase_order_id: z.string().uuid().optional().nullable(),
+  /** Copied from the PO line (0777) — the action re-reads it, never trusts this. */
+  item_id: z.string().uuid().optional().nullable(),
+  /** Where the accepted goods are put (grn.md §2A, 0777) — a store of the GRN's unit. */
+  store_id: z.string().uuid().optional().nullable(),
+  bin_id: z.string().uuid().optional().nullable(),
   description: z.string().min(1),
   received_qty: z.coerce.number().nonnegative().default(0),
   accepted_qty: z.coerce.number().nonnegative().default(0),
   rejected_qty: z.coerce.number().nonnegative().default(0),
   qc_status: z.enum(QC_STATUSES).default("pending"),
   rejection_reason: z.string().optional().nullable(),
+  /**
+   * WHERE A REJECTED QTY GOES (0780): `replace` — the vendor sends it again on the same
+   * PO (a Replacement GRN); `return` — the PO line is short-closed by it and the
+   * requirement reopens for a fresh PO. Read only when rejected_qty > 0.
+   */
+  rejection_action: z.enum(["replace", "return"]).default("replace"),
   roll_batch_no: capsTextNullable(),
   sort_order: z.coerce.number().int().default(0),
 });
 export type GrnLineInput = z.infer<typeof grnLineInput>;
 
 export const grnInput = z.object({
-  vendor_id: z.string().uuid().optional().nullable(),
+  /** The PO's MASTER vendor (0777) — a Raise-PO PO has no legacy vendor at all. */
+  master_vendor_id: z.string().uuid({ message: "Pick the vendor" }),
   location_id: z.string().uuid().optional().nullable(),
   grn_date: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
-  challan_no: capsTextNullable(),
+  /** The vendor's Invoice No + Date and DC No (spec grn.md §2A, 0777). */
+  invoice_no: capsTextNullable(),
+  invoice_date: z.string().optional().nullable(),
+  dc_no: capsTextNullable(),
+  /** A Replacement GRN (0780) receives against the Rejection DC it names. */
+  kind: z.enum(["regular", "replacement"]).default("regular"),
+  vendor_return_id: z.string().uuid().optional().nullable(),
   /**
    * The Store Manager override for lines beyond the PO's over-receipt
    * tolerance (0620). A REASON, never a user id: the action stamps the caller

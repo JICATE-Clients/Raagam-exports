@@ -145,7 +145,7 @@ export function FinanceNotesClient({
       header: "Party",
       cell: (n) => (
         <span className="text-sm">
-          {n.party_type === "vendor" ? n.vendors?.name : n.buyers?.name}
+          {n.party_type === "vendor" ? (n.master_vendors?.name ?? n.vendors?.name) : n.buyers?.name}
           <span className="ml-1 text-xs text-muted-foreground">
             ({PARTY_TYPE_LABELS[n.party_type]})
           </span>

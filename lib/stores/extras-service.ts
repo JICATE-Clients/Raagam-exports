@@ -128,13 +128,14 @@ export async function listVendorReturns(): Promise<VendorReturnWithRefs[]> {
   const s = await createClient();
   const { data } = await s
     .from("vendor_returns")
-    .select("*, stores(code), vendors(name)")
+    // The master vendor too (0780): a Rejection DC raised by a GRN names only that one.
+    .select("*, stores(code), vendors(name), master_vendors(name)")
     // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
     .order("created_at", { ascending: true });
   return withCreators(((data ?? []) as Record<string, unknown>[]).map((r) => ({
     ...(r as unknown as VendorReturn),
     store_code: joined(r, "stores", "code"),
-    vendor_name: joined(r, "vendors", "name"),
+    vendor_name: joined(r, "master_vendors", "name") ?? joined(r, "vendors", "name"),
   })));
 }
 export async function getVendorReturn(id: string): Promise<VendorReturn | null> {

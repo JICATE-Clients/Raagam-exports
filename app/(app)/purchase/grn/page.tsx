@@ -1,66 +1,50 @@
-import Link from "next/link";
 import { requirePermission } from "@/lib/auth/server";
-import { listGrns } from "@/lib/purchase/grn-service";
+import { hasPermission } from "@/lib/auth/types";
+import {
+  getGrnReceivingLocations,
+  getGrnStoresAndBins,
+  getOpenPoLines,
+  getReplacementsDue,
+  listGrns,
+} from "@/lib/purchase/grn-service";
 import { PageHeader } from "@/components/ui/page-header";
-import { Button } from "@/components/ui/button";
-import { DataTable, type Column } from "@/components/ui/data-table";
-import { StatusPill } from "@/components/ui/status-pill";
-import { statusTone } from "@/lib/ui/status-tone";
-import { fmtDate, fmtNumber } from "@/lib/format";
-import type { GrnWithVendor } from "@/lib/purchase/grn-service";
-import { withCreatedColumns } from "@/components/ui/created-columns";
+import { GrnScreen } from "./_components/grn-screen";
 
-const columns: Column<GrnWithVendor>[] = [
-  {
-    header: "Code",
-    cell: (r) => (
-      <Link
-        href={`/purchase/grn/${r.id}`}
-        className="font-medium text-primary hover:underline"
-      >
-        {r.code ?? "—"}
-      </Link>
-    ),
-  },
-  { header: "Vendor", cell: (r) => r.vendors?.name ?? "—" },
-  { header: "Date", cell: (r) => fmtDate(r.grn_date) },
-  {
-    header: "Status",
-    cell: (r) => (
-      <StatusPill tone={statusTone(r.status === "posted" ? "posted" : "draft")}>
-        {r.status === "posted" ? "Posted" : "Draft"}
-      </StatusPill>
-    ),
-  },
-  {
-    header: "Lines",
-    align: "right",
-    cell: (r) => (
-      <span className="tabular-nums">{fmtNumber(r.line_count)}</span>
-    ),
-  },
-];
-
+/**
+ * PURCHASE ▸ RECEIVING ▸ GOODS RECEIPTS — the Receiving screen (doc/purchase/grn.md §1,
+ * grn-plan.md Phase 2). Pending POs, posted and draft GRNs, and the entry opened from a
+ * row. Everything loads in one round: the open PO lines come back already carrying the
+ * order, buyer and class the filters read (0778).
+ */
 export default async function GrnListPage() {
-  await requirePermission("materials_purchase", "view");
-  const grns = await listGrns();
+  const user = await requirePermission("materials_purchase", "view");
+  const [openPoLines, grns, replacements, receiving, place] = await Promise.all([
+    getOpenPoLines(),
+    listGrns(),
+    getReplacementsDue(),
+    getGrnReceivingLocations(),
+    getGrnStoresAndBins(),
+  ]);
 
   return (
     <div className="space-y-4">
       <PageHeader
         title="Goods Receipt Notes"
-        description="Receive goods against purchase orders — partial receipts, QC accept/reject."
-        actions={
-          <Link href="/purchase/grn/new">
-            <Button size="md">New GRN</Button>
-          </Link>
-        }
+        description="Pick a pending PO, type what arrived and where it was put. Post it to book the stock."
       />
-      <DataTable
-        columns={withCreatedColumns(columns, grns)}
-        rows={grns}
-        getKey={(r) => r.id}
-        empty="No GRNs yet. Create a GRN to start receiving goods against purchase orders."
+      <GrnScreen
+        openPoLines={openPoLines}
+        grns={grns}
+        replacements={replacements}
+        locations={receiving.options}
+        defaultLocationId={receiving.defaultId}
+        // `stores:approve` is the Store Manager key — the one that may authorise an
+        // over-receipt. createGrn and the 0620 trigger re-check.
+        canAuthorize={hasPermission(user, "stores", "approve")}
+        canCreate={hasPermission(user, "materials_purchase", "create")}
+        stores={place.stores}
+        bins={place.bins}
+        defaultStoreId={place.defaultStoreId}
       />
     </div>
   );

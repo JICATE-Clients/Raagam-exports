@@ -1800,8 +1800,9 @@ Plan and phases: `doc/admin/notification-management-plan.md`.
 ## Locations: allocated units only (STANDING)
 
 **Normal user = allocated units only. Super Admin = every unit. Master Data =
-shared** (client 2026-10-03). Three units: Head Office, Unit 1, Unit 2. Head
-Office is ONE unit, not a consolidation — anyone who needs more is allocated
+shared** (client 2026-10-03). Three units: Raagam HO (`HO`), Unit 2 (`U2`),
+Unit 3 (`U3`) — 0772 (2026-10-31) renamed the unused Unit 1 row to Unit 3 in
+place and Head Office to Raagam HO; there is no Unit 1. Raagam HO is ONE unit, not a consolidation — anyone who needs more is allocated
 more. Work still happens in one unit at a time (the topbar switcher); the
 allocation is the set a person may switch between.
 

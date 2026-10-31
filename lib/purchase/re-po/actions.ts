@@ -231,7 +231,8 @@ export async function savePoFromRequirement(raw: RePoInput, mode: "draft" | "sub
     bag_weight: number | null;
     rolls: number | null;
     gauge: string | null;
-    loop_length: number | null;
+    ply: string | null;
+    loop_length: string | null;
   }[] = [];
   for (const l of input.lines) {
     if (l.qty <= 0) continue; // qty 0 = "not ordered on this PO"
@@ -260,6 +261,7 @@ export async function savePoFromRequirement(raw: RePoInput, mode: "draft" | "sub
       bag_weight: l.bag_weight ?? null,
       rolls: l.rolls ?? null,
       gauge: l.gauge ?? null,
+      ply: l.ply ?? null,
       loop_length: l.loop_length ?? null,
     });
   }
@@ -287,6 +289,17 @@ export async function savePoFromRequirement(raw: RePoInput, mode: "draft" | "sub
     if (missing.length) {
       const names = missing.map((id) => lines.find((l) => l.req.item_class_id === id)?.req.item_class ?? "a class");
       return { ok: false, error: `That vendor is not a bought-item vendor for ${names.join(", ")} — check Master Data ▸ Vendors` };
+    }
+    // LOCAL / IMPORT DECIDES THE VENDOR (0773, user 2026-10-31): a foreign vendor only on
+    // an Import PO, an Indian one only on a Local PO — the screen's list, checked again here.
+    const picked = lists[0]?.find((v) => v.id === input.vendor_id);
+    if (picked && picked.is_import !== (input.po_type === "import")) {
+      return {
+        ok: false,
+        error: picked.is_import
+          ? "That vendor is outside India — raise it as an Import PO"
+          : "That vendor is in India — raise it as a Local PO, or pick an import vendor",
+      };
     }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Could not read the vendors" };
@@ -394,6 +407,8 @@ export async function savePoFromRequirement(raw: RePoInput, mode: "draft" | "sub
       dia: bomDiaOf(l.req),
       gsm: lineKindOf(l.req.item_class) === "fabric" ? l.req.gsm : null,
       gauge: lineKindOf(l.req.item_class) === "fabric" ? l.gauge : null,
+      // Ply apart from Gauge; LL in cm as free text (0774, user 2026-10-31).
+      ply: lineKindOf(l.req.item_class) === "fabric" ? l.ply : null,
       loop_length: lineKindOf(l.req.item_class) === "fabric" ? l.loop_length : null,
       quantity: l.qty,
       uom_id: l.req.uom_id,

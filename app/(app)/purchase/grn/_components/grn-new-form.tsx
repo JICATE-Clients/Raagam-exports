@@ -13,8 +13,8 @@ import { Field, FieldError, FieldRow, FIELD_WIDTH_CSS } from "@/components/ui/fi
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
-import type { OpenPoLine } from "@/lib/purchase/grn-service";
-import type { Vendor, QcStatus } from "@/lib/purchase/types";
+import type { GrnBinOption, GrnStoreOption, OpenPoLine, ReplacementDue } from "@/lib/purchase/grn-service";
+import type { QcStatus } from "@/lib/purchase/types";
 import {
   acceptedFrom,
   receiptBand,
@@ -62,6 +62,36 @@ interface DraftLine {
   rollBatchNo: string;
   qcStatus: QcStatus;
   rejectionReason: string;
+  /** Where a rejected qty goes (0780): sent again on this PO, or closed and re-bought. */
+  rejectionAction: "replace" | "return";
+  /** Where the accepted goods go (grn.md §2A) — opens on the unit's material store. */
+  storeId: string;
+  binId: string;
+}
+
+/** A PO's lines as the grid's rows — every line, in the PO's own order (0620). */
+function linesOfPo(openPoLines: OpenPoLine[], poId: string, defaultStoreId: string | null): DraftLine[] {
+  return openPoLines
+    .filter((l) => l.purchase_order_id === poId)
+    .sort((a, b) => a.sort_order - b.sort_order)
+    .map((l) => ({
+      key: l.id,
+      poLineItemId: l.id,
+      purchaseOrderId: l.purchase_order_id,
+      description: l.description,
+      uomCode: l.uom_code,
+      ordered: l.quantity,
+      receivedSoFar: l.received_qty,
+      tolerancePct: l.tolerance_pct,
+      todayRecd: "",
+      shortageRej: "",
+      rollBatchNo: "",
+      qcStatus: "pending",
+      rejectionReason: "",
+      rejectionAction: "replace",
+      storeId: defaultStoreId ?? "",
+      binId: "",
+    }));
 }
 
 const QC_OPTIONS: { value: QcStatus; label: string }[] = [
@@ -102,37 +132,76 @@ function reasonProblem(l: DraftLine): string | null {
 
 interface Props {
   openPoLines: OpenPoLine[];
-  vendors: Pick<Vendor, "id" | "code" | "name">[];
   locations: { id: string; code: string; name: string; postable: boolean }[];
   defaultLocationId: string | null;
   /** Holds `stores:approve` — may authorise an over-receipt. */
   canAuthorize: boolean;
+  /** The working unit's stores and bins — the line's Store and Bin pickers (0777). */
+  stores: GrnStoreOption[];
+  bins: GrnBinOption[];
+  defaultStoreId: string | null;
+  /** Opened from a Pending row on the Receiving list: that PO, already loaded. */
+  initialPoId?: string | null;
+  /** Opened from the list's New GRN with one vendor filtered: that vendor, already chosen. */
+  initialVendorId?: string | null;
+  /** Back to the Receiving list (embedded); omitted = the standalone /new page. */
+  onCancel?: () => void;
+  /**
+   * A REPLACEMENT GRN (0780): the Rejection DC it fills. Its vendor and PO are fixed, and
+   * only the lines still owed load — the goods the vendor is sending back in place of
+   * what was rejected. No bill is raised for it; the original invoice covered them.
+   */
+  replacement?: ReplacementDue | null;
 }
 
 export function GrnNewForm({
   openPoLines,
-  vendors,
   locations,
   defaultLocationId,
   canAuthorize,
+  stores,
+  bins,
+  defaultStoreId,
+  initialPoId = null,
+  initialVendorId = null,
+  onCancel,
+  replacement = null,
 }: Props) {
+  /* A replacement opens on the PO its owed lines belong to (one GRN, one PO). */
+  const replacementPoId = replacement
+    ? (openPoLines.find((l) => l.id === replacement.lines[0]?.po_line_item_id)?.purchase_order_id ?? null)
+    : null;
+  const owedLineIds = new Set(replacement?.lines.map((l) => l.po_line_item_id) ?? []);
+  const startPoId = replacementPoId ?? initialPoId;
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
 
   const [locationId, setLocationId] = useState(defaultLocationId ?? "");
   const [grnDate, setGrnDate] = useState(() => today());
-  const [challanNo, setChallanNo] = useState("");
-  const [vendorId, setVendorId] = useState("");
-  const [poId, setPoId] = useState("");
+  const [invoiceNo, setInvoiceNo] = useState("");
+  const [invoiceDate, setInvoiceDate] = useState("");
+  const [dcNo, setDcNo] = useState("");
+  // OPENED ON A PO (the Receiving list's pencil): its vendor and lines are there from the
+  // first render, and the cursor lands on the first Today Recd (landToken starts at 1).
+  const [vendorId, setVendorId] = useState(
+    () =>
+      replacement?.vendor_id ||
+      ((startPoId ? openPoLines.find((l) => l.purchase_order_id === startPoId)?.vendor_id : null) ?? initialVendorId ?? ""),
+  );
+  const [poId, setPoId] = useState(startPoId ?? "");
   const [notes, setNotes] = useState("");
-  const [lines, setLines] = useState<DraftLine[]>([]);
+  const [lines, setLines] = useState<DraftLine[]>(() =>
+    startPoId
+      ? linesOfPo(openPoLines, startPoId, defaultStoreId).filter((l) => !replacement || owedLineIds.has(l.poLineItemId))
+      : [],
+  );
   const [overrideReason, setOverrideReason] = useState("");
   const [authorized, setAuthorized] = useState(false);
   const [attempted, setAttempted] = useState(false);
   const [dirty, setDirty] = useState(false);
   const gridRef = useRef<HTMLDivElement>(null);
-  const [landToken, setLandToken] = useState(0);
+  const [landToken, setLandToken] = useState(startPoId ? 1 : 0);
 
   useUnsavedGuard(dirty || isPending);
 
@@ -166,11 +235,14 @@ export function GrnNewForm({
       });
     }
   }
-  const vendorOptions: ComboboxOption[] = vendors.map((v) => ({
-    value: v.id,
-    label: v.name,
-    search: v.code,
-  }));
+  /* ONLY VENDORS WITH SOMETHING TO DELIVER (grn.md §1, 0777): the vendor list is read off
+     the open POs themselves — their MASTER vendor — so a vendor with no open PO is not
+     offered, and a PO raised on Raise PO (master vendor only) is receivable at last. */
+  const vendorOptions: ComboboxOption[] = Array.from(
+    new Map(Array.from(pos.values()).filter((p) => p.vendorId).map((p) => [p.vendorId, p.vendorName])).entries(),
+  )
+    .sort((a, b) => a[1].localeCompare(b[1]))
+    .map(([value, label]) => ({ value, label }));
   /* A PO number can be typed straight in: with no vendor chosen the list is
      every open PO (the vendor shows beside it), and picking one fills the
      vendor. With a vendor chosen it narrows to that vendor's open POs. */
@@ -198,26 +270,7 @@ export function GrnNewForm({
     }
     const po = pos.get(nextPoId);
     if (po && po.vendorId !== vendorId) setVendorId(po.vendorId);
-    setLines(
-      openPoLines
-        .filter((l) => l.purchase_order_id === nextPoId)
-        .sort((a, b) => a.sort_order - b.sort_order)
-        .map((l) => ({
-          key: l.id,
-          poLineItemId: l.id,
-          purchaseOrderId: l.purchase_order_id,
-          description: l.description,
-          uomCode: l.uom_code,
-          ordered: l.quantity,
-          receivedSoFar: l.received_qty,
-          tolerancePct: l.tolerance_pct,
-          todayRecd: "",
-          shortageRej: "",
-          rollBatchNo: "",
-          qcStatus: "pending",
-          rejectionReason: "",
-        })),
-    );
+    setLines(linesOfPo(openPoLines, nextPoId, defaultStoreId));
     setLandToken((t) => t + 1);
   }
 
@@ -253,10 +306,14 @@ export function GrnNewForm({
     if (!canSave) return;
     startTransition(async () => {
       const result = await createGrn({
-        vendor_id: vendorId || null,
+        master_vendor_id: vendorId,
         location_id: locationId || null,
         grn_date: grnDate,
-        challan_no: challanNo.trim() || null,
+        invoice_no: invoiceNo.trim() || null,
+        invoice_date: invoiceDate || null,
+        dc_no: dcNo.trim() || null,
+        kind: replacement ? "replacement" : "regular",
+        vendor_return_id: replacement?.id ?? null,
         notes: notes.trim() || null,
         over_receipt_reason: needsOverride && authorized ? overrideReason.trim() : null,
         lines: receiving.map((l, i) => {
@@ -272,7 +329,11 @@ export function GrnNewForm({
             rejected_qty: rejected,
             qc_status: l.qcStatus,
             rejection_reason: l.rejectionReason.trim() || null,
+            // A replacement's own rejection is still owed on the same DC (the action re-forces it).
+            rejection_action: replacement ? "replace" : l.rejectionAction,
             roll_batch_no: l.rollBatchNo.trim() || null,
+            store_id: l.storeId || null,
+            bin_id: l.binId || null,
             sort_order: i,
           };
         }),
@@ -289,8 +350,10 @@ export function GrnNewForm({
   }
 
   /*
-   * 176 + 72 + 88×4 + 144 + 88 + 144 + 88 = 1064, + 40 chrome (the `#`; no ✕ —
-   * `hideRemove`, the rows are the PO's own lines) = 1104 <= 1155 -> tableFrom="5xl".
+   * Item 176 · PO Qty 112 · Today 88 · Rej 88 · Store 112 · Bin 112 · Roll 112 · QC 88 ·
+   * Reason 112 · Status 88 = 1088, + 40 chrome (the `#`; no ✕ — `hideRemove`, the rows are
+   * the PO's own lines) = 1128 <= 1155 -> tableFrom="5xl". Store and Bin (0777) were paid
+   * for by folding UOM and Recd So Far into the PO Qty cell, and Roll / Reason to `range`.
    */
   const grnLineColumns: ChildGridColumn<DraftLine>[] = [
     {
@@ -299,21 +362,18 @@ export function GrnNewForm({
       cell: (l) => <Truncated className="text-sm">{l.description}</Truncated>,
     },
     {
-      header: "UOM",
-      width: FIELD_WIDTH_CSS.num,
-      cell: (l) => <span className="text-sm">{l.uomCode ?? ""}</span>,
-    },
-    {
+      // PO QTY, ITS UNIT, AND WHAT HAS ARRIVED SO FAR — one cell, two lines.
       header: "PO Qty",
-      width: FIELD_WIDTH_CSS.hug,
+      width: FIELD_WIDTH_CSS.range,
       align: "right",
-      cell: (l) => <span className="tabular-nums text-sm">{fmtNumber(l.ordered)}</span>,
-    },
-    {
-      header: "Recd So Far",
-      width: FIELD_WIDTH_CSS.hug,
-      align: "right",
-      cell: (l) => <span className="tabular-nums text-sm">{fmtNumber(l.receivedSoFar)}</span>,
+      cell: (l) => (
+        <div className="text-right leading-tight">
+          <div className="tabular-nums text-sm">
+            {fmtNumber(l.ordered)} <span className="text-xs text-muted-foreground">{l.uomCode ?? ""}</span>
+          </div>
+          <div className="text-[11px] tabular-nums text-muted-foreground">recd {fmtNumber(l.receivedSoFar)}</div>
+        </div>
+      ),
     },
     {
       header: "Today Recd",
@@ -355,8 +415,48 @@ export function GrnNewForm({
       },
     },
     {
+      // WHERE IT IS PUT (grn.md §2A): the unit's store — opens on the material store — and
+      // the bin. Accepted goods are booked into this store when the GRN is posted.
+      header: "Store",
+      width: FIELD_WIDTH_CSS.range,
+      cell: (l) => (
+        <Select
+          aria-label={`Store, ${l.description}`}
+          className="h-8"
+          value={l.storeId}
+          onChange={(e) => updateLine(l.key, { storeId: e.target.value })}
+        >
+          {stores.length === 0 ? <option value="">No store in this unit</option> : null}
+          {stores.map((st) => (
+            <option key={st.id} value={st.id}>
+              {st.name}
+            </option>
+          ))}
+        </Select>
+      ),
+    },
+    {
+      header: "Bin",
+      width: FIELD_WIDTH_CSS.range,
+      cell: (l) => (
+        <Select
+          aria-label={`Bin, ${l.description}`}
+          className="h-8"
+          value={l.binId}
+          onChange={(e) => updateLine(l.key, { binId: e.target.value })}
+        >
+          <option value="">{bins.length === 0 ? "No bins yet" : "—"}</option>
+          {bins.map((b) => (
+            <option key={b.id} value={b.id}>
+              {b.code}
+            </option>
+          ))}
+        </Select>
+      ),
+    },
+    {
       header: "Roll / Batch No",
-      width: FIELD_WIDTH_CSS.code,
+      width: FIELD_WIDTH_CSS.range,
       cell: (l) => (
         <Input
           aria-label={`Roll / Batch No, ${l.description}`}
@@ -389,7 +489,7 @@ export function GrnNewForm({
     },
     {
       header: "Rejection Reason",
-      width: FIELD_WIDTH_CSS.code,
+      width: FIELD_WIDTH_CSS.range,
       cell: (l) => {
         // Mandatory exactly when the line has a shortage / rejection (postGrn
         // refuses without it) — and then ON the Tab path, so the hold is one
@@ -408,6 +508,20 @@ export function GrnNewForm({
               onChange={(e) => updateLine(l.key, { rejectionReason: e.target.value })}
             />
             <FieldError id={`grn-reason-${l.key}-error`}>{problem}</FieldError>
+            {/* WHERE THE REJECTED QTY GOES (0780) — under the reason, only once something is
+                rejected, and never on a replacement (still owed on the same DC). Replace:
+                the vendor sends it again on this PO. Return: closed here, re-bought on a new PO. */}
+            {needed && !replacement ? (
+              <Select
+                aria-label={`Rejected goods, ${l.description}`}
+                className="mt-1 h-7 text-xs"
+                value={l.rejectionAction}
+                onChange={(e) => updateLine(l.key, { rejectionAction: e.target.value === "return" ? "return" : "replace" })}
+              >
+                <option value="replace">Vendor replaces</option>
+                <option value="return">Return &amp; re-buy</option>
+              </Select>
+            ) : null}
           </div>
         );
       },
@@ -430,7 +544,15 @@ export function GrnNewForm({
       {/* 5 fields: 200 + 144 + 144 + 288 + 176 = 952 + 4 × 12 gap = 1000px ≈ 62.5rem → cap at 64rem. */}
       <Card className="max-w-[64rem]">
         <CardHeader>
-          <CardTitle>GRN Details</CardTitle>
+          <CardTitle>{replacement ? "Replacement GRN" : "GRN Details"}</CardTitle>
+          {replacement ? (
+            // What this receipt fills — and why no bill follows it (0780).
+            <span className="text-xs text-muted-foreground">
+              Replaces goods on Rejection DC {replacement.code ?? ""}
+              {replacement.grn_code ? ` (rejected on ${replacement.grn_code})` : ""} · no new bill — the
+              vendor&apos;s original invoice covered them
+            </span>
+          ) : null}
         </CardHeader>
         <CardBody className="space-y-3">
           <FieldRow>
@@ -468,21 +590,13 @@ export function GrnNewForm({
                 }}
               />
             </Field>
-            <Field label="Challan / Inv No" w="code" htmlFor="grn-challan">
-              <Input
-                id="grn-challan"
-                value={challanNo}
-                onChange={(e) => {
-                  touch();
-                  setChallanNo(e.target.value);
-                }}
-              />
-            </Field>
             <Field label="Vendor" required w="name" htmlFor="grn-vendor">
               <Combobox
                 id="grn-vendor"
                 options={vendorOptions}
                 value={vendorId}
+                // A replacement comes from the vendor the goods went back to — fixed.
+                disabled={!!replacement}
                 openOnFocus={false}
                 onChange={(v) => {
                   touch();
@@ -507,6 +621,7 @@ export function GrnNewForm({
                 id="grn-po"
                 options={poOptions}
                 value={poId}
+                disabled={!!replacement}
                 openOnFocus={false}
                 onChange={(v) => {
                   touch();
@@ -515,7 +630,41 @@ export function GrnNewForm({
               />
             </Field>
           </FieldRow>
+          {/* THE VENDOR'S PAPERS (grn.md §2A, 0777): the invoice and the delivery challan
+              that came with the goods — one "Challan / Inv No" box held either before. */}
           <FieldRow>
+            <Field label="Invoice No" w="code" htmlFor="grn-invoice-no">
+              <Input
+                id="grn-invoice-no"
+                value={invoiceNo}
+                onChange={(e) => {
+                  touch();
+                  setInvoiceNo(e.target.value);
+                }}
+              />
+            </Field>
+            <Field label="Invoice Date" w="code" htmlFor="grn-invoice-date">
+              <Input
+                id="grn-invoice-date"
+                type="date"
+                max="9999-12-31"
+                value={invoiceDate}
+                onChange={(e) => {
+                  touch();
+                  setInvoiceDate(e.target.value);
+                }}
+              />
+            </Field>
+            <Field label="DC No" w="code" htmlFor="grn-dc-no">
+              <Input
+                id="grn-dc-no"
+                value={dcNo}
+                onChange={(e) => {
+                  touch();
+                  setDcNo(e.target.value);
+                }}
+              />
+            </Field>
             <Field label="Notes" w="name" htmlFor="grn-notes">
               <Input
                 id="grn-notes"
@@ -629,7 +778,7 @@ export function GrnNewForm({
       <div data-focus-region="footer" className="flex flex-wrap items-center gap-3">
         <Button
           variant="outline"
-          onClick={() => router.push("/purchase/grn")}
+          onClick={() => (onCancel ? onCancel() : router.push("/purchase/grn"))}
           disabled={isPending}
         >
           Cancel

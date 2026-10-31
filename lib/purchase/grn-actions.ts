@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient, createAdminClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
 import { can, getAppUser } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
 import {
@@ -9,15 +9,12 @@ import {
   grnLineInput,
   dcInput,
   dcLineInput,
-  derivePoReceiptStatus,
   type GrnInput,
   type GrnLineInput,
   type DcInput,
   type DcLineInput,
-  type PoStatus,
   type DcStatus,
 } from "./types";
-import { threeWayMatchStatus } from "@/lib/finance/calc";
 import { acceptedFrom, receiptBand } from "./grn-tolerance";
 import { getGrnReceivingLocations } from "./grn-service";
 
@@ -127,6 +124,130 @@ export async function createGrn(payload: GrnInput): Promise<CreateGrnResult> {
         tolerancePct: Number(pl.purchase_orders?.over_receipt_tolerance_pct ?? 3),
       });
       if (band === "over") overCount++;
+    }
+  }
+
+  /* THE PO LINES SAY WHAT WAS BOUGHT, AND FROM WHOM (0777). The item is copied from the
+     PO line — never taken from the payload — and every PO on the GRN must name the GRN's
+     vendor: one GRN is one vendor's delivery, as one PO is one vendor's order. */
+  const itemByLine = new Map<string, string | null>();
+  /** Per PO line: ordered − short-closed − received so far (0780). */
+  const stillOrdered = new Map<string, number>();
+  if (poLineIds.length > 0) {
+    const { data: plRows, error: plRowsErr } = await supabase
+      .from("po_line_items")
+      .select("id, item_id, quantity, received_qty, closed_qty, purchase_orders!purchase_order_id(master_vendor_id)")
+      .in("id", poLineIds);
+    if (plRowsErr) return { ok: false, error: plRowsErr.message };
+    for (const r of (plRows ?? []) as unknown as {
+      id: string;
+      item_id: string | null;
+      quantity: number;
+      received_qty: number;
+      closed_qty: number;
+      purchase_orders: { master_vendor_id: string | null } | null;
+    }[]) {
+      stillOrdered.set(r.id, (Number(r.quantity) || 0) - (Number(r.closed_qty) || 0) - (Number(r.received_qty) || 0));
+      if (r.purchase_orders?.master_vendor_id !== headerFields.master_vendor_id) {
+        return { ok: false, error: "A PO on this GRN is from a different vendor — receive each vendor's goods on its own GRN" };
+      }
+      itemByLine.set(r.id, r.item_id);
+    }
+  }
+  for (const l of lines) l.item_id = l.po_line_item_id ? (itemByLine.get(l.po_line_item_id) ?? null) : null;
+
+  /* A REPLACEMENT GRN (0780) receives only what its Rejection DC still owes: the same
+     vendor, the DC's own "replace" lines, no more than is outstanding on each. Its own
+     rejections stay owed on the same DC, so they are always "replace". */
+  if (headerFields.kind === "replacement") {
+    if (!headerFields.vendor_return_id) return { ok: false, error: "Pick the Rejection DC this replaces" };
+    const { data: dc, error: dcErr } = await supabase
+      .from("vendor_returns")
+      .select("id, grn_id, master_vendor_id, status")
+      .eq("id", headerFields.vendor_return_id)
+      .maybeSingle();
+    if (dcErr) return { ok: false, error: dcErr.message };
+    const d = dc as { grn_id: string | null; master_vendor_id: string | null; status: string } | null;
+    if (!d || !d.grn_id) return { ok: false, error: "That Rejection DC was not raised by a GRN" };
+    if (d.master_vendor_id !== headerFields.master_vendor_id) {
+      return { ok: false, error: "The replacement must come from the vendor the goods were returned to" };
+    }
+    if (!["draft", "returned"].includes(d.status)) return { ok: false, error: "That Rejection DC is already settled" };
+    const { data: dcLines, error: dlErr } = await supabase
+      .from("vendor_return_lines")
+      .select("po_line_item_id, return_qty, replacement_qty, rejection_action")
+      .eq("vendor_return_id", headerFields.vendor_return_id);
+    if (dlErr) return { ok: false, error: dlErr.message };
+    const due = new Map<string, number>();
+    for (const r of (dcLines ?? []) as {
+      po_line_item_id: string | null;
+      return_qty: number;
+      replacement_qty: number;
+      rejection_action: string | null;
+    }[]) {
+      if (!r.po_line_item_id || (r.rejection_action ?? "replace") !== "replace") continue;
+      due.set(r.po_line_item_id, (due.get(r.po_line_item_id) ?? 0) + (Number(r.return_qty) || 0) - (Number(r.replacement_qty) || 0));
+    }
+    for (const l of lines) {
+      const owed = l.po_line_item_id ? due.get(l.po_line_item_id) : undefined;
+      if (owed === undefined) return { ok: false, error: `${l.description}: not on that Rejection DC` };
+      if (l.accepted_qty > owed + 1e-9) {
+        return { ok: false, error: `${l.description}: only ${owed} is owed as a replacement` };
+      }
+      l.rejection_action = "replace";
+    }
+  } else {
+    headerFields.vendor_return_id = null;
+    /* GOODS OWED AS A REPLACEMENT ARE NOT RECEIVED AS AN ORDINARY GRN (0780). The vendor's
+       original invoice already covered them, so receiving them here would raise a second
+       bill and leave the Rejection DC owed for ever. What a line may take is what is still
+       ordered MINUS what is owed back on an open Rejection DC; the rest is received on the
+       DC's own row (a Replacement GRN). */
+    if (poLineIds.length > 0) {
+      const { data: owedRows, error: owedErr } = await supabase
+        .from("vendor_return_lines")
+        .select("po_line_item_id, return_qty, replacement_qty, rejection_action, vendor_returns!inner(code, status, grn_id)")
+        .in("po_line_item_id", poLineIds)
+        .in("vendor_returns.status", ["draft", "returned"])
+        .not("vendor_returns.grn_id", "is", null);
+      if (owedErr) return { ok: false, error: owedErr.message };
+      const owed = new Map<string, { qty: number; dc: string }>();
+      for (const r of (owedRows ?? []) as unknown as {
+        po_line_item_id: string;
+        return_qty: number;
+        replacement_qty: number;
+        rejection_action: string | null;
+        vendor_returns: { code: string | null } | null;
+      }[]) {
+        if ((r.rejection_action ?? "replace") !== "replace") continue;
+        const due = (Number(r.return_qty) || 0) - (Number(r.replacement_qty) || 0);
+        if (due <= 0) continue;
+        const cur = owed.get(r.po_line_item_id);
+        owed.set(r.po_line_item_id, { qty: (cur?.qty ?? 0) + due, dc: r.vendor_returns?.code ?? cur?.dc ?? "a Rejection DC" });
+      }
+      for (const l of lines) {
+        const o = l.po_line_item_id ? owed.get(l.po_line_item_id) : undefined;
+        if (!o) continue;
+        const room = Math.max(0, (stillOrdered.get(l.po_line_item_id!) ?? 0) - o.qty);
+        if (l.accepted_qty > room + 1e-9) {
+          return {
+            ok: false,
+            error: `${l.description}: ${o.qty} of it is owed as a replacement on ${o.dc} — receive that on its row under Pending; this GRN can take ${room}`,
+          };
+        }
+      }
+    }
+  }
+
+  /* A LINE'S STORE IS ONE OF THE GRN'S OWN UNIT (unit isolation, 2026-10-03): goods
+     received into Unit 2 are never booked into Head Office's store. */
+  const storeIds = Array.from(new Set(lines.map((l) => l.store_id).filter(Boolean))) as string[];
+  if (storeIds.length > 0) {
+    const { data: stRows, error: stErr } = await supabase.from("stores").select("id, location_id").in("id", storeIds);
+    if (stErr) return { ok: false, error: stErr.message };
+    const own = new Set(((stRows ?? []) as { id: string; location_id: string | null }[]).filter((r) => r.location_id === locationId).map((r) => r.id));
+    if (storeIds.some((id) => !own.has(id))) {
+      return { ok: false, error: "A line's store is not in the unit you are receiving into — pick one of this unit's stores" };
     }
   }
 
@@ -297,317 +418,32 @@ export async function deleteGrnLine(lineId: string): Promise<ActionResult> {
 }
 
 /**
- * Post a draft GRN:
- *  1. Validate all rejection_reasons are present when rejected_qty > 0.
- *  2. For each linked PO line with accepted_qty > 0: accumulate received_qty.
- *  3. Mark GRN as posted.
- *  4. For each affected PO: reload lines and derive new receipt status.
- *  5. Write audit entry.
+ * POST A DRAFT GRN — ONE TRANSACTION (0779, grn-plan.md Phase 3).
+ *
+ * `grn_post()` does every step in the database, in one statement: the 0620 tolerance
+ * guard, received qty onto the PO lines, each PO's receipt status, stock into the line's
+ * store and BIN (rejected → the unit's Rejection store), and one draft bill per PO. Any
+ * step that fails undoes them all and the GRN stays a draft. This used to be eight
+ * requests from here, posting the GRN FIRST and swallowing stock / bill errors — so a
+ * GRN could read Posted with no stock behind it.
  */
 export async function postGrn(grnId: string): Promise<ActionResult> {
   if (!(await can("materials_purchase", "edit"))) throw new Error("Forbidden");
 
   const supabase = await createClient();
+  const { error } = await supabase.rpc("grn_post", { p_grn_id: grnId });
+  if (error) return { ok: false, error: friendlyGrnError(error.message) };
 
-  // 1. fetch and verify GRN
-  // grn_date/location_id are read here so the stock movements below carry the
-  // GRN's own document date rather than the posting instant — a back-dated GRN
-  // must land in its own period or every stock report for that period is wrong.
-  const { data: grnData } = await supabase
-    .from("grns")
-    .select("id, status, grn_date, location_id, over_receipt_authorized_by")
-    .eq("id", grnId)
-    .maybeSingle();
-
-  if (!grnData) return { ok: false, error: "GRN not found" };
-  const grn = grnData as {
-    status: string;
-    grn_date: string | null;
-    location_id: string | null;
-    over_receipt_authorized_by: string | null;
-  };
-  if (grn.status !== "draft") {
-    return { ok: false, error: "GRN is already posted" };
-  }
-
-  // 1b. over-receipt tolerance, re-read NOW: another GRN may have posted
-  // against the same PO lines since this draft was saved. The status trigger
-  // (0620) refuses the same thing; asking first keeps the message readable.
-  if (!grn.over_receipt_authorized_by) {
-    const { data: overRows, error: overErr } = await supabase.rpc(
-      "grn_over_tolerance_lines",
-      { p_grn_id: grnId },
-    );
-    if (overErr) return { ok: false, error: overErr.message };
-    if (((overRows ?? []) as unknown[]).length > 0) {
-      return { ok: false, error: OVER_TOLERANCE_MSG };
-    }
-  }
-
-  // 2. fetch all lines
-  const { data: linesData } = await supabase
-    .from("grn_line_items")
-    .select(
-      "id, po_line_item_id, purchase_order_id, accepted_qty, rejected_qty, rejection_reason",
-    )
-    .eq("grn_id", grnId);
-
-  const lines = (linesData ?? []) as {
-    id: string;
-    po_line_item_id: string | null;
-    purchase_order_id: string | null;
-    accepted_qty: number;
-    rejected_qty: number;
-    rejection_reason: string | null;
-  }[];
-
-  // validate rejection reasons
-  for (const line of lines) {
-    if ((line.rejected_qty ?? 0) > 0 && !line.rejection_reason?.trim()) {
-      return {
-        ok: false,
-        error: "Rejection reason is required for all lines with rejected quantity",
-      };
-    }
-  }
-
-  // 3. mark GRN posted FIRST (0620). The status trigger measures tolerance as
-  // PO received_qty + this GRN, so it must run before this GRN's quantities are
-  // added to the PO lines; the other way round it counts them twice and refuses
-  // every exact receipt. It also means a retry after a mid-way failure cannot
-  // add the same GRN to a PO line twice: the GRN is no longer a draft.
-  const { error: grnErr } = await supabase
-    .from("grns")
-    .update({ status: "posted" })
-    .eq("id", grnId);
-
-  if (grnErr) return { ok: false, error: friendlyGrnError(grnErr.message) };
-
-  // 3b. accumulate received_qty on PO lines + collect stock-in movements
-  const affectedPoIds = new Set<string>();
-  const stockIns: {
-    store_type: "material" | "rejection";
-    item_id: string;
-    qty: number;
-    rate: number | null;
-  }[] = [];
-  const poAccepted = new Map<string, number>(); // poId → accepted value (for payables)
-
-  for (const line of lines) {
-    if (!line.po_line_item_id) continue;
-
-    const { data: poLine } = await supabase
-      .from("po_line_items")
-      .select("received_qty, item_id, unit_price")
-      .eq("id", line.po_line_item_id)
-      .maybeSingle();
-
-    if (!poLine) continue;
-    const pl = poLine as {
-      received_qty: number;
-      item_id: string | null;
-      unit_price: number | null;
-    };
-
-    if ((line.accepted_qty ?? 0) > 0) {
-      const current = pl.received_qty ?? 0;
-      const { error: updateErr } = await supabase
-        .from("po_line_items")
-        .update({ received_qty: current + line.accepted_qty })
-        .eq("id", line.po_line_item_id);
-
-      if (updateErr) {
-        // Back to draft only if nothing has been applied yet; once a PO line
-        // has taken this GRN's quantity, reopening it would let a re-post add
-        // it again.
-        if (affectedPoIds.size === 0) {
-          await supabase.from("grns").update({ status: "draft" }).eq("id", grnId);
-        }
-        return { ok: false, error: `Failed to update PO line: ${updateErr.message}` };
-      }
-      if (line.purchase_order_id) {
-        affectedPoIds.add(line.purchase_order_id);
-        poAccepted.set(
-          line.purchase_order_id,
-          (poAccepted.get(line.purchase_order_id) ?? 0) +
-            line.accepted_qty * (pl.unit_price ?? 0),
-        );
-      }
-      // accepted goods → Material store (only when the PO line maps to an item)
-      if (pl.item_id) {
-        stockIns.push({
-          store_type: "material",
-          item_id: pl.item_id,
-          qty: line.accepted_qty,
-          rate: pl.unit_price ?? null,
-        });
-      }
-    }
-
-    // rejected goods → Rejection store
-    if ((line.rejected_qty ?? 0) > 0 && pl.item_id) {
-      stockIns.push({
-        store_type: "rejection",
-        item_id: pl.item_id,
-        qty: line.rejected_qty,
-        rate: pl.unit_price ?? null,
-      });
-    }
-  }
-
-  // 5. recompute status for each affected PO
-  for (const poId of affectedPoIds) {
-    const { data: poData } = await supabase
-      .from("purchase_orders")
-      .select("status")
-      .eq("id", poId)
-      .maybeSingle();
-
-    if (!poData) continue;
-
-    const currentStatus = (poData as { status: string }).status as PoStatus;
-
-    const { data: poLinesData } = await supabase
-      .from("po_line_items")
-      .select("quantity, received_qty")
-      .eq("purchase_order_id", poId);
-
-    const poLines = (poLinesData ?? []) as {
-      quantity: number;
-      received_qty: number;
-    }[];
-
-    const newStatus = derivePoReceiptStatus(currentStatus, poLines);
-    if (newStatus !== currentStatus) {
-      await supabase
-        .from("purchase_orders")
-        .update({ status: newStatus })
-        .eq("id", poId);
-    }
-  }
-
-  // 5b. stock-in: accepted → Material store, rejected → Rejection store.
-  // Uses the privileged client because GRN posting is a trusted system action
-  // and the posting user may not hold per-store access. The negative-stock
-  // trigger still fires, but receipts are inbound so they are always safe.
-  // Best-effort: the GRN is already posted, so a stock-in hiccup is not fatal.
-  if (stockIns.length > 0) {
-    try {
-      const admin = createAdminClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      const { data: storeRows } = await admin
-        .from("stores")
-        .select("id, store_type, location_id")
-        .eq("is_active", true)
-        .in("store_type", ["material", "rejection"]);
-      // UNIT ISOLATION: goods received into a unit land in THAT unit's store,
-      // and only there. There used to be a fallback to ANY unit's store when
-      // the GRN's unit had none of the type — so a Unit 1 receipt went into
-      // Head Office's stock, where Unit 1 cannot see it and Head Office never
-      // received it (client 2026-10-03: every unit's data is its own). A unit
-      // with no store of the type now books no stock-in for that type; set its
-      // stores up under Stores before receiving into it.
-      const storeByType = new Map<string, string>();
-      const rowsTyped = (storeRows ?? []) as {
-        id: string;
-        store_type: string;
-        location_id: string | null;
-      }[];
-      for (const st of rowsTyped) {
-        if (st.location_id === grn.location_id && !storeByType.has(st.store_type)) {
-          storeByType.set(st.store_type, st.id);
-        }
-      }
-      const movements = stockIns
-        .map((m) => {
-          const storeId = storeByType.get(m.store_type);
-          if (!storeId) return null;
-          return {
-            store_id: storeId,
-            item_id: m.item_id,
-            movement_type: "receipt",
-            quantity: m.qty,
-            // The GRN knows both facts the ledger cannot infer: when the goods
-            // actually arrived, and what they cost. Supplying them here stops
-            // the stamp trigger falling back to today's date + a guessed rate.
-            txn_date: grn.grn_date,
-            rate: m.rate,
-            location_id: grn.location_id,
-            reference_type: "grn",
-            reference_id: grnId,
-            note: `GRN stock-in (${m.store_type})`,
-            created_by: user?.id ?? null,
-          };
-        })
-        .filter(Boolean) as Record<string, unknown>[];
-      if (movements.length > 0) {
-        await admin.from("stock_ledger").insert(movements);
-      }
-    } catch {
-      // stock-in is best-effort; GRN remains posted
-    }
-  }
-
-  // 5c. GRN → draft vendor bills (Finance). One draft payable per PO covered by
-  // this GRN, valued at accepted qty × PO unit price, with a 3-way match status.
-  // Admin client (the posting user may lack finance perms). Best-effort.
-  if (poAccepted.size > 0) {
-    try {
-      const admin = createAdminClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      for (const [poId, amount] of poAccepted) {
-        if (amount <= 0) continue;
-        const { data: po } = await admin
-          .from("purchase_orders")
-          .select("vendor_id, currency_code, total_amount, location_id")
-          .eq("id", poId)
-          .maybeSingle();
-        const poRow = po as {
-          vendor_id: string | null;
-          currency_code: string | null;
-          total_amount: number | null;
-          location_id: string | null;
-        } | null;
-        const matchStatus = threeWayMatchStatus(
-          amount,
-          poRow?.total_amount ?? null,
-          amount,
-        );
-        await admin.from("payables").insert({
-          vendor_id: poRow?.vendor_id ?? null,
-          purchase_order_id: poId,
-          grn_id: grnId,
-          currency_code: poRow?.currency_code ?? null,
-          amount,
-          tax_amount: 0,
-          total_amount: amount,
-          match_status: matchStatus,
-          status: "draft",
-          location_id: poRow?.location_id ?? null,
-          created_by: user?.id ?? null,
-        });
-      }
-      revalidatePath("/finance/payables");
-    } catch {
-      // best-effort payable creation
-    }
-  }
-
-  // 6. audit
   await writeAudit({
     action: "grn.posted",
     entityType: "grn",
     entityId: grnId,
   });
 
-  // 7. revalidate paths including purchase orders list + stores
   revalidateGrn(grnId);
   revalidatePath("/purchase/orders");
   revalidatePath("/stores");
+  revalidatePath("/finance/payables");
 
   return { ok: true };
 }
@@ -766,5 +602,48 @@ export async function recordDcReturn(
   if (statusErr) return { ok: false, error: statusErr.message };
 
   revalidateDc(line.delivery_challan_id);
+  return { ok: true };
+}
+
+/**
+ * SET A DRAFT LINE'S REJECTION — and nothing else (grn-plan.md Phase 4).
+ *
+ * The one edit a draft GRN needs after a quality check fails the goods: how many are
+ * rejected, why, and where they go. Accepted is re-derived (Received − Rejected), never
+ * typed, exactly as on save; a replacement GRN's rejection is always "replace" (still owed
+ * on the same DC). `updateGrnLine` rewrites the whole row from the payload, which is the
+ * wrong tool for a two-field correction.
+ */
+export async function setGrnLineRejection(
+  lineId: string,
+  input: { rejected_qty: number; rejection_reason: string | null; rejection_action: "replace" | "return" },
+): Promise<ActionResult> {
+  if (!(await can("materials_purchase", "edit"))) throw new Error("Forbidden");
+  const supabase = await createClient();
+  const { data: row, error } = await supabase
+    .from("grn_line_items")
+    .select("grn_id, received_qty, grns!grn_id(status, kind)")
+    .eq("id", lineId)
+    .maybeSingle();
+  if (error) return { ok: false, error: error.message };
+  const r = row as unknown as { grn_id: string; received_qty: number; grns: { status: string; kind: string } | null } | null;
+  if (!r) return { ok: false, error: "Line not found" };
+  if (r.grns?.status !== "draft") return { ok: false, error: "Cannot edit a posted GRN" };
+  const received = Number(r.received_qty) || 0;
+  const rejected = Number(input.rejected_qty) || 0;
+  if (rejected < 0 || rejected > received) return { ok: false, error: "Rejected must be between 0 and the qty received" };
+  const reason = input.rejection_reason?.trim() || null;
+  if (rejected > 0 && !reason) return { ok: false, error: "Say why the goods are rejected" };
+  const { error: upErr } = await supabase
+    .from("grn_line_items")
+    .update({
+      rejected_qty: rejected,
+      accepted_qty: acceptedFrom(received, rejected),
+      rejection_reason: rejected > 0 ? reason : null,
+      rejection_action: r.grns?.kind === "replacement" ? "replace" : input.rejection_action,
+    })
+    .eq("id", lineId);
+  if (upErr) return { ok: false, error: friendlyGrnError(upErr.message) };
+  revalidateGrn(r.grn_id);
   return { ok: true };
 }
