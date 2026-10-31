@@ -13,6 +13,7 @@
 import {
   ArrowLeftRight,
   Factory,
+  Layers,
   Percent,
   Truck,
   Boxes,
@@ -137,6 +138,13 @@ export const REPORTS: ReportDefinition[] = [
     label: "Material In Transit",
     description: "Sent between Raagam HO, Unit 2 and Unit 3 and not yet received",
     icon: Truck,
+    module: "stores",
+  },
+  {
+    slug: "bin-stock",
+    label: "Bin Stock & Aging",
+    description: "Stock per store, bin, item and lot - and how long each lot has sat there",
+    icon: Layers,
     module: "stores",
   },
   {
