@@ -654,10 +654,13 @@ export function GrnNewForm({
 
   return (
     <div data-focus-scope className="space-y-5">
-      {/* ONE ROW (user 2026-10-31, screenshot 3934 — "all fields onto single row"): Location
-          176 · GRN Date 144 · Vendor 200 · Doc Type 144 · PO / Replacement DC 176 · No 144 ·
-          Date 144 = 1128 + 6 × 12 gap = 1200px + card padding ≈ 77rem → cap at 78rem. A
-          narrower screen still wraps (FieldRow), rather than squeezing a field. */}
+      {/* ONE ROW (user 2026-10-31, screenshots 3934 · 3947 · 3948 — "all fields onto single
+          row"): Location 144 · GRN Date 144 · Vendor 200 · Doc Type 144 · PO / Replacement DC
+          176 · No 144 · Date 144 = 1096 + 6 × 12 gap = 1168px.
+          THE PANE IS THE LIMIT, NOT THIS CAP: at the operator's 125% zoom the content pane
+          leaves the card ~1190px of field room, so at 1200px (Location at `term`, 176) Invoice
+          Date wrapped whatever the cap said — raising it to 82rem changed nothing. Location
+          holds a unit name (Raagam HO · Unit 2 · Unit 3), which `code` (144) carries. */}
       <Card className="max-w-[78rem]">
         <CardHeader>
           <CardTitle>{isRepl ? "Replacement GRN" : "GRN Details"}</CardTitle>
@@ -673,7 +676,7 @@ export function GrnNewForm({
             <Field
               label="Store Location"
               required
-              w="term"
+              w="code"
               htmlFor="grn-location"
               error={locations.length > 0 && !defaultLocationId ? "Pick your working unit in the top bar first" : null}
             >

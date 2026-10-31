@@ -258,6 +258,20 @@ export interface QueueItem {
   total_count: number;
 }
 
+/**
+ * A row of the Super Admin "All open" view (0783 `approval_open_runs`): the
+ * queue row's columns for EVERY in-progress run, plus who it waits on and the
+ * unit of its subject document. Never counted by the menu badge — that is
+ * `approval_my_queue` alone.
+ */
+export interface OpenRunItem extends QueueItem {
+  /** Names of the current step's approvers. Empty = stranded. */
+  approver_names: string[];
+  /** The subject's unit; null when its table carries no location_id. */
+  unit_code: string | null;
+  unit_name: string | null;
+}
+
 export type EventAction =
   | 'submit' | 'approve' | 'reject' | 'return'
   | 'cancel' | 'delegate' | 'sla_breach';

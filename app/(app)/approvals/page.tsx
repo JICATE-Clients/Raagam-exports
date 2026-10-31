@@ -1,13 +1,14 @@
 import { requireUser, can } from "@/lib/auth/server";
-import { getMyQueue, getStrandedRuns, canAct } from "@/lib/approvals/service";
+import { getMyQueue, getStrandedRuns, canAct, getAllOpenRuns } from "@/lib/approvals/service";
 import { WORKFLOWS } from "@/lib/approvals/workflows";
 import { loadOrderApprovalCards } from "@/lib/approvals/order-approval-cards";
-import { loadPoApprovalCards, type PoApprovalCard } from "@/lib/approvals/po-approval-cards";
+import { loadPoApprovalCards, loadPoChangeCards, type PoApprovalCard, type PoChangeCard } from "@/lib/approvals/po-approval-cards";
 import type { CanActVerdict } from "@/lib/approvals/types";
 import { withCreators } from "@/lib/created-by";
 import { ifInstalled } from "@/lib/approvals/install";
 import { sweepSlaOpportunistically } from "@/lib/approvals/sla";
 import { ApprovalsNotInstalled } from "@/components/approvals/approvals-not-installed";
+import { ApprovalsViewToggle } from "@/components/approvals/approvals-view-toggle";
 import {
   ApprovalsInboxScreen,
   type BudgetCard,
@@ -35,7 +36,11 @@ import {
  * by definition, and the skill's troubleshooting table lists "badge count ≠ list
  * length" with exactly that cause.
  */
-export default async function ApprovalsPage() {
+export default async function ApprovalsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
   // Signed-in only — `requireUser()`, not a permission. This used to be
   // `requirePermission("dashboard", "view")` on the belief that every signed-in
   // user holds `dashboard:view`. They do not: the 2026-09-22 audit (four real
@@ -45,7 +50,7 @@ export default async function ApprovalsPage() {
   // "No access" banner — and a flow naming any of them as an approver escalated
   // past them on SLA without them ever seeing the request. The lockout this
   // comment block warns against had arrived through a different key.
-  await requireUser();
+  const user = await requireUser();
 
   /**
    * SWEEP BEFORE READING (0601), not after.
@@ -60,6 +65,45 @@ export default async function ApprovalsPage() {
    * escalation happen while nobody is looking. See `lib/approvals/sla.ts`.
    */
   await sweepSlaOpportunistically();
+
+  /**
+   * SUPER ADMIN ▸ "MINE | ALL OPEN" (0783).
+   *
+   * `isSuperAdmin`, not `realIsSuperAdmin`: an admin previewing a role sees
+   * that role's page, toggle absent. `approval_open_runs` raises 42501 for
+   * anyone else anyway — the hidden toggle is courtesy, the function is the
+   * guard.
+   *
+   * "All open" is a SEPARATE read and a separate render. The badge and the
+   * "Mine" list below still come from `approval_my_queue` alone, so the
+   * invariant above (badge = list length) is untouched.
+   */
+  const superAdmin = user.isSuperAdmin;
+  const view = superAdmin && (await searchParams).view === "all" ? "all" : "mine";
+  /* "ALL OPEN" IS THE SAME SCREEN, NOT A LIST OF LINKS (user 2026-10-31,
+     screenshot 3941: "don't redirect … approve, reject all in same screen").
+     Same cards, same verdicts, same decision sheet; a super admin who is not the
+     step's approver is told so in the sheet, and acts as an override. */
+  if (view === "all") {
+    const [open, viewAllOpen] = await Promise.all([ifInstalled(() => getAllOpenRuns()), can("approvals", "view")]);
+    if (open === null) return <ApprovalsNotInstalled />;
+    const rows: QueueRow[] = await withCreators(
+      open.map((r) => ({ ...r, created_at: r.started_at, created_by: r.requested_by })),
+    );
+    return (
+      <ApprovalsInboxScreen
+        allOpen
+        rows={rows}
+        stranded={[]}
+        canViewAll={viewAllOpen}
+        budgets={await budgetCards(rows)}
+        pos={await poCards(rows)}
+        poChanges={await poChangeCards(rows)}
+        verdicts={await queueVerdicts(rows)}
+        viewToggle={<ApprovalsViewToggle view="all" />}
+      />
+    );
+  }
 
   /* Same guard as the flows route — the queue RPC does not exist until 0502 is
      applied, and an inbox that crashes is a worse answer than one that says the
@@ -116,7 +160,10 @@ export default async function ApprovalsPage() {
       canViewAll={viewAll}
       budgets={await budgetCards(rows)}
       pos={await poCards(rows)}
+      poChanges={await poChangeCards(rows)}
       verdicts={await queueVerdicts(rows)}
+      /* In the header row beside Approval Flows — super admin only. */
+      viewToggle={superAdmin ? <ApprovalsViewToggle view="mine" /> : undefined}
     />
   );
 }
@@ -165,6 +212,16 @@ async function poCards(rows: QueueRow[]): Promise<Record<string, PoApprovalCard>
     return await loadPoApprovalCards(ids);
   } catch (e) {
     console.error("[approvals] PO cards:", e instanceof Error ? e.message : e);
+    return {};
+  }
+}
+
+/** PO rate amendment / cancellation cards (0785) — same enrichment contract. */
+async function poChangeCards(rows: QueueRow[]): Promise<Record<string, PoChangeCard>> {
+  try {
+    return await loadPoChangeCards(rows);
+  } catch (e) {
+    console.error("[approvals] PO change cards:", e instanceof Error ? e.message : e);
     return {};
   }
 }

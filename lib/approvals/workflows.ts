@@ -30,6 +30,8 @@ export type WorkflowKey =
   | "order_amendment"
   | "purchase_indent"
   | "purchase_order"
+  | "po_rate_amendment"
+  | "po_cancellation"
   | "hr_fine"
   | "sample_costing"
   | "sample_revision"
@@ -82,6 +84,24 @@ export const WORKFLOWS: Record<WorkflowKey, WorkflowDecl> = {
     /* 0764 — started by Raise PO (above budget / unbudgeted) and the PO screen's
        Submit; decided in `purchase_order_apply_decision`. The row opens that PO. */
     href: "/purchase/orders/:id",
+  },
+  /* 0785 — a revised rate on a PO line. Started by `submitRateAmendment`;
+     decided in `po_rate_amendment_apply_decision`, which writes the rate, GST and
+     the PO total only on the final approve. */
+  po_rate_amendment: {
+    key: "po_rate_amendment",
+    subjectTable: "po_rate_amendments",
+    label: "PO Rate Amendment",
+    href: "/purchase/rate-amendments?open=:id",
+  },
+  /* 0785 — cancelling a whole PO or part of its lines. Started by
+     `requestPoCancellation`; decided in `po_cancellation_apply_decision`, which
+     cuts the lines (reopening the requirement) only on the final approve. */
+  po_cancellation: {
+    key: "po_cancellation",
+    subjectTable: "po_cancellation_requests",
+    label: "PO Cancellation",
+    href: "/purchase/po-cancellations?open=:id",
   },
   /* 0629 — a staff fine / salary deduction (doc/order/punishment fine.md). The
      run is started INSIDE `hr_fine_submit` (SQL), in the same transaction as

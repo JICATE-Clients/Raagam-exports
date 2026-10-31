@@ -35,6 +35,7 @@ import type {
   ApprovalScope,
   CanActVerdict,
   QueueItem,
+  OpenRunItem,
   RunAction,
   StrandedRun,
   TimelineRow,
@@ -237,6 +238,18 @@ export async function getMyQueue(params?: {
   const items = (data ?? []) as QueueItem[];
   // total_count is identical on every row; zero rows means zero total.
   return { items, total: items[0]?.total_count ?? 0 };
+}
+
+/**
+ * SUPER ADMIN ONLY — every open run, whoever it waits on (0783). The function
+ * raises 42501 for anyone else; the page only calls it for a Super Admin.
+ * A second reader of the runs, not a second inbox: nothing here feeds a badge.
+ */
+export async function getAllOpenRuns(): Promise<OpenRunItem[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('approval_open_runs');
+  if (error) throw toApprovalError(error, 'Could not load open approvals');
+  return (data ?? []) as OpenRunItem[];
 }
 
 /** Should always be empty. A non-empty result is an incident, not a report. */

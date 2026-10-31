@@ -123,6 +123,8 @@ export interface PoRateAmendment {
   created_by: string | null;
   approved_by: string | null;
   approved_at: string | null;
+  /** The approver's remark when the run ended — the reason, on a reject (0785). */
+  decision_remark: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -145,6 +147,40 @@ export interface PoCancellation {
   cancelled_by: string | null;
   created_at: string;
 }
+
+// ============================================================================
+// PO Cancellation request — 0785 (whole PO or chosen lines, through My Approvals)
+// ============================================================================
+export const PO_CANCEL_REQUEST_STATUSES = ["submitted", "approved", "rejected", "withdrawn"] as const;
+export type PoCancelRequestStatus = (typeof PO_CANCEL_REQUEST_STATUSES)[number];
+export const PO_CANCEL_REQUEST_STATUS_LABELS: Record<PoCancelRequestStatus, string> = {
+  submitted: "Waiting for MD",
+  approved: "Approved",
+  rejected: "Rejected",
+  withdrawn: "Withdrawn",
+};
+export interface PoCancelRequest {
+  id: string;
+  code: string | null;
+  purchase_order_id: string;
+  scope: "whole" | "partial";
+  reason: string;
+  status: PoCancelRequestStatus;
+  decided_by: string | null;
+  decided_at: string | null;
+  decision_remark: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+export const poCancelRequestInput = z.object({
+  purchase_order_id: z.string().uuid(),
+  scope: z.enum(["whole", "partial"]),
+  reason: z.string().trim().min(1, "Give the reason for cancelling"),
+  lines: z
+    .array(z.object({ po_line_item_id: z.string().uuid(), cancel_qty: z.number().positive() }))
+    .default([]),
+});
+export type PoCancelRequestInput = z.infer<typeof poCancelRequestInput>;
 
 // ============================================================================
 // Lab / QC — 0039

@@ -6,6 +6,7 @@ import type {
   OverBudgetConfirmation,
   PoRateAmendment,
   PoCancellation,
+  PoCancelRequest,
   LabTestStandard,
   LabTest,
 } from "./extras-types";
@@ -81,18 +82,18 @@ export async function getPosWithLines(): Promise<PoWithLines[]> {
   });
 }
 
-/** POs that can still be cancelled. */
+/** DRAFT POs — the only ones cancelled directly (0785); the rest go by request. */
 export async function getCancellablePos(): Promise<PoOption[]> {
   const s = await createClient();
   const { data } = await s
     .from("purchase_orders")
-    .select("id, code, vendors!vendor_id(name)")
-    .in("status", ["draft", "pending_approval", "approved", "partially_received"])
+    .select("id, code, master_vendor:master_vendors!master_vendor_id(name), vendors!vendor_id(name)")
+    .eq("status", "draft")
     .order("created_at", { ascending: false });
   return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
     id: r.id as string,
     code: (r.code as string | null) ?? null,
-    vendor_name: joined(r, "vendors", "name"),
+    vendor_name: joined(r, "master_vendor", "name") ?? joined(r, "vendors", "name"),
   }));
 }
 
@@ -190,6 +191,130 @@ export async function listPoCancellations(): Promise<PoCancellationWithRefs[]> {
       vendor_name: (vendor?.name as string | null) ?? null,
     };
   }));
+}
+
+// ============================================================================
+// PO cancellation requests (0785) — whole PO or chosen lines, through My Approvals
+// ============================================================================
+/** One PO line as the request grid needs it: what is still open to cancel. */
+export type CancellableLine = {
+  id: string;
+  description: string;
+  uom_code: string | null;
+  /** Ordered now (already net of earlier cancellations). */
+  quantity: number;
+  received_qty: number;
+  cancelled_qty: number;
+  /** quantity − received − rejection short-close − closed balance. */
+  open_qty: number;
+};
+export type CancellablePo = PoOption & { status: string; lines: CancellableLine[] };
+
+/**
+ * POs a cancellation REQUEST can be raised on — approved or partly received, with
+ * something still open, and no request already waiting. A draft is cancelled
+ * directly; a PO waiting for approval is rejected on its own page.
+ */
+export async function getPosForCancelRequest(): Promise<CancellablePo[]> {
+  const s = await createClient();
+  const [{ data, error }, { data: open, error: oErr }] = await Promise.all([
+    s
+      .from("purchase_orders")
+      .select(
+        "id, code, status, master_vendor:master_vendors!master_vendor_id(name), vendors!vendor_id(name), " +
+          "po_line_items(id, description, quantity, received_qty, closed_qty, balance_closed_qty, cancelled_qty, sort_order, uoms!uom_id(code))",
+      )
+      .in("status", ["approved", "partially_received"])
+      .order("created_at", { ascending: false }),
+    s.from("po_cancellation_requests").select("purchase_order_id").eq("status", "submitted"),
+  ]);
+  if (error) throw new Error(error.message);
+  if (oErr) throw new Error(oErr.message);
+  const waiting = new Set(((open ?? []) as { purchase_order_id: string }[]).map((r) => r.purchase_order_id));
+  return ((data ?? []) as unknown as Record<string, unknown>[])
+    .filter((r) => !waiting.has(r.id as string))
+    .map((r) => {
+      const lines = ((r.po_line_items ?? []) as Record<string, unknown>[])
+        .map((l) => {
+          const q = Number(l.quantity) || 0;
+          const rec = Number(l.received_qty) || 0;
+          const open = Math.max(q - rec - (Number(l.closed_qty) || 0) - (Number(l.balance_closed_qty) || 0), 0);
+          return {
+            id: l.id as string,
+            description: (l.description as string) ?? "",
+            uom_code: ((l.uoms as Record<string, unknown> | null)?.code as string | null) ?? null,
+            quantity: q,
+            received_qty: rec,
+            cancelled_qty: Number(l.cancelled_qty) || 0,
+            open_qty: Math.round(open * 1000) / 1000,
+            sort: Number(l.sort_order) || 0,
+          };
+        })
+        .sort((a, b) => a.sort - b.sort)
+        .map(({ sort: _sort, ...l }) => l);
+      return {
+        id: r.id as string,
+        code: (r.code as string | null) ?? null,
+        status: r.status as string,
+        vendor_name: joined(r, "master_vendor", "name") ?? joined(r, "vendors", "name"),
+        lines,
+      };
+    })
+    .filter((p) => p.lines.some((l) => l.open_qty > 0));
+}
+
+export type PoCancelRequestRow = PoCancelRequest & {
+  po_code: string | null;
+  vendor_name: string | null;
+  lines: { po_line_item_id: string; description: string; cancel_qty: number; open_qty: number; uom_code: string | null }[];
+};
+
+export async function listPoCancelRequests(): Promise<PoCancelRequestRow[]> {
+  const s = await createClient();
+  const { data, error } = await s
+    .from("po_cancellation_requests")
+    .select(
+      "id, code, purchase_order_id, scope, reason, status, decided_by, decided_at, decision_remark, created_by, created_at, " +
+        "purchase_orders(code, master_vendor:master_vendors!master_vendor_id(name), vendors!vendor_id(name)), " +
+        "po_cancellation_request_lines(po_line_item_id, cancel_qty, open_qty, sort_order, po_line_items(description, uoms!uom_id(code)))",
+    )
+    // LISTED IN ENTRY ORDER (user 2026-09-22).
+    .order("created_at", { ascending: true });
+  // A FAILED QUERY IS AN ERROR, NOT AN EMPTY LIST.
+  if (error) throw new Error(error.message);
+  return withCreators(
+    ((data ?? []) as unknown as Record<string, unknown>[]).map((r) => {
+      const po = (r.purchase_orders ?? null) as Record<string, unknown> | null;
+      const lines = ((r.po_cancellation_request_lines ?? []) as Record<string, unknown>[])
+        .sort((a, b) => (Number(a.sort_order) || 0) - (Number(b.sort_order) || 0))
+        .map((l) => {
+          const pl = (l.po_line_items ?? null) as Record<string, unknown> | null;
+          return {
+            po_line_item_id: l.po_line_item_id as string,
+            description: (pl?.description as string) ?? "",
+            cancel_qty: Number(l.cancel_qty) || 0,
+            open_qty: Number(l.open_qty) || 0,
+            uom_code: ((pl?.uoms as Record<string, unknown> | null)?.code as string | null) ?? null,
+          };
+        });
+      return {
+        id: r.id as string,
+        code: (r.code as string | null) ?? null,
+        purchase_order_id: r.purchase_order_id as string,
+        scope: r.scope as "whole" | "partial",
+        reason: r.reason as string,
+        status: r.status as PoCancelRequest["status"],
+        decided_by: (r.decided_by as string | null) ?? null,
+        decided_at: (r.decided_at as string | null) ?? null,
+        decision_remark: (r.decision_remark as string | null) ?? null,
+        created_by: (r.created_by as string | null) ?? null,
+        created_at: r.created_at as string,
+        po_code: (po?.code as string | null) ?? null,
+        vendor_name: po ? (joined(po, "master_vendor", "name") ?? joined(po, "vendors", "name")) : null,
+        lines,
+      };
+    }),
+  );
 }
 
 // ============================================================================

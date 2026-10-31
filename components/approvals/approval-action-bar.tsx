@@ -56,6 +56,11 @@ import type { ApprovalRun, CanActVerdict, RunAction } from "@/lib/approvals/type
  */
 export type ActionBarRun = Pick<ApprovalRun, "id" | "lock_version" | "status">;
 
+/** A document's own decision action (e.g. `approvePo`, `declinePo`). */
+type DocResult = { ok: boolean; error?: string };
+/** The bar's confirmable decisions: the engine's three, plus a document's reject-for-good. */
+type BarAction = RunAction | "decline";
+
 export function ApprovalActionBar({
   run,
   verdict,
@@ -66,6 +71,8 @@ export function ApprovalActionBar({
   compact = false,
   overrideNote = true,
   directApprove = false,
+  onApprove,
+  onRejectForGood,
 }: {
   run: ActionBarRun;
   verdict: CanActVerdict;
@@ -115,11 +122,28 @@ export function ApprovalActionBar({
    * Request Rework always keep their confirm: they always need a reason.
    */
   directApprove?: boolean;
+  /**
+   * APPROVE THROUGH THE DOCUMENT'S OWN ACTION (PO, user 2026-10-31: "Approve = one
+   * click, no reason, for every PO"). When given, Approve is ONE CLICK — no confirm,
+   * even on an override — and calls this instead of `actOnRun`. It exists for a
+   * document whose approve carries gates of its own (`approvePo`: signature, TBA,
+   * reopened budget) and which ends the run itself through `actOnSubject`, which
+   * writes the override remark the database demands. Never pass a function that
+   * bypasses the run.
+   */
+  onApprove?: () => Promise<DocResult>;
+  /**
+   * A SEPARATE "REJECT" THAT CLOSES THE DOCUMENT FOR GOOD (PO: `declinePo` — the PO
+   * is cancelled and its requirement goes back on Raise PO's Pending list). Shown
+   * beside Request Rework, which still sends it back to draft. The reason is
+   * mandatory. The action ends the run itself (`actOnSubject`).
+   */
+  onRejectForGood?: (reason: string) => Promise<DocResult>;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, start] = useTransition();
-  const [pending, setPending] = useState<RunAction | null>(null);
+  const [pending, setPending] = useState<BarAction | null>(null);
   const [comment, setComment] = useState("");
   /** `acknowledge` only: the reject being confirmed is File Not Received. */
   const [fileMissing, setFileMissing] = useState(false);
@@ -136,7 +160,7 @@ export function ApprovalActionBar({
    * Asking here as well is not a duplicate rule; it is what stops the operator
    * committing to a decision and only then being refused.
    */
-  const COPY: Record<RunAction, { title: string; verb: string; needsComment: boolean }> = {
+  const COPY: Record<BarAction, { title: string; verb: string; needsComment: boolean }> = {
     approve: acknowledge
       ? { title: "Acknowledge this request?", verb: "Acknowledge", needsComment: false }
       : { title: "Approve this request?", verb: "Approve", needsComment: false },
@@ -149,26 +173,67 @@ export function ApprovalActionBar({
       : rework
       ? { title: "Send back for rework?", verb: "Request Rework", needsComment: true }
       : { title: "Reject this request?", verb: "Reject", needsComment: true },
+    decline: { title: "Reject for good?", verb: "Reject", needsComment: true },
   };
 
+  /* AN OVERRIDE APPROVE NEEDS NO TYPED REASON (user 2026-10-31: Approve is one
+     click everywhere, and the super admin decides from My Approvals ▸ All open).
+     The database still demands a remark on an override, so `submit` writes one
+     that names it; Reject and Return keep their own required reason. */
   const commentRequired = pending
-    ? COPY[pending].needsComment || isOverride
+    ? COPY[pending].needsComment || (isOverride && pending !== "approve")
     : false;
   const canSubmit = !commentRequired || comment.trim().length > 0;
+
+  /** A document's own action: its errors are refusals to show, and a throw (a
+   *  server action's "Forbidden") is one too rather than an unhandled rejection. */
+  function runDoc(call: () => Promise<DocResult>, done: string) {
+    start(async () => {
+      let res: DocResult;
+      try {
+        res = await call();
+      } catch (e) {
+        res = { ok: false, error: e instanceof Error ? e.message : "Could not record the decision" };
+      }
+      if (res.ok) {
+        success(done);
+        setPending(null);
+        setComment("");
+        /* Both PO actions end the run through `actOnSubject`, which revalidates
+           /approvals in the same response — the refresh is only for a caller
+           with no `subjectPath`, as in `submit` below. */
+        if (!subjectPath) router.refresh();
+        onDone?.();
+      } else {
+        toastError(res.error ?? "Could not record the decision");
+      }
+    });
+  }
 
   function submit(direct?: RunAction) {
     const action = direct ?? pending;
     if (!action) return;
     const note = comment.trim();
+    if (action === "decline") {
+      if (onRejectForGood) runDoc(() => onRejectForGood(note), "Rejected");
+      return;
+    }
     /* FILE NOT RECEIVED leads the remark with the fixed reason — the marker
        `isFileNotReceived` reads back on every PD screen (lib/sales/pd-requests/words.ts). */
     const sent = acknowledge && fileMissing && action === "reject" ? (note ? `${FILE_NOT_RECEIVED} — ${note}` : FILE_NOT_RECEIVED) : note;
+    /* The remark the database requires on an override approve, written for the
+       approver when they typed none (see `commentRequired`). */
+    const remark =
+      sent ||
+      (action === "approve" && isOverride
+        ? `Approved as an override — not an approver on ${verdict.step_label ? `the ${verdict.step_label} step` : "this step"}.`
+        : "");
     start(async () => {
       const res = await actOnRun({
         runId: run.id,
         action,
         lockVersion: run.lock_version,
-        comment: sent || undefined,
+        comment: remark || undefined,
         subjectPath,
       });
       if (res.ok) {
@@ -267,6 +332,18 @@ export function ApprovalActionBar({
             {rework ? <RotateCcw className="h-4 w-4" aria-hidden /> : <X className="h-4 w-4" aria-hidden />}
             {COPY.reject.verb}
           </Button>
+          {onRejectForGood && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setPending("decline")}
+              disabled={isPending}
+            >
+              <X className="h-4 w-4" aria-hidden />
+              {COPY.decline.verb}
+            </Button>
+          )}
           {!rework && !acknowledge && (
             <Button
               type="button"
@@ -282,7 +359,13 @@ export function ApprovalActionBar({
           <Button
             type="button"
             size="sm"
-            onClick={() => (directApprove && !isOverride ? submit("approve") : setPending("approve"))}
+            onClick={() =>
+              onApprove
+                ? runDoc(onApprove, "Approved")
+                : directApprove
+                  ? submit("approve")
+                  : setPending("approve")
+            }
             disabled={isPending}
           >
             <Check className="h-4 w-4" aria-hidden />
@@ -369,7 +452,9 @@ export function ApprovalActionBar({
         </Field>
         {commentRequired && (
           <p className="text-xs text-muted-foreground">
-            {isOverride
+            {pending === "decline"
+              ? "The document is closed for good, not sent back. The requester sees this reason."
+              : isOverride
               ? "This is an override, so the reason is recorded against your name in the audit trail."
               : "The requester sees this, and it is what tells them what to change."}
           </p>

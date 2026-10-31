@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { StatusMark } from "@/components/ui/status-mark";
 import Link from "next/link";
 import { PageHeader } from "@/components/ui/page-header";
@@ -12,7 +12,7 @@ import { Select } from "@/components/ui/select";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
 import { buttonClasses } from "@/components/ui/button";
-import { fmtDate, fmtDateTime, fmtNumber } from "@/lib/format";
+import { fmtDate, fmtDateTime, fmtFixed, fmtNumber } from "@/lib/format";
 import { Sheet } from "@/components/ui/sheet";
 import { FIELD_ROW } from "@/components/ui/field";
 import { FigureCell, HighlightTile, signTone } from "../orders/budgets/budget-general";
@@ -27,13 +27,19 @@ import type { RevisionCompare } from "@/lib/approvals/revision-compare";
 import { BudgetBreakdownChart } from "@/components/orders/budget-breakdown-chart";
 import type { OrderApprovalCard as OrderCardData } from "@/lib/approvals/order-approval-cards";
 import { OrderApprovalCard } from "@/components/approvals/order-approval-card";
-import type { PoApprovalCard } from "@/lib/approvals/po-approval-cards";
+import type { PoApprovalCard, PoChangeCard } from "@/lib/approvals/po-approval-cards";
+import { approvePo, declinePo } from "@/lib/purchase/po-actions";
+import { ClipboardCheck } from "lucide-react";
+import { RowIconAction } from "@/components/ui/row-actions";
 
 /** A queue row with the two keys `withCreators` / `withCreatedColumns` read. */
 export type QueueRow = QueueItem & {
   created_at: string;
   created_by: string;
   created_by_name?: string | null;
+  /** "All open" only (0783): who the step waits on, and the document's unit. */
+  approver_names?: string[];
+  unit_name?: string | null;
 };
 
 /**
@@ -79,8 +85,19 @@ export function ApprovalsInboxScreen({
   canViewAll,
   budgets,
   pos = {},
+  poChanges = {},
   verdicts,
+  viewToggle,
+  allOpen = false,
 }: {
+  /**
+   * SUPER ADMIN ▸ ALL OPEN (0783) — the SAME screen over every open run, decided
+   * here and never by a link out (user 2026-10-31, screenshot 3941: "don't
+   * redirect … approve, reject all in same screen"). Adds Waiting on and Unit.
+   */
+  allOpen?: boolean;
+  /** The super admin's Mine / All open switch, drawn in the header row. */
+  viewToggle?: ReactNode;
   rows: QueueRow[];
   stranded: StrandedRun[];
   canViewAll: boolean;
@@ -88,6 +105,8 @@ export function ApprovalsInboxScreen({
   budgets: Record<string, BudgetCard>;
   /** Purchase Orders (0764), keyed by `subject_id` — total, variance, profit impact. */
   pos?: Record<string, PoApprovalCard>;
+  /** PO rate amendments and PO cancellations (0785), keyed by `subject_id`. */
+  poChanges?: Record<string, PoChangeCard>;
   /** Keyed by `run_id`, and present ONLY where the server said yes. */
   verdicts: Record<string, CanActVerdict>;
 }) {
@@ -146,6 +165,7 @@ export function ApprovalsInboxScreen({
   const kpis = decideRow ? (budgets[decideRow.subject_id]?.kpis ?? null) : null;
   const decideCard = decideRow ? budgets[decideRow.subject_id] : undefined;
   const decidePo = decideRow ? pos[decideRow.subject_id] : undefined;
+  const decideChange = decideRow ? poChanges[decideRow.subject_id] : undefined;
   const decideRevision = decideCard?.revision ?? null;
 
   const filtered = useMemo(() => {
@@ -189,72 +209,127 @@ export function ApprovalsInboxScreen({
       cell: (r) => {
         const href = hrefFor(r);
         const po = pos[r.subject_id];
+        const chg = poChanges[r.subject_id];
         // A PO names itself and what it costs the order (0764).
-        const label = po?.code ? `PO ${po.code}` : workflowLabel(r.workflow_key);
-        const link = href ? (
+        const label = po?.code ? `PO ${po.code}` : chg ? changeTitle(chg) : workflowLabel(r.workflow_key);
+        /* DECIDED HERE, NOT ON THE DOCUMENT'S PAGE (user 2026-10-31): a row
+           this user may act on opens the decision sheet in place; the sheet
+           still carries the link to the full document. A row with no verdict
+           keeps its link, because there is nothing to decide here. */
+        const link = verdicts[r.run_id] ? (
+          <button
+            type="button"
+            onClick={() => openDecision(r)}
+            className="text-left text-xs font-medium text-primary hover:underline"
+          >
+            {label}
+          </button>
+        ) : href ? (
           <Link href={href} className="text-xs font-medium text-primary hover:underline">
             {label}
           </Link>
         ) : (
           <span className="text-xs font-medium">{label}</span>
         );
+        /* THE DETAIL LINE WRAPS, capped at 22rem (user 2026-10-31: "without
+           scrolling fit compact") — on one line it was the widest thing in the
+           table and pushed every other column off the pane. */
+        const detail = (text: string) => (
+          <span className="block max-w-[22rem] text-[11px] leading-snug text-muted-foreground tabular-nums">{text}</span>
+        );
+        if (chg) {
+          return (
+            <span className="flex flex-col">
+              {link}
+              {detail(changeLine(chg))}
+            </span>
+          );
+        }
         if (!po) return link;
         return (
           <span className="flex flex-col">
             {link}
-            <span className="text-[11px] text-muted-foreground tabular-nums">
-              {[po.vendor, po.total, poImpactLine(po)].filter(Boolean).join(" · ")}
-            </span>
+            {detail([po.vendor, po.total, poImpactLine(po)].filter(Boolean).join(" · "))}
           </span>
         );
       },
     },
+    /* STEP AND WHO IT WAITS ON ARE ONE COLUMN (2026-10-31, fit without
+       scrolling): the step's role on the first line, the people holding it under
+       it. On Mine the second line is you, so it is left off. */
     {
-      header: "Waiting on you for",
+      header: allOpen ? "Step · Waiting on" : "Step",
       className: HUG,
       cell: (r) => (
-        /* AMBER PAST A WEEK, and nothing before it. A colour on every row is a
-           colour on none — the same argument `DaysOut` makes for going silent
-           beyond 60 days on a delivery date.
-
-           RED PAST ITS DEADLINE (0601), which outranks the week: an agreed SLA
-           of two hours is a stronger claim than a rule of thumb about a week,
-           and a request the business said it would answer by 4pm is late at
-           4pm whether or not it has been sitting for seven days. */
-        <span
-          className={
-            r.is_overdue
-              ? "text-sm font-semibold text-danger"
-              : r.waiting_hours >= 168
-                ? "text-sm font-medium text-warning"
-                : "text-sm text-muted-foreground"
-          }
-        >
-          {waited(r.waiting_hours)}
-          {r.is_overdue ? " · overdue" : ""}
+        <span className="flex flex-col">
+          {/* ONE LINE: "1." and the label used to break apart (screenshot 3943). */}
+          <span className="flex items-baseline gap-1 whitespace-nowrap text-sm">
+            <span className="shrink-0 text-muted-foreground">{r.step_order}.</span>
+            <Truncated>{r.step_label}</Truncated>
+          </span>
+          {allOpen &&
+            (r.approver_names?.length ? (
+              <span className="text-[11px] text-muted-foreground">{r.approver_names.join(", ")}</span>
+            ) : (
+              <span className="text-[11px] font-medium text-danger">Nobody holds this step</span>
+            ))}
         </span>
       ),
     },
-    /* NOT hugged (erp-table-fit): the step's own label varies most in length,
-       so it is the column left free to take the width. */
-    {
-      header: "Step",
-      cell: (r) => (
-        <span className="text-sm">
-          <span className="text-muted-foreground">{r.step_order}. </span>
-          <Truncated>{r.step_label}</Truncated>
-        </span>
-      ),
-    },
+    ...(allOpen
+      ? ([
+          {
+            header: "Unit",
+            className: HUG,
+            cell: (r) => <span className="whitespace-nowrap text-sm">{r.unit_name ?? "—"}</span>,
+          },
+        ] satisfies Column<QueueRow>[])
+      : []),
+    /* STATUS CARRIES HOW LONG IT HAS WAITED (2026-10-31, one column fewer).
+       The time keeps its colour rules: RED past the SLA deadline (0601), AMBER
+       past a week, quiet before that — a colour on every row is a colour on none. */
     {
       header: "Status",
       className: HUG,
+      cell: (r) => (
+        <span className="flex flex-col items-start gap-0.5">
+          {r.is_overdue ? (
+            <StatusPill tone="danger">Overdue</StatusPill>
+          ) : (
+            <StatusPill tone="warning">{allOpen ? "Awaiting" : "Awaiting you"}</StatusPill>
+          )}
+          <span
+            className={
+              r.is_overdue
+                ? "whitespace-nowrap text-[11px] font-semibold text-danger"
+                : r.waiting_hours >= 168
+                  ? "whitespace-nowrap text-[11px] font-medium text-warning"
+                  : "whitespace-nowrap text-[11px] text-muted-foreground"
+            }
+          >
+            waiting {waited(r.waiting_hours)}
+          </span>
+        </span>
+      ),
+    },
+    /* REVIEW & DECIDE ON DESKTOP TOO (user 2026-10-31: they work on the desktop
+       table). Opens the same decision sheet the phone card does — the figures
+       beside the buttons — so the file's rule stands: no tick on the row, no bulk
+       action. EVERY row with a verdict opens it (user 2026-10-31: "approve,
+       reject all in same screen") — a workflow with no figures card still gets
+       its step, requester and the three buttons, plus the link to the document. */
+    {
+      header: "Decide",
+      className: HUG,
       cell: (r) =>
-        r.is_overdue ? (
-          <StatusPill tone="danger">Overdue</StatusPill>
-        ) : (
-          <StatusPill tone="warning">Awaiting you</StatusPill>
-        ),
+        verdicts[r.run_id] ? (
+          <RowIconAction
+            label="Review & decide"
+            name={pos[r.subject_id]?.code ? `PO ${pos[r.subject_id].code}` : undefined}
+            icon={ClipboardCheck}
+            onClick={() => openDecision(r)}
+          />
+        ) : null,
     },
   ];
 
@@ -262,7 +337,11 @@ export function ApprovalsInboxScreen({
     <div className="space-y-4">
       <PageHeader
         title="My Approvals"
-        description="Every request across the business that is waiting on your decision."
+        description={
+          allOpen
+            ? "Every open request in every unit — decide any of them here (recorded as an override where you are not the step's approver)."
+            : "Every request across the business that is waiting on your decision."
+        }
         actions={
           /* A LINK, NOT A BUTTON WRAPPING ONE. Raagam's `Button` renders a real
              <button> and takes no `asChild`, so nesting an <a> inside it is
@@ -270,10 +349,18 @@ export function ApprovalsInboxScreen({
              around. `buttonClasses` gives the link the header row's `md` (h-9)
              height, which is what the toolbar-size rule asks of every control
              in this band. */
-          canViewAll ? (
-            <Link href="/approvals/flows" className={buttonClasses({ variant: "outline", size: "md" })}>
-              Approval Flows
-            </Link>
+          /* THE MINE / ALL OPEN SWITCH SITS IN THIS ROW (user 2026-10-31,
+             screenshot 3940: on its own row above the search it read as a stray
+             control). Only a super admin is handed one. */
+          viewToggle || canViewAll ? (
+            <div className="flex items-center gap-2">
+              {viewToggle}
+              {canViewAll && (
+                <Link href="/approvals/flows" className={buttonClasses({ variant: "outline", size: "md" })}>
+                  Approval Flows
+                </Link>
+              )}
+            </div>
           ) : undefined
         }
       />
@@ -355,7 +442,7 @@ export function ApprovalsInboxScreen({
           columns={hugCreated(withCreatedColumns(columns, filtered))}
           rows={filtered}
           getKey={(r) => r.run_id}
-          empty="Nothing is waiting on you. Requests appear here the moment a step names you as an approver."
+          empty={allOpen ? "No approval is open anywhere right now." : "Nothing is waiting on you. Requests appear here the moment a step names you as an approver."}
         />
       </div>
 
@@ -426,6 +513,8 @@ export function ApprovalsInboxScreen({
           title={(r) =>
             pos[r.subject_id]?.code ? (
               <span className="font-mono">PO {pos[r.subject_id].code}</span>
+            ) : poChanges[r.subject_id] ? (
+              <span className="font-mono">{changeTitle(poChanges[r.subject_id])}</span>
             ) : budgets[r.subject_id] ? (
               <span className="font-mono">{reOf(budgets[r.subject_id]) ?? workflowLabel(r.workflow_key)}</span>
             ) : (
@@ -435,6 +524,8 @@ export function ApprovalsInboxScreen({
           subtitle={(r) => {
             const po = pos[r.subject_id];
             if (po) return po.vendor ? <Truncated>{po.vendor}</Truncated> : null;
+            const chg = poChanges[r.subject_id];
+            if (chg) return <Truncated>{changeLine(chg)}</Truncated>;
             const b = budgets[r.subject_id];
             if (!b) return null;
             const line = [b.customer, b.styles].filter(Boolean).join(" · ");
@@ -451,7 +542,13 @@ export function ApprovalsInboxScreen({
           meta={(r) =>
             `${budgets[r.subject_id] ? `${workflowLabel(r.workflow_key)} · ` : ""}Step ${r.step_order} · ${r.step_label} · waiting ${waited(r.waiting_hours)}`
           }
-          stats={(r) => (pos[r.subject_id] ? poStats(pos[r.subject_id]) : cardStats(budgets[r.subject_id]))}
+          stats={(r) =>
+            pos[r.subject_id]
+              ? poStats(pos[r.subject_id])
+              : poChanges[r.subject_id]
+                ? changeStats(poChanges[r.subject_id])
+                : cardStats(budgets[r.subject_id])
+          }
           /* TAP THE CARD TO DECIDE. `onEdit` is the primitive's tap slot; the
              word is historical (it opens a record) and this opens the sheet
              that holds the figures and the three buttons. A card with no
@@ -466,7 +563,7 @@ export function ApprovalsInboxScreen({
             if (rev) return `Raised by ${rev.raisedBy ?? r.created_by_name ?? "—"} · ${fmtDateTime(rev.raisedAt)}`;
             return r.created_by_name ? `Raised by ${r.created_by_name} · ${fmtDateTime(r.started_at)}` : null;
           }}
-          empty="Nothing is waiting on you. Requests appear here the moment a step names you as an approver."
+          empty={allOpen ? "No approval is open anywhere right now." : "Nothing is waiting on you. Requests appear here the moment a step names you as an approver."}
         />
         )}
       </div>
@@ -476,6 +573,11 @@ export function ApprovalsInboxScreen({
         <Sheet
           open
           onClose={() => setDecideOn(null)}
+          /* A CENTRED CARD, NOT A FULL-SCREEN TAKEOVER, now that desktop opens it
+             too ("Review & decide", 2026-10-31). Same shape as the bar's own
+             confirm: figures and three buttons need a card's width, not a page. */
+          size="sm"
+          alignToPane
           title={
             decideRevision
               ? `${reOf(decideCard) ?? "Revision"}${decideRevision.revNo ? ` · Rev #${decideRevision.revNo}` : ""}`
@@ -483,7 +585,9 @@ export function ApprovalsInboxScreen({
                 ? `${workflowLabel(decideRow.workflow_key)} · ${decideCard.budgetCode}`
                 : decidePo?.code
                   ? `PO ${decidePo.code}`
-                  : workflowLabel(decideRow.workflow_key)
+                  : decideChange
+                    ? changeTitle(decideChange)
+                    : workflowLabel(decideRow.workflow_key)
           }
         >
           <div className="space-y-4 p-4">
@@ -550,13 +654,26 @@ export function ApprovalsInboxScreen({
             {/* A PURCHASE ORDER (0764): the money, the lines above or without a budget,
                 what they cost the order, and the Purchase Manager's reason — then the
                 PO itself, one tap away, for every line. */}
-            {decidePo ? (
+            {decideChange ? (
+              <PoChangeDetail card={decideChange} href={hrefFor(decideRow)} />
+            ) : decidePo ? (
               <>
                 <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
                   <dt className="text-muted-foreground">Vendor</dt>
                   <dd>{decidePo.vendor ?? "—"}</dd>
+                  <dt className="text-muted-foreground">Taxable</dt>
+                  <dd className="tabular-nums">{decidePo.taxable}</dd>
+                  <dt className="text-muted-foreground">GST</dt>
+                  <dd className="tabular-nums">
+                    {decidePo.gst}
+                    {decidePo.gstSplit.length
+                      ? ` (${decidePo.gstSplit.map((g) => `${g.label} ${g.amount}`).join(" · ")})`
+                      : ""}
+                  </dd>
                   <dt className="text-muted-foreground">Total</dt>
-                  <dd className="tabular-nums">{decidePo.total}</dd>
+                  <dd className="font-semibold tabular-nums">{decidePo.total}</dd>
+                  <dt className="text-muted-foreground">Delivery</dt>
+                  <dd className="tabular-nums">{decidePo.deliveryDate ? fmtDate(decidePo.deliveryDate) : "—"}</dd>
                   <dt className="text-muted-foreground">Lines</dt>
                   <dd className="tabular-nums">
                     {decidePo.lineCount}
@@ -568,13 +685,36 @@ export function ApprovalsInboxScreen({
                     {poImpactLine(decidePo) ?? "—"}
                   </dd>
                 </dl>
+                {/* EACH LINE OVER ITS BUDGET (user 2026-10-31) — typed rate incl. GST vs
+                    the ceiling, both in rupees, straight from `poBudgetImpact`. Five at
+                    most; the PO page carries every line. */}
+                {decidePo.overLines?.length ? (
+                  <div className="rounded-md border border-danger/30 bg-danger/5 p-2.5 text-xs">
+                    <p className="font-semibold text-danger">
+                      Approving this PO reduces order net profit by ₹ {fmtFixed(decidePo.profitHit ?? 0, 2)}
+                    </p>
+                    <ul className="mt-1.5 space-y-1">
+                      {decidePo.overLines.slice(0, 5).map((l, i) => (
+                        <li key={i} className="flex items-baseline gap-2">
+                          <Truncated className="min-w-0 flex-1">{l.item}</Truncated>
+                          <span className="shrink-0 tabular-nums">
+                            ₹ {rateText(l.rate)} <span className="text-muted-foreground">vs budget ₹ {rateText(l.budget)}</span>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                    {decidePo.overLines.length > 5 ? (
+                      <p className="mt-1 text-muted-foreground">+{decidePo.overLines.length - 5} more on the PO</p>
+                    ) : null}
+                  </div>
+                ) : null}
                 <div className="rounded-md border border-warning/40 bg-warning/5 p-2.5 text-xs">
                   <span className="font-semibold">Reason: </span>
                   {decidePo.reason ?? <span className="text-muted-foreground">None given</span>}
                 </div>
                 {hrefFor(decideRow) ? (
                   <Link href={hrefFor(decideRow)!} className="text-xs font-medium text-primary hover:underline">
-                    Open the PO (every line, budget vs rate, Reject for good)
+                    Open the PO (every line, budget vs rate)
                   </Link>
                 ) : null}
               </>
@@ -642,11 +782,22 @@ export function ApprovalsInboxScreen({
                 decideRow.workflow_key === WORKFLOWS.order_budget.key ||
                 decideRow.workflow_key === WORKFLOWS.purchase_order.key
               }
-              /* A PO WITHIN BUDGET IS APPROVED IN ONE CLICK (client 2026-10-30) —
-                 no confirm, no remark. Above budget, without a budget, or figures
-                 unreadable (`overCount` null) keeps the confirm and its comment. */
-              directApprove={
-                !!decidePo && decidePo.overCount === 0 && !decidePo.unbudgetedCount
+              /* EVERY PO IS APPROVED IN ONE CLICK (user 2026-10-31, widening the
+                 2026-10-30 within-budget rule) — above budget too, and on an
+                 override: `approvePo` runs the signature / TBA / reopened-budget
+                 gates and ends the run through `actOnSubject`, which writes the
+                 override remark. Request Rework sends it back to draft; Reject
+                 (`declinePo`) closes it for good and reopens the requirement.
+                 Both need a reason. Non-PO workflows keep the engine's path. */
+              onApprove={
+                decideRow.workflow_key === WORKFLOWS.purchase_order.key
+                  ? () => approvePo(decideRow.subject_id)
+                  : undefined
+              }
+              onRejectForGood={
+                decideRow.workflow_key === WORKFLOWS.purchase_order.key
+                  ? (reason) => declinePo(decideRow.subject_id, reason)
+                  : undefined
               }
             />
           </div>
@@ -673,13 +824,141 @@ export function ApprovalsInboxScreen({
 function poImpactLine(po: PoApprovalCard): string | null {
   if (po.profitHit == null) return null;
   if (po.profitHit <= 0) return po.unbudgetedCount ? "No budget to compare" : "Within budget";
-  return `−₹ ${fmtNumber(po.profitHit)} profit (${fmtNumber(po.overPct ?? 0)}% over)`;
+  /* Plain words, money at 2 places and the % at 1 (screenshot 3943: "−₹ 433.26
+     profit (36.889% over)" after a "·" read as a double minus). */
+  return `Profit down ₹ ${fmtFixed(po.profitHit, 2)} (${fmtFixed(po.overPct ?? 0, 1)}% over budget)`;
+}
+
+/** "Rate amendment · PO 123" / "Cancellation · PO 123". */
+function changeTitle(c: PoChangeCard): string {
+  const po = c.poCode ? `PO ${c.poCode}` : "PO";
+  return c.kind === "rate" ? `Rate amendment · ${po}` : `Cancellation · ${po}`;
+}
+
+/** A signed money change: "+₹ 1,200.00" / "−₹ 300.00". */
+function signedMoney(currency: string, v: number): string {
+  return `${v >= 0 ? "+" : "−"}${currency} ${fmtFixed(Math.abs(v), 2)}`;
+}
+
+/** The one line under the title: what changes, in money. */
+function changeLine(c: PoChangeCard): string {
+  if (c.kind === "rate") {
+    return [c.item, `${c.currency} ${rateText(c.previousRate)} → ${rateText(c.revisedRate)}`, signedMoney(c.currency, c.valueChange)]
+      .filter(Boolean)
+      .join(" · ");
+  }
+  const n = c.lines.length;
+  return `${c.scope === "whole" ? "Whole PO" : "Part"} · ${n} line${n === 1 ? "" : "s"} · ${c.currency} ${fmtFixed(c.cancelValue, 2)}`;
+}
+
+/** The budget sentence for a rate amendment — the PO card's own words. */
+function rateBudgetLine(c: Extract<PoChangeCard, { kind: "rate" }>): string {
+  if (!c.hasBudget) return "No approved budget";
+  if (c.budgetRate == null) return "—";
+  if (!c.profitHit) return `Within budget (₹ ${rateText(c.budgetRate)} incl. GST)`;
+  return `Approving this reduces order net profit by ₹ ${fmtFixed(c.profitHit, 2)}`;
+}
+
+function changeStats(c: PoChangeCard): CardStat[] {
+  if (c.kind === "rate") {
+    return [
+      { label: "Rate", value: `${rateText(c.previousRate)} → ${rateText(c.revisedRate)}` },
+      { label: "Value change", value: signedMoney(c.currency, c.valueChange) },
+      { label: "Budget", value: rateBudgetLine(c), lead: true },
+    ];
+  }
+  return [
+    { label: "Scope", value: c.scope === "whole" ? "Whole PO" : "Part" },
+    { label: "Lines", value: String(c.lines.length) },
+    { label: "Cancelled value", value: `${c.currency} ${fmtFixed(c.cancelValue, 2)}`, lead: true },
+  ];
+}
+
+/** The decision sheet's body for a rate amendment or a cancellation (0785). */
+function PoChangeDetail({ card: c, href }: { card: PoChangeCard; href: string | null }) {
+  return (
+    <>
+      {c.kind === "rate" ? (
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+          <dt className="text-muted-foreground">Amendment</dt>
+          <dd className="font-mono">{c.code ?? "—"}</dd>
+          <dt className="text-muted-foreground">Item</dt>
+          <dd>{c.item ?? "—"}</dd>
+          <dt className="text-muted-foreground">Old rate</dt>
+          <dd className="tabular-nums">
+            {c.currency} {rateText(c.previousRate)}{" "}
+            <span className="text-muted-foreground">({rateText(c.previousRateGst)} incl. GST)</span>
+          </dd>
+          <dt className="text-muted-foreground">New rate</dt>
+          <dd className="font-semibold tabular-nums">
+            {c.currency} {rateText(c.revisedRate)}{" "}
+            <span className="font-normal text-muted-foreground">({rateText(c.revisedRateGst)} incl. GST)</span>
+          </dd>
+          <dt className="text-muted-foreground">Quantity</dt>
+          <dd className="tabular-nums">{fmtNumber(c.quantity)}</dd>
+          <dt className="text-muted-foreground">Line value</dt>
+          <dd className="tabular-nums">{signedMoney(c.currency, c.valueChange)}</dd>
+          <dt className="text-muted-foreground">Budget</dt>
+          <dd className={c.profitHit ? "font-semibold text-danger tabular-nums" : "tabular-nums"}>
+            {rateBudgetLine(c)}
+            {c.profitHit && c.budgetRate != null ? (
+              <span className="block font-normal text-muted-foreground">
+                Budget ₹ {rateText(c.budgetRate)} incl. GST · ₹ {rateText(c.overPerUnit ?? 0)} over per unit
+              </span>
+            ) : null}
+          </dd>
+        </dl>
+      ) : (
+        <>
+          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+            <dt className="text-muted-foreground">Request</dt>
+            <dd className="font-mono">{c.code ?? "—"}</dd>
+            <dt className="text-muted-foreground">Scope</dt>
+            <dd>{c.scope === "whole" ? "Whole PO" : "Part"}</dd>
+            <dt className="text-muted-foreground">Value cancelled</dt>
+            <dd className="font-semibold tabular-nums">
+              {c.currency} {fmtFixed(c.cancelValue, 2)}
+            </dd>
+          </dl>
+          <ul className="space-y-1 rounded-md border border-border p-2.5 text-xs">
+            {c.lines.map((l, i) => (
+              <li key={i} className="flex items-baseline gap-2">
+                <Truncated className="min-w-0 flex-1">{l.item ?? "Item"}</Truncated>
+                <span className="shrink-0 tabular-nums">
+                  {fmtNumber(l.cancelQty)} of {fmtNumber(l.openQty)} {l.uom ?? ""}
+                  <span className="ml-1.5 text-[11px] text-muted-foreground">
+                    ordered {fmtNumber(l.orderedQty)} · received {fmtNumber(l.receivedQty)}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      <div className="rounded-md border border-warning/40 bg-warning/5 p-2.5 text-xs">
+        <span className="font-semibold">Reason: </span>
+        {c.reason ?? <span className="text-muted-foreground">None given</span>}
+      </div>
+      {href ? (
+        <Link href={href} className="text-xs font-medium text-primary hover:underline">
+          Open the {c.kind === "rate" ? "rate amendment" : "cancellation request"}
+        </Link>
+      ) : null}
+    </>
+  );
+}
+
+/** A rate: three decimals under ₹10 (a 0.44 label), two above. */
+function rateText(v: number): string {
+  return fmtFixed(v, Math.abs(v) < 10 ? 3 : 2);
 }
 
 /** A PO's card stats (0764): the impact leads, as Profit leads on a budget. */
 function poStats(po: PoApprovalCard): CardStat[] {
   return [
     { label: "Total", value: po.total },
+    { label: "GST", value: po.gst },
+    { label: "Delivery", value: po.deliveryDate ? fmtDate(po.deliveryDate) : "—" },
     {
       label: "Above budget",
       value: po.overCount == null ? "—" : `${po.overCount} of ${po.lineCount}${po.unbudgetedCount ? ` · ${po.unbudgetedCount} no budget` : ""}`,
