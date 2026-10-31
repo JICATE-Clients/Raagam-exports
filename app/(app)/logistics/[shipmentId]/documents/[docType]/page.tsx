@@ -1,15 +1,40 @@
 import { notFound } from "next/navigation";
-import Link from "next/link";
 import { requirePermission } from "@/lib/auth/server";
+import { createClient } from "@/lib/supabase/server";
 import { getDocument } from "@/lib/logistics/service";
-import { fmtMoney, fmtDate, fmtNumber } from "@/lib/format";
-import { Card, CardBody } from "@/components/ui/card";
-import { PrintButton } from "./print-button";
+import { fmtDate, fmtFixed, fmtNumber } from "@/lib/format";
+import { amountInWords } from "@/lib/purchase/amount-words";
+import { letterheadLogoOf, registeredAddressOf } from "@/lib/orders/fabric-bom/letterhead";
+import { DocumentPrintStyles } from "@/components/orders/document-print-styles";
 import {
-  DOC_TYPE_LABELS,
-  DOC_TYPES,
-  type DocType,
-} from "@/lib/logistics/types";
+  OrderFacts,
+  ReportTable,
+  SectionCard,
+  SheetMasthead,
+  SignOff,
+  Td,
+  Th,
+  stripeRow,
+  totalRowStyle,
+  type SheetFact,
+} from "@/components/orders/report-kit";
+import { AmountCard, CompanyLine, DocumentFoot, money, presentFacts } from "@/components/documents/document-kit";
+import { PoPrintToolbar } from "@/components/purchase/po-print-toolbar";
+import { DOC_TYPE_LABELS, DOC_TYPES, type DocType } from "@/lib/logistics/types";
+
+/**
+ * A SHIPMENT'S EXPORT DOCUMENT, AS PRINTED — Commercial Invoice, Packing List and the
+ * generic ones (BL, GST Invoice, DGFT). The compact outside-party layout the vendor PO
+ * was given on 2026-10-31 (`components/purchase/po-print-sheet.tsx`), built from the same
+ * parts (`components/documents/document-kit.tsx`):
+ *
+ *   SheetMasthead dense → CompanyLine → OrderFacts dense (only the filled facts)
+ *   → the lines in a SectionCard, Total row in tone → DocumentFoot → SignOff, one row
+ *
+ * `DocumentPrintStyles` is what lets this page print at all: globals.css hides everything
+ * but `.report-print-area` on paper, and this page predated both (see that file's header).
+ * Layout only — every figure and field printed before is still printed.
+ */
 
 // ---------- snapshot shape (mirrors what _generateDoc stores) ----------
 
@@ -67,334 +92,249 @@ function extractSnapshot(data: Record<string, unknown>): DocSnapshot {
   };
 }
 
-// ---------- Shared document header ----------
+type Company = {
+  name: string;
+  logo: string | null;
+  address: string | null;
+  phone: string | null;
+  email: string | null;
+  gstin: string | null;
+};
 
-function DocHeader({
-  docTitle,
-  docNo,
-  shipment,
-  buyer,
-}: {
-  docTitle: string;
-  docNo: string | null;
-  shipment: ShipmentSnapshot;
-  buyer: BuyerSnapshot;
-}) {
+type SheetProps = { snap: DocSnapshot; docNo: string | null; company: Company };
+
+/** "₹" for INR, else the currency code — the PO print's rule. */
+function symOf(code: string | null): string {
+  return !code || code === "INR" ? "₹" : code;
+}
+
+// ---------- Shared head: masthead, company line, facts ----------
+
+function DocHead({ kind, snap, docNo, company }: SheetProps & { kind: string }) {
+  const { shipment, buyer } = snap;
+  const facts: SheetFact[] = presentFacts([
+    { label: "Exporter", value: company.name },
+    { label: "Consignee", value: shipment.consignee_name, sub: shipment.consignee_address || undefined },
+    { label: "Buyer", value: buyer?.name },
+    { label: "Invoice No", value: shipment.invoice_no ?? docNo, mono: true },
+    { label: "Invoice Date", value: shipment.invoice_date ? fmtDate(shipment.invoice_date) : null, mono: true },
+    { label: "Port of Loading", value: shipment.port_of_loading },
+    { label: "Destination", value: [shipment.destination_port, shipment.destination_country].filter(Boolean).join(", ") },
+    { label: "Vessel / Voyage", value: [shipment.vessel, shipment.voyage_no].filter(Boolean).join(" / ") },
+    { label: "ETD", value: shipment.etd ? fmtDate(shipment.etd) : null, mono: true },
+    { label: "Incoterm", value: shipment.incoterm },
+    { label: "Currency", value: shipment.currency_code },
+  ]);
   return (
-    <div className="mb-6">
-      <div className="mb-4 flex items-start justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-            Exporter
-          </p>
-          <p className="text-base font-bold text-foreground">Raagam Exports</p>
-        </div>
-        <div className="text-right">
-          <p className="text-xl font-bold text-foreground">{docTitle}</p>
-          {docNo && (
-            <p className="mt-0.5 font-mono text-sm text-muted-foreground">
-              {docNo}
-            </p>
-          )}
-        </div>
-      </div>
+    <div className="po-keep">
+      <SheetMasthead
+        company={{ name: company.name, logo: company.logo }}
+        kind={kind}
+        reNo={docNo}
+        meta={shipment.invoice_date ? <span className="tabular-nums">{fmtDate(shipment.invoice_date)}</span> : null}
+        dense
+      />
+      <CompanyLine company={company} />
+      <OrderFacts facts={facts} dense />
+    </div>
+  );
+}
 
-      <div className="grid grid-cols-2 gap-6 border-t border-border pt-4 text-sm">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Consignee
-          </p>
-          <p className="mt-1 font-medium">{shipment.consignee_name ?? "—"}</p>
-          {shipment.consignee_address && (
-            <p className="mt-0.5 whitespace-pre-line text-muted-foreground">
-              {shipment.consignee_address}
-            </p>
-          )}
-          {buyer?.name && (
-            <p className="mt-1 text-xs text-muted-foreground">
-              Buyer: {buyer.name}
-            </p>
-          )}
-        </div>
-
-        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-          <div>
-            <span className="text-muted-foreground">Invoice no.</span>
-            <p className="font-medium">{shipment.invoice_no ?? docNo ?? "—"}</p>
-          </div>
-          <div>
-            <span className="text-muted-foreground">Invoice date</span>
-            <p className="font-medium">{fmtDate(shipment.invoice_date)}</p>
-          </div>
-          <div>
-            <span className="text-muted-foreground">Port of loading</span>
-            <p className="font-medium">{shipment.port_of_loading ?? "—"}</p>
-          </div>
-          <div>
-            <span className="text-muted-foreground">Destination</span>
-            <p className="font-medium">
-              {[shipment.destination_port, shipment.destination_country]
-                .filter(Boolean)
-                .join(", ") || "—"}
-            </p>
-          </div>
-          <div>
-            <span className="text-muted-foreground">Vessel / voyage</span>
-            <p className="font-medium">
-              {[shipment.vessel, shipment.voyage_no].filter(Boolean).join(" / ") || "—"}
-            </p>
-          </div>
-          <div>
-            <span className="text-muted-foreground">ETD</span>
-            <p className="font-medium tabular-nums">{fmtDate(shipment.etd)}</p>
-          </div>
-          <div>
-            <span className="text-muted-foreground">Incoterm</span>
-            <p className="font-medium">{shipment.incoterm ?? "—"}</p>
-          </div>
-          <div>
-            <span className="text-muted-foreground">Currency</span>
-            <p className="font-medium">{shipment.currency_code ?? "—"}</p>
-          </div>
-        </div>
-      </div>
+/** Prepared · Checked · Authorised Signatory — one row, short lines. */
+function DocSignOff({ company }: { company: Company }) {
+  return (
+    <div className="po-keep">
+      <SignOff
+        dense
+        cells={[
+          ["Prepared By", null],
+          ["Checked By", null],
+          ["Authorised Signatory", `For ${company.name}`],
+        ]}
+      />
     </div>
   );
 }
 
 // ---------- Commercial Invoice ----------
 
-function CommercialInvoice({ snap, docNo }: { snap: DocSnapshot; docNo: string | null }) {
-  const { shipment, lines, buyer } = snap;
+function CommercialInvoice({ snap, docNo, company }: SheetProps) {
+  const { shipment, lines } = snap;
+  const sym = symOf(shipment.currency_code);
   const total = lines.reduce((s, l) => s + l.amount, 0);
+  const totalQty = lines.reduce((s, l) => s + l.quantity, 0);
 
   return (
-    <div>
-      <DocHeader
-        docTitle="Commercial Invoice"
-        docNo={docNo}
-        shipment={shipment}
-        buyer={buyer}
+    <>
+      <DocHead kind="COMMERCIAL INVOICE" snap={snap} docNo={docNo} company={company} />
+
+      <SectionCard dense title="Items" total={money(sym, total)} totalLabel="Total">
+        <ReportTable bare>
+          <thead>
+            <tr>
+              <Th right>#</Th>
+              <Th>Description</Th>
+              <Th>HSN</Th>
+              <Th right>Qty</Th>
+              <Th right>Unit Price ({sym})</Th>
+              <Th right>Amount ({sym})</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {lines.map((l, i) => (
+              <tr key={l.id ?? i} style={stripeRow(i)} className="po-keep align-top">
+                <Td right>
+                  <span className="text-[#7b8594]">{i + 1}</span>
+                </Td>
+                <Td>{l.description}</Td>
+                <Td mono>{l.hsn_code ?? "—"}</Td>
+                <Td right>{fmtNumber(l.quantity)}</Td>
+                <Td right>{fmtFixed(l.unit_price, 2)}</Td>
+                <Td right>
+                  <span className="font-semibold">{fmtFixed(l.amount, 2)}</span>
+                </Td>
+              </tr>
+            ))}
+            <tr style={totalRowStyle()} className="font-semibold">
+              <Td colSpan={3} right>
+                Total
+              </Td>
+              <Td right>{fmtNumber(totalQty)}</Td>
+              <Td> </Td>
+              <Td right>{fmtFixed(total, 2)}</Td>
+            </tr>
+          </tbody>
+        </ReportTable>
+      </SectionCard>
+
+      <DocumentFoot
+        words={amountInWords(total, shipment.currency_code ?? "INR")}
+        terms={[
+          { label: "Terms of Delivery", value: `${shipment.incoterm ?? "FOB"} — ${shipment.port_of_loading ?? "Tuticorin"}` },
+          {
+            label: "Declaration",
+            value: "We certify that the merchandise described above is of Indian origin and that the prices stated are true and correct.",
+          },
+        ]}
+        amount={<AmountCard sym={sym} rows={[{ label: "Goods Value", value: total }]} net={total} netLabel="Invoice Value" />}
       />
 
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-border bg-surface-muted">
-            <th className="px-3 py-2 text-left text-xs font-bold text-muted-foreground">
-              Description
-            </th>
-            <th className="px-3 py-2 text-left text-xs font-bold text-muted-foreground">
-              HSN
-            </th>
-            <th className="px-3 py-2 text-right text-xs font-bold text-muted-foreground">
-              Qty
-            </th>
-            <th className="px-3 py-2 text-right text-xs font-bold text-muted-foreground">
-              Unit price
-            </th>
-            <th className="px-3 py-2 text-right text-xs font-bold text-muted-foreground">
-              Amount
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {lines.map((l, i) => (
-            <tr key={l.id ?? i} className="border-b border-border last:border-0">
-              <td className="px-3 py-2">{l.description}</td>
-              <td className="px-3 py-2 text-xs text-muted-foreground">
-                {l.hsn_code ?? "—"}
-              </td>
-              <td className="px-3 py-2 text-right tabular-nums">
-                {fmtNumber(l.quantity)}
-              </td>
-              <td className="px-3 py-2 text-right tabular-nums">
-                {l.unit_price.toLocaleString("en-IN")}
-              </td>
-              <td className="px-3 py-2 text-right tabular-nums font-medium">
-                {fmtMoney(l.amount, shipment.currency_code)}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-        <tfoot>
-          <tr className="border-t-2 border-border">
-            <td
-              colSpan={4}
-              className="px-3 py-2 text-right text-sm font-semibold"
-            >
-              Total
-            </td>
-            <td className="px-3 py-2 text-right tabular-nums text-sm font-bold">
-              {fmtMoney(total, shipment.currency_code)}
-            </td>
-          </tr>
-        </tfoot>
-      </table>
-
-      <div className="mt-6 border-t border-border pt-4 text-xs text-muted-foreground">
-        <p>Incoterm: {shipment.incoterm ?? "FOB"} — {shipment.port_of_loading ?? "Tuticorin"}</p>
-        <p className="mt-1">
-          We certify that the merchandise described above is of Indian origin and
-          that the prices stated are true and correct.
-        </p>
-      </div>
-    </div>
+      <DocSignOff company={company} />
+    </>
   );
 }
 
 // ---------- Packing List ----------
 
-function PackingList({ snap, docNo }: { snap: DocSnapshot; docNo: string | null }) {
-  const { shipment, lines, buyer } = snap;
+function PackingList({ snap, docNo, company }: SheetProps) {
+  const { lines } = snap;
   const totalQty = lines.reduce((s, l) => s + l.quantity, 0);
   const totalCartons = lines.reduce((s, l) => s + (l.cartons ?? 0), 0);
   const totalNetWt = lines.reduce((s, l) => s + (l.net_weight ?? 0), 0);
   const totalGrossWt = lines.reduce((s, l) => s + (l.gross_weight ?? 0), 0);
 
   return (
-    <div>
-      <DocHeader
-        docTitle="Packing List"
-        docNo={docNo}
-        shipment={shipment}
-        buyer={buyer}
-      />
+    <>
+      <DocHead kind="PACKING LIST" snap={snap} docNo={docNo} company={company} />
 
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-border bg-surface-muted">
-            <th className="px-3 py-2 text-left text-xs font-bold text-muted-foreground">
-              Description
-            </th>
-            <th className="px-3 py-2 text-right text-xs font-bold text-muted-foreground">
-              Qty
-            </th>
-            <th className="px-3 py-2 text-right text-xs font-bold text-muted-foreground">
-              Cartons
-            </th>
-            <th className="px-3 py-2 text-right text-xs font-bold text-muted-foreground">
-              Net wt (kg)
-            </th>
-            <th className="px-3 py-2 text-right text-xs font-bold text-muted-foreground">
-              Gross wt (kg)
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {lines.map((l, i) => (
-            <tr key={l.id ?? i} className="border-b border-border last:border-0">
-              <td className="px-3 py-2">{l.description}</td>
-              <td className="px-3 py-2 text-right tabular-nums">
-                {fmtNumber(l.quantity)}
-              </td>
-              <td className="px-3 py-2 text-right tabular-nums">
-                {l.cartons ?? "—"}
-              </td>
-              <td className="px-3 py-2 text-right tabular-nums">
-                {l.net_weight != null
-                  ? l.net_weight.toLocaleString("en-IN")
-                  : "—"}
-              </td>
-              <td className="px-3 py-2 text-right tabular-nums">
-                {l.gross_weight != null
-                  ? l.gross_weight.toLocaleString("en-IN")
-                  : "—"}
-              </td>
+      <SectionCard dense title="Packing" total={totalCartons > 0 ? fmtNumber(totalCartons) : null} totalLabel="Cartons">
+        <ReportTable bare>
+          <thead>
+            <tr>
+              <Th right>#</Th>
+              <Th>Description</Th>
+              <Th right>Qty</Th>
+              <Th right>Cartons</Th>
+              <Th right>Net Wt (kg)</Th>
+              <Th right>Gross Wt (kg)</Th>
             </tr>
-          ))}
-        </tbody>
-        <tfoot>
-          <tr className="border-t-2 border-border">
-            <td className="px-3 py-2 text-right text-sm font-semibold">Totals</td>
-            <td className="px-3 py-2 text-right tabular-nums font-bold">
-              {fmtNumber(totalQty)}
-            </td>
-            <td className="px-3 py-2 text-right tabular-nums font-bold">
-              {totalCartons > 0 ? fmtNumber(totalCartons) : "—"}
-            </td>
-            <td className="px-3 py-2 text-right tabular-nums font-bold">
-              {totalNetWt > 0 ? totalNetWt.toLocaleString("en-IN") : "—"}
-            </td>
-            <td className="px-3 py-2 text-right tabular-nums font-bold">
-              {totalGrossWt > 0 ? totalGrossWt.toLocaleString("en-IN") : "—"}
-            </td>
-          </tr>
-        </tfoot>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {lines.map((l, i) => (
+              <tr key={l.id ?? i} style={stripeRow(i)} className="po-keep align-top">
+                <Td right>
+                  <span className="text-[#7b8594]">{i + 1}</span>
+                </Td>
+                <Td>{l.description}</Td>
+                <Td right>{fmtNumber(l.quantity)}</Td>
+                <Td right>{l.cartons ?? "—"}</Td>
+                <Td right>{fmtNumber(l.net_weight)}</Td>
+                <Td right>{fmtNumber(l.gross_weight)}</Td>
+              </tr>
+            ))}
+            <tr style={totalRowStyle()} className="font-semibold">
+              <Td colSpan={2} right>
+                Total
+              </Td>
+              <Td right>{fmtNumber(totalQty)}</Td>
+              <Td right>{totalCartons > 0 ? fmtNumber(totalCartons) : "—"}</Td>
+              <Td right>{totalNetWt > 0 ? fmtNumber(totalNetWt) : "—"}</Td>
+              <Td right>{totalGrossWt > 0 ? fmtNumber(totalGrossWt) : "—"}</Td>
+            </tr>
+          </tbody>
+        </ReportTable>
+      </SectionCard>
+
+      {/* No money on a packing list, and no remarks or terms in the snapshot today, so
+          there is no foot: DocumentFoot renders nothing for an empty left column. */}
+
+      <DocSignOff company={company} />
+    </>
   );
 }
 
 // ---------- Generic document (BL, GST Invoice, DGFT) ----------
 
-function GenericDoc({
-  snap,
-  docType,
-  docNo,
-}: {
-  snap: DocSnapshot;
-  docType: DocType;
-  docNo: string | null;
-}) {
-  const { shipment, lines, buyer } = snap;
+function GenericDoc({ snap, docType, docNo, company }: SheetProps & { docType: DocType }) {
+  const { shipment, lines } = snap;
+  const sym = symOf(shipment.currency_code);
   const total = lines.reduce((s, l) => s + l.amount, 0);
+  const totalQty = lines.reduce((s, l) => s + l.quantity, 0);
 
   return (
-    <div>
-      <DocHeader
-        docTitle={DOC_TYPE_LABELS[docType]}
-        docNo={docNo}
-        shipment={shipment}
-        buyer={buyer}
-      />
+    <>
+      <DocHead kind={DOC_TYPE_LABELS[docType].toUpperCase()} snap={snap} docNo={docNo} company={company} />
 
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-border bg-surface-muted">
-            <th className="px-3 py-2 text-left text-xs font-bold text-muted-foreground">
-              Description
-            </th>
-            <th className="px-3 py-2 text-right text-xs font-bold text-muted-foreground">
-              Qty
-            </th>
-            <th className="px-3 py-2 text-right text-xs font-bold text-muted-foreground">
-              Amount
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {lines.map((l, i) => (
-            <tr key={l.id ?? i} className="border-b border-border last:border-0">
-              <td className="px-3 py-2">{l.description}</td>
-              <td className="px-3 py-2 text-right tabular-nums">
-                {fmtNumber(l.quantity)}
-              </td>
-              <td className="px-3 py-2 text-right tabular-nums">
-                {fmtMoney(l.amount, shipment.currency_code)}
-              </td>
+      <SectionCard
+        dense
+        title="Items"
+        total={money(sym, total)}
+        totalLabel="Total"
+        note={`Document type: ${DOC_TYPE_LABELS[docType]} · Generated: ${fmtDate(snap.generated_at)}`}
+      >
+        <ReportTable bare>
+          <thead>
+            <tr>
+              <Th right>#</Th>
+              <Th>Description</Th>
+              <Th right>Qty</Th>
+              <Th right>Amount ({sym})</Th>
             </tr>
-          ))}
-        </tbody>
-        <tfoot>
-          <tr className="border-t-2 border-border">
-            <td
-              colSpan={2}
-              className="px-3 py-2 text-right text-sm font-semibold"
-            >
-              Total
-            </td>
-            <td className="px-3 py-2 text-right tabular-nums font-bold">
-              {fmtMoney(total, shipment.currency_code)}
-            </td>
-          </tr>
-        </tfoot>
-      </table>
+          </thead>
+          <tbody>
+            {lines.map((l, i) => (
+              <tr key={l.id ?? i} style={stripeRow(i)} className="po-keep align-top">
+                <Td right>
+                  <span className="text-[#7b8594]">{i + 1}</span>
+                </Td>
+                <Td>{l.description}</Td>
+                <Td right>{fmtNumber(l.quantity)}</Td>
+                <Td right>{fmtFixed(l.amount, 2)}</Td>
+              </tr>
+            ))}
+            <tr style={totalRowStyle()} className="font-semibold">
+              <Td colSpan={2} right>
+                Total
+              </Td>
+              <Td right>{fmtNumber(totalQty)}</Td>
+              <Td right>{fmtFixed(total, 2)}</Td>
+            </tr>
+          </tbody>
+        </ReportTable>
+      </SectionCard>
 
-      <div className="mt-6 rounded-md border border-border bg-surface-muted p-3 text-xs text-muted-foreground">
-        <p>Document type: {DOC_TYPE_LABELS[docType]}</p>
-        <p>Generated: {fmtDate(snap.generated_at)}</p>
-      </div>
-    </div>
+      <DocSignOff company={company} />
+    </>
   );
 }
 
@@ -414,55 +354,47 @@ export default async function DocumentPage({
   }
   const docType = docTypeRaw as DocType;
 
-  const doc = await getDocument(shipmentId, docType);
+  // One round: the document and the letterhead it prints under.
+  const s = await createClient();
+  const [doc, { data: co }] = await Promise.all([
+    getDocument(shipmentId, docType),
+    s.from("company_profile").select("*").limit(1).maybeSingle(),
+  ]);
 
   if (!doc || doc.status !== "generated") {
     notFound();
   }
 
   const snap = extractSnapshot(doc.data);
+  const c = (co ?? null) as Record<string, unknown> | null;
+  const cs = (k: string) => (typeof c?.[k] === "string" && (c[k] as string).trim() ? (c[k] as string) : null);
+  const company: Company = {
+    // The exporter was hand-typed "Raagam Exports" before; the company profile names it now.
+    name: cs("company_name") ?? cs("company_short_name") ?? "RAAGAM EXPORTS",
+    logo: letterheadLogoOf(c),
+    address: registeredAddressOf(c),
+    phone: cs("phone") ?? cs("mobile"),
+    email: cs("email"),
+    gstin: cs("gstin"),
+  };
 
   return (
-    <div className="min-h-screen bg-surface-muted py-8 print:bg-white print:py-0">
-      <div className="mx-auto max-w-3xl px-4">
-        {/* Top bar — hidden when printing */}
-        <div className="mb-4 flex items-center justify-between print:hidden">
-          <div className="flex items-center gap-3">
-            <Link
-              href={`/logistics/${shipmentId}`}
-              className="text-sm text-muted-foreground hover:text-foreground"
-            >
-              ← Back to shipment
-            </Link>
-            <span className="text-muted-foreground">/</span>
-            <span className="text-sm font-medium">{DOC_TYPE_LABELS[docType]}</span>
-          </div>
-          <PrintButton />
-        </div>
+    <div>
+      <PoPrintToolbar backHref={`/logistics/${shipmentId}`} backLabel={snap.shipment.code ?? "Shipment"} />
+      <DocumentPrintStyles scope="po" />
+      <article className="po-sheet mx-auto max-w-[1100px] space-y-3 bg-white pb-6 text-[12px] text-[#17202b]">
+        {docType === "commercial_invoice" ? (
+          <CommercialInvoice snap={snap} docNo={doc.doc_no} company={company} />
+        ) : docType === "packing_list" ? (
+          <PackingList snap={snap} docNo={doc.doc_no} company={company} />
+        ) : (
+          <GenericDoc snap={snap} docType={docType} docNo={doc.doc_no} company={company} />
+        )}
 
-        {/* Document card */}
-        <Card className="print:shadow-none print:border-0">
-          <CardBody className="p-8 print:p-4">
-            {docType === "commercial_invoice" && (
-              <CommercialInvoice snap={snap} docNo={doc.doc_no} />
-            )}
-            {docType === "packing_list" && (
-              <PackingList snap={snap} docNo={doc.doc_no} />
-            )}
-            {docType !== "commercial_invoice" &&
-              docType !== "packing_list" && (
-                <GenericDoc snap={snap} docType={docType} docNo={doc.doc_no} />
-              )}
-
-            <div className="mt-8 border-t border-border pt-4 text-xs text-muted-foreground print:text-gray-400">
-              <p>
-                Shipment: {snap.shipment.code ?? shipmentId} &nbsp;|&nbsp; Generated:{" "}
-                {fmtDate(doc.generated_at)}
-              </p>
-            </div>
-          </CardBody>
-        </Card>
-      </div>
+        <p className="text-[10.5px] text-[#7b8594]">
+          Shipment: {snap.shipment.code ?? shipmentId} · Generated: {fmtDate(doc.generated_at)}
+        </p>
+      </article>
     </div>
   );
 }

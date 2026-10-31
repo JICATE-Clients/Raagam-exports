@@ -5,14 +5,20 @@ import { getProcessDc } from "@/lib/stores/process-dc-service";
 import { letterheadLogoOf, registeredAddressOf } from "@/lib/orders/fabric-bom/letterhead";
 import { PoPrintToolbar } from "@/components/purchase/po-print-toolbar";
 import { DocumentPrintStyles } from "@/components/orders/document-print-styles";
-import { SectionCard, SheetLabel, SheetMasthead, SignOff, Td, Th, stripeRow } from "@/components/orders/report-kit";
+import { OrderFacts, ReportTable, SectionCard, SheetMasthead, SignOff, Td, Th, stripeRow, totalRowStyle } from "@/components/orders/report-kit";
+import { CompanyLine, presentFacts } from "@/components/documents/document-kit";
 import { fmtDate, fmtNumber } from "@/lib/format";
+import { withCreators } from "@/lib/created-by";
 
 /**
  * THE PROCESS DC, AS PRINTED (doc/stores/dc-plan.md §3): the job-work challan the goods
  * travel on to the processor — vendor with address and GSTIN, the Process Order and RE it
  * is against, expected return, transport, the lines with HSN and lot, and the job-work
- * declaration. Same report kit as the PO, Rejection DC and Production DC prints.
+ * declaration.
+ *
+ * THE OUTSIDE-PARTY DOCUMENT SHAPE (user 2026-10-31, the compact vendor PO print):
+ * masthead → company line → facts (blank ones left off) → items with a Total row →
+ * one-row sign-off. A DC carries no money, so there is no Amount card.
  */
 export default async function ProcessDcPrintPage({ params }: { params: Promise<{ dcId: string }> }) {
   await requirePermission("stores", "view");
@@ -21,7 +27,8 @@ export default async function ProcessDcPrintPage({ params }: { params: Promise<{
   if (!dc) notFound();
 
   const s = await createClient();
-  const [{ data: co }, { data: unit }, { data: vendor }, { data: addr }] = await Promise.all([
+  // Prepared By's name (created-by.ts `creator_names`), alongside the letterhead reads.
+  const [{ data: co }, { data: unit }, { data: vendor }, { data: addr }, preparedBy] = await Promise.all([
     s.from("company_profile").select("*").limit(1).maybeSingle(),
     s.from("locations").select("name, gst_number").eq("id", dc.location_id).maybeSingle(),
     dc.vendor_id ? s.from("master_vendors").select("name, gst_no").eq("id", dc.vendor_id).maybeSingle() : Promise.resolve({ data: null }),
@@ -33,6 +40,7 @@ export default async function ProcessDcPrintPage({ params }: { params: Promise<{
           .order("sno")
           .limit(1)
       : Promise.resolve({ data: [] }),
+    withCreators([dc]).then((r) => (r[0] as { created_by_name?: string | null }).created_by_name ?? null),
   ]);
   const c = (co ?? null) as Record<string, unknown> | null;
   const cs = (k: string) => (typeof c?.[k] === "string" && (c[k] as string).trim() ? (c[k] as string) : null);
@@ -48,86 +56,105 @@ export default async function ProcessDcPrintPage({ params }: { params: Promise<{
     ? [a.street, a.config_lookups?.name, a.states?.name, a.pin].filter((x) => !!x && String(x).trim()).join(", ")
     : null;
   const total = dc.lines.reduce((t, l) => t + l.sent_qty, 0);
+  const uoms = [...new Set(dc.lines.map((l) => l.uom).filter(Boolean))];
+  const companyName = cs("company_name") ?? cs("company_short_name") ?? "RAAGAM EXPORTS";
+
+  const facts = presentFacts([
+    {
+      label: "Sent to (processor)",
+      value: v?.name ?? dc.vendor_name,
+      sub: [vendorAddress, v?.gst_no ? `GSTIN ${v.gst_no}` : null].filter(Boolean).join(" · ") || undefined,
+    },
+    { label: "Process", value: (dc.process_type ?? "").toUpperCase() },
+    { label: "DC Date", value: dc.dc_date ? fmtDate(dc.dc_date) : null, mono: true },
+    { label: "Process Order", value: dc.process_order_code, mono: true },
+    { label: "RE No", value: dc.order_no, mono: true },
+    { label: "Expected Return", value: dc.expected_return_date ? fmtDate(dc.expected_return_date) : null, mono: true },
+    { label: "Vehicle No", value: dc.vehicle_no, mono: true },
+    { label: "Transporter", value: dc.transporter },
+    { label: "E-way Bill No", value: dc.eway_bill_no, mono: true },
+  ]);
 
   return (
     <div>
       <PoPrintToolbar backHref="/stores/process-dc" backLabel="Process DC" printable={dc.status !== "draft"} />
       <DocumentPrintStyles scope="po" />
-      <article className="po-sheet mx-auto max-w-[1100px] bg-white pb-6 text-[12px] text-[#17202b]">
-        <div className="mb-4">
+      <article className="po-sheet mx-auto max-w-[1100px] space-y-3 bg-white pb-6 text-[12px] text-[#17202b]">
+        <div className="po-keep">
           <SheetMasthead
-            company={{ name: cs("company_name") ?? cs("company_short_name") ?? "RAAGAM EXPORTS", unit: u?.name ?? null, logo: letterheadLogoOf(c) }}
+            company={{ name: companyName, unit: u?.name ?? null, logo: letterheadLogoOf(c) }}
             kind="Delivery Challan — Job Work"
             reNo={dc.code}
             meta={<span className="tabular-nums">{fmtDate(dc.dc_date)}</span>}
+            dense
           />
-          <p className="border-x border-b border-border bg-white px-4 py-1.5 text-[11px] text-[#5b6472]">
-            {registeredAddressOf(c)}
-            {u?.gst_number ?? cs("gstin") ? ` · GSTIN ${u?.gst_number ?? cs("gstin")}` : ""}
-          </p>
+          <CompanyLine
+            company={{
+              address: registeredAddressOf(c),
+              phone: cs("phone") ?? cs("mobile"),
+              email: cs("email"),
+              gstin: u?.gst_number ?? cs("gstin"),
+            }}
+          />
+          <OrderFacts facts={facts} dense />
         </div>
 
-        <div className="po-keep mb-5 grid grid-cols-2 gap-4">
-          <div className="rounded-md border border-border px-3 py-2">
-            <SheetLabel>Sent to (processor)</SheetLabel>
-            <div className="text-[14px] font-bold">{v?.name ?? dc.vendor_name}</div>
-            {vendorAddress ? <div className="mt-0.5 text-[11.5px] text-[#5b6472]">{vendorAddress}</div> : null}
-            {v?.gst_no ? <div className="mt-1 font-mono text-[11px]">GSTIN {v.gst_no}</div> : null}
-            <div className="mt-1 text-[11.5px] font-semibold">Process: {(dc.process_type ?? "").toUpperCase()}</div>
-          </div>
-          <dl className="grid grid-cols-2 gap-x-3 gap-y-1.5 rounded-md border border-border px-3 py-2">
-            {[
-              ["Process Order", dc.process_order_code ?? "—"],
-              ["RE No", dc.order_no ?? "—"],
-              ["Expected Return", fmtDate(dc.expected_return_date)],
-              ["Vehicle No", dc.vehicle_no ?? "—"],
-              ["Transporter", dc.transporter ?? "—"],
-              ["E-way Bill No", dc.eway_bill_no ?? "—"],
-            ].map(([k, val]) => (
-              <div key={k}>
-                <dt className="text-[10.5px] text-[#7b8594] uppercase">{k}</dt>
-                <dd className="font-semibold tabular-nums">{val}</dd>
-              </div>
-            ))}
-          </dl>
-        </div>
-
-        <SectionCard title="Goods sent for job work" total={fmtNumber(total)} totalLabel="Total qty">
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse">
-              <thead>
-                <tr>
-                  <Th>#</Th>
-                  <Th>Item</Th>
-                  <Th>HSN</Th>
-                  <Th>Lot No</Th>
-                  <Th right>Qty</Th>
+        <SectionCard
+          dense
+          title="Goods sent for job work"
+          total={fmtNumber(total)}
+          totalLabel="Total qty"
+          note="Goods sent for job work and to be returned after processing — not for sale."
+        >
+          <ReportTable bare>
+            <thead>
+              <tr>
+                <Th right>#</Th>
+                <Th>Item</Th>
+                <Th>HSN</Th>
+                <Th>Lot No</Th>
+                <Th right>Qty</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {dc.lines.map((l, i) => (
+                <tr key={l.id} style={stripeRow(i)} className="po-keep align-top">
+                  <Td right>
+                    <span className="text-[#7b8594]">{i + 1}</span>
+                  </Td>
+                  <Td>
+                    <span className="font-semibold">{l.item_name}</span>
+                  </Td>
+                  <Td mono>{l.hsn ?? ""}</Td>
+                  <Td>{l.lot_no ?? ""}</Td>
+                  <Td right>
+                    {fmtNumber(l.sent_qty)} <span className="text-[10.5px] text-[#7b8594]">{l.uom ?? ""}</span>
+                  </Td>
                 </tr>
-              </thead>
-              <tbody>
-                {dc.lines.map((l, i) => (
-                  <tr key={l.id} style={stripeRow(i)} className="po-keep align-top">
-                    <Td mono>{i + 1}</Td>
-                    <Td>{l.item_name}</Td>
-                    <Td mono>{l.hsn ?? "—"}</Td>
-                    <Td>{l.lot_no ?? "—"}</Td>
-                    <Td right>
-                      {fmtNumber(l.sent_qty)} <span className="text-[10.5px] text-[#7b8594]">{l.uom ?? ""}</span>
-                    </Td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+              <tr style={totalRowStyle()} className="font-semibold">
+                <Td colSpan={4} right>
+                  Total
+                </Td>
+                <Td right>
+                  {fmtNumber(total)}
+                  {uoms.length === 1 ? <span className="text-[10.5px] text-[#7b8594]"> {uoms[0]}</span> : null}
+                </Td>
+              </tr>
+            </tbody>
+          </ReportTable>
         </SectionCard>
 
         <div className="po-keep">
-          <p className="mt-4 text-[11px] font-semibold text-[#17202b]">
-            Goods sent for job work and to be returned after processing — not for sale.
-          </p>
-          <SignOff />
-          <p className="mt-6 text-[11px] text-[#5b6472]">Received the above goods — processor&apos;s signature &amp; seal</p>
-          <div className="mt-10 w-64 border-t border-[#17202b]" />
+          <SignOff
+            dense
+            cells={[
+              ["Prepared By", preparedBy],
+              ["Checked By", null],
+              ["Received By", "Name · Mobile No · Sign"],
+              ["Authorised Signatory", `For ${companyName}`],
+            ]}
+          />
         </div>
       </article>
     </div>

@@ -283,6 +283,7 @@ export function SheetMasthead({
   reNo,
   meta,
   status,
+  dense,
 }: {
   company: { name: string | null; unit?: string | null; logo?: string | null };
   kind: string;
@@ -290,6 +291,9 @@ export function SheetMasthead({
   meta?: React.ReactNode;
   /** A green pill ("Approved"); omit for none. */
   status?: string | null;
+  /** DENSE (vendor PO, user 2026-10-31 "compacted … for all section"): the same blocks with
+   *  less air, so a document meant to fit a page does. Every other sheet leaves it off. */
+  dense?: boolean;
 }) {
   return (
     <div className="overflow-hidden rounded-t-md border border-b-0 border-border bg-white">
@@ -299,11 +303,11 @@ export function SheetMasthead({
         <div className="flex-1 bg-[#037bb8]" />
         <div className="flex-1 bg-[#85c227]" />
       </div>
-      <div className="flex flex-wrap items-start justify-between gap-4 border-b-2 border-[#17202b] px-5 py-4">
+      <div className={`flex flex-wrap items-start justify-between gap-4 border-b-2 border-[#17202b] ${dense ? "px-4 py-2" : "px-5 py-4"}`}>
         <div className="flex min-w-0 items-center gap-3">
           {company.logo ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={company.logo} alt={company.name ?? "Company logo"} className="h-11 w-auto shrink-0 object-contain" />
+            <img src={company.logo} alt={company.name ?? "Company logo"} className={`${dense ? "h-9" : "h-11"} w-auto shrink-0 object-contain`} />
           ) : (
             <span
               aria-hidden
@@ -314,7 +318,7 @@ export function SheetMasthead({
             </span>
           )}
           <div className="min-w-0">
-            <div className="text-[19px] font-extrabold uppercase leading-tight tracking-[.01em] text-[#17202b]">
+            <div className={`${dense ? "text-[16px]" : "text-[19px]"} font-extrabold uppercase leading-tight tracking-[.01em] text-[#17202b]`}>
               {company.name ?? "RAAGAM EXPORTS"}
             </div>
             {company.unit && (
@@ -324,7 +328,7 @@ export function SheetMasthead({
         </div>
         <div className="text-right">
           <div className="text-[12px] font-bold uppercase tracking-[.16em] text-[#037bb8]">{kind}</div>
-          {reNo && <div className="font-mono text-[21px] font-semibold text-[#17202b]">{reNo}</div>}
+          {reNo && <div className={`font-mono ${dense ? "text-[17px]" : "text-[21px]"} font-semibold text-[#17202b]`}>{reNo}</div>}
           {(meta || status) && (
             <div className="mt-0.5 flex flex-wrap items-center justify-end gap-2 text-[11.5px] text-[#7b8594]">
               {meta}
@@ -345,18 +349,18 @@ export function SheetMasthead({
 export type SheetFact = { label: string; value: React.ReactNode; sub?: React.ReactNode; mono?: boolean };
 
 /** The order's facts as a grid, the style picture at its left when there is one. */
-export function OrderFacts({ facts, thumbnail }: { facts: readonly SheetFact[]; thumbnail?: React.ReactNode }) {
+export function OrderFacts({ facts, thumbnail, dense }: { facts: readonly SheetFact[]; thumbnail?: React.ReactNode; dense?: boolean }) {
   return (
-    <div className="flex items-start gap-4 border border-t-0 border-border bg-white px-5 py-4">
+    <div className={`flex items-start gap-4 border border-t-0 border-border bg-white ${dense ? "px-4 py-2" : "px-5 py-4"}`}>
       {thumbnail}
-      <div className="grid min-w-0 flex-1 grid-cols-2 gap-x-5 gap-y-3 sm:grid-cols-3">
+      <div className={`grid min-w-0 flex-1 grid-cols-2 ${dense ? "gap-x-4 gap-y-1.5 sm:grid-cols-[repeat(auto-fit,minmax(8.5rem,1fr))]" : "gap-x-5 gap-y-3 sm:grid-cols-3"}`}>
         {facts.map((f) => (
           <div key={f.label} className="min-w-0">
             <div className="text-[10.5px] font-semibold uppercase tracking-[.08em] text-[#7b8594]">{f.label}</div>
-            <div className={`mt-px break-words text-[13.5px] font-semibold text-[#17202b] ${f.mono ? "font-mono font-medium" : ""}`}>
+            <div className={`mt-px break-words ${dense ? "text-[12px]" : "text-[13.5px]"} font-semibold text-[#17202b] ${f.mono ? "font-mono font-medium" : ""}`}>
               {f.value || "—"}
             </div>
-            {f.sub && <div className="text-[11.5px] text-[#7b8594]">{f.sub}</div>}
+            {f.sub && <div className={`${dense ? "text-[10.5px]" : "text-[11.5px]"} text-[#7b8594]`}>{f.sub}</div>}
           </div>
         ))}
       </div>
@@ -460,6 +464,7 @@ export function SectionCard({
   totalLabel,
   note,
   children,
+  dense,
 }: {
   tone?: StageStyle;
   title: React.ReactNode;
@@ -467,14 +472,16 @@ export function SectionCard({
   totalLabel?: React.ReactNode;
   note?: React.ReactNode;
   children: React.ReactNode;
+  /** Less air in the header and note (see `SheetMasthead`'s `dense`). */
+  dense?: boolean;
 }) {
   return (
     <section className="overflow-hidden rounded-lg border border-border bg-white">
       <div
-        className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-border px-3.5 py-2.5"
+        className={`flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-border ${dense ? "px-3 py-1" : "px-3.5 py-2.5"}`}
         style={{ background: tone.tint, color: tone.ink }}
       >
-        <h3 className="m-0 flex items-center gap-2 text-[14px] font-bold tracking-[.02em]">
+        <h3 className={`m-0 flex items-center gap-2 ${dense ? "text-[12px] uppercase tracking-[.06em]" : "text-[14px] tracking-[.02em]"} font-bold`}>
           {tone.label ? (
             <span
               className="rounded border bg-white px-1.5 py-px text-[10px] font-bold tracking-[.1em]"
@@ -486,13 +493,15 @@ export function SectionCard({
           {title}
         </h3>
         {total != null && total !== "" && (
-          <span className="font-mono text-[13px] font-semibold tabular-nums">
+          <span className={`font-mono ${dense ? "text-[12px]" : "text-[13px]"} font-semibold tabular-nums`}>
             {totalLabel && <small className="mr-1.5 font-sans text-[11px] font-medium opacity-80">{totalLabel}</small>}
             {total}
           </span>
         )}
       </div>
-      {note && <div className="border-b border-[#eef1f4] bg-white px-3.5 py-2 text-[11.5px] text-[#4a5563]">{note}</div>}
+      {note && (
+        <div className={`border-b border-[#eef1f4] bg-white text-[#4a5563] ${dense ? "px-3 py-1 text-[11px]" : "px-3.5 py-2 text-[11.5px]"}`}>{note}</div>
+      )}
       {children}
     </section>
   );
@@ -504,31 +513,42 @@ export function SectionCard({
 export function SignOff({
   names,
   approvedSignature,
+  cells: own,
+  dense,
 }: {
   names?: { prepared?: string | null; checked?: string | null; approved?: string | null };
   approvedSignature?: string | null;
+  /** A document with its own signatures (the vendor PO's four, 2026-10-31) — the LAST
+   *  cell is the approving one and carries `approvedSignature`. Omit for the three. */
+  cells?: readonly [string, React.ReactNode][];
+  /** A shorter gap above the rules (see `SheetMasthead`'s `dense`). */
+  dense?: boolean;
 }) {
-  const cells: [string, string | null | undefined][] = [
+  const cells: readonly [string, React.ReactNode][] = own ?? [
     ["Prepared By", names?.prepared],
     ["Checked By", names?.checked],
     ["Approved By", names?.approved],
   ];
+  const signs = own ? cells[cells.length - 1][0] : "Approved By";
   return (
     // Room above the rules for the signature image the Approved cell lifts over its rule.
-    <div className={`${approvedSignature ? "mt-20" : "mt-8"} grid grid-cols-3 items-end gap-7`}>
+    <div
+      className={`${approvedSignature ? (dense ? "mt-16" : "mt-20") : dense ? "mt-6" : "mt-8"} grid ${dense ? "items-start" : "items-end"} gap-7`}
+      style={{ gridTemplateColumns: `repeat(${cells.length}, minmax(0, 1fr))` }}
+    >
       {cells.map(([label, name]) => (
         <div key={label} className="border-t border-[#17202b] pt-1.5 text-[12px] font-semibold text-[#17202b]">
-          {label === "Approved By" && approvedSignature ? (
+          {label === signs && approvedSignature ? (
             // On the rule, over the label: where a hand signature sits on paper.
             // eslint-disable-next-line @next/next/no-img-element -- a short-lived signed URL, printed
             <img
               src={approvedSignature}
-              alt={`Signature of ${name ?? "the approver"}`}
+              alt={`Signature of ${typeof name === "string" && name ? name : "the approver"}`}
               className="-mt-14 mb-1 block h-12 w-auto max-w-full object-contain"
             />
           ) : null}
           {label}
-          <span className="block text-[11.5px] font-normal text-[#7b8594]">{name || " "}</span>
+          <div className="text-[11.5px] font-normal text-[#7b8594]">{name || " "}</div>
         </div>
       ))}
     </div>
