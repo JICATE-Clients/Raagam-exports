@@ -605,7 +605,7 @@ export async function recordDcReturn(
     .eq("id", line.delivery_challan_id)
     .maybeSingle();
   if ((owner as { process_order_id: string | null } | null)?.process_order_id) {
-    return { ok: false, error: "This DC has a Process Order — receive it with Receive back on Stores ▸ Processing ▸ Process DC" };
+    return { ok: false, error: "This DC has a Process Order — receive it with Receive back on Purchase ▸ Receiving ▸ Delivery Challans" };
   }
   const newReturned = Math.min(
     line.sent_qty,

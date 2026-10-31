@@ -134,3 +134,11 @@ the smaller half.
 2. **Process loss:** is there an allowed % per process (e.g. dyeing 8%, knitting 2%)
    that should warn or block, like the GRN's excess lock?
 3. **Unit 2 / Unit 3 stores:** should they get the same five stores as HO, plus Transit?
+
+## One hub (user 2026-10-31, "single screen")
+Purchase ▸ Receiving ▸ Delivery Challans (`/purchase/dc`, short address `/delivery-challans`) is the
+only DC screen: the register of all four kinds, a "+ New Delivery Challan" drawer with a DC Type
+selector, and Receive back / Receive stock opening in the same drawer. The URL holds what is open
+(`?new=` · `?edit=&type=` · `?receive=&type=`). Stores ▸ Process DC and Production DC were removed
+from the sidebar and redirect into the hub; their print pages stay where they were. Rejection and
+Replacement DCs are still raised only by a GRN; their drawer lists the open ones.

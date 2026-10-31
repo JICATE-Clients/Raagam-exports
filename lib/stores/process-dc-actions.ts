@@ -99,7 +99,7 @@ export async function saveProcessDc(id: string | null, payload: ProcessDcInput, 
   if (dispatch) {
     const { error } = await supabase.rpc("process_dc_dispatch", { p_dc_id: dcId });
     if (error) {
-      revalidatePath("/stores/process-dc");
+      revalidatePath("/purchase/dc");
       return { ok: false, error: `Saved as a draft, not dispatched: ${friendly(error.message)}` };
     }
     await writeAudit({ action: "process_dc.dispatched", entityType: "delivery_challan", entityId: dcId! });
@@ -107,7 +107,7 @@ export async function saveProcessDc(id: string | null, payload: ProcessDcInput, 
   } else {
     await writeAudit({ action: id ? "process_dc.updated" : "process_dc.created", entityType: "delivery_challan", entityId: dcId! });
   }
-  revalidatePath("/stores/process-dc");
+  revalidatePath("/purchase/dc");
   return { ok: true, id: dcId! };
 }
 
@@ -124,7 +124,7 @@ export async function deleteProcessDc(id: string): Promise<{ ok: true } | { ok: 
   if (error) return { ok: false, error: error.message };
   if (!data?.length) return { ok: false, error: "Only a draft can be deleted" };
   await writeAudit({ action: "process_dc.deleted", entityType: "delivery_challan", entityId: id });
-  revalidatePath("/stores/process-dc");
+  revalidatePath("/purchase/dc");
   return { ok: true };
 }
 
@@ -164,7 +164,7 @@ export async function receiveProcessDc(dcId: string, payload: ProcessReceiptInpu
   });
   if (error) return { ok: false, error: friendly(error.message) };
   await writeAudit({ action: "process_receipt.posted", entityType: "dc_receipt", entityId: String(data) });
-  revalidatePath("/stores/process-dc");
+  revalidatePath("/purchase/dc");
   revalidatePath("/stores/process-orders");
   revalidatePath("/finance/payables");
   return { ok: true, id: String(data) };

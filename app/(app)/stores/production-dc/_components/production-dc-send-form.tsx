@@ -41,7 +41,10 @@ export function ProductionDcSendForm({
   bins,
   stock,
   existing,
+  home = "/purchase/dc",
 }: {
+  /** Where Cancel and a saved draft go back to — the Delivery Challans hub. */
+  home?: string;
   unit: UnitOption;
   toUnits: UnitOption[];
   stores: StoreOption[];
@@ -120,7 +123,7 @@ export function ProductionDcSendForm({
       if (result.ok) {
         setDirty(false);
         success(dispatch ? "Dispatched — the goods are in transit" : "Saved as a draft");
-        router.push(dispatch ? `/stores/production-dc/${result.id}/print` : "/stores/production-dc");
+        router.push(dispatch ? `/stores/production-dc/${result.id}/print` : home);
       } else {
         toastError(result.error);
         router.refresh();
@@ -333,7 +336,7 @@ export function ProductionDcSendForm({
       </Card>
 
       <div data-focus-region="footer" className="flex flex-wrap items-center gap-3">
-        <Button variant="outline" onClick={() => router.push("/stores/production-dc")} disabled={isPending}>
+        <Button variant="outline" onClick={() => router.push(home)} disabled={isPending}>
           Cancel
         </Button>
         <Button variant="outline" onClick={() => save(false)} disabled={!canSave}>

@@ -87,7 +87,7 @@ export async function createDcFromBom(input: {
   });
 
   revalidatePath("/purchase/dc");
-  revalidatePath("/stores/process-dc");
+  revalidatePath("/purchase/dc");
   revalidatePath("/stores/process-orders");
   revalidatePath("/orders/material-bom");
   return {
@@ -97,7 +97,7 @@ export async function createDcFromBom(input: {
     note: dispatched
       ? undefined
       : /Insufficient stock/i.test(dispErr!.message)
-        ? "kept as a draft — the Material store does not hold this yet; dispatch it on Stores ▸ Process DC"
+        ? "kept as a draft — the Material store does not hold this yet; dispatch it on Purchase ▸ Receiving ▸ Delivery Challans"
         : `kept as a draft — ${dispErr!.message}`,
   };
 }

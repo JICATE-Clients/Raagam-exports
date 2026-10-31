@@ -38,7 +38,18 @@ function num(s: string): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-export function ProductionDcReceiveForm({ dc, stores, bins }: { dc: ProductionDc; stores: StoreOption[]; bins: BinOption[] }) {
+export function ProductionDcReceiveForm({
+  dc,
+  stores,
+  bins,
+  home = "/purchase/dc",
+}: {
+  dc: ProductionDc;
+  stores: StoreOption[];
+  bins: BinOption[];
+  /** Where Cancel and a saved receipt go back to — the Delivery Challans hub. */
+  home?: string;
+}) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -84,7 +95,7 @@ export function ProductionDcReceiveForm({ dc, stores, bins }: { dc: ProductionDc
       if (result.ok) {
         setDirty(false);
         success("Received into this unit's stock");
-        router.push("/stores/production-dc");
+        router.push(home);
       } else {
         toastError(result.error);
       }
@@ -235,7 +246,7 @@ export function ProductionDcReceiveForm({ dc, stores, bins }: { dc: ProductionDc
       </Card>
 
       <div data-focus-region="footer" className="flex flex-wrap items-center gap-3">
-        <Button variant="outline" onClick={() => router.push("/stores/production-dc")} disabled={isPending}>
+        <Button variant="outline" onClick={() => router.push(home)} disabled={isPending}>
           Cancel
         </Button>
         <Button onClick={receive} disabled={!canSave}>

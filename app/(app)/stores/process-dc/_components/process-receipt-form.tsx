@@ -54,7 +54,10 @@ export function ProcessReceiptForm({
   items,
   stores,
   bins,
+  home = "/purchase/dc",
 }: {
+  /** Where Cancel and a saved draft go back to — the Delivery Challans hub. */
+  home?: string;
   dc: ProcessDc;
   items: { id: string; code: string | null; name: string }[];
   stores: StoreOption[];
@@ -129,7 +132,7 @@ export function ProcessReceiptForm({
       if (result.ok) {
         setDirty(false);
         success("Received — stock and the draft bill are updated");
-        router.push("/stores/process-dc");
+        router.push(home);
       } else {
         toastError(result.error);
       }
@@ -330,7 +333,7 @@ export function ProcessReceiptForm({
       </Card>
 
       <div data-focus-region="footer" className="flex flex-wrap items-center gap-3">
-        <Button variant="outline" onClick={() => router.push("/stores/process-dc")} disabled={isPending}>
+        <Button variant="outline" onClick={() => router.push(home)} disabled={isPending}>
           Cancel
         </Button>
         <Button onClick={post} disabled={!canSave}>
