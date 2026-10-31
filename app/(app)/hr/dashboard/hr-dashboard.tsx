@@ -28,6 +28,7 @@ import type { HrDashboard } from "@/lib/hr/dashboard-service";
 import type { DayStatus, GroupDay, PersonDay, ShiftInfo } from "@/lib/hr/timing-calc";
 import { fmtDate, fmtTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { Truncated } from "@/components/ui/truncated";
 
 /*
  * HR ▸ Dashboard — a professional analytics view (client 2026-10-28: "professional,
@@ -505,6 +506,8 @@ export function HrDashboardView({ data }: { data: HrDashboard }) {
 
   const TH = "px-5 py-2 text-left text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500 dark:text-slate-400";
   const TD = "px-5 py-2.5 text-sm";
+  // The three exception cards show this many people each, then "View all".
+  const EXC_ROWS = 6;
 
   return (
     /*
@@ -1017,36 +1020,53 @@ export function HrDashboardView({ data }: { data: HrDashboard }) {
               bodyClass="p-0"
               action={<span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-semibold tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300">{t.rows.length}</span>}
             >
+              {/* NO SCROLL BOX (user 2026-10-31): the card shows its first
+                  EXC_ROWS people at the card's own width — a fixed layout, so
+                  a long name truncates instead of pushing a scrollbar under
+                  the table — and the rest are one "View all" away. */}
               {t.rows.length ? (
-                <div className="max-h-80 overflow-y-auto">
-                  <table className="w-full">
-                    <thead className={cn("sticky top-0 backdrop-blur", t.head2)}>
+                <div className="flex flex-1 flex-col">
+                  <table className="w-full table-fixed">
+                    <thead className={t.head2}>
                       <tr>
-                        <th className={TH}>Employee</th>
-                        <th className={cn(TH, "text-right")}>{t.head[0]}</th>
-                        <th className={cn(TH, "text-right")}>{t.head[1]}</th>
+                        <th className={cn(TH, "px-4")}>Employee</th>
+                        <th className={cn(TH, "w-[5.25rem] px-2 text-right")}>{t.head[0]}</th>
+                        <th className={cn(TH, "w-[5.75rem] pl-2 pr-4 text-right")}>{t.head[1]}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                      {t.rows.map((d) => {
+                      {t.rows.slice(0, EXC_ROWS).map((d) => {
                         const [a, b] = t.cells(d);
                         return (
                           <tr key={d.person.bio} className={cn("transition-colors", t.rowHover)}>
-                            <td className={TD}>
-                              <p className="truncate font-medium text-slate-900 dark:text-slate-100">{d.person.name}</p>
-                              <p className="mt-0.5 flex items-center gap-1.5 text-xs text-slate-500">
+                            <td className={cn(TD, "px-4")}>
+                              <Truncated text={d.person.name} className="block font-medium text-slate-900 dark:text-slate-100" />
+                              <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-slate-500">
                                 <Dot className={GROUP[d.person.kind].dot} />
-                                {d.person.categoryName ?? kindLabel(d.person.kind)}
-                                {d.person.code ? ` · ${d.person.code}` : ""}
+                                <Truncated
+                                  text={`${d.person.categoryName ?? kindLabel(d.person.kind)}${d.person.code ? ` · ${d.person.code}` : ""}`}
+                                  className="min-w-0"
+                                />
                               </p>
                             </td>
-                            <td className={cn(TD, "text-right tabular-nums text-slate-600 dark:text-slate-300")}>{a}</td>
-                            <td className={cn(TD, "text-right tabular-nums")}>{b}</td>
+                            <td className={cn(TD, "px-2 text-right tabular-nums text-slate-600 dark:text-slate-300")}>{a}</td>
+                            <td className={cn(TD, "pl-2 pr-4 text-right tabular-nums")}>{b}</td>
                           </tr>
                         );
                       })}
                     </tbody>
                   </table>
+                  {t.rows.length > EXC_ROWS && (
+                    <Link
+                      href="/hr/attendance?view=live"
+                      className="mt-auto flex items-center justify-between border-t border-slate-100 px-4 py-2.5 text-xs font-semibold text-indigo-600 hover:bg-slate-50 dark:border-slate-800 dark:text-indigo-400 dark:hover:bg-slate-800/50"
+                    >
+                      +{t.rows.length - EXC_ROWS} more
+                      <span className="inline-flex items-center gap-1">
+                        View all <ArrowUpRight className="h-3.5 w-3.5" />
+                      </span>
+                    </Link>
+                  )}
                 </div>
               ) : (
                 <Empty art={t.art}>{t.empty}</Empty>
