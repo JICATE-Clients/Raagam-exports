@@ -23,7 +23,7 @@ export function RejectionDcPrintSheet({ data }: { data: RejectionPrintData }) {
         <div className="mb-4">
           <SheetMasthead
             company={{ name: data.company.name ?? "RAAGAM EXPORTS", unit: data.company.unit, logo: data.company.logo }}
-            kind="Rejection Delivery Challan"
+            kind={data.dcKind === "replacement" ? "Replacement Delivery Challan" : "Rejection Delivery Challan"}
             reNo={data.code}
             meta={<span className="tabular-nums">{data.returnDate ? fmtDate(data.returnDate) : null}</span>}
           />
@@ -53,7 +53,12 @@ export function RejectionDcPrintSheet({ data }: { data: RejectionPrintData }) {
                   ? `${data.grn.invoiceNo}${data.grn.invoiceDate ? ` · ${fmtDate(data.grn.invoiceDate)}` : ""}`
                   : "—",
               ],
-              ["Your DC", data.grn?.dcNo ?? "—"],
+              [
+                "Your DC",
+                data.grn?.dcNo
+                  ? `${data.grn.dcNo}${!data.grn.invoiceNo && data.grn.invoiceDate ? ` · ${fmtDate(data.grn.invoiceDate)}` : ""}`
+                  : "—",
+              ],
               ["Purchase Order", data.poCodes.join(", ") || "—"],
             ].map(([k, v]) => (
               <div key={k}>
@@ -72,7 +77,7 @@ export function RejectionDcPrintSheet({ data }: { data: RejectionPrintData }) {
             toReplace.length && toCredit.length
               ? "Lines marked REPLACE: send the same qty again against the same PO. Lines marked CREDIT: covered by the debit note below; do not resend."
               : toReplace.length
-                ? "Please send the same qty again against the same Purchase Order. The debit note below is cancelled as the replacement arrives."
+                ? "Please send the same qty again against the same Purchase Order. No debit note is raised: your invoice stands and the replacement fills it."
                 : "These goods are not to be resent. The debit note below is raised against your invoice for their value."
           }
         >

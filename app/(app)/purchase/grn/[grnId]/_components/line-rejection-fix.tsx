@@ -33,7 +33,7 @@ export function LineRejectionFix({
   const [isPending, startTransition] = useTransition();
   const [rejected, setRejected] = useState("");
   const [reason, setReason] = useState("QC FAILED");
-  const [action, setAction] = useState<"replace" | "return">("replace");
+  const [action, setAction] = useState<"replace" | "return">("return");
   const dirty = rejected !== "";
   useUnsavedGuard(dirty || isPending);
 
@@ -62,14 +62,15 @@ export function LineRejectionFix({
           <Input id={`rej-reason-${lineId}`} value={reason} onChange={(e) => setReason(e.target.value)} />
         </Field>
         {isReplacement ? null : (
-          <Field label="Rejected goods" w="term" htmlFor={`rej-action-${lineId}`}>
+          <Field label="QC Failed →" w="term" htmlFor={`rej-action-${lineId}`}>
             <Select
               id={`rej-action-${lineId}`}
               value={action}
               onChange={(e) => setAction(e.target.value === "return" ? "return" : "replace")}
             >
-              <option value="replace">Vendor replaces</option>
-              <option value="return">Return &amp; re-buy</option>
+              {/* 0781: Rejection = debit note + requirement reopens; Replacement = no debit, vendor resends. */}
+              <option value="return">Rejection (debit note)</option>
+              <option value="replace">Replacement (vendor resends)</option>
             </Select>
           </Field>
         )}

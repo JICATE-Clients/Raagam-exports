@@ -116,7 +116,6 @@ export function GrnScreen({
   replacements,
   locations,
   defaultLocationId,
-  canAuthorize,
   canCreate,
   stores,
   bins,
@@ -127,7 +126,6 @@ export function GrnScreen({
   replacements: ReplacementDue[];
   locations: { id: string; code: string; name: string; postable: boolean }[];
   defaultLocationId: string | null;
-  canAuthorize: boolean;
   canCreate: boolean;
   stores: GrnStoreOption[];
   bins: GrnBinOption[];
@@ -212,7 +210,7 @@ export function GrnScreen({
         id: d.id,
         no: d.code ?? "—",
         vendor: d.vendor_name,
-        refs: d.grn_code ? `Replacement · rejected on ${d.grn_code}` : "Replacement",
+        refs: d.grn_code ? `Pending replacement from vendor · ${d.grn_code}` : "Pending replacement from vendor",
         detail: [...new Set(d.lines.map((x) => lineById.get(x.po_line_item_id)?.item_class).filter(Boolean))].join(", "),
         lines: d.lines.length,
         status: "",
@@ -236,13 +234,13 @@ export function GrnScreen({
         openPoLines={openPoLines}
         locations={locations}
         defaultLocationId={defaultLocationId}
-        canAuthorize={canAuthorize}
         stores={stores}
         bins={bins}
         defaultStoreId={defaultStoreId}
         initialPoId={editing || null}
         initialVendorId={lf.vendor.length === 1 ? lf.vendor[0] : null}
         replacement={replacing}
+        replacements={replacements}
         onCancel={() => setEditing(null)}
       />
     );

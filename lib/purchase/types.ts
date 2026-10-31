@@ -631,6 +631,18 @@ export const grnLineInput = z.object({
    */
   rejection_action: z.enum(["replace", "return"]).default("replace"),
   roll_batch_no: capsTextNullable(),
+  /**
+   * "VENDOR WILL NOT SEND THE REST" (0782): on post, the line's remaining balance is
+   * closed short — it stops showing as pending, and the requirement does NOT reopen.
+   */
+  close_balance: z.boolean().default(false),
+  /**
+   * SPLIT ACROSS BINS (0782): the accepted qty bin by bin. Empty = the line's one `bin_id`.
+   * When given, the quantities must add up to the accepted qty (grn_post re-checks).
+   */
+  bins: z
+    .array(z.object({ bin_id: z.string().uuid({ message: "Pick a bin" }), qty: z.coerce.number().positive() }))
+    .default([]),
   sort_order: z.coerce.number().int().default(0),
 });
 export type GrnLineInput = z.infer<typeof grnLineInput>;

@@ -161,3 +161,18 @@ refuses a regular GRN taking qty owed as a replacement (any entry route).
 | 8 Report | 3 | S |
 
 Phases 2, 3 and 5 can run in parallel after Phase 1.
+
+## User rules, 2026-10-31 (built same day — 0781, 0782)
+- **Entry header, one row:** Store Location (working unit) · GRN Date · Vendor · Document Type
+  (Invoice / DC / Replacement) · PO No or Replacement DC · its No · its Date (today). No Notes.
+- **Grid:** no Shortage / Reason columns; **Lot No** (was Roll / Batch). QC opens on **Passed**.
+- **QC Failed → popup:** failed qty + reason + **Rejection** (debit note, Rejection DC, requirement
+  reopens) or **Replacement** (Replacement DC, NO debit note, vendor resends on a Replacement GRN).
+  0781: two DCs per GRN when both happen (`vendor_returns.dc_kind`); only Rejection is debited.
+- **Excess locked:** Today Recd ≤ pending balance (ordered − closed − received − owed as
+  replacement). No tolerance band, no Store-Manager override (reverses 0620's UI rule).
+- **Close balance:** short of the balance, "Close bal." closes the rest on post
+  (`po_line_items.balance_closed_qty`, 0782) — the requirement does NOT reopen.
+- **Bin split:** "+ Split bin" → `grn_line_bins`; must add up to the accepted qty (grn_post checks).
+- **Replacement as a document type:** picking the Replacement DC locks the vendor.
+- Not built: Process DC / Production DC (job-work and inter-unit DCs) — asked as a next step.

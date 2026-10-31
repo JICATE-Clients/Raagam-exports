@@ -79,6 +79,9 @@ const AMBIGUOUS = {
     vendor_returns: ["vendor_return_id", "grn_id"],
   },
   vendor_returns: { grns: ["grn_id", "vendor_return_id"] },
+  // 0782: grn_line_bins (FKs to grn_line_items AND bins) is a junction PostgREST walks, so
+  // grn_line_items → bins has a direct and a many-to-many path. Name `!bin_id`.
+  grn_line_items: { bins: ["bin_id", "grn_line_bins"] },
   // 0604 pointed `garment_order_amendments.re_amendment_id` at
   // `order_budget_revisions`, whose `garment_order_id` already pointed back —
   // so the pair is ambiguous in BOTH directions: PGRST201 lists a one-to-many

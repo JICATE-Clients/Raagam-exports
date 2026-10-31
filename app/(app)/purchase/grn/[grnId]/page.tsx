@@ -60,11 +60,11 @@ const lineColumns: Column<GrnLineWithPo>[] = [
     // With where the rejected qty went (0780): sent again on this PO, or closed and re-bought.
     cell: (r) =>
       r.rejection_reason
-        ? `${r.rejection_reason} · ${r.rejection_action === "return" ? "Return & re-buy" : "Vendor replaces"}`
+        ? `${r.rejection_reason} · ${r.rejection_action === "return" ? "Rejection" : "Replacement"}`
         : "—",
   },
   {
-    header: "Roll / Batch No",
+    header: "Lot No",
     cell: (r) => r.roll_batch_no ?? "—",
   },
   // Where the accepted goods were put (0777); posting books them there (0779).
@@ -110,7 +110,7 @@ export default async function GrnDetailPage({
 
       {/* WHAT A REJECTION RAISED (0780): the Debit Note against the vendor's invoice and the
           Rejection DC the goods go back on — and, on a replacement, the DC it fills. */}
-      {paper.debitNote || paper.rejectionDc || paper.replaces ? (
+      {paper.debitNote || paper.rejectionDc || paper.replacementDc || paper.replaces ? (
         <Card>
           <CardHeader>
             <CardTitle>Rejection &amp; replacement</CardTitle>
@@ -138,6 +138,24 @@ export default async function GrnDetailPage({
                     {/* The challan the goods go back on, with the debit note copy (0780). */}
                     <Link
                       href={`/stores/vendor-returns/${paper.rejectionDc.id}/print`}
+                      className="text-xs font-semibold text-primary hover:underline"
+                    >
+                      Print DC
+                    </Link>
+                  </dd>
+                </div>
+              ) : null}
+              {paper.replacementDc ? (
+                <div>
+                  <dt className="text-xs text-muted-foreground">Replacement DC</dt>
+                  <dd className="mt-0.5">
+                    <Link href={`/stores/vendor-returns/${paper.replacementDc.id}`} className="text-primary hover:underline">
+                      {paper.replacementDc.code ?? "—"}
+                    </Link>{" "}
+                    <span className="text-xs text-muted-foreground">({paper.replacementDc.status})</span>{" "}
+                    {/* The challan the goods go back on, no debit note (0781). */}
+                    <Link
+                      href={`/stores/vendor-returns/${paper.replacementDc.id}/print`}
                       className="text-xs font-semibold text-primary hover:underline"
                     >
                       Print DC
@@ -189,26 +207,32 @@ export default async function GrnDetailPage({
               </div>
             ) : (
               <>
+                {/* One paper since 2026-10-31 (Invoice OR DC); a GRN from before may hold both. */}
+                {grn.invoice_no || !grn.dc_no ? (
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Invoice No</dt>
+                    <dd className="mt-0.5">{grn.invoice_no ?? "—"}</dd>
+                  </div>
+                ) : null}
+                {grn.dc_no ? (
+                  <div>
+                    <dt className="text-xs text-muted-foreground">DC No</dt>
+                    <dd className="mt-0.5">{grn.dc_no}</dd>
+                  </div>
+                ) : null}
                 <div>
-                  <dt className="text-xs text-muted-foreground">Invoice No</dt>
-                  <dd className="mt-0.5">{grn.invoice_no ?? "—"}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-muted-foreground">Invoice Date</dt>
+                  <dt className="text-xs text-muted-foreground">{grn.dc_no && !grn.invoice_no ? "DC Date" : "Invoice Date"}</dt>
                   <dd className="mt-0.5">{fmtDate(grn.invoice_date)}</dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-muted-foreground">DC No</dt>
-                  <dd className="mt-0.5">{grn.dc_no ?? "—"}</dd>
                 </div>
               </>
             )}
-            <div>
-              <dt className="text-xs text-muted-foreground">Notes</dt>
-              <dd className="mt-0.5 text-muted-foreground">
-                {grn.notes ?? "—"}
-              </dd>
-            </div>
+            {/* Notes left the entry on 2026-10-31; a GRN saved before keeps its note. */}
+            {grn.notes ? (
+              <div>
+                <dt className="text-xs text-muted-foreground">Notes</dt>
+                <dd className="mt-0.5 text-muted-foreground">{grn.notes}</dd>
+              </div>
+            ) : null}
           </dl>
           {grn.over_receipt_authorized_at && (
             <p className="mt-3 text-sm text-warning">
