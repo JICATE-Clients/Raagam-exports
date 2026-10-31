@@ -82,6 +82,14 @@ const AMBIGUOUS = {
   // 0782: grn_line_bins (FKs to grn_line_items AND bins) is a junction PostgREST walks, so
   // grn_line_items → bins has a direct and a many-to-many path. Name `!bin_id`.
   grn_line_items: { bins: ["bin_id", "grn_line_bins"] },
+  // 0784: a Production DC names the unit it goes to (`to_location_id`) and who dispatched /
+  // received it — second FKs to `locations` and `profiles`. Nothing embeds them; declared
+  // the day they landed, per the header rule.
+  delivery_challans: {
+    locations: ["location_id", "to_location_id"],
+    profiles: ["created_by", "dispatched_by", "received_by"],
+  },
+  dc_line_items: { stores: ["from_store_id", "to_store_id"], bins: ["bin_id", "to_bin_id"] },
   // 0604 pointed `garment_order_amendments.re_amendment_id` at
   // `order_budget_revisions`, whose `garment_order_id` already pointed back —
   // so the pair is ambiguous in BOTH directions: PGRST201 lists a one-to-many

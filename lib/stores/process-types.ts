@@ -39,6 +39,7 @@ export interface ProcessOrder {
   iwo_id?: string | null;
   order_date: string | null;
   expected_date: string | null;
+  allowed_loss_pct?: number | null;
   currency_code: string | null;
   total_amount: number;
   notes: string | null;
@@ -134,6 +135,8 @@ export const processOrderInput = z.object({
   sales_order_id: z.string().uuid().optional().nullable(),
   order_date: z.string().optional().nullable(),
   expected_date: z.string().optional().nullable(),
+  /** 0786 — the usual weight loss for this process; a receipt past it is flagged. */
+  allowed_loss_pct: z.coerce.number().min(0).max(99).optional().nullable(),
   currency_code: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
   lines: z.array(processOrderLineInput).default([]),

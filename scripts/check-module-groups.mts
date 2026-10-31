@@ -520,6 +520,12 @@ const REDIRECTED: Record<string, string> = {
   "/sales/planning": "/sales/management",
   "/sales/approval": "/sales/management",
   "/sales/revise": "/sales/management",
+  // Process Issues and Process Receipts were the old job-work pair: an issue booked the
+  // goods as CONSUMED (not moved) through an admin client, best-effort. Both are replaced by
+  // Stores ▸ Process DC (0786 send against a Process Order, 0787 receive back with loss and
+  // the draft bill), user 2026-10-31 (doc/stores/dc-plan.md).
+  "/stores/process-issues": "/stores/process-dc",
+  "/stores/process-receipts": "/stores/process-dc",
   // Material BOM was never an amendment screen — one door, and the revision
   // case is `bomStatus`'s `recalculate` state in place. The URL was named after
   // `material_bom_amendments` (0265), which took ITS name from the legacy

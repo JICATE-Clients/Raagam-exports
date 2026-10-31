@@ -267,6 +267,8 @@ export async function listDcs(): Promise<DcWithVendor[]> {
   const { data } = await supabase
     .from("delivery_challans")
     .select("*, master_vendors(id, name)")
+    // Job-work DCs only — a Production DC (0784) lives on Stores ▸ Production DC.
+    .eq("dc_kind", "process")
     // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
     .order("created_at", { ascending: true });
 

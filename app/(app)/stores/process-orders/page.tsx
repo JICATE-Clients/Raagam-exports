@@ -1,6 +1,7 @@
 import { requirePermission, can } from "@/lib/auth/server";
 import { listProcessOrders } from "@/lib/stores/process-service";
-import { getVendorsForPicker, getLocations, getItems, getUoms, getOrdersForPicker } from "@/lib/purchase/po-service";
+import { getLocations, getItems, getUoms, getOrdersForPicker } from "@/lib/purchase/po-service";
+import { getProcessorVendors } from "@/lib/purchase/grn-service";
 import { NewProcessOrderForm } from "./new-process-order-form";
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable } from "@/components/ui/data-table";
@@ -27,7 +28,8 @@ export default async function ProcessOrdersPage() {
   await requirePermission("stores", "view");
   const [orders, vendors, items, uoms, locations, canCreate, salesOrders] = await Promise.all([
     listProcessOrders(),
-    getVendorsForPicker(),
+    // MASTER vendors (0786 repointed process_orders.vendor_id) — the legacy list saved nothing.
+    getProcessorVendors(),
     getItems(),
     getUoms(),
     getLocations(),

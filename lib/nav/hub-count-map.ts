@@ -162,8 +162,6 @@ export const HUB_COUNT_TABLES: Record<string, string | null> = {
   "/stores/requisitions": "material_requisitions",
   "/stores/interdept": "interdept_deliveries",
   "/stores/process-orders": "process_orders",
-  "/stores/process-issues": "process_material_issues",
-  "/stores/process-receipts": "process_material_receipts",
   "/stores/csp-receipts": "csp_receipts",
   "/stores/vendor-returns": "vendor_returns",
   // Adjustments and Transfers write `stock_ledger` entries rather than a

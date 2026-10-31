@@ -54,6 +54,8 @@ export function NewProcessOrderForm({
   const [salesOrderId, setSalesOrderId] = useState("");
   const [orderDate, setOrderDate] = useState("");
   const [expectedDate, setExpectedDate] = useState("");
+  /** The process's usual loss (dyeing ~3–8%) — a receipt past it is flagged (0786). */
+  const [allowedLoss, setAllowedLoss] = useState("");
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<LineRow[]>([emptyLine()]);
 
@@ -67,6 +69,7 @@ export function NewProcessOrderForm({
     setSalesOrderId("");
     setOrderDate("");
     setExpectedDate("");
+    setAllowedLoss("");
     setNotes("");
     setLines([emptyLine()]);
     setOpen(false);
@@ -105,6 +108,7 @@ export function NewProcessOrderForm({
         sales_order_id: salesOrderId || null,
         order_date: orderDate || null,
         expected_date: expectedDate || null,
+        allowed_loss_pct: allowedLoss.trim() === "" ? null : parseFloat(allowedLoss),
         notes: notes.trim() || null,
         lines: validLines,
       });
@@ -171,6 +175,18 @@ export function NewProcessOrderForm({
             <div>
               <Label>Expected Date</Label>
               <Input type="date" value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} />
+            </div>
+            <div>
+              <Label>Allowed Loss %</Label>
+              <Input
+                type="number"
+                min={0}
+                max={99}
+                step="0.1"
+                inputMode="decimal"
+                value={allowedLoss}
+                onChange={(e) => setAllowedLoss(e.target.value)}
+              />
             </div>
           </div>
 
