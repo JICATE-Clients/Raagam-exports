@@ -341,6 +341,7 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
     };
     return (
       <nav
+        data-mobile-tabbar=""
         aria-label="Primary"
         className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] md:hidden print:hidden"
       >
@@ -457,6 +458,7 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
           iOS home indicator (viewportFit: "cover" is set in app/layout.tsx); on
           Android and on a phone without the indicator it resolves to 0. */}
       <nav
+        data-mobile-tabbar=""
         aria-label="Primary"
         className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] md:hidden print:hidden"
       >

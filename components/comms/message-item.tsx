@@ -21,6 +21,8 @@ import { MessageBody, clockTime, initials } from "./message-body";
 import { AVATAR_TINT, avatarStyle } from "./conversation-list";
 import { EmojiPicker } from "./emoji-picker";
 import { MessageAttachments } from "./message-attachments";
+import { ContactCard, EventCard, PollCard } from "./message-cards";
+import { cardKind, contactOf } from "@/lib/comms/cards";
 import { emojiName } from "@/lib/comms/emoji";
 import { reactorNames } from "@/lib/comms/reactions";
 
@@ -33,6 +35,8 @@ export type MessageActions = {
   onEdit?: (m: CommMessage, body: string) => Promise<boolean>;
   onDelete?: (m: CommMessage) => void;
   onOpenFile: (a: CommAttachment) => void;
+  /** 0776: a poll / event the server just re-read (a vote, an answer) replaces the one on screen. */
+  onReplace?: (m: CommMessage) => void;
 };
 
 /**
@@ -92,6 +96,10 @@ export function MessageItem({
   }
   const mine = m.author_id === meId;
   const deleted = !!m.deleted_at;
+  // 0776 — the 📎 cards (lib/comms/cards.ts). A card is never edited as text.
+  const card = deleted ? null : cardKind(m.body);
+  const contact = card === "contact" ? contactOf(m.body) : null;
+  const sticker = card === "sticker";
   const author = m.author_name ?? (m.author_id ? "Former user" : "System");
 
   // The message's own pieces, drawn in both layouts below.
@@ -112,7 +120,15 @@ export function MessageItem({
         />
       ) : (
         <>
-          {m.body && <MessageBody body={m.body} names={names} meId={meId} />}
+          {m.poll ? (
+            <PollCard message={m} poll={m.poll} canAct={canAct} onReplace={actions.onReplace} />
+          ) : m.event ? (
+            <EventCard message={m} event={m.event} canAct={canAct} onReplace={actions.onReplace} />
+          ) : contact ? (
+            <ContactCard contact={contact} meId={meId} />
+          ) : sticker ? null : (
+            m.body && <MessageBody body={m.body} names={names} meId={meId} />
+          )}
           {m.edited_at && <span className="text-[11px] text-muted-foreground">(edited)</span>}
           {/* Your own bookmark, always visible — `saved` is read per person (0737), never anyone else's. */}
           {m.saved && (
@@ -224,7 +240,7 @@ export function MessageItem({
               <Copy className="h-4 w-4" />
             </IconAction>
           )}
-          {mine && canAct && actions.onEdit && (
+          {mine && canAct && actions.onEdit && !card && (
             <IconAction label="Edit message" onClick={() => setEditing(true)}>
               <Pencil className="h-4 w-4" />
             </IconAction>
@@ -264,7 +280,7 @@ export function MessageItem({
         }}
         className={cn(
           "group relative flex scroll-mt-16 items-end gap-2 px-3",
-          grouped ? "py-0.5" : "pt-2 pb-0.5",
+          grouped ? "py-px" : "pt-1 pb-px",
           mine ? "justify-end" : "justify-start",
           highlight && "rounded-md bg-warning-soft ring-2 ring-warning/60 transition-colors",
         )}
@@ -284,8 +300,11 @@ export function MessageItem({
         )}
         <div
           className={cn(
-            "min-w-0 max-w-[min(78%,32.5rem)] rounded-[18px] px-3.5 pb-1.5 pt-2",
-            mine
+            "min-w-0 max-w-[min(78%,32.5rem)] rounded-2xl px-2.5 py-1",
+            // A sticker is drawn without a bubble, as WhatsApp does.
+            sticker
+              ? "bg-transparent px-0 shadow-none [&_.text-muted-foreground]:text-muted-foreground"
+              : mine
               ? "rounded-br-md bg-primary text-primary-foreground [&_.text-foreground]:text-primary-foreground [&_a]:text-primary-foreground [&_.text-muted-foreground]:text-primary-foreground/75"
               : "rounded-bl-md bg-surface shadow-[0_1px_2px_rgba(26,34,51,.08)] dark:border dark:border-border",
           )}
@@ -296,7 +315,7 @@ export function MessageItem({
             </p>
           )}
           {content}
-          <p className={cn("mt-0.5 flex items-center justify-end gap-1 text-[11px]", mine ? "text-primary-foreground/75" : "text-muted-foreground")}>
+          <p className={cn("-mt-0.5 flex items-center justify-end gap-1 text-[11px]", mine ? "text-primary-foreground/75" : "text-muted-foreground")}>
             {m.pinned && <Pin className="h-3 w-3" aria-label="Pinned" />}
             <time dateTime={m.created_at}>{clockTime(m.created_at)}</time>
           </p>

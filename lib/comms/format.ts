@@ -16,6 +16,7 @@
  */
 
 import { RECORD_KINDS, bodyPieces } from "./types";
+import { cardText } from "./cards";
 
 export type Inline =
   | { t: "text"; text: string }
@@ -149,6 +150,8 @@ export function plainText(body: string | null | undefined): string {
  * does not know reads "@someone", never a uuid (see message-body.tsx).
  */
 export function previewText(body: string | null | undefined, names: Map<string, string | null>): string {
+  const card = cardText(body);
+  if (card) return card;
   const flat = bodyPieces(body)
     .map((p) =>
       "text" in p ? p.text : "mention" in p ? `@${names.get(p.mention) ?? "someone"}` : `[${RECORD_KINDS[p.record.kind].short}]`,

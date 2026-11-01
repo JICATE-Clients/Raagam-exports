@@ -58,6 +58,12 @@ const SAMPLES: Record<string, Uint8Array> = {
   html: bytes("  <!DOCTYPE html><script>alert(1)</script>"),
   svg: bytes("<svg xmlns='http://www.w3.org/2000/svg' onload='alert(1)'/>"),
   binary: bytes("hello", [0], "world"),
+  mp4: bytes([0, 0, 0, 0x20], "ftypisom", [0, 0, 2, 0]),
+  webm: bytes([0x1a, 0x45, 0xdf, 0xa3, 0x9f, 0x42, 0x86, 0x81]),
+  ogg: bytes("OggS", [0, 2, 0, 0]),
+  wav: bytes("RIFF", [0x24, 0, 0, 0], "WAVEfmt "),
+  mp3: bytes("ID3", [4, 0, 0, 0, 0, 0, 0]),
+  aac: bytes([0xff, 0xf1, 0x50, 0x80, 0x01, 0x7f, 0xfc]),
 };
 const RIGHT: Record<string, keyof typeof SAMPLES> = {
   "application/pdf": "pdf",
@@ -72,6 +78,17 @@ const RIGHT: Record<string, keyof typeof SAMPLES> = {
   "application/vnd.ms-excel": "ole",
   "text/csv": "csv",
   "text/plain": "txt",
+  "video/mp4": "mp4",
+  "video/quicktime": "mp4",
+  "audio/mp4": "mp4",
+  "audio/x-m4a": "mp4",
+  "video/webm": "webm",
+  "audio/webm": "webm",
+  "audio/ogg": "ogg",
+  "audio/wav": "wav",
+  "audio/x-wav": "wav",
+  "audio/mpeg": "mp3",
+  "audio/aac": "aac",
 };
 for (const mime of ALLOWED_MIME) {
   const own = RIGHT[mime];
