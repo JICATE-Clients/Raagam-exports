@@ -1,18 +1,16 @@
 "use client";
 
-import { useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
 import {
   AtSign,
   Bold,
   Code,
   Italic,
   Link,
-  Link2,
   List,
   ListOrdered,
   Loader2,
   Paperclip,
-  Plus,
   Send,
   Smile,
   SquareCode,
@@ -27,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { createClient } from "@/lib/supabase/client";
 import { useUnsavedGuard } from "@/lib/reload-guard";
+import { useTouchPhone } from "@/lib/comms/use-phone-keyboard";
 import {
   ATTACHMENTS_PER_MESSAGE,
   MESSAGE_MAX,
@@ -46,6 +45,9 @@ import { uploadWithProgress } from "@/lib/comms/upload";
 import { EmojiPicker } from "./emoji-picker";
 import { fileSize } from "./message-body";
 import { RecordPickerSheet } from "./record-picker-sheet";
+import { AttachMenu, type AttachItem } from "./attach-menu";
+import { ContactSheet, EventSheet, PollSheet } from "./attach-sheets";
+import { STICKER_TOKEN, contactBody } from "@/lib/comms/cards";
 
 type FormatKey = "b" | "i" | "u" | "s" | "link" | "ol" | "ul" | "quote" | "code" | "codeblock";
 const MARKER: Record<"b" | "i" | "u" | "s" | "code", string> = { b: "**", i: "_", u: "__", s: "~~", code: "`" };
@@ -94,6 +96,18 @@ type Upload = {
  * changes. Phase-3 default, flagged for the client — reversing it is this one
  * handler.
  *
+ * ## ON A PHONE, RETURN IS A NEW LINE (user 2026-10-31, "keyboard … optimized
+ * for mobile")
+ *
+ * An on-screen keyboard has no Shift, so "Shift+Enter for a new line" cannot be
+ * typed there: return makes the new line and the round Send button sends, as in
+ * every phone chat app (`useTouchPhone` — a coarse pointer under 768px; a tablet
+ * or a laptop with a keyboard keeps Enter-sends). On a phone the box also does
+ * not grab focus when a conversation opens — the keyboard would cover the
+ * messages the person came to read — and Send, the formatting buttons and the
+ * quick replies never take focus from the box, so the keyboard stays up between
+ * messages instead of dropping and springing back.
+ *
  * ## caps-input: exempt -- a chat message is prose, not a stored value
  * (reasoning in lib/comms/types.ts; same carve-out as the order channel).
  *
@@ -135,6 +149,7 @@ export function Composer({
   onSend,
   autoFocus = false,
   chat = false,
+  onPosted,
 }: {
   conversationId: string;
   members: CommMember[];
@@ -142,6 +157,8 @@ export function Composer({
   placeholder: string;
   /** Resolve true when the message is accepted (or queued) and the box may clear. */
   onSend: (body: string | null, attachments: AttachmentInput[]) => Promise<boolean>;
+  /** 0776: a poll or an event went straight to the server — read the newest messages. */
+  onPosted?: () => void;
   autoFocus?: boolean;
   /** Pulse's direct and group chats (the colourful redesign, 2026-10-29):
    *  a rounded, tinted box and a round coral Send. A channel keeps the plain box. */
@@ -150,6 +167,13 @@ export function Composer({
   const supabase = useMemo(() => createClient(), []);
   const ref = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  // The 📎 menu's pickers (attach-menu.tsx): each opens the chooser for its kind.
+  const mediaRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const audioRef = useRef<HTMLInputElement>(null);
+  const stickerRef = useRef<HTMLInputElement>(null);
+  const [card, setCard] = useState<null | "contact" | "poll" | "event">(null);
+  const [stickering, setStickering] = useState(false);
   const [text, setText] = useState("");
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [busy, setBusy] = useState(false);
@@ -167,6 +191,14 @@ export function Composer({
   const [format, setFormat] = useState<"auto" | "on" | "off">("auto");
   // The emoji button that opened the picker, or null while it is shut.
   const [emojiAt, setEmojiAt] = useState<HTMLButtonElement | null>(null);
+  const touchPhone = useTouchPhone();
+  // Not the `autoFocus` attribute: it fires during hydration, before the phone
+  // is known, and would open the keyboard over the conversation.
+  useEffect(() => {
+    if (autoFocus && !window.matchMedia("(pointer: coarse) and (max-width: 767px)").matches) ref.current?.focus();
+    // Once, when the box mounts (it is keyed by conversation).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const uploading = uploads.some((u) => u.status === "uploading" || u.status === "checking");
   useUnsavedGuard(text.trim().length > 0 || uploads.length > 0 || busy);
 
@@ -377,6 +409,41 @@ export function Composer({
     void addFiles(e.dataTransfer.files);
   }
 
+  function pickAttach(item: AttachItem) {
+    if (item === "doc") fileRef.current?.click();
+    else if (item === "media") mediaRef.current?.click();
+    else if (item === "camera") cameraRef.current?.click();
+    else if (item === "audio") audioRef.current?.click();
+    else if (item === "sticker") stickerRef.current?.click();
+    else if (item === "record") setLinking(true);
+    else setCard(item);
+  }
+
+  /** A sticker is one picture sent at once, with no text and no bubble (cards.ts). */
+  async function sendSticker(file: File | undefined) {
+    if (stickerRef.current) stickerRef.current.value = "";
+    if (!file) return;
+    const bad = attachmentProblem(file);
+    if (bad) return setProblem(`${file.name}: ${bad}`);
+    if (!file.type.startsWith("image/")) return setProblem("A sticker is made from a picture (PNG, JPG, WebP or GIF).");
+    setProblem(null);
+    setStickering(true);
+    const key = crypto.randomUUID();
+    const path = attachmentPath(conversationId, file.name, key);
+    const up = await uploadWithProgress(supabase, path, file, () => {});
+    if (!up.ok) {
+      setStickering(false);
+      return setProblem(up.error);
+    }
+    const v = await verifyUpload(path);
+    if (!v.ok) {
+      setStickering(false);
+      return setProblem(v.error);
+    }
+    await onSend(STICKER_TOKEN, [{ storage_path: path, file_name: file.name, mime_type: file.type, size_bytes: file.size }]);
+    setStickering(false);
+  }
+
   async function submit() {
     if (busy || uploading) return;
     const body = text.trim() ? withTokens(text.trim()) : null;
@@ -426,7 +493,7 @@ export function Composer({
         return;
       }
     }
-    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && !touchPhone) {
       e.preventDefault();
       void submit();
     }
@@ -434,9 +501,27 @@ export function Composer({
 
   const canSend = !busy && !uploading && (text.trim().length > 0 || uploads.some((u) => u.status === "done"));
 
+  const formatButtons = FORMAT.map((f) => (
+    <span key={f.label} className="flex items-center">
+      {f.sep && <span aria-hidden className="mx-1 h-5 w-px bg-border" />}
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        // mousedown would move focus off the box and lose the selection
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => runFormat(f.key)}
+        aria-label={f.label}
+        title={f.keys ? `${f.label} (${f.keys})` : f.label}
+      >
+        <f.icon className="h-4 w-4" />
+      </Button>
+    </span>
+  ));
+
   return (
     <div
-      className={cn("relative border-t border-border bg-surface p-3", dragging && "bg-primary-soft/40 ring-2 ring-inset ring-primary")}
+      className={cn("relative bg-surface", chat ? "px-2 pb-2 pt-1.5" : "border-t border-border p-3", dragging && "bg-primary-soft/40 ring-2 ring-inset ring-primary")}
       onDragOver={onDragOver}
       onDragLeave={() => setDragging(false)}
       onDrop={onDrop}
@@ -521,49 +606,45 @@ export function Composer({
         </ul>
       )}
 
+      {/* WHATSAPP'S ROW IN A CHAT (user 2026-10-31, the Pulse Attach Menu
+          mockup): 📎 · 😊 · a "Type a message" pill · Send, on one line. The
+          action row below is `contents` there, so its buttons join this row
+          and `order-*` puts them in WhatsApp's places; the formatting bar and
+          the @ button stand down (Ctrl+B / I / U and typing @ still work).
+          A channel keeps the box with its toolbar. */}
       <div
         className={cn(
-          "border focus-within:border-primary focus-within:ring-1 focus-within:ring-primary",
-          chat ? "rounded-[18px] border-transparent bg-surface-muted" : "rounded-lg border-border bg-surface",
+          chat
+            ? "relative flex items-end gap-1"
+            : "rounded-lg border border-border bg-surface focus-within:border-primary focus-within:ring-1 focus-within:ring-primary",
         )}
       >
-        {format !== "off" && (
+        {/* PULSE COMPACT (user 2026-10-31): in a chat the formatting buttons
+            join the action row under the box instead of a bar of their own. */}
+        {format !== "off" && !chat && (
           <div
             role="toolbar"
             aria-label="Formatting"
             className={cn(
-              "flex-wrap items-center gap-0.5 border-b border-border px-1 py-0.5",
-              chat ? "rounded-t-[18px] px-2" : "rounded-t-lg bg-surface-muted",
+              "flex-wrap items-center gap-0.5 rounded-t-lg border-b border-border bg-surface-muted px-1 py-0.5",
               format === "on" ? "flex" : "hidden md:flex",
             )}
           >
-            {FORMAT.map((f) => (
-              <span key={f.label} className="flex items-center">
-                {f.sep && <span aria-hidden className="mx-1 h-5 w-px bg-border" />}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  // mousedown would move focus off the box and lose the selection
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => runFormat(f.key)}
-                  aria-label={f.label}
-                  title={f.keys ? `${f.label} (${f.keys})` : f.label}
-                >
-                  <f.icon className="h-4 w-4" />
-                </Button>
-              </span>
-            ))}
+            {formatButtons}
           </div>
         )}
         {/* caps-input: exempt -- a chat message is prose, not a stored value (lib/comms/types.ts) */}
         <Textarea
           ref={ref}
           uppercase={false}
-          rows={2}
+          rows={chat ? 1 : 2}
           value={text}
-          autoFocus={autoFocus}
-          placeholder={placeholder}
+          // The phone keyboard's return key says what it does here.
+          enterKeyHint={touchPhone ? "enter" : "send"}
+          autoCapitalize="sentences"
+          autoCorrect="on"
+          spellCheck
+          placeholder={chat ? "Type a message" : placeholder}
           aria-label={placeholder}
           maxLength={MESSAGE_MAX}
           onChange={(e) => {
@@ -572,9 +653,13 @@ export function Composer({
           }}
           onKeyDown={onKeyDown}
           onBlur={() => setMention(null)}
-          className="max-h-48 min-h-14 w-full resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+          className={
+            chat
+              ? "order-3 field-sizing-content max-h-32 min-h-11 min-w-0 flex-1 resize-none rounded-[22px] border-2 border-transparent bg-[#f5f4f2] px-4 py-2.5 shadow-none placeholder:text-[#54656f] focus-visible:border-[#15603e] focus-visible:ring-0 focus-visible:ring-offset-0 dark:bg-[#202c33] dark:placeholder:text-[#aebac1] dark:focus-visible:border-[#7ae3a5] max-md:max-h-28"
+              : "max-h-48 min-h-14 w-full resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 max-md:max-h-28"
+          }
         />
-        <div className="relative flex flex-wrap items-center gap-0.5 px-1 pb-1">
+        <div className={cn(chat ? "contents" : "relative flex flex-wrap items-center gap-0.5 px-1 pb-1")}>
           <input
             ref={fileRef}
             type="file"
@@ -585,16 +670,16 @@ export function Composer({
             aria-hidden
             tabIndex={-1}
           />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            onClick={() => fileRef.current?.click()}
-            aria-label="Attach files"
-            title={`Attach files: ${ATTACHMENT_TYPES_LABEL}`}
-          >
-            <Plus className="h-4 w-4" />
-          </Button>
+          {/* The 📎 menu's own choosers. Documents keep the full list; the
+              others narrow the dialog to their kind. Every file is still
+              checked by attachmentProblem and, on the server, by its bytes. */}
+          <input ref={mediaRef} type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm,video/quicktime,.mp4,.mov,.webm" className="hidden" aria-hidden tabIndex={-1} onChange={(e) => { void addFiles(e.target.files); e.target.value = ""; }} />
+          <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" aria-hidden tabIndex={-1} onChange={(e) => { void addFiles(e.target.files); e.target.value = ""; }} />
+          <input ref={audioRef} type="file" multiple accept="audio/mpeg,audio/mp4,audio/x-m4a,audio/aac,audio/ogg,audio/wav,audio/x-wav,audio/webm,.mp3,.m4a,.aac,.ogg,.wav" className="hidden" aria-hidden tabIndex={-1} onChange={(e) => { void addFiles(e.target.files); e.target.value = ""; }} />
+          <input ref={stickerRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" className="hidden" aria-hidden tabIndex={-1} onChange={(e) => void sendSticker(e.target.files?.[0])} />
+          <span title={`Attach: ${ATTACHMENT_TYPES_LABEL}`} className={cn(chat && "order-1 pb-1")}>
+            <AttachMenu onPick={pickAttach} disabled={stickering} />
+          </span>
           <Button
             type="button"
             variant="ghost"
@@ -608,6 +693,7 @@ export function Composer({
             aria-label="Show or hide formatting"
             aria-expanded={format === "auto" ? undefined : format === "on"}
             title="Show or hide formatting"
+            className={cn(chat && "hidden")}
           >
             <Type className="h-4 w-4" />
           </Button>
@@ -622,8 +708,9 @@ export function Composer({
             aria-label="Emoji"
             aria-expanded={!!emojiAt}
             title="Emoji"
+            className={cn(chat && "order-2 mb-1 text-[#54656f] dark:text-[#aebac1]")}
           >
-            <Smile className="h-4 w-4" />
+            <Smile className={chat ? "h-5 w-5" : "h-4 w-4"} />
           </Button>
           <Button
             type="button"
@@ -633,38 +720,30 @@ export function Composer({
             onClick={startMention}
             aria-label="Mention someone"
             title="Mention someone (@)"
+            className={cn(chat && "hidden")}
           >
             <AtSign className="h-4 w-4" />
           </Button>
-          <span aria-hidden className="mx-1 h-5 w-px bg-border" />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            onClick={() => setLinking(true)}
-            aria-label="Link a record"
-            title="Link a PO, indent or order"
-          >
-            <Link2 className="h-4 w-4" />
-          </Button>
-          <span className="flex-1" />
+          {!chat && <span className="flex-1" />}
           {chat ? (
             // button-shape: exempt -- Pulse's round Send (user 2026-10-29, the colourful redesign), a single glyph in a circle like every chat app's
             <button
               type="button"
+              // Keeps focus (and so the phone keyboard) on the box.
+              onMouseDown={(e) => e.preventDefault()}
               onClick={() => void submit()}
               disabled={!canSend}
               aria-label="Send message"
               title="Send (Enter)"
               className={cn(
-                "flex h-10 w-10 items-center justify-center rounded-full text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                "order-4 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 canSend ? "bg-[#c94a32] shadow-[0_6px_14px_rgba(240,112,90,.35)] hover:bg-[#b23f29]" : "bg-muted-foreground/40",
               )}
             >
-              {busy ? <Loader2 className="h-[18px] w-[18px] animate-spin" /> : <Send className="h-[18px] w-[18px]" />}
+              {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
             </button>
           ) : (
-            <Button type="button" onClick={() => void submit()} disabled={!canSend} aria-label="Send message" title="Send (Enter)">
+            <Button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => void submit()} disabled={!canSend} aria-label="Send message" title="Send (Enter)">
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             </Button>
           )}
@@ -681,7 +760,12 @@ export function Composer({
           )}
         </div>
       </div>
-      <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+      <div
+        className={cn(
+          "mt-1 items-center justify-between gap-2 text-[11px] text-muted-foreground",
+          chat && !problem && uploads.length === 0 ? "hidden" : "flex",
+        )}
+      >
         <span>
           {problem ? (
             <span className="text-danger" role="alert">
@@ -696,6 +780,17 @@ export function Composer({
         </span>
       </div>
       <RecordPickerSheet open={linking} onClose={() => setLinking(false)} onPick={insertRecord} />
+      <ContactSheet
+        open={card === "contact"}
+        meId={meId}
+        onClose={() => setCard(null)}
+        onPick={(p) => {
+          setCard(null);
+          void onSend(contactBody(p.id, p.full_name ?? "Someone"), []);
+        }}
+      />
+      <PollSheet open={card === "poll"} conversationId={conversationId} onClose={() => setCard(null)} onSent={() => onPosted?.()} />
+      <EventSheet open={card === "event"} conversationId={conversationId} onClose={() => setCard(null)} onSent={() => onPosted?.()} />
     </div>
   );
 }

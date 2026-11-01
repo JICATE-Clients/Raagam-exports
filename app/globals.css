@@ -1928,6 +1928,50 @@ body {
   }
 }
 
+/* ========================================================================
+ * PHONE CHAT — a conversation gets the screen and sits on the keyboard
+ * (user 2026-10-31, Pulse: "keyboard should be optimized for mobile view").
+ *
+ * Keyed on `data-chat-page`, which only the open conversation carries
+ * (conversation-view.tsx); Pulse's chat list, Channels and Search keep the
+ * normal page. Phone only, like PHONE EDITOR above, and the same reasoning:
+ * plain CSS lands in the same paint and cannot be left stuck on.
+ *
+ * 1. The app's top bar, tab strip, bottom tab bar and the workspace bar stand
+ *    down — the conversation's own header (← back, name, pins, details) is the
+ *    top bar, the way a phone chat app has no tab bar inside a chat.
+ * 2. `<main>` drops its padding and the hub frame its card, so the chat runs
+ *    edge to edge.
+ * 3. The shell is as tall as the VISUAL viewport (`--vvh`, published by
+ *    lib/comms/use-phone-keyboard.ts): the on-screen keyboard shrinks it, the
+ *    message list takes the loss, and the composer rests on the keyboard
+ *    instead of under it. `100dvh` is the fallback before the hook runs.
+ * ======================================================================== */
+@media (max-width: 767px) {
+  body:has([data-chat-page]) [data-topbar],
+  body:has([data-chat-page]) [data-tab-strip],
+  body:has([data-chat-page]) [data-mobile-tabbar],
+  body:has([data-chat-page]) [data-comms-workspace-bar] {
+    display: none;
+  }
+  body:has([data-chat-page]),
+  body:has([data-chat-page]) [data-app-shell] {
+    height: var(--vvh, 100dvh);
+  }
+  .ty-workspace:has([data-chat-page]) {
+    padding: 0;
+  }
+  [data-comms-frame]:has([data-chat-page]) {
+    min-height: 0;
+    border: 0;
+    border-radius: 0;
+  }
+  /* The home-indicator strip under the composer when no keyboard is up. */
+  html:not([data-kb-open]) [data-chat-page] {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
 /* A GRID OF SWITCHES IS NOT A GRID OF LINES (client 2026-09-30: Documents ▸
    Copies Collected on a phone — DL, Vote ID, Ration Card … PAN Card, Others
    were nine full-width rows, each holding one small switch). A switch is

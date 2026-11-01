@@ -81,6 +81,12 @@ export interface DropdownItem {
    * Boxed to an icon's width, like `dot`, so a mixed menu still aligns.
    */
   swatch?: string;
+  /**
+   * A number at the right edge — how many things the item would show (Pulse's
+   * filter menu: Unread 73, Groups 16, Communities 8). Omitted by every menu
+   * that is a list of commands.
+   */
+  count?: number;
 }
 
 /**
@@ -281,6 +287,9 @@ export function DropdownMenu({
                   <span className="min-w-0 flex-1" style={item.labelStyle}>
                     {item.label}
                   </span>
+                  {item.count !== undefined && item.count > 0 && (
+                    <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{item.count}</span>
+                  )}
                   {item.checked && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
                 </button>
                 </div>

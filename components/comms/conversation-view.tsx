@@ -3,13 +3,15 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
-import { ArrowLeft, Hash, Info, Loader2, Lock, Pin, RotateCw, Users, WifiOff } from "lucide-react";
+import { ArrowLeft, Hash, Loader2, Lock, Megaphone, MoreVertical, RotateCw, Search, Users, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { DropdownMenu, type DropdownItem } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/components/ui/toast";
 import { createClient } from "@/lib/supabase/client";
 import { fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { usePhoneKeyboardViewport } from "@/lib/comms/use-phone-keyboard";
 import {
   attachmentUrl,
   deleteMessage,
@@ -22,6 +24,9 @@ import {
   setSaved,
   setReaction,
   loadMessagesById,
+  leaveConversation,
+  setChatFlags,
+  setMuted,
 } from "@/lib/comms/actions";
 import type { AttachmentInput, CommAttachment, CommMessage, ConversationDetail, MessagePage } from "@/lib/comms/types";
 import { Composer } from "./composer";
@@ -35,6 +40,7 @@ import { MessageBody, dayKey, initials } from "./message-body";
 import { AVATAR_TINT, avatarStyle } from "./conversation-list";
 import { PinnedSheet } from "./pinned-sheet";
 import { ThreadSheet } from "./thread-sheet";
+import { ChatSearchPanel } from "./chat-search-panel";
 
 type Pending = {
   client_id: string;
@@ -108,6 +114,8 @@ export function ConversationView({
   const stick = useRef(true);
   const prependFrom = useRef<number | null>(null);
   const lastMarked = useRef<string | null>(null);
+  // On a phone the shell follows the on-screen keyboard (use-phone-keyboard.ts).
+  usePhoneKeyboardViewport();
 
   const [messages, setMessages] = useState<CommMessage[]>(initialPage.messages);
   const [cursor, setCursor] = useState<string | null>(initialPage.next_cursor);
@@ -120,12 +128,25 @@ export function ConversationView({
   const [threadVersion, setThreadVersion] = useState(0);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [pinnedOpen, setPinnedOpen] = useState(false);
+  // WhatsApp's chat header (user 2026-10-31, the Pulse mockup): 🔍 opens
+  // Search messages beside the chat, ⋮ holds what the pin and ⓘ icons did
+  // and the chat's own settings.
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [mutedNow, setMutedNow] = useState<boolean>(!!conversation.me?.muted);
+  const [favNow, setFavNow] = useState<boolean>(!!conversation.me?.favorite);
+  const [confirmLeave, setConfirmLeave] = useState(false);
+  const [menuBusy, startMenu] = useTransition();
   const [confirmDelete, setConfirmDelete] = useState<CommMessage | null>(null);
   const [joining, startJoin] = useTransition();
 
   const id = conversation.id;
   const me = conversation.me;
   const canPost = !!me?.active && !conversation.is_archived;
+  // 0775: a community's Announcements takes messages from its admins only
+  // (the database refuses anyone else — comm_announcement_guard). Everyone in
+  // it still reacts, saves and reads as in any chat.
+  const announcement = !!conversation.is_announcement;
+  const canWrite = canPost && (!announcement || !!conversation.community?.is_admin);
   const names = useMemo(
     () => new Map(conversation.members.map((m) => [m.user_id, m.full_name] as const)),
     [conversation.members],
@@ -223,6 +244,19 @@ export function ConversationView({
     }
   }, [messages, pending]);
 
+  // The list SHRINKS when a phone's keyboard opens (globals.css, "PHONE CHAT")
+  // and grows when it shuts; someone reading the newest message keeps it in
+  // view instead of having the keyboard slide over it.
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      if (stick.current) el.scrollTop = el.scrollHeight;
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   // ---- Open at a message (a search result, a saved item, an alert) ------------
   // The message is looked for in what is loaded, then up to TEN older pages
   // (400 messages) are read until it appears; it is then scrolled into view
@@ -268,6 +302,36 @@ export function ConversationView({
     // and `cursor` are read as they were at that moment on purpose.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus, id]);
+
+  /**
+   * Scroll to a message picked in Search messages: read older pages (up to
+   * ten, 400 messages — the same reach as opening AT a message) until it is
+   * loaded, then centre and flash it. A thread reply opens its thread.
+   */
+  async function jumpTo(m: CommMessage) {
+    const target = m.parent_id ?? m.id;
+    let loaded = messages;
+    let cur = cursor;
+    for (let i = 0; i < 10 && !loaded.some((x) => x.id === target) && cur; i++) {
+      const r = await loadMessages(id, cur);
+      if (!r.ok) break;
+      loaded = merge(r.page.messages, loaded);
+      cur = r.page.next_cursor;
+      stick.current = false;
+      setMessages(loaded);
+      setCursor(cur);
+    }
+    const found = loaded.find((x) => x.id === target);
+    if (!found) {
+      toastError("That message is further back than the last 400 — scroll up to reach it.");
+      return;
+    }
+    stick.current = false;
+    setFlashId(found.id);
+    requestAnimationFrame(() => document.getElementById(`msg-${found.id}`)?.scrollIntoView({ block: "center", behavior: "smooth" }));
+    if (m.parent_id) setThreadOf(found);
+    setTimeout(() => setFlashId((f) => (f === found.id ? null : f)), 4000);
+  }
 
   async function loadOlder() {
     if (!cursor || loadingOlder) return;
@@ -321,6 +385,8 @@ export function ConversationView({
 
   const actions: MessageActions = {
     onOpenFile: (a) => void openFile(a),
+    // 0776: a vote / an answer comes back as the message with fresh counts.
+    onReplace: (fresh) => setMessages((prev) => prev.map((x) => (x.id === fresh.id ? fresh : x))),
     onReply: (m) => setThreadOf(m),
     // OPTIMISTIC, THEN THE TRUTH: the chip moves at once; the server's answer
     // (the message's reactions as stored) replaces it either way, and a refusal
@@ -403,13 +469,73 @@ export function ConversationView({
       ? "Direct message"
       : `${activeCount} ${activeCount === 1 ? "member" : "members"}${conversation.department_name ? ` · ${conversation.department_name}` : ""}`);
 
+  // ⋮ — WhatsApp's chat menu in Pulse's words. Each item does what its own
+  // screen already did (details sheet, pinned sheet, flags, mute, leave); the
+  // server refuses anything the person may not do.
+  const isGroupish = conversation.kind !== "direct" && !announcement;
+  const chatMenu: DropdownItem[] = [
+    announcement && conversation.community
+      ? { label: "Community info", onClick: () => router.push(`/comms/community/${conversation.community!.id}`) }
+      : {
+          label: conversation.kind === "direct" ? "Contact info" : conversation.kind === "channel" ? "Channel info" : "Group info",
+          onClick: () => setDetailsOpen(true),
+        },
+    { label: "Search", onClick: () => setSearchOpen(true) },
+    { label: "Pinned messages", onClick: () => setPinnedOpen(true) },
+    { label: "Saved messages", onClick: () => router.push("/comms/saved") },
+    ...(me?.active
+      ? [
+          {
+            label: mutedNow ? "Unmute notifications" : "Mute notifications",
+            disabled: menuBusy,
+            onClick: () =>
+              startMenu(async () => {
+                const next = !mutedNow;
+                const r = await setMuted(id, next);
+                if (!r.ok) return toastError(r.error);
+                setMutedNow(next);
+              }),
+          },
+          {
+            label: favNow ? "Remove from favourites" : "Add to favourites",
+            disabled: menuBusy,
+            onClick: () =>
+              startMenu(async () => {
+                const next = !favNow;
+                const r = await setChatFlags({ conversation_id: id, favorite: next });
+                if (!r.ok) return toastError(r.error);
+                setFavNow(next);
+                router.refresh();
+              }),
+          },
+          {
+            label: "Archive chat",
+            disabled: menuBusy,
+            onClick: () =>
+              startMenu(async () => {
+                const r = await setChatFlags({ conversation_id: id, archived: true });
+                if (!r.ok) return toastError(r.error);
+                router.push("/comms");
+                router.refresh();
+              }),
+          },
+        ]
+      : []),
+    { label: conversation.kind === "channel" ? "Close channel" : "Close chat", separatorBefore: true, onClick: () => router.push("/comms") },
+    ...(me?.active && isGroupish
+      ? [{ label: conversation.kind === "channel" ? "Leave channel" : "Leave group", danger: true, onClick: () => setConfirmLeave(true) }]
+      : []),
+  ];
+
   // Pulse's direct and group chats wear the redesign (2026-10-29): bubbles, a
   // coloured avatar in the header, quick replies. A channel keeps its rows.
   const chat = conversation.kind === "channel" ? null : conversation.kind;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <header className={cn("flex items-center gap-2 border-b border-border px-3", chat ? "py-2.5" : "py-2")}>
+    // `data-chat-page`: on a phone the conversation takes the whole screen and
+    // sits on the keyboard (globals.css, "PHONE CHAT").
+    <div data-chat-page="" className="flex min-h-0 flex-1 flex-col">
+      <header className={cn("flex items-center gap-2 border-b border-border px-3", chat ? "py-1.5" : "py-2")}>
         {/* Inside Pulse's frame (`data-pulse`, comms-shell.tsx) the sidebar is
             beside the conversation once the hub is wide, so the back arrow is
             for narrow screens only; a conversation opened from outside Pulse
@@ -424,11 +550,18 @@ export function ConversationView({
         >
           <ArrowLeft className="h-4 w-4" />
         </Link>
-        {chat ? (
+        {announcement ? (
+          <span
+            aria-hidden
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[color-mix(in_srgb,#1f9d6b_14%,var(--surface))] text-[#137a52] dark:text-[#6fdcaa]"
+          >
+            <Megaphone className="h-5 w-5" />
+          </span>
+        ) : chat ? (
           <span
             aria-hidden
             style={avatarStyle(conversation.title)}
-            className={cn("flex h-10 w-10 shrink-0 items-center justify-center text-sm font-bold", AVATAR_TINT, chat === "group" ? "rounded-xl" : "rounded-full")}
+            className={cn("flex h-9 w-9 shrink-0 items-center justify-center text-sm font-bold", AVATAR_TINT, chat === "group" ? "rounded-xl" : "rounded-full")}
           >
             {chat === "group" && !conversation.name ? <Users className="h-5 w-5" /> : initials(conversation.title)}
           </span>
@@ -437,22 +570,52 @@ export function ConversationView({
         )}
         <div className="min-w-0 flex-1">
           <h1 className={cn("break-words font-semibold text-heading", chat ? "text-base" : "text-sm")}>
-            {conversation.kind === "channel" ? conversation.title.replace(/^#/, "") : conversation.title}
+            {announcement ? "Announcements" : conversation.kind === "channel" ? conversation.title.replace(/^#/, "") : conversation.title}
           </h1>
-          <p className="break-words text-xs text-muted-foreground">{subtitle}</p>
+          <p className="break-words text-xs text-muted-foreground">
+            {/* 0775: a community's group or Announcements names its community, linked to it. */}
+            {conversation.community && (
+              <>
+                <Link
+                  href={`/comms/community/${conversation.community.id}`}
+                  className="font-semibold text-[#137a52] hover:underline dark:text-[#6fdcaa]"
+                >
+                  {conversation.community.name}
+                </Link>
+                {" · "}
+              </>
+            )}
+            {subtitle}
+          </p>
         </div>
         {!connected && (
           <span className="flex items-center gap-1 text-xs text-warning" role="status">
             <WifiOff className="h-3.5 w-3.5" aria-hidden /> Reconnecting…
           </span>
         )}
-        <Button variant="ghost" size="icon" onClick={() => setPinnedOpen(true)} aria-label="Pinned messages" title="Pinned messages">
-          <Pin className="h-4 w-4" />
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => setSearchOpen((o) => !o)}
+          aria-pressed={searchOpen}
+          aria-label="Search messages"
+          title="Search"
+          className={cn(searchOpen && "bg-surface-muted")}
+        >
+          <Search className="h-5 w-5" />
         </Button>
-        <Button variant="ghost" size="icon" onClick={() => setDetailsOpen(true)} aria-label="Conversation details" title="Details and members">
-          <Info className="h-4 w-4" />
-        </Button>
+        <DropdownMenu
+          label="Menu"
+          trigger={<MoreVertical className="h-5 w-5" />}
+          triggerClassName="inline-flex h-9 w-9 items-center justify-center rounded-control text-foreground hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          items={chatMenu}
+        />
       </header>
+
+      {/* The chat and, while 🔍 is on, Search messages beside it (over it on a
+          narrow pane — chat-search-panel.tsx). */}
+      <div className="relative flex min-h-0 flex-1">
+      <div className="flex min-w-0 flex-1 flex-col">
 
       <div
         ref={listRef}
@@ -477,6 +640,36 @@ export function ConversationView({
               </Button>
             )}
           </div>
+        ) : conversation.kind === "channel" ? (
+          // A CHANNEL OPENS ON ITS OWN CARD (user 2026-10-31, the Pulse mockup:
+          // "each channel's conversation displayed individually, like WhatsApp"):
+          // its name, size and purpose head its own feed, with Join while the
+          // person is only reading it.
+          <section
+            aria-label={`About ${conversation.title}`}
+            className="mx-auto mb-2 mt-1 flex w-[calc(100%-1.5rem)] max-w-xl flex-col items-center gap-1 rounded-2xl border border-border bg-surface px-4 py-4 text-center"
+          >
+            <span
+              aria-hidden
+              style={avatarStyle(conversation.title)}
+              className={cn("flex h-14 w-14 items-center justify-center rounded-full", AVATAR_TINT)}
+            >
+              <KindIcon className="h-6 w-6" />
+            </span>
+            <h2 className="break-words text-lg font-extrabold text-heading">{conversation.title.replace(/^#/, "# ")}</h2>
+            <p className="text-[13px] text-muted-foreground">
+              Channel · {activeCount} {activeCount === 1 ? "member" : "members"}
+              {conversation.department_name ? ` · ${conversation.department_name}` : ""}
+            </p>
+            {(conversation.description ?? conversation.topic) && (
+              <p className="max-w-prose whitespace-pre-line text-sm text-foreground">{conversation.description ?? conversation.topic}</p>
+            )}
+            {!me?.active && !conversation.is_archived && conversation.visibility === "public" && (
+              <Button size="sm" className="mt-1" onClick={join} disabled={joining}>
+                {joining && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Join channel
+              </Button>
+            )}
+          </section>
         ) : messages.length > 0 ? (
           <p className="py-3 text-center text-xs text-muted-foreground">This is the start of the conversation.</p>
         ) : null}
@@ -496,8 +689,8 @@ export function ConversationView({
           return (
             <div key={m.id}>
               {newDay && chat ? (
-                <div className="my-2 flex justify-center px-3" role="separator">
-                  <span className="rounded-full bg-primary-soft px-3.5 py-1 text-xs font-bold text-primary">{dayLabel(m.created_at)}</span>
+                <div className="my-1.5 flex justify-center px-3" role="separator">
+                  <span className="rounded-full bg-primary-soft px-3 py-0.5 text-xs font-bold text-primary">{dayLabel(m.created_at)}</span>
                 </div>
               ) : newDay && (
                 <div className="my-2 flex items-center gap-3 px-3" role="separator">
@@ -570,10 +763,10 @@ export function ConversationView({
         )}
       </div>
 
-      {canPost && chat && (
+      {canWrite && chat && (
         <QuickReplies onPick={(text) => void send(text, [])} />
       )}
-      {canPost ? (
+      {canWrite ? (
         <Composer
           key={id}
           conversationId={id}
@@ -581,6 +774,10 @@ export function ConversationView({
           meId={meId}
           placeholder={`Message ${conversation.title}`}
           onSend={send}
+          onPosted={() => {
+            stick.current = true;
+            void refreshLatest();
+          }}
           autoFocus
           chat={!!chat}
         />
@@ -589,6 +786,8 @@ export function ConversationView({
           <span className="text-muted-foreground">
             {conversation.is_archived
               ? "This conversation is archived. It can be read but not added to."
+              : announcement && canPost
+                ? "Only community admins can send messages."
               : me && !me.active
                 ? "You are no longer in this conversation. You can still read what was said while you were."
                 : conversation.kind === "channel" && conversation.visibility === "public"
@@ -603,13 +802,24 @@ export function ConversationView({
         </div>
       )}
 
+      </div>
+      {searchOpen && (
+        <ChatSearchPanel
+          conversationId={id}
+          names={names}
+          onClose={() => setSearchOpen(false)}
+          onPick={(m) => void jumpTo(m)}
+        />
+      )}
+      </div>
+
       <ThreadSheet
         parent={threadOf}
         version={threadVersion}
         conversation={conversation}
         names={names}
         meId={meId}
-        canPost={canPost}
+        canPost={canWrite}
         onClose={() => setThreadOf(null)}
         onChanged={() => void refreshLatest()}
         highlightId={focus?.threadParentId ? focus.messageId : null}
@@ -634,6 +844,23 @@ export function ConversationView({
       ) : (
         <DetailsSheet open={detailsOpen} conversation={conversation} meId={meId} onClose={() => setDetailsOpen(false)} />
       )}
+      <ConfirmDialog
+        open={confirmLeave}
+        title={`Leave ${conversation.title}?`}
+        body="You keep what was said before you left. Someone can add you back later."
+        confirmLabel={conversation.kind === "channel" ? "Leave channel" : "Leave group"}
+        isPending={menuBusy}
+        onCancel={() => setConfirmLeave(false)}
+        onConfirm={() =>
+          startMenu(async () => {
+            const r = await leaveConversation(id);
+            setConfirmLeave(false);
+            if (!r.ok) return toastError(r.error);
+            router.push("/comms");
+            router.refresh();
+          })
+        }
+      />
       <ConfirmDialog
         open={!!confirmDelete}
         title="Delete this message?"
@@ -664,14 +891,21 @@ const QUICK_REPLIES = ["Noted, thanks!", "Will check and update", "Please share 
 
 function QuickReplies({ onPick }: { onPick: (text: string) => void }) {
   return (
-    <div className="flex flex-wrap gap-2 border-t border-border bg-surface px-4 pt-3" role="group" aria-label="Quick replies">
+    // One row that scrolls sideways on a phone: wrapped, the four pills took
+    // three lines of the little height left above the keyboard.
+    <div
+      className="flex flex-wrap gap-1.5 border-t border-border bg-surface px-2 pt-1.5 max-md:flex-nowrap max-md:overflow-x-auto max-md:[scrollbar-width:none]"
+      role="group"
+      aria-label="Quick replies"
+    >
       {QUICK_REPLIES.map((t) => (
         // button-shape: exempt -- a quick-reply pill in the Pulse redesign (user 2026-10-29), a suggestion chip rather than an action button
         <button
           key={t}
           type="button"
           onClick={() => onPick(t)}
-          className="h-[30px] rounded-full border border-border bg-surface px-3 text-[13px] font-semibold text-foreground hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onMouseDown={(e) => e.preventDefault()}
+          className="h-[26px] shrink-0 whitespace-nowrap rounded-full border border-border bg-surface px-2.5 text-[13px] font-semibold text-foreground hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {t}
         </button>

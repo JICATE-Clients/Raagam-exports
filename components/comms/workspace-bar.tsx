@@ -12,7 +12,7 @@ import { initials } from "./message-body";
 export function WorkspaceBar({ workspace: w }: { workspace: Workspace }) {
   const suspended = w.status === "suspended";
   return (
-    <div className="flex items-center gap-2 border-b border-border bg-surface-muted/40 px-3 py-1.5">
+    <div data-comms-workspace-bar="" className="flex items-center gap-2 border-b border-border bg-surface-muted/40 px-3 py-1.5">
       <span
         aria-hidden
         className="flex h-6 w-6 shrink-0 items-center justify-center rounded-control bg-primary text-[10px] font-semibold text-primary-foreground"

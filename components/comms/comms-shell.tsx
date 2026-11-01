@@ -5,7 +5,7 @@ import { useEffect, useId, useState, type ReactNode } from "react";
 import { useAppUser } from "@/lib/auth/permission-context";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { createClient } from "@/lib/supabase/client";
-import type { ConversationSummary } from "@/lib/comms/types";
+import type { CommunitySummary, ConversationSummary } from "@/lib/comms/types";
 import { cn } from "@/lib/utils";
 import { ConversationList } from "./conversation-list";
 import { NewConversationSheet } from "./new-conversation-sheet";
@@ -45,17 +45,20 @@ import { NewConversationSheet } from "./new-conversation-sheet";
  */
 /** One Pulse pane: a white card with a soft shadow once the hub is wide. */
 const PANE =
-  "min-h-0 min-w-0 flex-col overflow-hidden @3xl/comms:rounded-[22px] @3xl/comms:shadow-[0_1px_2px_rgba(26,34,51,.05),0_8px_24px_rgba(26,34,51,.06)]";
+  "min-h-0 min-w-0 flex-col overflow-hidden @3xl/comms:rounded-xl @3xl/comms:shadow-[0_1px_2px_rgba(26,34,51,.05),0_8px_24px_rgba(26,34,51,.06)]";
 
 export function CommsShell({
   children,
   top,
   chats,
+  communities,
 }: {
   children: ReactNode;
   top?: ReactNode;
   /** The caller's conversations, for Pulse's list pane. */
   chats?: ConversationSummary[];
+  /** 0775: the caller's communities; null before 0775 is applied. */
+  communities?: CommunitySummary[] | null;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -100,11 +103,19 @@ export function CommsShell({
 
   const openId = /^\/comms\/c\/([0-9a-f-]{36})/i.exec(pathname)?.[1]?.toLowerCase() ?? null;
   const isHome = pathname === "/comms";
-  const pulse = !!chats && (isHome || (!!openId && chats.some((c) => c.id === openId)));
+  // 0775: a community's page is part of Pulse too — the list stays beside it.
+  const communityId = /^\/comms\/community\/([0-9a-f-]{36})/i.exec(pathname)?.[1]?.toLowerCase() ?? null;
+  // Pulse ▸ Files opens a file beside the list too (user 2026-10-31).
+  const fileId = /^\/comms\/files\/([0-9a-f-]{36})/i.exec(pathname)?.[1]?.toLowerCase() ?? null;
+  // Every conversation opens beside the list since Pulse ▸ Channels (user
+  // 2026-10-31): a public channel read before joining is one tap from the
+  // list, as a WhatsApp channel is.
+  const pulse = !!chats && (isHome || !!communityId || !!fileId || !!openId);
 
   return (
     <div
       data-focus-scope="off"
+      data-comms-frame=""
       className="@container/comms flex min-h-[22rem] flex-1 flex-col overflow-hidden rounded-lg border border-border bg-surface md:min-h-[30rem]"
     >
       {top}
@@ -112,16 +123,25 @@ export function CommsShell({
         // THE COLOURFUL REDESIGN (2026-10-29): wide, the two panes are white
         // cards on a muted ground with a gap between them; narrow, one pane
         // fills the frame with no card around it.
-        <div className="flex min-h-0 flex-1 @3xl/comms:gap-3 @3xl/comms:bg-surface-muted @3xl/comms:p-3">
+        <div className="flex min-h-0 flex-1 @3xl/comms:gap-2 @3xl/comms:bg-surface-muted @3xl/comms:p-2">
           <aside
             aria-label="Chats"
             className={cn(
               PANE,
-              "@3xl/comms:flex @3xl/comms:w-[22rem] @3xl/comms:shrink-0 @6xl/comms:w-[25rem]",
+              // WhatsApp's width (user 2026-10-31, screenshot 122843): 460px wide fits
+              // All · Unread · Favourites · Groups · ▾ on one line.
+              "@3xl/comms:flex @3xl/comms:w-[22rem] @3xl/comms:shrink-0 @5xl/comms:w-[26rem] @6xl/comms:w-[28.75rem]",
               isHome ? "flex w-full" : "hidden",
             )}
           >
-            <ConversationList conversations={chats} activeId={openId} composing={isHome} />
+            <ConversationList
+              conversations={chats}
+              activeId={openId}
+              composing={isHome}
+              communities={communities}
+              activeCommunityId={communityId}
+              activeFileId={fileId}
+            />
           </aside>
           {/* `data-pulse`: a conversation shown here has the sidebar beside it
               when wide, so it hides its own back arrow (conversation-view.tsx). */}
