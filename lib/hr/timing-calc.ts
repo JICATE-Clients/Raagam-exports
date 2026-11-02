@@ -30,6 +30,8 @@ const DEBOUNCE_MS = 2 * 60_000;
 
 export interface Person {
   bio: string;
+  /** "staff:<id>" / "worker:<id>" (Time Off's personKey), when the caller has it. */
+  key?: string;
   name: string;
   code: string | null;
   kind: PersonKind;
@@ -144,7 +146,13 @@ export function computeGroupDays(
   people: Person[],
   punches: RawPunch[],
   timings: CategoryTiming[],
-  now: number,
+  nowArg: number,
+  /**
+   * Work out a PAST shift day instead of the current one — each category's
+   * day `atDay`, judged as it stood when that day's window closed (so an odd
+   * punch count there means In with no Out). Omitted: the day in force at `now`.
+   */
+  atDay?: string,
 ): GroupDay[] {
   const byBio = new Map<string, number[]>();
   for (const p of punches) {
@@ -169,7 +177,12 @@ export function computeGroupDays(
     const key = categoryId ?? "";
     const hit = shifts.get(key);
     if (hit) return hit;
-    const { day, timing, start } = currentShift(categoryId, timings, now);
+    const { day, timing, start } = atDay
+      ? (() => {
+          const t = timingOn(timings, categoryId, atDay);
+          return { day: atDay, timing: t, start: windowStart(atDay, t) };
+        })()
+      : currentShift(categoryId, timings, nowArg);
     const inAt = timing ? istAt(day, timeToMinutes(timing.in_time)) : null;
     let outAt = timing ? istAt(day, timeToMinutes(timing.out_time)) : null;
     if (inAt != null && outAt != null && outAt <= inAt) outAt += DAY_MS; // night shift
@@ -180,6 +193,8 @@ export function computeGroupDays(
 
   function dayOf(person: Person): PersonDay {
     const { start, end, inAt, outAt, grace } = shiftFor(person.categoryId);
+    // A past day is read as it stood when its window closed.
+    const now = atDay ? end - 1 : nowArg;
     const ts = debounce(
       (byBio.get(person.bio) ?? []).filter((t) => t >= start && t < end && t <= now).sort((a, b) => a - b),
     );

@@ -44,7 +44,8 @@ export type WorkflowKey =
   | "lc_settlement"
   | "rc_hire"
   | "pf_review"
-  | "pf_promotion";
+  | "pf_promotion"
+  | "cd_case_decision";
 
 export type WorkflowDecl = {
   key: WorkflowKey;
@@ -224,6 +225,14 @@ export const WORKFLOWS: Record<WorkflowKey, WorkflowDecl> = {
     subjectTable: "pf_promotions",
     label: "Promotion",
     href: "/hr/performance/promotions?open=:id",
+  },
+  // HR ▸ Conduct & Policies (0791). Started inside cd_propose_decision, in
+  // the same transaction; an approved termination opens the exit itself.
+  cd_case_decision: {
+    key: "cd_case_decision",
+    subjectTable: "cd_cases",
+    label: "Disciplinary Decision",
+    href: "/hr/conduct/cases?open=:id",
   },
 };
 
