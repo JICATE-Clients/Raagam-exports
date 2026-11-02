@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { Baloo_2 } from "next/font/google";
 import { Fragment, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { ArrowUpRight, BadgeCheck, CalendarCheck, Check, ChevronRight, Flag, PencilRuler, Truck, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -38,8 +37,6 @@ import type { CalKind } from "@/lib/my-calendar/data";
  * with new props every minute, and a rise in the done count is what makes Nool
  * nod, or cheer when it reaches the total.
  */
-
-const brandFace = Baloo_2({ subsets: ["latin"], weight: ["600", "700"], display: "swap" });
 
 export type NoolTask = {
   id: string;
@@ -320,7 +317,8 @@ export function NoolGreeter({
             bubble ? "ng-pop" : "invisible",
           )}
         >
-          <h2 className={cn(brandFace.className, "text-[1.6rem] font-semibold leading-[1.15] tracking-[-0.01em] text-heading")}>
+          {/* Baloo 2, self-hosted (`.font-baloo`, app/fonts.css). */}
+          <h2 className="font-baloo text-[1.6rem] font-semibold leading-[1.15] tracking-[-0.01em] text-heading">
             Vanakkam, <span className="font-bold text-brand-blue">{name}</span>
           </h2>
           <p className="mt-1 min-h-[1.5em] text-[14.5px] leading-relaxed text-foreground/80" aria-live="polite">
@@ -761,7 +759,7 @@ function DayTile({
         TILE_TONE[tone],
       )}
     >
-      <span className={cn(brandFace.className, "n text-[1.5rem] font-bold leading-none tabular-nums")}>{value ?? "—"}</span>
+      <span className="font-baloo n text-[1.5rem] font-bold leading-none tabular-nums">{value ?? "—"}</span>
       <span className="text-xs text-muted-foreground">{label}</span>
       {sub && <span className="text-[11px] font-semibold text-muted-foreground">{sub}</span>}
     </Link>

@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Download, ExternalLink, FileText, ImageOff, Loader2 } from "lucide-react";
+import { Download, ExternalLink, FileText, ImageOff, Loader2, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { attachmentDownloadUrl, attachmentLinks, type AttachmentLink } from "@/lib/comms/attachment-actions";
-import { fileKind, isImageMime, isOpenableMime } from "@/lib/comms/attachments";
+import { fileKind, isAudioMime, isImageMime, isOpenableMime, isVideoMime } from "@/lib/comms/attachments";
 import type { CommAttachment } from "@/lib/comms/types";
 import { fileSize } from "./message-body";
 
@@ -68,7 +68,9 @@ export function MessageAttachments({
   const [preview, setPreview] = useState<CommAttachment | null>(null);
   const [downloading, setDownloading] = useState<string | null>(null);
   const images = attachments.filter((a) => isImageMime(a.mime_type));
-  const files = attachments.filter((a) => !isImageMime(a.mime_type));
+  // 0776: video and audio play in the chat (📎 Photos & videos · Audio).
+  const media = attachments.filter((a) => isVideoMime(a.mime_type) || isAudioMime(a.mime_type));
+  const files = attachments.filter((a) => !isImageMime(a.mime_type) && !isVideoMime(a.mime_type) && !isAudioMime(a.mime_type));
 
   async function download(a: CommAttachment) {
     setDownloading(a.id);
@@ -94,6 +96,15 @@ export function MessageAttachments({
           ))}
         </ul>
       )}
+      {media.length > 0 && (
+        <ul className="flex flex-col gap-2" aria-label="Video and audio">
+          {media.map((a) => (
+            <li key={a.id}>
+              <MediaPlayer attachment={a} />
+            </li>
+          ))}
+        </ul>
+      )}
       {files.length > 0 && (
         <ul className="flex flex-wrap gap-2" aria-label="Files">
           {files.map((a) => (
@@ -114,7 +125,7 @@ export function MessageAttachments({
                   onClick={() => onOpenFile(a)}
                   aria-label={`Open ${a.file_name}`}
                   title="Open in a new tab"
-                  className="rounded p-1 text-muted-foreground hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="rounded p-2 text-muted-foreground hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [@media(hover:hover)]:p-1"
                 >
                   <ExternalLink className="h-4 w-4" />
                 </button>
@@ -125,7 +136,7 @@ export function MessageAttachments({
                 disabled={downloading === a.id}
                 aria-label={`Download ${a.file_name}`}
                 title="Download"
-                className="rounded p-1 text-muted-foreground hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="rounded p-2 text-muted-foreground hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [@media(hover:hover)]:p-1"
               >
                 {downloading === a.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
               </button>
@@ -251,5 +262,60 @@ function FullImage({ attachment: a }: { attachment: CommAttachment }) {
   return (
     // eslint-disable-next-line @next/next/no-img-element -- a short-lived signed storage link (see Thumb)
     <img src={link.url} alt={a.file_name} className="mx-auto max-h-[70vh] w-auto max-w-full object-contain" onError={() => setFailed(true)} />
+  );
+}
+
+
+/**
+ * A video or a voice note / audio file (0776). Nothing is fetched until Play:
+ * the signed link is asked for then (the same batched, cached `linkFor` the
+ * thumbnails use) and the browser's own player takes over — so a chat full of
+ * clips costs nothing until one is played.
+ */
+function MediaPlayer({ attachment: a }: { attachment: CommAttachment }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [state, setState] = useState<"idle" | "loading" | "failed">("idle");
+  const video = isVideoMime(a.mime_type);
+
+  async function play() {
+    setState("loading");
+    const l = await linkFor(a.storage_path);
+    if (l?.url) {
+      setUrl(l.url);
+      setState("idle");
+    } else {
+      setState("failed");
+    }
+  }
+
+  if (url) {
+    return video ? (
+      // A chat clip has no caption track to offer; the file name is its label.
+      <video src={url} controls autoPlay playsInline aria-label={a.file_name} className="max-h-80 w-full max-w-[22rem] rounded-lg bg-black" />
+    ) : (
+      <audio src={url} controls autoPlay aria-label={a.file_name} className="w-full max-w-[22rem]" />
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => void play()}
+      disabled={state === "loading"}
+      aria-label={`Play ${a.file_name}`}
+      className="flex w-full max-w-[22rem] items-center gap-2.5 rounded-lg border border-border bg-surface px-2.5 py-2 text-left text-xs hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <span
+        aria-hidden
+        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white ${video ? "bg-[#007bfc]" : "bg-[#ff7f2a]"}`}
+      >
+        {state === "loading" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4 fill-current" />}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block break-all font-medium text-heading">{a.file_name}</span>
+        <span className="block text-[#667085] dark:text-[#9aa3b5]">
+          {state === "failed" ? "Could not be loaded. Try again." : `${video ? "Video" : "Audio"} · ${fileSize(a.size_bytes)}`}
+        </span>
+      </span>
+    </button>
   );
 }

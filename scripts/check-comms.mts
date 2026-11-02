@@ -61,10 +61,21 @@ const code = read("lib/comms/actions.ts") + "\n" + read("lib/comms/service.ts");
 
 // ---------- 1. the halves agree ----------
 
-const fnBody = migration.match(/function public\.comm_allowed_mime[\s\S]*?any \(array\[([\s\S]*?)\]\)/);
-const bucketList = migration.match(/insert into storage\.buckets[\s\S]*?array\[([\s\S]*?)\]/);
+// The allowlist is re-stated by a later comms migration when it grows (0776:
+// video and audio), so the LATEST migration that states each half is the one
+// compared — never 0737 alone, which would hold the list frozen at day one.
+const commFiles = readdirSync(resolve(root, "supabase/migrations"))
+  .filter((f) => /^07[4-9]\d_comms_|^0737_communication_hub_core/.test(f))
+  .sort();
+const latest = (re: RegExp) => {
+  let hit: RegExpMatchArray | null = null;
+  for (const f of commFiles) hit = read(`supabase/migrations/${f}`).match(re) ?? hit;
+  return hit;
+};
+const fnBody = latest(/function public\.comm_allowed_mime[\s\S]*?any \(array\[([\s\S]*?)\]\)/);
+const bucketList = latest(/insert into storage\.buckets[\s\S]*?array\[([\s\S]*?)\]/);
 const mimes = (src: string | undefined) => (src ? Array.from(src.matchAll(/'([^']+)'/g), (m) => m[1]) : []);
-check(!!fnBody && same(mimes(fnBody[1]), ALLOWED_MIME), "ALLOWED_MIME = comm_allowed_mime() in 0737");
+check(!!fnBody && same(mimes(fnBody[1]), ALLOWED_MIME), "ALLOWED_MIME = comm_allowed_mime() (latest comms migration)");
 check(!!bucketList && same(mimes(bucketList[1]), ALLOWED_MIME), "ALLOWED_MIME = the comm-files bucket's allowed_mime_types");
 check(migration.includes(`${ATTACHMENT_MAX_BYTES}`), `the bucket and the RPC carry the same ${ATTACHMENT_MAX_BYTES}-byte limit`);
 

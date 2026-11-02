@@ -1,13 +1,28 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { useAppUser } from "@/lib/auth/permission-context";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { createClient } from "@/lib/supabase/client";
+import type { CommunitySummary, ConversationSummary } from "@/lib/comms/types";
+import { cn } from "@/lib/utils";
+import { ConversationList } from "./conversation-list";
 import { NewConversationSheet } from "./new-conversation-sheet";
 
 /**
+ * ## PULSE IS TWO PANES (user 2026-10-29, "apply this design … in the same way")
+ *
+ * On Pulse — /comms and any conversation the person is in (direct, group or
+ * channel) — the dark Pulse sidebar (conversation-list.tsx) stands beside the
+ * open conversation once the hub is wide enough (`@3xl/comms`, 768px), the
+ * Slack-style screen the user chose (2026-10-29). This brings back the list
+ * panel 2026-10-26 removed, for Pulse only; the Channels browser, Search,
+ * Saved and the rest keep the single full-width view described below. Narrower than that it
+ * is one pane at a time: /comms shows the list, a chat shows the chat (with
+ * its back arrow). The list's data is the layout's own listMyConversations()
+ * read, so a realtime refresh updates both panes at once.
+ *
  * The Communication Hub frame: the open view, full width. There is no list
  * panel beside it (user 2026-10-26, "remove this") — the sidebar's Huddle group
  * is the hub's navigation, Chats (/comms) lists the person's conversations and
@@ -28,7 +43,24 @@ import { NewConversationSheet } from "./new-conversation-sheet";
  *
  * `top` is the workspace bar (0750), drawn by the server layout above every view.
  */
-export function CommsShell({ children, top }: { children: ReactNode; top?: ReactNode }) {
+/** One Pulse pane: a white card with a soft shadow once the hub is wide. */
+const PANE =
+  "min-h-0 min-w-0 flex-col overflow-hidden @3xl/comms:rounded-xl @3xl/comms:shadow-[0_1px_2px_rgba(26,34,51,.05),0_8px_24px_rgba(26,34,51,.06)]";
+
+export function CommsShell({
+  children,
+  top,
+  chats,
+  communities,
+}: {
+  children: ReactNode;
+  top?: ReactNode;
+  /** The caller's conversations, for Pulse's list pane. */
+  chats?: ConversationSummary[];
+  /** 0775: the caller's communities; null before 0775 is applied. */
+  communities?: CommunitySummary[] | null;
+}) {
+  const pathname = usePathname();
   const router = useRouter();
   const user = useAppUser();
   const instance = useId().replace(/[^A-Za-z0-9]/g, "");
@@ -69,13 +101,57 @@ export function CommsShell({ children, top }: { children: ReactNode; top?: React
     };
   }, [router, user.id, instance]);
 
+  const openId = /^\/comms\/c\/([0-9a-f-]{36})/i.exec(pathname)?.[1]?.toLowerCase() ?? null;
+  const isHome = pathname === "/comms";
+  // 0775: a community's page is part of Pulse too — the list stays beside it.
+  const communityId = /^\/comms\/community\/([0-9a-f-]{36})/i.exec(pathname)?.[1]?.toLowerCase() ?? null;
+  // Pulse ▸ Files opens a file beside the list too (user 2026-10-31).
+  const fileId = /^\/comms\/files\/([0-9a-f-]{36})/i.exec(pathname)?.[1]?.toLowerCase() ?? null;
+  // Every conversation opens beside the list since Pulse ▸ Channels (user
+  // 2026-10-31): a public channel read before joining is one tap from the
+  // list, as a WhatsApp channel is.
+  const pulse = !!chats && (isHome || !!communityId || !!fileId || !!openId);
+
   return (
     <div
       data-focus-scope="off"
-      className="@container/comms flex min-h-[30rem] flex-1 flex-col overflow-hidden rounded-lg border border-border bg-surface"
+      data-comms-frame=""
+      className="@container/comms flex min-h-[22rem] flex-1 flex-col overflow-hidden rounded-lg border border-border bg-surface md:min-h-[30rem]"
     >
       {top}
-      {children}
+      {pulse && chats ? (
+        // THE COLOURFUL REDESIGN (2026-10-29): wide, the two panes are white
+        // cards on a muted ground with a gap between them; narrow, one pane
+        // fills the frame with no card around it.
+        <div className="flex min-h-0 flex-1 @3xl/comms:gap-2 @3xl/comms:bg-surface-muted @3xl/comms:p-2">
+          <aside
+            aria-label="Chats"
+            className={cn(
+              PANE,
+              // WhatsApp's width (user 2026-10-31, screenshot 122843): 460px wide fits
+              // All · Unread · Favourites · Groups · ▾ on one line.
+              "@3xl/comms:flex @3xl/comms:w-[22rem] @3xl/comms:shrink-0 @5xl/comms:w-[26rem] @6xl/comms:w-[28.75rem]",
+              isHome ? "flex w-full" : "hidden",
+            )}
+          >
+            <ConversationList
+              conversations={chats}
+              activeId={openId}
+              composing={isHome}
+              communities={communities}
+              activeCommunityId={communityId}
+              activeFileId={fileId}
+            />
+          </aside>
+          {/* `data-pulse`: a conversation shown here has the sidebar beside it
+              when wide, so it hides its own back arrow (conversation-view.tsx). */}
+          <div data-pulse="" className={cn(PANE, "group/pulse flex-1 bg-surface", isHome ? "hidden @3xl/comms:flex" : "flex")}>
+            {children}
+          </div>
+        </div>
+      ) : (
+        children
+      )}
       <NewConversationSheet open={composing} meId={user.id} onClose={() => setComposing(false)} />
     </div>
   );

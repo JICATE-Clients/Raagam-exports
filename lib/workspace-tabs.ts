@@ -365,12 +365,19 @@ export function useRegisterWorkspaceTab(opts: {
  * module's route and goes to it, resume and query string included; with none,
  * it is the plain `openTab` it always was. Clicking the module you are ALREADY
  * in keeps the old behaviour (its landing page) — `inside` says so.
+ *
+ * EXCEPT the modules in `ALWAYS_LAND`, which open their landing page every
+ * time: HR & Payroll always opens its Dashboard (user 2026-10-31: clicking HR
+ * reopened People ▸ Lifecycle — "whenever i am clicking the hr&payroll it
+ * should … open in dashboard always").
  */
+const ALWAYS_LAND = new Set(["/hr"]);
+
 export function useOpenModule() {
   const router = useRouter();
   const openTab = useOpenWorkspaceTab();
   return (opts: { href: string; title: string; icon?: string; inside: boolean }) => {
-    if (!opts.inside && opts.href !== "/") {
+    if (!opts.inside && opts.href !== "/" && !ALWAYS_LAND.has(opts.href)) {
       const prefix = opts.href.endsWith("/") ? opts.href : `${opts.href}/`;
       const last = state.tabs
         .filter((t) => t.href.startsWith(prefix))

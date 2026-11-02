@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { requirePermission } from "@/lib/auth/server";
 import { isCommsMissing, listMyConversations } from "@/lib/comms/service";
 import { getWorkspace } from "@/lib/comms/workspace-service";
+import { listMyCommunities } from "@/lib/comms/community-service";
 import type { Workspace } from "@/lib/comms/workspace";
 import { CommsShell } from "@/components/comms/comms-shell";
 import { CommsNotInstalled } from "@/components/comms/comms-not-installed";
@@ -29,12 +30,20 @@ export default async function CommsLayout({ children }: { children: ReactNode })
   // The same call Chats makes — `cache()` in the service answers both with one
   // RPC — so a missing 0737 is caught here, before any page reaches it.
   let workspace: Workspace | null;
+  let chats: Awaited<ReturnType<typeof listMyConversations>>;
+  let communities: Awaited<ReturnType<typeof listMyCommunities>>;
   try {
-    [, workspace] = await Promise.all([listMyConversations(), getWorkspace()]);
+    // 0775: null communities = the migration is not applied yet (community-service.ts).
+    [chats, workspace, communities] = await Promise.all([listMyConversations(), getWorkspace(), listMyCommunities()]);
   } catch (e) {
     if (isCommsMissing(e)) return <CommsNotInstalled />;
     throw e;
   }
   if (workspace?.my_status === "deactivated") return <WorkspaceDeactivated workspace={workspace} />;
-  return <CommsShell top={workspace ? <WorkspaceBar workspace={workspace} /> : null}>{children}</CommsShell>;
+  // `chats` feeds Pulse's list pane (comms-shell.tsx, "PULSE IS TWO PANES").
+  return (
+    <CommsShell top={workspace ? <WorkspaceBar workspace={workspace} /> : null} chats={chats} communities={communities}>
+      {children}
+    </CommsShell>
+  );
 }

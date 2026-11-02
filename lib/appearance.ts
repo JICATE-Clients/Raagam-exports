@@ -20,7 +20,7 @@
  * stylesheet the root layout inlines, `AppearanceMenu` lists them, and
  * `.claude/skills/raagam-theme-presets/scripts/check-theme-contrast.mts`
  * (`npm run check:themes`) proves every colour readable. Adding an option is
- * one entry here (plus a `next/font` loader in app/layout.tsx for a new face) —
+ * one entry here (plus its files via scripts/fetch-fonts.mjs for a new face) —
  * never a hand-written CSS block beside it.
  *
  * The first entry of each list is the default and writes NO CSS: it is exactly
@@ -42,7 +42,7 @@ export interface FontOption {
   label: string;
   /** Which design system uses it, for the skill and the tooltip. */
   source: string;
-  /** CSS value for `--font-app`: a next/font `var(--font-…)` or a system face. */
+  /** CSS value for `--font-app`: a self-hosted `var(--font-…)` (app/fonts.css) or a system face. */
   family: string;
 }
 
@@ -159,7 +159,7 @@ export const FONTS: readonly FontOption[] = [
    *
    * A SYSTEM FACE, like Segoe above and for a stronger reason: Bookman Old
    * Style is Monotype's, shipped with Microsoft Office rather than licensed for
-   * the web, so there is no `next/font` loader to add — it cannot be served
+   * the web, so there is no font file to add — it cannot be served
    * from Google Fonts or self-hosted without a licence. It costs nothing to
    * offer: a PC that has Office draws it, and one that does not falls through
    * the stack to URW Bookman (the free metric-compatible clone on Linux),

@@ -1,4 +1,5 @@
 import { requirePermission } from "@/lib/auth/server";
+import { today } from "@/lib/calendar";
 import { getPieceRecords } from "@/lib/hr/attendance-service";
 import { listActiveWorkers } from "@/lib/hr/attendance-service";
 import { getLocations, getOrdersForPicker } from "@/lib/hr/masters-service";
@@ -13,8 +14,9 @@ export default async function PieceRecordsPage({ searchParams }: Props) {
   await requirePermission("hr_payroll", "view");
 
   const { date, worker, location } = await searchParams;
-  const today = new Date().toISOString().split("T")[0];
-  const selectedDate = date ?? today;
+  // The factory's date (IST) — `toISOString()` is UTC and gave yesterday
+  // until 05:30 every morning.
+  const selectedDate = date ?? today();
   const locationId = location || null;
 
   const [records, workers, locations, orders] = await Promise.all([

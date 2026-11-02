@@ -25,7 +25,7 @@ import { SidebarItem } from "./SidebarItem";
 import { SidebarSection } from "./SidebarSection";
 
 /** One screen row. `newUntil` is the registry's "New" tag date (GroupChild). */
-type SidebarRow = { href: string; label: string; newUntil?: string };
+type SidebarRow = { href: string; label: string; newUntil?: string; icon?: LucideIcon };
 
 /** A run of rows under one caption — a registry group, or the loose rows
  *  between groups (no caption). */
@@ -53,8 +53,9 @@ function toBlocks(children: SubNavItem[]): SidebarBlock[] {
       blocks.push({ key: c.href, label: c.label, icon: c.icon, rows: c.children });
     } else {
       const last = blocks[blocks.length - 1];
-      if (last && !last.label) last.rows.push({ href: c.href, label: c.label });
-      else blocks.push({ key: c.href, rows: [{ href: c.href, label: c.label }] });
+      const row = { href: c.href, label: c.label, icon: c.icon };
+      if (last && !last.label) last.rows.push(row);
+      else blocks.push({ key: c.href, rows: [row] });
     }
   }
   return blocks;
@@ -130,10 +131,12 @@ export function ContextSidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
   }
   const activeHref = activeChildHref(pathname, leaves);
   // The group to open: the one holding the screen in view, else the first
-  // captioned group (a module's root page sits in no group).
+  // captioned group (a module's root page sits in no group). HR & Payroll
+  // takes no fallback: its Dashboard opens with every group folded, and a
+  // group unfolds only when clicked (user 2026-10-31: People stayed open).
   const openOnArrival =
     blocks.find((b) => b.label && b.rows.some((r) => r.href === activeHref))?.key ??
-    blocks.find((b) => b.label)?.key ??
+    (mod?.href === "/hr" ? null : blocks.find((b) => b.label)?.key) ??
     null;
 
   // Records only (an order, a PO) — a screen is already listed above, so
@@ -273,7 +276,25 @@ export function ContextSidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
               // text on 2026-08-27, so only the spacing tightened.
               // 32px rows at 13.5px under an icon heading (plan A, 2026-10-28);
               // the solid active pill is SidebarItem's, unchanged.
-              className={cn("h-8 w-full rounded-lg px-3 py-0 text-[13.5px]", row.href !== activeHref && "text-foreground")}
+              className={cn(
+                "h-8 w-full rounded-lg px-3 py-0 text-[13.5px]",
+                row.href !== activeHref && "text-foreground",
+                // A LINK WITH AN ICON IS A HEADING (user 2026-10-30:
+                // "dashboard also should look same like other headings"):
+                // SidebarSection's heading box — 36px, pl-1.5, gap-2,
+                // semibold — so its icon and name line up with the groups'.
+                row.icon && "h-9 gap-2 pl-1.5 pr-2 font-semibold",
+              )}
+              icon={
+                row.icon ? (
+                  <span aria-hidden className="grid h-[26px] w-[26px] shrink-0 place-items-center">
+                    <row.icon
+                      className={cn("h-[15px] w-[15px]", row.href !== activeHref && "text-muted-foreground")}
+                      strokeWidth={2}
+                    />
+                  </span>
+                ) : undefined
+              }
               onClick={navigate(row.href, row.label)}
               // fix 6: the registry's dated "New" tag, gone by itself after it.
               trailing={

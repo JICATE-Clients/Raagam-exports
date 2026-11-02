@@ -80,7 +80,7 @@ export type FieldWidth =
    *
    * A `Field`'s label is Inter 600 at 12px — `components/ui/label.tsx` refuses
    * 11px in writing — and it wraps rather than clipping. Two words is ~86px,
-   * measured from the font this app actually ships (`next/font/google`'s Inter,
+   * measured from the font this app actually ships (Inter, self-hosted,
    * instanced at wght 600): "Account Name" is 85.9px, "Branch Name" 78.2px,
    * "In-house Unit ID" and "Business Entity" the same order. Below that the
    * label goes to two lines, and on an `align="start"` row that drops its

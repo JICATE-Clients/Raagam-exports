@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import Image from "next/image";
-import { Urbanist } from "next/font/google";
 
 /**
  * THE LOGIN SCREEN'S OWN SHELL (user 2026-10-01, the "Forest Simple" design).
@@ -15,17 +14,14 @@ import { Urbanist } from "next/font/google";
  * so it does not follow the app's light / dark tokens. The photo is on
  * the left with a soft curve (on a phone it sits on top, curving at the
  * bottom), the form on the right.
+ *
+ * Its face is Urbanist, self-hosted (`.font-urbanist`, app/fonts.css).
  */
-const urbanist = Urbanist({
-  subsets: ["latin"],
-  weight: ["500", "600", "700", "800"],
-  display: "swap",
-});
 
 export default function LoginLayout({ children }: { children: ReactNode }) {
   return (
     <div
-      className={`${urbanist.className} grid flex-1 grid-rows-[auto_1fr] bg-[#f1f8e6] text-[#1b2a12] antialiased [color-scheme:light] md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] md:grid-rows-1`}
+      className={`font-urbanist grid flex-1 grid-rows-[auto_1fr] bg-[#f1f8e6] text-[#1b2a12] antialiased [color-scheme:light] md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] md:grid-rows-1`}
     >
       <section
         aria-label="Raagam Exports factory"

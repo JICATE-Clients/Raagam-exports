@@ -19,7 +19,8 @@ type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
 /**
  * Legacy HR "Employee Category" master — twin of Designation: Name · For
- * (Staff / Worker / Staff-Worker). Draft-capable via the inline status select
+ * (Staff / Worker). Timing Group (0769) is off this form (user 2026-10-30):
+ * the stored value is never sent, so a save leaves it as it was. Draft-capable via the inline status select
  * (`is_draft` persists exactly as before; short_name mirrors name).
  */
 const descriptor: SimpleMasterDescriptor<EmployeeCategory> = {
@@ -35,11 +36,16 @@ const descriptor: SimpleMasterDescriptor<EmployeeCategory> = {
       label: "For",
       kind: "select",
       required: true,
-      options: EMPLOYEE_CATEGORY_FOR.map((f) => ({ value: f.value, label: f.label })),
+      // Staff / Worker only — "Staff/Worker" is no longer offered (user
+      // 2026-10-30). A row already holding it must be re-picked on edit.
+      options: EMPLOYEE_CATEGORY_FOR.filter((f) => f.value !== "staff_worker").map((f) => ({
+        value: f.value,
+        label: f.label,
+      })),
       widthClass: "w-36",
     },
   ],
-  fromRow: (r) => ({ name: r.name, for_type: r.for_type }),
+  fromRow: (r) => ({ name: r.name, for_type: r.for_type === "staff_worker" ? "" : r.for_type }),
   searchText: (r) => [r.name, r.for_type].filter(Boolean).join(" "),
   statusOf: (r) => (r.is_draft ? "draft" : r.inactive ? "inactive" : "active"),
   // Offers near-matching names — the curated vocabulary above plus the
@@ -50,7 +56,7 @@ const descriptor: SimpleMasterDescriptor<EmployeeCategory> = {
   toPayload: (v, s) => ({
     short_name: String(v.name) || null,
     name: String(v.name),
-    for_type: String(v.for_type),
+    for_type: String(v.for_type) as "staff" | "worker",
     inactive: !s.active && !s.draft,
     is_draft: s.draft,
   }),

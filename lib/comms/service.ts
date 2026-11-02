@@ -4,6 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { getAppUser } from "@/lib/auth/server";
 import { isInactive } from "@/lib/masters/inactive";
 import { foldReactions } from "./reactions";
+import { cardKind, type EventData, type PollData, type RsvpAnswer } from "./cards";
+import { mentionIds, previewText } from "./format";
 import {
   SEARCH_PAGE,
   decodeSearchCursor,
@@ -151,7 +153,7 @@ async function titlesFor(
 // Conversations
 // ---------------------------------------------------------------------------
 
-type MyConversationRow = Omit<ConversationSummary, "department_name" | "title" | "my_role" | "kind" | "visibility"> & {
+type MyConversationRow = Omit<ConversationSummary, "department_name" | "title" | "my_role" | "kind" | "visibility" | "last_author_name"> & {
   kind: ConversationKind;
   visibility: Visibility;
   my_role: MemberRole;
@@ -170,24 +172,65 @@ export const listMyConversations = cache(async function listMyConversations(
   if (error) fail("conversations", error);
   const rows = (data ?? []) as MyConversationRow[];
 
-  const [titles, depts] = await Promise.all([
+  const [titles, depts, authors, communityOf] = await Promise.all([
     titlesFor(s, rows, me),
     departmentNames(s, rows.map((r) => r.department_id)),
+    // Authors of the last messages and everyone those messages @mention, in one call.
+    resolveNames(s, [
+      ...rows.map((r) => (r.last_author_id === me ? null : r.last_author_id)),
+      ...rows.flatMap((r) => mentionIds(r.last_body)),
+    ]),
+    communityLinks(s, rows.filter((r) => r.kind === "group").map((r) => r.id)),
   ]);
   return rows.map((r) => ({
     ...r,
+    community_id: communityOf.get(r.id)?.community_id ?? null,
+    is_announcement: communityOf.get(r.id)?.is_announcement ?? false,
+    // `?? false` / `?? null`: before 0764 is applied the RPC has no such columns.
+    favorite: r.favorite ?? false,
+    archived: r.archived ?? false,
+    // The PREVIEW, not the stored text: tokens as names, formatting markers off.
+    last_body: r.last_body ? previewText(r.last_body, authors) || null : null,
+    last_author_id: r.last_author_id ?? null,
+    last_author_name: !r.last_author_id ? null : r.last_author_id === me ? "You" : authors.get(r.last_author_id) ?? null,
+    last_deleted: r.last_deleted ?? false,
+    last_has_file: r.last_has_file ?? false,
     department_name: r.department_id ? depts.get(r.department_id) ?? null : null,
     title: titles.get(r.id) ?? conversationTitle(r, []),
   }));
 });
 
-/** Total unread across the caller's unmuted conversations — the nav badge. */
+/**
+ * 0775: which community each group belongs to, and which is a community's
+ * Announcements chat. Read beside `comm_my_conversations` rather than by
+ * re-creating that RPC. Before 0775 is applied the columns do not exist
+ * (42703) and every group simply belongs to no community.
+ */
+async function communityLinks(
+  s: Sb,
+  ids: string[],
+): Promise<Map<string, { community_id: string | null; is_announcement: boolean }>> {
+  const out = new Map<string, { community_id: string | null; is_announcement: boolean }>();
+  if (ids.length === 0) return out;
+  const { data, error } = await s.from("comm_conversations").select("id, community_id, is_announcement").in("id", ids);
+  if (error) {
+    if (error.code === "42703") return out;
+    fail("communities of conversations", error);
+  }
+  for (const r of (data ?? []) as { id: string; community_id: string | null; is_announcement: boolean }[]) {
+    out.set(r.id, { community_id: r.community_id, is_announcement: r.is_announcement });
+  }
+  return out;
+}
+
+/** Total unread across the caller's unmuted, unarchived conversations — the
+ *  nav badge. An archived chat stays quiet, as in WhatsApp (0764). */
 export async function getUnreadTotal(): Promise<number> {
   const s = await createClient();
   const { data, error } = await s.rpc("comm_my_conversations", { p_kind: null });
   if (error) fail("unread messages", error);
-  return ((data ?? []) as { unread_count: number; muted: boolean }[])
-    .filter((r) => !r.muted)
+  return ((data ?? []) as { unread_count: number; muted: boolean; archived?: boolean }[])
+    .filter((r) => !r.muted && !r.archived)
     .reduce((n, r) => n + (r.unread_count ?? 0), 0);
 }
 
@@ -279,6 +322,15 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
   }
   const mine = rows.find((r) => r.user_id === me);
   const others = members.filter((m) => m.user_id !== me && !m.removed_at).map((m) => m.full_name);
+  // 0764: the caller's own Favourite / Archived flags, for the chat's ⋮ menu.
+  // Read on their own so a database without 0764 (42703) still opens the chat.
+  let myFlags = { favorite: false, archived: false };
+  if (mine && me) {
+    const f = await s.from("comm_members").select("favorite_at, archived_at").eq("conversation_id", id).eq("user_id", me).maybeSingle();
+    if (f.error && f.error.code !== "42703") fail("your chat settings", f.error);
+    const row = f.data as { favorite_at: string | null; archived_at: string | null } | null;
+    if (row) myFlags = { favorite: !!row.favorite_at, archived: !!row.archived_at };
+  }
 
   return {
     ...conv,
@@ -293,9 +345,39 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
           active: !mine.removed_at,
           pinned_at: mine.pinned_at ?? null,
           notify_level: mine.notify_level ?? (mine.muted ? "mentions" : "all"),
+          favorite: myFlags.favorite,
+          archived: myFlags.archived,
         }
       : null,
     can_manage: manageR.data === true,
+    ...(await communityOfConversation(s, id)),
+  };
+}
+
+/** 0775: the community a conversation belongs to, and whether the caller is
+ *  one of its admins. Nothing before 0775 is applied (42703 / missing RPC). */
+async function communityOfConversation(
+  s: Sb,
+  id: string,
+): Promise<Pick<ConversationDetail, "community" | "is_announcement">> {
+  const { data, error } = await s.from("comm_conversations").select("community_id, is_announcement").eq("id", id).maybeSingle();
+  if (error) {
+    if (error.code === "42703") return { community: null, is_announcement: false };
+    fail("the conversation's community", error);
+  }
+  const row = data as { community_id: string | null; is_announcement: boolean } | null;
+  if (!row?.community_id) return { community: null, is_announcement: row?.is_announcement ?? false };
+  const [comm, admin] = await Promise.all([
+    s.from("comm_communities").select("id, name").eq("id", row.community_id).maybeSingle(),
+    s.rpc("comm_is_community_admin", { p_community: row.community_id }),
+  ]);
+  if (comm.error) fail("the community", comm.error);
+  if (admin.error) fail("community permissions", admin.error);
+  // Not a member of the community (RLS hides it): the conversation still opens.
+  const c = comm.data as { id: string; name: string } | null;
+  return {
+    community: c ? { id: c.id, name: c.name, is_admin: admin.data === true } : null,
+    is_announcement: row.is_announcement,
   };
 }
 
@@ -329,6 +411,7 @@ async function hydrate(s: Sb, rows: RawMessage[], me: string | null): Promise<Co
   ]);
   if (savedR.error) fail("saved messages", savedR.error);
   const saved = new Set(((savedR.data ?? []) as { message_id: string }[]).map((r) => r.message_id));
+  const cards = await cardData(s, rows, me);
 
   return rows.map((r) => {
     const pins = r.comm_pins;
@@ -349,8 +432,80 @@ async function hydrate(s: Sb, rows: RawMessage[], me: string | null): Promise<Co
       saved: saved.has(r.id),
       attachments: r.comm_attachments ?? [],
       reactions: foldReactions(r.comm_reactions ?? [], me),
+      poll: cards.polls.get(r.id) ?? null,
+      event: cards.events.get(r.id) ?? null,
     };
   });
+}
+
+/**
+ * 0776: the poll / event behind each `<poll>` / `<event>` message on a page,
+ * with counts and the caller's own vote / answer. Asked only when the page
+ * holds one (lib/comms/cards.ts, "WHY A TOKEN"). Before 0776 is applied the
+ * tables do not exist and the messages draw as text.
+ */
+async function cardData(
+  s: Sb,
+  rows: RawMessage[],
+  me: string | null,
+): Promise<{ polls: Map<string, PollData>; events: Map<string, EventData> }> {
+  const polls = new Map<string, PollData>();
+  const events = new Map<string, EventData>();
+  const pollIds = rows.filter((r) => !r.deleted_at && cardKind(r.body) === "poll").map((r) => r.id);
+  const eventIds = rows.filter((r) => !r.deleted_at && cardKind(r.body) === "event").map((r) => r.id);
+  const missing = (e: { code?: string | null } | null) => !!e && (e.code === "42P01" || e.code === "PGRST205");
+  if (pollIds.length) {
+    const [pR, vR] = await Promise.all([
+      s.from("comm_polls").select("message_id, question, options, multi").in("message_id", pollIds),
+      s.from("comm_poll_votes").select("message_id, option_idx, user_id").in("message_id", pollIds),
+    ]);
+    if (!missing(pR.error) && !missing(vR.error)) {
+      if (pR.error) fail("polls", pR.error);
+      if (vR.error) fail("poll votes", vR.error);
+      const votes = (vR.data ?? []) as { message_id: string; option_idx: number; user_id: string }[];
+      for (const p of (pR.data ?? []) as { message_id: string; question: string; options: string[]; multi: boolean }[]) {
+        const mineV = votes.filter((v) => v.message_id === p.message_id);
+        polls.set(p.message_id, {
+          question: p.question,
+          multi: p.multi,
+          voters: new Set(mineV.map((v) => v.user_id)).size,
+          options: p.options.map((text, i) => ({
+            text,
+            votes: mineV.filter((v) => v.option_idx === i).length,
+            mine: mineV.some((v) => v.option_idx === i && v.user_id === me),
+          })),
+        });
+      }
+    }
+  }
+  if (eventIds.length) {
+    const [eR, aR] = await Promise.all([
+      s.from("comm_events").select("message_id, name, description, event_date, event_time, location").in("message_id", eventIds),
+      s.from("comm_event_rsvps").select("message_id, user_id, answer").in("message_id", eventIds),
+    ]);
+    if (!missing(eR.error) && !missing(aR.error)) {
+      if (eR.error) fail("events", eR.error);
+      if (aR.error) fail("event answers", aR.error);
+      const answers = (aR.data ?? []) as { message_id: string; user_id: string; answer: RsvpAnswer }[];
+      for (const e of (eR.data ?? []) as {
+        message_id: string; name: string; description: string | null; event_date: string; event_time: string | null; location: string | null;
+      }[]) {
+        const mineA = answers.filter((a) => a.message_id === e.message_id);
+        events.set(e.message_id, {
+          name: e.name,
+          description: e.description,
+          event_date: e.event_date,
+          event_time: e.event_time ? e.event_time.slice(0, 5) : null,
+          location: e.location,
+          going: mineA.filter((a) => a.answer === "going").length,
+          maybe: mineA.filter((a) => a.answer === "maybe").length,
+          no: mineA.filter((a) => a.answer === "no").length,
+          mine: mineA.find((a) => a.user_id === me)?.answer ?? null,
+        });
+      }
+    }
+  }
+  return { polls, events };
 }
 
 /**

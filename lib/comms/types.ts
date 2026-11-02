@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isAllowedEmoji } from "./emoji";
+import { cardText, type EventData, type PollData } from "./cards";
 
 // ============================================================================
 // Communication Hub — shared vocabulary (0737, doc/slack.md/slack).
@@ -50,6 +51,19 @@ export const ALLOWED_MIME = [
   "application/msword",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  // 0776 — Pulse's 📎 Photos & videos and Audio (user 2026-10-31). Each has its
+  // own signature in file-sniff.ts; the 20 MB limit is unchanged.
+  "video/mp4",
+  "video/webm",
+  "video/quicktime",
+  "audio/mpeg",
+  "audio/mp4",
+  "audio/x-m4a",
+  "audio/aac",
+  "audio/ogg",
+  "audio/wav",
+  "audio/x-wav",
+  "audio/webm",
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -77,7 +91,83 @@ export interface ConversationSummary {
   member_count: number;
   /** What the list prints: channel name, group name, or the other person. */
   title: string;
+  /** 0764: the CALLER's own flags — Pulse's Favourites filter and Archived
+   *  section. `archived` is personal; `is_archived` is a channel closed for all. */
+  favorite: boolean;
+  archived: boolean;
+  /** 0764: the newest top-level message the caller may read, for the row's
+   *  preview. `last_body` is null when it was deleted or file-only. */
+  last_body: string | null;
+  last_author_id: string | null;
+  last_author_name: string | null;
+  last_deleted: boolean;
+  last_has_file: boolean;
+  /** 0775: the community this group belongs to (null before 0775 is applied). */
+  community_id?: string | null;
+  /** 0775: this is a community's Announcements chat. */
+  is_announcement?: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Communities (0775) — WhatsApp-style: related groups under one Announcements chat
+// ---------------------------------------------------------------------------
+
+export type CommunityRole = "owner" | "admin" | "member";
+export type JoinPolicy = "open" | "request";
+
+export interface CommunitySummary {
+  id: string;
+  name: string;
+  description: string | null;
+  /** The community's Announcements conversation. */
+  announcement_id: string | null;
+  my_role: CommunityRole;
+  member_count: number;
+  group_count: number;
+}
+
+/** A group of a community, as a member of the community may see it: name and
+ *  size, never its messages until they join. */
+export interface CommunityGroup {
+  id: string;
+  name: string | null;
+  member_count: number;
+  join_policy: JoinPolicy;
+  is_member: boolean;
+  /** The caller has asked to join and is waiting. */
+  requested: boolean;
+  /** The caller owns or admins this group. */
+  can_manage: boolean;
+  last_message_at: string | null;
+}
+
+export interface CommunityRequest {
+  id: string;
+  conversation_id: string;
+  group_name: string | null;
+  user_id: string;
+  full_name: string | null;
+  created_at: string;
+}
+
+export interface CommunityMember {
+  user_id: string;
+  role: CommunityRole;
+  full_name: string | null;
+}
+
+export interface CommunityDetail extends CommunitySummary {
+  groups: CommunityGroup[];
+  /** Requests the caller may answer (community admin, or the group's own admin). */
+  requests: CommunityRequest[];
+  members: CommunityMember[];
+}
+
+export const communityInput = z.object({
+  name: z.string().trim().min(1, "Give the community a name.").max(60, "Keep the community name to 60 characters."),
+  description: z.string().trim().max(500, "Keep the description to 500 characters.").optional().nullable(),
+});
+export type CommunityInput = z.infer<typeof communityInput>;
 
 /** A channel the caller may see in the browser, joined or not. */
 export interface ChannelListing {
@@ -127,9 +217,16 @@ export interface ConversationDetail {
     /** 0751: the caller's own pin and notification level. */
     pinned_at: string | null;
     notify_level: "all" | "mentions" | "none";
+    /** 0764: the caller's own Favourite / Archived flags (false before 0764). */
+    favorite?: boolean;
+    archived?: boolean;
   } | null;
   /** Server-resolved: may rename, archive, add and remove (comm_can_manage). */
   can_manage: boolean;
+  /** 0775: the community this conversation belongs to, when it does. */
+  community?: { id: string; name: string; is_admin: boolean } | null;
+  /** 0775: a community's Announcements — only its admins post. */
+  is_announcement?: boolean;
 }
 
 export interface CommAttachment {
@@ -166,6 +263,9 @@ export interface CommMessage {
   saved: boolean;
   attachments: CommAttachment[];
   reactions: CommReaction[];
+  /** 0776: the poll / event this message carries (lib/comms/cards.ts). */
+  poll?: PollData | null;
+  event?: EventData | null;
 }
 
 export interface MessagePage {
@@ -425,6 +525,9 @@ export function plainText(
   names: Map<string, string | null>,
   recordLabel: (kind: RecordKind) => string = (k) => k.replace(/_/g, " "),
 ): string {
+  // A 📎 card (poll, event, contact, sticker) reads as what it is, not its token.
+  const card = cardText(body);
+  if (card) return card;
   return bodyPieces(body)
     .map((p) => ("text" in p ? p.text : "mention" in p ? `@${names.get(p.mention) ?? "someone"}` : `[${recordLabel(p.record.kind)}]`))
     .join("");

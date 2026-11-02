@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { IBM_Plex_Sans, Inter, Roboto, Source_Sans_3 } from "next/font/google";
+import "./fonts.css";
 import "./globals.css";
 import { Providers } from "./providers";
 import { BugReporterWrapper } from "@/components/bug-reporter-wrapper";
@@ -11,54 +11,23 @@ import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import { TYPE_SCALE_INIT_SCRIPT } from "@/lib/type-scale";
 
 /**
- * Inter, self-hosted by `next/font/google` (no runtime request to Google,
- * no layout-shift flash — the font file ships with the build). Swapped in
- * from Archivo 2026-09-08 for a narrower, UI-grade face with real tabular
- * figures — Archivo's wider proportions were fighting the field-width work
- * (see `raagam-field-width-and-type-scale`). The 2026-09-07 "Archivo weight
- * spec" (600/700 hierarchy on buttons, labels, table headers) is a weight
- * decision, not a typeface one, and carries over unchanged onto Inter.
+ * FONTS ARE SELF-HOSTED (2026-10-30) — `app/fonts.css` declares them from
+ * `public/fonts`, and nothing contacts Google at build time or run time. They
+ * were `next/font/google` until a bad answer from Google failed a Vercel build
+ * with no code change ("An error occurred in next/font").
  *
- * ONLY THE FIVE WEIGHTS THE TYPOGRAPHY SYSTEM USES (400/500/600/700/800), per
- * the standing rule against introducing arbitrary weights the design system
- * doesn't call for. `variable` feeds `--font-inter`, which `globals.css`
- * points `--font-sans` at — so this is the ONE place the app's typeface is
- * named; nothing else hardcodes "Inter".
+ * Inter is the app's typeface (swapped in from Archivo 2026-09-08 for a
+ * narrower, UI-grade face with real tabular figures; the 600/700 weight
+ * hierarchy carries over). Its file covers 400–800 only, the five weights the
+ * typography system uses. `--font-inter`, which `globals.css` points
+ * `--font-sans` at, is set in fonts.css — the ONE place the typeface is named.
+ *
+ * Plex, Source Sans 3 and Roboto are the appearance themes' faces
+ * (lib/appearance.ts, the topbar "T" menu). They are declared but never
+ * preloaded: a browser fetches a file only when a rule actually USES that
+ * family, so only an operator who picked Carbon ever downloads Plex.
+ * Fluent's Segoe UI is a Windows system face and needs no file.
  */
-const inter = Inter({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800"],
-  variable: "--font-inter",
-  display: "swap",
-});
-
-/**
- * The appearance themes' faces (lib/appearance.ts, the topbar "T" menu).
- * `preload: false` is what keeps them free for everyone on the default theme:
- * next/font still declares the @font-face, but the browser fetches a file only
- * when a rule actually USES that family — so only an operator who picked
- * Carbon ever downloads Plex. Variable fonts, so no weight list: one file
- * covers every weight the type scale asks for.
- * Fluent's Segoe UI is a Windows system face and needs no loader.
- */
-const plex = IBM_Plex_Sans({
-  subsets: ["latin"],
-  variable: "--font-plex",
-  display: "swap",
-  preload: false,
-});
-const sourceSans = Source_Sans_3({
-  subsets: ["latin"],
-  variable: "--font-source",
-  display: "swap",
-  preload: false,
-});
-const roboto = Roboto({
-  subsets: ["latin"],
-  variable: "--font-roboto",
-  display: "swap",
-  preload: false,
-});
 
 export const metadata: Metadata = {
   title: "Raagam ERP",
@@ -97,11 +66,14 @@ export default function RootLayout({
     <html
       lang="en"
       translate="no"
-      className={`h-full antialiased ${inter.variable} ${plex.variable} ${sourceSans.variable} ${roboto.variable}`}
+      className="h-full antialiased"
       suppressHydrationWarning
     >
       <head>
         <meta name="google" content="notranslate" />
+        {/* Inter's latin file is on every screen — fetch it with the page
+            rather than after the CSS is parsed (what next/font did). */}
+        <link rel="preload" href="/fonts/inter/latin.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
         {/*
          * Applies the stored theme before first paint. A raw inline <script> —
          * not next/script — because only inline-in-head is guaranteed to run

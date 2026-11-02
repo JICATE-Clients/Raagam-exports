@@ -17,12 +17,13 @@ import { ALLOWED_MIME, ATTACHMENT_MAX_BYTES, ATTACHMENTS_PER_MESSAGE } from "./t
 export const ACCEPT_ATTR = [
   ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".pptx", ".csv", ".txt",
   ".png", ".jpg", ".jpeg", ".webp", ".gif",
+  ".mp4", ".webm", ".mov", ".mp3", ".m4a", ".aac", ".ogg", ".oga", ".wav",
   ...ALLOWED_MIME,
 ].join(",");
 
 /** What the operator reads under the composer and on the attach button. */
 export const ATTACHMENT_TYPES_LABEL =
-  `PDF, Word, Excel, PowerPoint, CSV, TXT, PNG, JPG, WebP, GIF · up to ${ATTACHMENT_MAX_BYTES / 1024 / 1024} MB each · ${ATTACHMENTS_PER_MESSAGE} files per message`;
+  `PDF, Word, Excel, PowerPoint, CSV, TXT, PNG, JPG, WebP, GIF, MP4, MOV, WebM, MP3, M4A, OGG, WAV · up to ${ATTACHMENT_MAX_BYTES / 1024 / 1024} MB each · ${ATTACHMENTS_PER_MESSAGE} files per message`;
 
 /** Shown inline as a picture. SVG is deliberately not an allowed type at all:
  *  it can carry script. */
@@ -35,6 +36,14 @@ export function isImageMime(mime: string): boolean {
  * plain text render as themselves and execute nothing. Office files and CSV
  * are download-only — the browser would hand them to an application anyway.
  */
+/** 0776: played inside the chat with the browser's own controls. */
+export function isVideoMime(mime: string): boolean {
+  return mime.toLowerCase().startsWith("video/");
+}
+export function isAudioMime(mime: string): boolean {
+  return mime.toLowerCase().startsWith("audio/");
+}
+
 export function isOpenableMime(mime: string): boolean {
   return isImageMime(mime) || ["application/pdf", "text/plain"].includes(mime.toLowerCase());
 }
@@ -52,6 +61,17 @@ const KIND: Record<string, string> = {
   "image/jpeg": "JPEG",
   "image/webp": "WebP",
   "image/gif": "GIF",
+  "video/mp4": "Video",
+  "video/webm": "Video",
+  "video/quicktime": "Video",
+  "audio/mpeg": "Audio",
+  "audio/mp4": "Audio",
+  "audio/x-m4a": "Audio",
+  "audio/aac": "Audio",
+  "audio/ogg": "Audio",
+  "audio/wav": "Audio",
+  "audio/x-wav": "Audio",
+  "audio/webm": "Audio",
 };
 
 /** "Excel" for an .xlsx — the file card's type label. */

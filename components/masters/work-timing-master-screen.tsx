@@ -1,142 +1,222 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
-import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
+import { BriefcaseBusiness, Clock, Coffee, History, LogIn, LogOut, MoonStar, Pencil, Trash2, UtensilsCrossed } from "lucide-react";
+import { DataTable, type Column } from "@/components/ui/data-table";
 import { Input } from "@/components/ui/input";
-import { Field, FieldGrid } from "@/components/ui/field";
-import { Toggle } from "@/components/ui/toggle";
-import { type Column } from "@/components/ui/data-table";
-import { MasterListShell } from "@/components/masters/master-list-shell";
-import { StatusPill } from "@/components/ui/status-pill";
-import { Sheet } from "@/components/ui/sheet";
+import { Field, FieldRow } from "@/components/ui/field";
+import { ToggleGroup } from "@/components/ui/segmented";
+import { RowIconAction } from "@/components/ui/row-actions";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
-import { LocationPicker } from "@/components/masters/location-picker";
-import { LookupDialogPicker } from "@/components/masters/lookup-dialog-picker";
+import { MasterFullScreen } from "@/components/masters/master-full-screen";
+import { saveCategoryTiming, deleteCategoryTiming } from "@/lib/masters/category-timing-actions";
 import {
-  createWorkTiming,
-  updateWorkTiming,
-  deleteWorkTiming,
-} from "@/lib/masters/work-timing-actions";
-import type { WorkTiming, WorkTimingInput } from "@/lib/masters/work-timing-types";
-import type { EmployeeLocation } from "@/lib/masters/employee-types";
-import type { ConfigLookup } from "@/lib/masters/extras-types";
-import { fmtDate } from "@/lib/format";
+  BREAKS,
+  PERSON_KINDS,
+  breakMinutes,
+  breakProblem,
+  isOvernight,
+  nextTiming,
+  shiftMinutes,
+  timeToMinutes,
+  timingOn,
+  type BreakField,
+  type CategoryTiming,
+  type PersonKind,
+} from "@/lib/masters/category-timing-types";
+import { categoryFitsKind, type EmployeeCategory } from "@/lib/masters/employee-category-types";
+import { fmtDate, fmtTime } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
-// today as YYYY-MM-DD for the date inputs' default.
-function today() {
-  return new Date().toISOString().slice(0, 10);
+type Form = { in_time: string; out_time: string; grace_minutes: string; effective_from: string } & Record<BreakField, string>;
+
+const BLANK_BREAKS = Object.fromEntries(BREAKS.flatMap((b) => [[b.start, ""], [b.end, ""]])) as Record<BreakField, string>;
+
+function hours(min: number): string {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return m ? `${h} h ${m} m` : `${h} h`;
 }
 
-type HeaderForm = {
-  date: string;
-  location_id: string;
-  effective_from: string;
-};
+const hm = (t: string | null | undefined) => (t ? t.slice(0, 5) : "");
 
-type LineRow = {
-  key: string;
-  shift_category_id: string;
-  no_of_shifts: string;
-  applicable_for_all_categories: boolean;
-};
-const blankLine = (key: string): LineRow => ({
-  key,
-  shift_category_id: "",
-  no_of_shifts: "",
-  applicable_for_all_categories: false,
-});
+/** "10:30 – 10:45", or a dash for a break the category doesn't have. */
+function BreakCell({ t, b }: { t: CategoryTiming | null; b: (typeof BREAKS)[number] }) {
+  const s = t?.[b.start];
+  const e = t?.[b.end];
+  if (!s || !e) return <span className="text-muted-foreground">—</span>;
+  return (
+    <span className="whitespace-nowrap tabular-nums">
+      {fmtTime(s)} – {fmtTime(e)}
+    </span>
+  );
+}
+
+/*
+ * The day drawn to scale, Punch In on the left and Punch Out on the right,
+ * each break a shaded block where it falls — so a lunch typed at the wrong
+ * hour is visibly in the wrong place before Save is pressed.
+ */
+function DayStrip({ form }: { form: Form }) {
+  if (!form.in_time || !form.out_time || form.in_time === form.out_time) {
+    return (
+      <div className="grid h-16 place-items-center rounded-xl border border-dashed border-border text-xs text-muted-foreground">
+        Enter Punch In and Punch Out to see the day
+      </div>
+    );
+  }
+  const span = shiftMinutes(form);
+  const at = (t: string) => {
+    const d = timeToMinutes(t) - timeToMinutes(form.in_time);
+    return ((d >= 0 ? d : d + 1440) / span) * 100;
+  };
+  const blocks = BREAKS.flatMap((b) => {
+    const s = form[b.start];
+    const e = form[b.end];
+    if (!s || !e) return [];
+    const left = at(s);
+    const right = at(e);
+    if (right <= left || right > 100) return [];
+    return [{ b, left, width: right - left }];
+  });
+  // The stops of the day in order, listed under the track — never ON it, so
+  // two breaks close together can't print over each other.
+  const stops = [
+    { key: "in", label: "Punch In", time: fmtTime(form.in_time), icon: LogIn, brk: false },
+    ...blocks.map(({ b }) => ({
+      key: b.key,
+      label: b.label,
+      time: `${fmtTime(form[b.start])} – ${fmtTime(form[b.end])}`,
+      icon: b.key === "lunch" ? UtensilsCrossed : Coffee,
+      brk: true,
+    })),
+    { key: "out", label: "Punch Out", time: fmtTime(form.out_time), icon: isOvernight(form) ? MoonStar : LogOut, brk: false },
+  ];
+  return (
+    <div className="rounded-2xl border border-border bg-card px-5 py-4 shadow-sm">
+      <div className="relative mx-1.5 h-2.5 rounded-full bg-teal-500">
+        {blocks.map(({ b, left, width }) => (
+          <div
+            key={b.key}
+            className="absolute -inset-y-[3px] rounded-full bg-amber-400 shadow-[0_0_0_2px_white] dark:shadow-[0_0_0_2px_rgb(15,23,42)]"
+            style={{ left: `${left}%`, width: `${Math.max(width, 1.2)}%` }}
+            title={`${b.label} ${fmtTime(form[b.start])} – ${fmtTime(form[b.end])}`}
+          />
+        ))}
+        {[0, 100].map((x) => (
+          <span
+            key={x}
+            className="absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full bg-teal-600 shadow-[0_0_0_3px_white] dark:shadow-[0_0_0_3px_rgb(15,23,42)]"
+            style={{ left: `${x}%` }}
+          />
+        ))}
+      </div>
+
+      <ol className="mt-4 grid gap-2" style={{ gridTemplateColumns: `repeat(${stops.length}, minmax(0, 1fr))` }}>
+        {stops.map((st, i) => (
+          <li
+            key={st.key}
+            className={cn("min-w-0", i === 0 ? "text-left" : i === stops.length - 1 ? "text-right" : "text-center")}
+          >
+            <p
+              className={cn(
+                "inline-flex items-center gap-1 text-[11px] font-medium uppercase tracking-wide",
+                st.brk ? "text-amber-700 dark:text-amber-300" : "text-teal-700 dark:text-teal-300",
+              )}
+            >
+              <st.icon className="h-3 w-3 shrink-0" />
+              {st.label}
+            </p>
+            <p className={cn("tabular-nums text-foreground", st.brk ? "text-xs font-semibold" : "text-base font-bold")}>{st.time}</p>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
 
 /**
- * Legacy HR "Work Timing" master-detail: header (Entry No auto · Date ·
- * Location → locations · Effective From) + a Shift line grid (Shift Category →
- * config_lookups 'shift_category' · No Of Shifts · Applicable For All
- * Categories). Save / Save-As-Drafts (draft persists with `is_draft = true`).
+ * Master Data ▸ HR ▸ Work Timing — for EACH employee category, from a date:
+ * Punch In, Tea Break 1, Lunch, Tea Break 2, Punch Out, and a grace allowance
+ * (0774 · 0775). Staff | Worker switch over one plain table, a row per
+ * category (user 2026-10-30). The editor is a full page, not a popup (user
+ * 2026-10-31), with the day drawn to scale above the fields.
+ *
+ * A change of hours is a new dated revision, never an overwrite, so a past day
+ * is judged by the hours of that day. The same Effective From again corrects
+ * that revision; the revisions are listed under Changes.
  */
-// dup-check: exempt -- header is an auto Entry No plus Location and Effective
-// From. The same location's timings are re-issued at a later date whenever a
-// shift pattern changes, and that second row is the revision, not a duplicate.
+// dup-check: exempt -- keyed by (category, effective_from); a later date is a
+// revision of the hours, the same date corrects it.
+// created-by: exempt -- a row per category's CURRENT hours, not a record listing.
 export function WorkTimingMasterScreen({
   rows,
-  locations,
-  shiftCategories,
+  categories,
+  today,
   perms,
 }: {
-  rows: WorkTiming[];
-  locations: EmployeeLocation[];
-  shiftCategories: ConfigLookup[];
+  rows: CategoryTiming[];
+  categories: EmployeeCategory[];
+  /** Today in IST, YYYY-MM-DD — resolved on the server, never `Date.now()` in a render. */
+  today: string;
   perms: Perms;
 }) {
   const router = useRouter();
   const { success, error } = useToast();
   const [isPending, startTransition] = useTransition();
-  const [open, setOpen] = useState(false);
-  const [editId, setEditId] = useState<string | null>(null);
-  const [editNo, setEditNo] = useState<number | null>(null);
-  const [form, setForm] = useState<HeaderForm>({ date: today(), location_id: "", effective_from: today() });
-  const [lines, setLines] = useState<LineRow[]>([]);
-  const keySeq = useRef(0);
-  const newKey = () => `l${keySeq.current++}`;
+  const [kind, setKind] = useState<PersonKind>("staff");
+  const [editing, setEditing] = useState<EmployeeCategory | null>(null);
+  const blank: Form = { in_time: "", out_time: "", grace_minutes: "0", effective_from: today, ...BLANK_BREAKS };
+  const [form, setForm] = useState<Form>(blank);
+  const [initial, setInitial] = useState<Form>(blank);
+  const [doomed, setDoomed] = useState<CategoryTiming | null>(null);
 
-  const set = (patch: Partial<HeaderForm>) => setForm((f) => ({ ...f, ...patch }));
+  const set = (patch: Partial<Form>) => setForm((f) => ({ ...f, ...patch }));
+  const live = categories.filter((c) => !c.inactive);
+  const shown = live.filter((c) => categoryFitsKind(c.for_type, kind));
+  const canWrite = perms.canEdit || perms.canCreate;
 
-  function openAdd() {
-    setEditId(null);
-    setEditNo(null);
-    setForm({ date: today(), location_id: "", effective_from: today() });
-    setLines([blankLine(newKey())]);
-    setOpen(true);
-  }
-  function openEdit(r: WorkTiming) {
-    setEditId(r.id);
-    setEditNo(r.entry_no);
-    setForm({
-      date: r.date?.slice(0, 10) || today(),
-      location_id: r.location_id ?? "",
-      effective_from: r.effective_from?.slice(0, 10) || today(),
-    });
-    setLines(
-      r.lines.map((l) => ({
-        key: newKey(),
-        shift_category_id: l.shift_category_id ?? "",
-        no_of_shifts: l.no_of_shifts != null ? String(l.no_of_shifts) : "",
-        applicable_for_all_categories: l.applicable_for_all_categories,
-      })),
-    );
-    setOpen(true);
+  function openEdit(c: EmployeeCategory) {
+    const now = timingOn(rows, c.id, today);
+    const f: Form = {
+      in_time: hm(now?.in_time),
+      out_time: hm(now?.out_time),
+      grace_minutes: String(now?.grace_minutes ?? 0),
+      // A new revision starts today; the operator moves it to a later date
+      // to schedule a change, or back to correct one already in force.
+      effective_from: today,
+      ...(Object.fromEntries(BREAKS.flatMap((b) => [[b.start, hm(now?.[b.start])], [b.end, hm(now?.[b.end])]])) as Record<
+        BreakField,
+        string
+      >),
+    };
+    setForm(f);
+    setInitial(f);
+    setEditing(c);
   }
 
-  function addLine() {
-    setLines((ls) => [...ls, blankLine(newKey())]);
-  }
-  function setLineAt(key: string, patch: Partial<LineRow>) {
-    setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
-  }
-  function removeLine(key: string) {
-    setLines((ls) => ls.filter((l) => l.key !== key));
-  }
-
-  function submit(asDraft: boolean) {
+  function save() {
+    if (!editing) return;
+    const categoryId = editing.id;
     startTransition(async () => {
-      const payload: WorkTimingInput = {
-        date: form.date,
-        location_id: form.location_id || null,
+      const res = await saveCategoryTiming({
+        category_id: categoryId,
+        in_time: form.in_time,
+        out_time: form.out_time,
+        grace_minutes: Number(form.grace_minutes || 0),
         effective_from: form.effective_from,
-        is_draft: asDraft,
-        lines: lines.map((l, i) => ({
-          sno: i + 1,
-          shift_category_id: l.shift_category_id || null,
-          no_of_shifts: l.no_of_shifts.trim() === "" ? null : Number(l.no_of_shifts),
-          applicable_for_all_categories: l.applicable_for_all_categories,
-        })),
-      };
-      const res = editId ? await updateWorkTiming(editId, payload) : await createWorkTiming(payload);
+        ...(Object.fromEntries(BREAKS.flatMap((b) => [[b.start, form[b.start] || null], [b.end, form[b.end] || null]])) as Record<
+          BreakField,
+          string | null
+        >),
+      });
       if (res.ok) {
-        success(editId ? "Work timing updated." : asDraft ? "Saved as draft." : "Work timing added.");
-        setOpen(false);
+        success("Timing saved.");
+        setEditing(null);
         router.refresh();
       } else {
         error(res.error);
@@ -144,11 +224,14 @@ export function WorkTimingMasterScreen({
     });
   }
 
-  function remove(r: WorkTiming) {
+  function remove() {
+    if (!doomed) return;
+    const id = doomed.id;
     startTransition(async () => {
-      const res = await deleteWorkTiming(r.id);
+      const res = await deleteCategoryTiming(id);
+      setDoomed(null);
       if (res.ok) {
-        success("Work timing deleted.");
+        success("Timing revision removed.");
         router.refresh();
       } else {
         error(res.error);
@@ -156,249 +239,264 @@ export function WorkTimingMasterScreen({
     });
   }
 
-  function statusPill(r: WorkTiming) {
-    return r.is_draft ? (
-      <StatusPill tone="warning">Draft</StatusPill>
-    ) : (
-      <StatusPill tone="success">Active</StatusPill>
-    );
-  }
-
-  /**
-   * ONE DECLARATION for the shift lines. `ChildGrid` renders the table header
-   * and each cell from this array, so a column cannot be added to the header
-   * and forgotten in the row — which is exactly what the hand-rolled markup
-   * this replaces made possible, since it wrote both by hand in two places.
-   *
-   * `width` is the card-mode track and the table's column hint: the picker
-   * column omits it and flexes, the count is fixed, the switch hugs.
-   *
-   * `ariaLabel` on the switch is NOT optional here. `Toggle`'s `label` is
-   * omitted because the column header already says it on screen — but a header
-   * is not associated with the control programmatically, so without this the
-   * grid would ship an unnamed checkbox.
-   */
-  const lineColumns: ChildGridColumn<LineRow>[] = [
+  const columns: Column<EmployeeCategory>[] = [
     {
-      header: "Shift Category",
-      // pick-once: exempt -- a party attribute of the line — several lines share one
-      cell: (l) => (
-        <LookupDialogPicker
-          kind="shift_category"
-          label="Shift Category"
-          options={shiftCategories}
-          value={l.shift_category_id || null}
-          onChange={(id) => setLineAt(l.key, { shift_category_id: id })}
-          canCreate={perms.canCreate}
-          canEdit={perms.canEdit}
-          compact
-        />
+      header: "Category",
+      cell: (c) => (
+        <span className="font-medium">
+          {c.name}
+          {c.is_draft ? <span className="ml-1.5 text-xs font-normal text-muted-foreground">(draft)</span> : null}
+        </span>
       ),
     },
     {
-      header: "No Of Shifts",
-      width: "9rem",
+      header: "Punch In",
+      cell: (c) => {
+        const t = timingOn(rows, c.id, today);
+        return t ? <span className="tabular-nums">{fmtTime(t.in_time)}</span> : <span className="text-muted-foreground">Not set</span>;
+      },
+    },
+    ...BREAKS.map(
+      (b): Column<EmployeeCategory> => ({
+        header: b.label,
+        cell: (c) => <BreakCell t={timingOn(rows, c.id, today)} b={b} />,
+      }),
+    ),
+    {
+      header: "Punch Out",
+      cell: (c) => {
+        const t = timingOn(rows, c.id, today);
+        if (!t) return <span className="text-muted-foreground">—</span>;
+        return (
+          <span className="inline-flex items-center gap-1 tabular-nums">
+            {fmtTime(t.out_time)}
+            {isOvernight(t) && <MoonStar className="h-3.5 w-3.5 text-warning" aria-label="next morning" />}
+          </span>
+        );
+      },
+    },
+    {
+      header: "Working",
+      cell: (c) => {
+        const t = timingOn(rows, c.id, today);
+        return t ? <span className="whitespace-nowrap tabular-nums">{hours(shiftMinutes(t) - breakMinutes(t))}</span> : "—";
+      },
+    },
+    {
+      header: "Grace",
       align: "right",
-      cell: (l) => (
-        <Input
-          type="number"
-          min={0}
-          value={l.no_of_shifts}
-          onChange={(e) => setLineAt(l.key, { no_of_shifts: e.target.value })}
-          aria-label="No of shifts"
-        />
-      ),
+      cell: (c) => {
+        const t = timingOn(rows, c.id, today);
+        return t ? <span className="tabular-nums">{t.grace_minutes} min</span> : "—";
+      },
     },
     {
-      header: "All Categories",
-      // A FIXED WIDTH, NOT `auto`. `auto` is this prop's CARD-mode
-      // spelling for "hug"; in the TABLE branch it lands on
-      // `<th style={{width:"auto"}}>`, which is the CSS default — so the
-      // column absorbed the table's leftover width and left a band of
-      // empty space beside a 40px switch (client 2026-09-09).
-      width: "8rem",
-      align: "center",
-      cell: (l) => (
-        <Toggle
-          checked={l.applicable_for_all_categories}
-          onChange={(v) => setLineAt(l.key, { applicable_for_all_categories: v })}
-          ariaLabel="Applies to every employee category"
-        />
-      ),
+      header: "From",
+      cell: (c) => {
+        const t = timingOn(rows, c.id, today);
+        const next = nextTiming(rows, c.id, today);
+        return (
+          <span className="tabular-nums">
+            {t ? fmtDate(t.effective_from) : "—"}
+            {next && <span className="block text-xs text-muted-foreground">Changes {fmtDate(next.effective_from)}</span>}
+          </span>
+        );
+      },
+    },
+    {
+      header: "",
+      align: "right",
+      cell: (c) =>
+        canWrite ? <RowIconAction label="Set timing" name={c.name} icon={Pencil} onClick={() => openEdit(c)} /> : null,
     },
   ];
 
-  const columns: Column<WorkTiming>[] = [
-    { header: "Entry No", cell: (r) => <span className="font-mono text-xs">{r.entry_no}</span> },
-    { header: "Date", cell: (r) => <span className="text-sm">{fmtDate(r.date)}</span> },
-    {
-      header: "Location",
-      cell: (r) => <span className="text-sm text-muted-foreground">{r.location?.name ?? "—"}</span>,
-    },
-    {
-      header: "Effective From",
-      cell: (r) => <span className="text-sm text-muted-foreground">{fmtDate(r.effective_from)}</span>,
-    },
-    {
-      header: "Shifts",
-      cell: (r) => <span className="text-sm text-muted-foreground">{r.lines.length || "—"}</span>,
-    },
-    { header: "Status", cell: (r) => statusPill(r) },
-  ];
+  const history = editing ? rows.filter((r) => r.category_id === editing.id).slice().reverse() : [];
+  const current = editing ? timingOn(rows, editing.id, today) : null;
+  const dirty = (Object.keys(form) as (keyof Form)[]).some((k) => form[k] !== initial[k]);
+  const sameInOut = !!form.in_time && form.in_time === form.out_time;
+  const problem = sameInOut ? "Punch Out can't be the same as Punch In." : breakProblem(form);
+  const canSave = !isPending && !!form.in_time && !!form.out_time && !!form.effective_from && !problem;
+  const span = form.in_time && form.out_time && !sameInOut ? shiftMinutes(form) : 0;
+  const breaks = span ? breakMinutes(form) : 0;
+
+  const timingSection = (
+    <div className="max-w-[44rem] space-y-6">
+      <DayStrip form={form} />
+
+      {span > 0 && (
+        <dl className="grid gap-3 sm:grid-cols-3">
+          {[
+            { label: "Shift", v: hours(span), icon: Clock, tone: "bg-sky-50 text-sky-600 dark:bg-sky-500/10 dark:text-sky-300", bar: "bg-sky-500" },
+            { label: "Breaks", v: breaks ? hours(breaks) : "None", icon: Coffee, tone: "bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-300", bar: "bg-amber-400" },
+            { label: "Working", v: hours(Math.max(0, span - breaks)), icon: BriefcaseBusiness, tone: "bg-teal-50 text-teal-600 dark:bg-teal-500/10 dark:text-teal-300", bar: "bg-teal-500" },
+          ].map((x) => (
+            <div key={x.label} className="relative overflow-hidden rounded-2xl border border-border bg-card px-4 py-3 shadow-sm">
+              <span aria-hidden className={cn("absolute inset-y-0 left-0 w-1", x.bar)} />
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{x.label}</dt>
+                  <dd className="mt-0.5 text-xl font-bold tabular-nums text-foreground">{x.v}</dd>
+                </div>
+                <span className={cn("grid h-10 w-10 shrink-0 place-items-center rounded-full", x.tone)}>
+                  <x.icon className="h-5 w-5" />
+                </span>
+              </div>
+            </div>
+          ))}
+        </dl>
+      )}
+
+      <section className="space-y-3">
+        <h3 className="text-sm font-semibold text-foreground">Shift</h3>
+        <FieldRow>
+          <Field label="Punch In" w="code" required htmlFor="ct-in">
+            <Input id="ct-in" type="time" required value={form.in_time} onChange={(e) => set({ in_time: e.target.value })} />
+          </Field>
+          <Field label="Punch Out" w="code" required htmlFor="ct-out">
+            <Input id="ct-out" type="time" required value={form.out_time} onChange={(e) => set({ out_time: e.target.value })} />
+          </Field>
+          <Field label="Grace (min)" w="num" htmlFor="ct-grace">
+            <Input
+              id="ct-grace"
+              type="number"
+              min={0}
+              max={180}
+              value={form.grace_minutes}
+              onChange={(e) => set({ grace_minutes: e.target.value })}
+            />
+          </Field>
+          <Field label="Effective From" w="code" required htmlFor="ct-from">
+            <Input
+              id="ct-from"
+              type="date"
+              required
+              value={form.effective_from}
+              onChange={(e) => set({ effective_from: e.target.value })}
+            />
+          </Field>
+        </FieldRow>
+      </section>
+
+      <section className="space-y-3">
+        <div>
+          <h3 className="text-sm font-semibold text-foreground">Breaks</h3>
+          <p className="text-xs text-muted-foreground">Leave a break blank if this category doesn&apos;t have it.</p>
+        </div>
+        {BREAKS.map((b) => {
+          const s = form[b.start];
+          const e = form[b.end];
+          const len = s && e ? timeToMinutes(e) - timeToMinutes(s) : 0;
+          return (
+            <FieldRow key={b.key}>
+              <div className="flex w-32 shrink-0 items-center gap-2 self-end pb-2.5">
+                <span className={cn("h-2.5 w-2.5 rounded-full", "bg-amber-400")} />
+                <span className="text-sm font-medium text-foreground">{b.label}</span>
+              </div>
+              <Field label="From" w="code" htmlFor={`ct-${b.key}-from`}>
+                <Input id={`ct-${b.key}-from`} type="time" value={s} onChange={(ev) => set({ [b.start]: ev.target.value })} />
+              </Field>
+              <Field label="To" w="code" htmlFor={`ct-${b.key}-to`}>
+                <Input id={`ct-${b.key}-to`} type="time" value={e} onChange={(ev) => set({ [b.end]: ev.target.value })} />
+              </Field>
+              <p className="self-end pb-2.5 text-sm tabular-nums text-muted-foreground">
+                {len > 0 ? `${len} min` : len < 0 ? `${len + 1440} min` : ""}
+              </p>
+            </FieldRow>
+          );
+        })}
+      </section>
+
+      <p className={cn("text-xs", problem ? "font-medium text-destructive" : "text-muted-foreground")}>
+        {problem ??
+          (form.in_time && form.out_time && isOvernight(form)
+            ? "Punch Out is earlier than Punch In, so it is read as the next morning (night shift)."
+            : "Late after Punch In + grace. Leaving before Punch Out is early (no grace).")}
+      </p>
+    </div>
+  );
+
+  const changesSection = (
+    <ul className="max-w-[44rem] divide-y divide-border rounded-xl border border-border">
+      {history.map((r) => (
+        <li key={r.id} className="flex items-center gap-4 px-4 py-3 text-sm">
+          <span className="w-24 shrink-0 tabular-nums text-muted-foreground">{fmtDate(r.effective_from)}</span>
+          <span className={cn("flex-1 tabular-nums", r.id === current?.id && "font-semibold")}>
+            {fmtTime(r.in_time)} – {fmtTime(r.out_time)} · grace {r.grace_minutes}m
+            {breakMinutes(r) ? ` · breaks ${breakMinutes(r)}m` : ""}
+          </span>
+          <span className="w-20 text-xs text-muted-foreground">
+            {r.id === current?.id ? "In force" : r.effective_from.slice(0, 10) > today ? "Upcoming" : "Earlier"}
+          </span>
+          {perms.canDelete && (
+            <RowIconAction label="Remove" name={fmtDate(r.effective_from)} icon={Trash2} danger onClick={() => setDoomed(r)} />
+          )}
+        </li>
+      ))}
+    </ul>
+  );
 
   return (
     <div className="space-y-4">
-      <MasterListShell
-        rows={rows}
-        getKey={(r) => r.id}
-        perms={perms}
-        searchText={(r) => [String(r.entry_no), r.location?.name].filter(Boolean).join(" ")}
-        searchPlaceholder="Search by entry no or location…"
-        statusOf={(r) => (r.is_draft ? "draft" : "active")}
-        addLabel="+ Add Work Timing"
-        onAdd={openAdd}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <ToggleGroup
+          label="Staff or Worker"
+          role="tablist"
+          value={kind}
+          onChange={setKind}
+          options={PERSON_KINDS.map((k) => ({
+            value: k.value,
+            label: `${k.label} (${live.filter((c) => categoryFitsKind(c.for_type, k.value)).length})`,
+          }))}
+        />
+        <p className="text-xs text-muted-foreground">Categories come from Employee Category, by their For.</p>
+      </div>
+
+      <DataTable
         columns={columns}
-        actions={{ onEdit: openEdit, onDelete: remove }}
-        empty="No work timings yet."
-        mobile={{
-          title: (r) => `#${r.entry_no}${r.location?.name ? ` · ${r.location.name}` : ""}`,
-          meta: (r) =>
-            `${r.date?.slice(0, 10) ?? ""} · ${r.lines.length} shift${r.lines.length === 1 ? "" : "s"}`,
-          pill: (r) => statusPill(r),
-          onEdit: openEdit,
-          onDelete: remove,
-        }}
-        isPending={isPending}
+        rows={shown}
+        getKey={(c) => c.id}
+        empty={`No ${kind === "staff" ? "Staff" : "Worker"} categories yet. Add one on Employee Category.`}
       />
 
-      {/* editor */}
-      <Sheet
-        open={open}
-        onClose={() => setOpen(false)}
-        title={editId ? `Edit Work Timing #${editNo}` : "New Work Timing"}
-        footer={
+      <MasterFullScreen
+        open={editing !== null}
+        onClose={() => setEditing(null)}
+        modeLabel={
           <>
-            <Button variant="outline" size="md" onClick={() => setOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="outline"
-              size="md"
-              disabled={isPending || !form.date || !form.effective_from}
-              onClick={() => submit(true)}
-            >
-              Save as Draft
-            </Button>
-            <Button
-              size="md"
-              disabled={isPending || !form.date || !form.effective_from}
-              onClick={() => submit(false)}
-            >
-              {isPending ? "Saving…" : "Save"}
-            </Button>
+            Work Timing <span className="font-semibold text-foreground">{editing?.name}</span>
           </>
         }
-      >
-        <div className="space-y-4">
-          {/*
-            Header first, lines under it — the two-column split this replaces put
-            the shift grid BESIDE the header fields, which is what forced the
-            grid into a narrow right-hand pane and the pane into a card with a
-            title band of its own.
-          */}
-          <FieldGrid className="max-w-3xl">
-            {/* Row 1 — Entry No · Date */}
-            <Field label="Entry No" size="lg" skipTab>
-              {/* `readOnly` + `skipTab`, not `disabled`: reachable by mouse, off
-                  the typing path. The old "(auto)" described the box. */}
-              <Input value={editNo != null ? `#${editNo}` : ""} readOnly />
-            </Field>
+        header={{
+          initials: editing?.name.slice(0, 2).toUpperCase(),
+          title: editing?.name ?? "",
+          badges: dirty ? <span className="text-[11px] font-medium text-warning">● Unsaved</span> : undefined,
+          meta: <span>{kind === "staff" ? "Staff" : "Worker"} category · Work Timing</span>,
+          back: "Work Timing",
+        }}
+        sections={[
+          { key: "timing", label: "Timing", icon: Clock, done: !!(form.in_time && form.out_time), content: timingSection },
+          ...(history.length ? [{ key: "changes", label: "Changes", icon: History, done: true, content: changesSection }] : []),
+        ]}
+        footer={{
+          status: dirty ? "Unsaved changes" : undefined,
+          onCancel: () => setEditing(null),
+          onSave: save,
+          saveLabel: "Save timing",
+          canSave,
+          isPending,
+        }}
+      />
 
-            <Field label="Date" size="lg" required htmlFor="wt-date">
-              <Input
-                id="wt-date"
-                type="date"
-                // `.min(1)` in `workTimingInput`.
-                required
-                value={form.date}
-                onChange={(e) => set({ date: e.target.value })}
-              />
-            </Field>
-
-            {/* Row 2 — Location · Effective From */}
-            <Field label="Location" size="lg">
-              {/*
-                `compact` DROPS THE PICKER'S OWN LABEL. `LocationPicker` defaults
-                to drawing one, so inside a `<Field>` the word appeared twice —
-                and the inner label also pushed the control a row lower than the
-                date beside it, so the pair no longer lined up (client
-                2026-09-07: "there is 2 locations here").
-
-                The `Field`'s label is the one that stays: it is what the other
-                fields draw, so keeping it is what keeps this control on the same
-                baseline as Effective From. Dropping the outer one instead would
-                have left a single label — sitting lower than every other label
-                on the form.
-              */}
-              <LocationPicker
-                compact
-                locations={locations}
-                value={form.location_id || null}
-                onChange={(id) => set({ location_id: id ?? "" })}
-              />
-            </Field>
-
-            <Field label="Effective From" size="lg" required htmlFor="wt-eff">
-              <Input
-                id="wt-eff"
-                type="date"
-                // `.min(1)` in `workTimingInput`.
-                required
-                value={form.effective_from}
-                onChange={(e) => set({ effective_from: e.target.value })}
-              />
-            </Field>
-          </FieldGrid>
-
-          {/*
-            THE SHIFT LINES ARE A `ChildGrid` NOW, and the frames are what that
-            buys. The hand-rolled version drew three: a bordered panel, a grey
-            title band inside it, and `rounded-md border` around EVERY shift — so
-            a work timing with four shifts showed six boxes (client 2026-09-04:
-            "there are so many extra boxes and lines remove them"). A grid draws
-            one frame; rows are divided by a hairline inside it.
-
-            NO `forceCards`, DELIBERATELY. That prop answers "this row cannot fit
-            without scrolling sideways", which is true above about six columns
-            and false at three — the layout contract is explicit that below that
-            a table still fits and still reads better. `forceCards` here would
-            re-introduce a card per row, which is the thing being removed.
-
-            NO `label` either: the de-clutter rule drops a grid's caption band
-            where something already names it, and the columns do — "Shift
-            Category" heads the first one.
-
-            What the conversion adds beyond the look is the keyboard contract,
-            which a hand-rolled grid cannot inherit: Ctrl+Del removes a row from
-            any cell (it drives the row's own ✕ via `data-row-remove`), Tab off
-            the last cell lands on "+ Add shift" rather than escaping the
-            section, and the cursor lands in the row that button opens. The old
-            markup called `gridKeyNav` by hand and had none of the rest.
-
-            `seedRow` opens with one blank line so entering the first shift costs
-            no click — and it is what gives the keyboard a way in at all, since
-            Tab lands on fields and an empty grid has none.
-          */}
-          <ChildGrid<LineRow>
-            columns={lineColumns}
-            rows={lines}
-            onAdd={addLine}
-            onRemove={(l) => removeLine(l.key)}
-            addLabel="+ Add shift"
-            seedRow
-          />
-        </div>
-      </Sheet>
+      <ConfirmDialog
+        open={doomed !== null}
+        title={`Remove the ${doomed ? fmtDate(doomed.effective_from) : ""} timing?`}
+        body="Days from that date will be judged by the revision before it."
+        confirmLabel="Remove"
+        isPending={isPending}
+        onConfirm={remove}
+        onCancel={() => setDoomed(null)}
+      />
     </div>
   );
 }

@@ -139,7 +139,7 @@ export function SearchView({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex items-center gap-2 border-b border-border px-3 py-2">
-        <Link href="/comms" className="rounded-md p-1.5 text-muted-foreground hover:bg-surface-muted @3xl/comms:hidden" aria-label="Back to conversations">
+        <Link href="/comms" className="rounded-md p-2.5 text-muted-foreground hover:bg-surface-muted @3xl/comms:hidden [@media(hover:hover)]:p-1.5" aria-label="Back to conversations">
           <ArrowLeft className="h-4 w-4" />
         </Link>
         <h1 className="flex-1 text-sm font-semibold text-heading">Search</h1>
@@ -276,7 +276,7 @@ export function SearchView({
                               onClick={() => void message(p.id)}
                               aria-label={`Message ${p.full_name}`}
                               title="Message"
-                              className="rounded p-1 text-muted-foreground hover:bg-surface-muted hover:text-foreground"
+                              className="rounded p-2 text-muted-foreground hover:bg-surface-muted hover:text-foreground [@media(hover:hover)]:p-1"
                             >
                               <MessageSquare className="h-4 w-4" />
                             </button>

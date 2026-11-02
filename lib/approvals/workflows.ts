@@ -37,7 +37,14 @@ export type WorkflowKey =
   | "sample_revision"
   | "sample_fabric_plan"
   | "sample_accessories_plan"
-  | "sample_pd_request";
+  | "sample_pd_request"
+  | "timeoff_request"
+  | "timeoff_encashment"
+  | "lc_termination"
+  | "lc_settlement"
+  | "rc_hire"
+  | "pf_review"
+  | "pf_promotion";
 
 export type WorkflowDecl = {
   key: WorkflowKey;
@@ -164,6 +171,59 @@ export const WORKFLOWS: Record<WorkflowKey, WorkflowDecl> = {
     subjectTable: "sample_pd_requests",
     label: "Sample PD Request",
     href: "/sales/pd-acknowledge?open=:id",
+  },
+  /* 0770 — HR ▸ Time Off (the MyJKKN port): a leave, a permission or a
+     comp-off booking, and a leave encashment. Both runs are started INSIDE SQL
+     (`timeoff_apply`, `timeoff_request_encashment`) in the same transaction as
+     the insert, like the staff fine. The row opens the request on Time Off ▸
+     Approvals, which shows every kind of time-off item in one queue. */
+  timeoff_request: {
+    key: "timeoff_request",
+    subjectTable: "timeoff_requests",
+    label: "Leave / Permission",
+    href: "/hr/time-off/approvals?open=:id",
+  },
+  timeoff_encashment: {
+    key: "timeoff_encashment",
+    subjectTable: "timeoff_encashments",
+    label: "Leave Encashment",
+    href: "/hr/time-off/encashment?open=:id",
+  },
+  // HR ▸ Team Lifecycle (0771). Both runs are started inside the SECURITY
+  // DEFINER function that writes the subject (`lc_open_exit` for a
+  // termination, `lc_submit_settlement`), in the same transaction.
+  lc_termination: {
+    key: "lc_termination",
+    subjectTable: "lc_exits",
+    label: "Termination",
+    href: "/hr/team/exits?open=:id",
+  },
+  lc_settlement: {
+    key: "lc_settlement",
+    subjectTable: "lc_settlements",
+    label: "Full & Final Settlement",
+    href: "/hr/team/settlements?open=:id",
+  },
+  rc_hire: {
+    key: "rc_hire",
+    subjectTable: "rc_candidates",
+    label: "Hiring",
+    href: "/hr/recruitment/candidates?open=:id",
+  },
+  // HR ▸ Performance & Growth (0773). Both runs are started inside the
+  // SECURITY DEFINER function that writes the subject (`pf_save_supervisor`
+  // on submit, `pf_raise_promotion`), in the same transaction.
+  pf_review: {
+    key: "pf_review",
+    subjectTable: "pf_reviews",
+    label: "Appraisal",
+    href: "/hr/performance/appraisals?open=:id",
+  },
+  pf_promotion: {
+    key: "pf_promotion",
+    subjectTable: "pf_promotions",
+    label: "Promotion",
+    href: "/hr/performance/promotions?open=:id",
   },
 };
 

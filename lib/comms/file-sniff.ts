@@ -38,6 +38,11 @@ const RIFF = ascii("RIFF");
 const WEBP = ascii("WEBP");
 const ZIP = [0x50, 0x4b, 0x03, 0x04];
 const OLE = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
+const FTYP = ascii("ftyp"); // ISO media (MP4 / MOV / M4A): bytes 4..8
+const EBML = [0x1a, 0x45, 0xdf, 0xa3]; // WebM / Matroska
+const OGG = ascii("OggS");
+const WAVE = ascii("WAVE");
+const ID3 = ascii("ID3");
 const EXE = ascii("MZ");
 const ELF = [0x7f, 0x45, 0x4c, 0x46];
 
@@ -83,6 +88,26 @@ export function sniffProblem(mime: string, bytes: Uint8Array): string | null {
     case "text/plain":
     case "text/csv":
       return isPlainText(bytes) ? null : wrong;
+    // 0776 — video and audio for Pulse's 📎 menu.
+    case "video/mp4":
+    case "video/quicktime":
+    case "audio/mp4":
+    case "audio/x-m4a":
+      return starts(bytes, FTYP, 4) ? null : wrong;
+    case "video/webm":
+    case "audio/webm":
+      return starts(bytes, EBML) ? null : wrong;
+    case "audio/ogg":
+      return starts(bytes, OGG) ? null : wrong;
+    case "audio/wav":
+    case "audio/x-wav":
+      return starts(bytes, RIFF) && starts(bytes, WAVE, 8) ? null : wrong;
+    case "audio/mpeg":
+      // An ID3 tag, or straight into an MPEG frame (11 sync bits).
+      return starts(bytes, ID3) || (bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0) ? null : wrong;
+    case "audio/aac":
+      // ADTS: 12 sync bits, layer 00.
+      return bytes[0] === 0xff && (bytes[1] & 0xf6) === 0xf0 ? null : wrong;
     default:
       return "That file type cannot be shared here.";
   }

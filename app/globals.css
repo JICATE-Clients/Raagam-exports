@@ -753,6 +753,58 @@ input[type="checkbox"][data-enter-pending]:not([data-enter-timed]) {
 }
 
 /*
+ * THE HR MODULE'S SCROLLBAR IS A HAIRLINE (client 2026-10-28). First asked
+ * for no scrollbar at all ("remove the scroll bar from everywhere in the hr
+ * module"), then the same day: "add the scroll bar but not big size … sleek
+ * small thin line … so they know this is scrollable but not too prominent".
+ * So: a 4px thumb on a transparent track, no arrow buttons, a shade darker
+ * under the pointer.
+ *
+ * Scoped by `[data-module="hr"]`, the display:contents marker in
+ * app/(app)/hr/layout.tsx, so no other module changes. The page scroller is
+ * `<main class="ty-workspace">`, which sits OUTSIDE that marker — so it is
+ * reached by `:has()` instead. Sheets portal to <body> and are not covered.
+ *
+ * `scrollbar-width` goes ONLY to browsers without `::-webkit-scrollbar`
+ * (Firefox): Chrome 121+ ignores every webkit rule on an element that also
+ * sets the standard property — the same trap `scrollbar-slim` records above.
+ */
+.ty-workspace:has([data-module="hr"])::-webkit-scrollbar,
+[data-module="hr"] *::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+.ty-workspace:has([data-module="hr"])::-webkit-scrollbar-track,
+[data-module="hr"] *::-webkit-scrollbar-track,
+.ty-workspace:has([data-module="hr"])::-webkit-scrollbar-corner,
+[data-module="hr"] *::-webkit-scrollbar-corner {
+  background: transparent;
+}
+.ty-workspace:has([data-module="hr"])::-webkit-scrollbar-thumb,
+[data-module="hr"] *::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--muted-foreground) 35%, transparent);
+  border-radius: 9999px;
+}
+.ty-workspace:has([data-module="hr"])::-webkit-scrollbar-thumb:hover,
+[data-module="hr"] *::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--muted-foreground) 65%, transparent);
+}
+.ty-workspace:has([data-module="hr"])::-webkit-scrollbar-button,
+[data-module="hr"] *::-webkit-scrollbar-button {
+  display: none;
+}
+@supports not selector(::-webkit-scrollbar) {
+  .ty-workspace:has([data-module="hr"]),
+  [data-module="hr"] * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--muted-foreground) 35%, transparent) transparent;
+  }
+}
+.ty-workspace:has([data-module="hr"]) {
+  scroll-behavior: smooth;
+}
+
+/*
  * THE SLIM BAR, SHOWN ONLY WHILE THE POINTER IS OVER THE COLUMN (2026-10-01,
  * frame option A). For the two navigation columns only: on the canvas their
  * always-on 6px thumbs read as two thick grey dividers beside a frame that now
@@ -1873,6 +1925,50 @@ body {
     align-items: center;
     border-bottom: 1px solid var(--border);
     background-color: var(--surface);
+  }
+}
+
+/* ========================================================================
+ * PHONE CHAT — a conversation gets the screen and sits on the keyboard
+ * (user 2026-10-31, Pulse: "keyboard should be optimized for mobile view").
+ *
+ * Keyed on `data-chat-page`, which only the open conversation carries
+ * (conversation-view.tsx); Pulse's chat list, Channels and Search keep the
+ * normal page. Phone only, like PHONE EDITOR above, and the same reasoning:
+ * plain CSS lands in the same paint and cannot be left stuck on.
+ *
+ * 1. The app's top bar, tab strip, bottom tab bar and the workspace bar stand
+ *    down — the conversation's own header (← back, name, pins, details) is the
+ *    top bar, the way a phone chat app has no tab bar inside a chat.
+ * 2. `<main>` drops its padding and the hub frame its card, so the chat runs
+ *    edge to edge.
+ * 3. The shell is as tall as the VISUAL viewport (`--vvh`, published by
+ *    lib/comms/use-phone-keyboard.ts): the on-screen keyboard shrinks it, the
+ *    message list takes the loss, and the composer rests on the keyboard
+ *    instead of under it. `100dvh` is the fallback before the hook runs.
+ * ======================================================================== */
+@media (max-width: 767px) {
+  body:has([data-chat-page]) [data-topbar],
+  body:has([data-chat-page]) [data-tab-strip],
+  body:has([data-chat-page]) [data-mobile-tabbar],
+  body:has([data-chat-page]) [data-comms-workspace-bar] {
+    display: none;
+  }
+  body:has([data-chat-page]),
+  body:has([data-chat-page]) [data-app-shell] {
+    height: var(--vvh, 100dvh);
+  }
+  .ty-workspace:has([data-chat-page]) {
+    padding: 0;
+  }
+  [data-comms-frame]:has([data-chat-page]) {
+    min-height: 0;
+    border: 0;
+    border-radius: 0;
+  }
+  /* The home-indicator strip under the composer when no keyboard is up. */
+  html:not([data-kb-open]) [data-chat-page] {
+    padding-bottom: env(safe-area-inset-bottom);
   }
 }
 

@@ -25,6 +25,7 @@ import type { HrLeave } from "@/lib/hr/extras-types";
 import type { EmployeeOption } from "@/lib/hr/extras-service";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 import { statusTone } from "@/lib/ui/status-tone";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 
 const TONE_OVERRIDES = {
   // Pending here is not waiting on an approver (was info before the shared table, kept).
@@ -58,6 +59,10 @@ export function LeaveClient({ rows, employees, canCreate, canEdit, canApprove, c
   const [days, setDays] = useState("");
   const [encash, setEncash] = useState(false);
   const [reason, setReason] = useState("");
+  // The new-leave form is editable local state: hold the silent deploy
+  // reload while it is open or an action is in flight (AGENTS.md ▸
+  // Auto-reload guard).
+  useUnsavedGuard(open || isPending);
 
   function run(fn: () => Promise<{ ok: boolean; error?: string }>, ok: string) {
     startTransition(async () => {

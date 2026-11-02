@@ -78,7 +78,7 @@ export function PeoplePicker({
                 type="button"
                 onClick={() => toggle(p)}
                 aria-label={`Remove ${p.full_name}`}
-                className="rounded-full p-0.5 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="rounded-full p-1.5 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [@media(hover:hover)]:p-0.5"
               >
                 <X className="h-3.5 w-3.5" />
               </button>

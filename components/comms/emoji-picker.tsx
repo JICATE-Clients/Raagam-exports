@@ -25,11 +25,14 @@ export function EmojiPicker({
   onPick,
   onClose,
   anchor,
+  label = "Pick a reaction",
 }: {
   onPick: (emoji: string) => void;
   onClose: () => void;
   /** The button that opened it — for choosing up or down, and for focus return. */
   anchor: HTMLElement | null;
+  /** What the dialog is called — the composer inserts rather than reacts. */
+  label?: string;
 }) {
   const [q, setQ] = useState("");
   const [cat, setCat] = useState<string>("common");
@@ -98,7 +101,7 @@ export function EmojiPicker({
     <div
       ref={boxRef}
       role="dialog"
-      aria-label="Pick a reaction"
+      aria-label={label}
       onKeyDown={onKey}
       className={cn(
         "absolute right-0 z-30 w-[min(20rem,calc(100vw-2rem))] rounded-lg border border-border bg-surface p-2 shadow-lg",
@@ -139,7 +142,12 @@ export function EmojiPicker({
       {shown.length === 0 ? (
         <p className="py-6 text-center text-xs text-muted-foreground">No emoji match “{q.trim()}”.</p>
       ) : (
-        <div role="grid" aria-label="Emoji" className="grid max-h-56 grid-cols-8 gap-0.5 overflow-y-auto">
+        <div
+          role="grid"
+          aria-label="Emoji"
+          // responsive: exempt -- an emoji grid, 8 cells of ~38px in a picker capped at calc(100vw - 2rem); it fits a 360px phone
+          className="grid max-h-56 grid-cols-8 max-md:max-h-36 gap-0.5 overflow-y-auto"
+        >
           {shown.map((e) => (
             // button-shape: exempt -- one emoji cell in a picker grid, a square glyph not a worded button
             <button

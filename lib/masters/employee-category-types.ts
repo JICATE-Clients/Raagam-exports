@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { TimingGroup } from "./group-timing-types";
 
 // ============================================================================
 // Employee Category — HR master (0262). Legacy EDP2 "Employee category" form: a
@@ -24,6 +25,8 @@ export interface EmployeeCategory {
   short_name: string | null;
   name: string;
   for_type: EmployeeCategoryFor;
+  /** One of the three fixed timing groups (0769); its hours are on Work Timing. */
+  timing_group: TimingGroup | null;
   inactive: boolean;
   is_draft: boolean;
   created_at: string;
@@ -34,7 +37,22 @@ export const employeeCategoryInput = z.object({
   short_name: z.string().optional().nullable(),
   name: z.string().min(1, "Name is required"),
   for_type: z.enum(["staff", "worker", "staff_worker"]).default("staff"),
+  // Off the form since 2026-10-30 (user). Optional, so a save without it
+  // leaves the stored group untouched. Nothing reads it since 0774 — hours
+  // are per category now (hr_category_timings, on Work Timing).
+  timing_group: z.enum(["staff", "security", "production_staff"]).optional(),
   inactive: z.boolean().default(false),
   is_draft: z.boolean().default(false),
 });
 export type EmployeeCategoryInput = z.infer<typeof employeeCategoryInput>;
+
+/**
+ * Does this category belong on a Staff (or Worker) record? (user 2026-10-30:
+ * "only those categories will show in respective staff and worker".)
+ * A legacy "staff_worker" row fits both. The person screens pass the misfits
+ * as `inactive`, not drop them, so a record already holding one keeps it on
+ * the field (AGENTS.md ▸ "Disabled rows") while nobody can newly pick it.
+ */
+export function categoryFitsKind(forType: string | null | undefined, kind: "staff" | "worker"): boolean {
+  return forType === "staff_worker" || forType === kind;
+}

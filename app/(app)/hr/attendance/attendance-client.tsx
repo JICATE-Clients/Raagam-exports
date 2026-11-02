@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Toggle } from "@/components/ui/toggle";
 import { useToast } from "@/components/ui/toast";
 import { gridKeyNav } from "@/components/masters/child-grid";
+import { useUnsavedGuard } from "@/lib/reload-guard";
 
 interface RowState {
   present: boolean;
@@ -32,6 +33,17 @@ function makeDefault(existing?: WorkerAttendance): RowState {
     source: existing?.source ?? "manual",
     note: existing?.note ?? "",
   };
+}
+
+function sameRow(a: RowState, b: RowState): boolean {
+  return (
+    a.present === b.present &&
+    a.normal_hours === b.normal_hours &&
+    a.ot_hours === b.ot_hours &&
+    a.extra_hours === b.extra_hours &&
+    a.source === b.source &&
+    a.note === b.note
+  );
 }
 
 export default function AttendanceClient({
@@ -57,12 +69,22 @@ export default function AttendanceClient({
   const [dateVal, setDateVal] = useState(selectedDate);
   const [locationVal, setLocationVal] = useState(selectedLocationId ?? "");
 
-  // Per-worker row state
-  const [rows, setRows] = useState<Record<string, RowState>>(() =>
+  // Per-worker row state, and the same rows as loaded — the baseline a row is
+  // compared against to know whether the operator touched it.
+  const [initial] = useState<Record<string, RowState>>(() =>
     Object.fromEntries(
       workers.map((w) => [w.id, makeDefault(attendanceByWorker[w.id])]),
     ),
   );
+  const [rows, setRows] = useState<Record<string, RowState>>(initial);
+
+  const changedIds = workers
+    .map((w) => w.id)
+    .filter((id) => !sameRow(rows[id], initial[id]));
+  const dirty = changedIds.length > 0;
+  // A silent deploy reload must not wipe a half-entered sheet (AGENTS.md ▸
+  // Auto-reload guard) — nor land mid-save and lose the result toast.
+  useUnsavedGuard(dirty || isPending);
 
   function navigate() {
     const params = new URLSearchParams();
@@ -85,11 +107,24 @@ export default function AttendanceClient({
   }
 
   function handleSave() {
+    if (!dirty) {
+      success("Nothing changed.");
+      return;
+    }
     startTransition(async () => {
-      const payload: AttendanceInput[] = workers.map((w) => {
-        const r = rows[w.id];
+      /*
+       * ONLY THE ROWS THE OPERATOR CHANGED. This used to send every worker on
+       * the sheet, so anyone not ticked — including people whose attendance
+       * nobody had entered yet — was written as ABSENT for the day, and a
+       * row saved earlier by someone else was overwritten with this screen's
+       * stale copy. An untouched row now stays exactly as it is in the
+       * database (or absent from it), and "absent" is only ever recorded by
+       * someone unticking a box.
+       */
+      const payload: AttendanceInput[] = changedIds.map((id) => {
+        const r = rows[id];
         return {
-          worker_id: w.id,
+          worker_id: id,
           work_date: selectedDate,
           present: r.present,
           normal_hours: r.present ? r.normal_hours : 0,
@@ -102,7 +137,7 @@ export default function AttendanceClient({
 
       const result = await saveAttendanceBatch(payload);
       if (result.ok) {
-        success("Attendance saved.");
+        success(`Attendance saved for ${payload.length} worker${payload.length === 1 ? "" : "s"}.`);
         router.refresh();
       } else {
         toastError(result.error);
@@ -433,7 +468,7 @@ export default function AttendanceClient({
               disabled={isPending}
               onClick={handleSave}
             >
-              {isPending ? "Saving…" : "Save Attendance"}
+              {isPending ? "Saving…" : dirty ? `Save Attendance (${changedIds.length})` : "Save Attendance"}
             </Button>
           </div>
         </>
