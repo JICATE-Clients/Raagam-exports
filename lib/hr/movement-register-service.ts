@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { addDays, isoDateInTZ } from "@/lib/calendar";
+import { readPunches } from "@/lib/hr/punch-read";
 
 /**
  * DAILY MOVEMENT REGISTER — every punch a person made on a day, in order, as
@@ -50,8 +51,6 @@ export interface MovementRegister {
 
 /** The widest range one request reads; a month of a full factory is ~200k punches. */
 export const MAX_RANGE_DAYS = 31;
-const PAGE = 1000;
-const MAX_PAGES = 200;
 
 type PersonRow = {
   id: string;
@@ -71,9 +70,20 @@ export async function getMovementRegister(from: string, to: string): Promise<Mov
   // bare embed is PGRST201-ambiguous (AGENTS.md).
   const sel =
     "id, name, code, biometric_id, department_id, department:departments!department_id(name, short_name)";
-  const [staff, workers] = await Promise.all([
+  // People and punches side by side: neither needs the other to be asked.
+  const [staff, workers, read] = await Promise.all([
     s.from("staff").select(sel).not("biometric_id", "is", null),
     s.from("workers").select(sel).not("biometric_id", "is", null),
+    readPunches<{ id: number; user_id: string; punch_time: string }>(
+      s,
+      "id, user_id, punch_time",
+      fromIso,
+      toIso,
+    ).catch((e) => {
+      // A failed read is an error, not an empty register (AGENTS.md).
+      console.error("[movement-register] punches failed", e);
+      throw new Error("Could not read the punches. Try again.");
+    }),
   ]);
   if (staff.error) console.error("[movement-register] staff failed", staff.error);
   if (workers.error) console.error("[movement-register] workers failed", workers.error);
@@ -91,29 +101,8 @@ export async function getMovementRegister(from: string, to: string): Promise<Mov
     }
   }
 
-  const punches: { user_id: string; punch_time: string }[] = [];
-  let capped = false;
-  for (let page = 0; ; page++) {
-    if (page === MAX_PAGES) {
-      capped = true;
-      break;
-    }
-    const { data, error } = await s
-      .from("punches")
-      .select("user_id, punch_time")
-      .gte("punch_time", fromIso)
-      .lt("punch_time", toIso)
-      .order("punch_time", { ascending: true })
-      .order("id", { ascending: true })
-      .range(page * PAGE, page * PAGE + PAGE - 1);
-    if (error) {
-      // A failed read is an error, not an empty register (AGENTS.md).
-      console.error("[movement-register] punches failed", error);
-      throw new Error("Could not read the punches. Try again.");
-    }
-    punches.push(...(data ?? []));
-    if (!data || data.length < PAGE) break;
-  }
+  const punches = read.rows;
+  const capped = read.capped;
 
   const rows = new Map<string, MovementRow>();
   for (const pu of punches) {

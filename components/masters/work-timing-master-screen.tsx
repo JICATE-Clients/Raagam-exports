@@ -2,23 +2,21 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { BriefcaseBusiness, Clock, Coffee, History, LogIn, LogOut, MoonStar, Pencil, Trash2, UtensilsCrossed } from "lucide-react";
+import { BriefcaseBusiness, Clock, Coffee, LogIn, LogOut, MoonStar, Pencil, UtensilsCrossed } from "lucide-react";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { Input } from "@/components/ui/input";
 import { Field, FieldRow } from "@/components/ui/field";
 import { ToggleGroup } from "@/components/ui/segmented";
 import { RowIconAction } from "@/components/ui/row-actions";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { MasterFullScreen } from "@/components/masters/master-full-screen";
-import { saveCategoryTiming, deleteCategoryTiming } from "@/lib/masters/category-timing-actions";
+import { saveCategoryTiming } from "@/lib/masters/category-timing-actions";
 import {
   BREAKS,
   PERSON_KINDS,
   breakMinutes,
   breakProblem,
   isOvernight,
-  nextTiming,
   shiftMinutes,
   timeToMinutes,
   timingOn,
@@ -27,7 +25,7 @@ import {
   type PersonKind,
 } from "@/lib/masters/category-timing-types";
 import { categoryFitsKind, type EmployeeCategory } from "@/lib/masters/employee-category-types";
-import { fmtDate, fmtTime } from "@/lib/format";
+import { fmtDate, fmtDateTime, fmtTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
@@ -148,11 +146,25 @@ function DayStrip({ form }: { form: Form }) {
  *
  * A change of hours is a new dated revision, never an overwrite, so a past day
  * is judged by the hours of that day. The same Effective From again corrects
- * that revision; the revisions are listed under Changes.
+ * that revision; a different date adds one.
+ *
+ * THE DATE OPENS ON THE LAST SAVE, NOT ON TODAY (user 2026-11-02: "when i open
+ * to edit it should show the last saved date"). It used to default to today,
+ * so the box read as a date that moved by itself every day. It now opens on
+ * the Effective From of the revision saved last, stays editable, and the time
+ * of that save is printed under it. No Changes tab (same day: "remove the
+ * changes tab completely") — the revisions are still kept underneath.
  */
 // dup-check: exempt -- keyed by (category, effective_from); a later date is a
 // revision of the hours, the same date corrects it.
 // created-by: exempt -- a row per category's CURRENT hours, not a record listing.
+/** The revision of this category saved most recently — the latest write to any of them. */
+function lastSaved(rows: CategoryTiming[], categoryId: string): CategoryTiming | null {
+  let last: CategoryTiming | null = null;
+  for (const r of rows) if (r.category_id === categoryId && (!last || r.updated_at > last.updated_at)) last = r;
+  return last;
+}
+
 export function WorkTimingMasterScreen({
   rows,
   categories,
@@ -173,7 +185,6 @@ export function WorkTimingMasterScreen({
   const blank: Form = { in_time: "", out_time: "", grace_minutes: "0", effective_from: today, ...BLANK_BREAKS };
   const [form, setForm] = useState<Form>(blank);
   const [initial, setInitial] = useState<Form>(blank);
-  const [doomed, setDoomed] = useState<CategoryTiming | null>(null);
 
   const set = (patch: Partial<Form>) => setForm((f) => ({ ...f, ...patch }));
   const live = categories.filter((c) => !c.inactive);
@@ -186,9 +197,9 @@ export function WorkTimingMasterScreen({
       in_time: hm(now?.in_time),
       out_time: hm(now?.out_time),
       grace_minutes: String(now?.grace_minutes ?? 0),
-      // A new revision starts today; the operator moves it to a later date
-      // to schedule a change, or back to correct one already in force.
-      effective_from: today,
+      // The date of the last save (see the note above); today for a category
+      // that has never had a timing.
+      effective_from: lastSaved(rows, c.id)?.effective_from.slice(0, 10) ?? today,
       ...(Object.fromEntries(BREAKS.flatMap((b) => [[b.start, hm(now?.[b.start])], [b.end, hm(now?.[b.end])]])) as Record<
         BreakField,
         string
@@ -224,20 +235,6 @@ export function WorkTimingMasterScreen({
     });
   }
 
-  function remove() {
-    if (!doomed) return;
-    const id = doomed.id;
-    startTransition(async () => {
-      const res = await deleteCategoryTiming(id);
-      setDoomed(null);
-      if (res.ok) {
-        success("Timing revision removed.");
-        router.refresh();
-      } else {
-        error(res.error);
-      }
-    });
-  }
 
   const columns: Column<EmployeeCategory>[] = [
     {
@@ -291,16 +288,10 @@ export function WorkTimingMasterScreen({
       },
     },
     {
-      header: "From",
+      header: "Last Saved",
       cell: (c) => {
-        const t = timingOn(rows, c.id, today);
-        const next = nextTiming(rows, c.id, today);
-        return (
-          <span className="tabular-nums">
-            {t ? fmtDate(t.effective_from) : "—"}
-            {next && <span className="block text-xs text-muted-foreground">Changes {fmtDate(next.effective_from)}</span>}
-          </span>
-        );
+        const at = lastSaved(rows, c.id)?.updated_at;
+        return <span className="whitespace-nowrap tabular-nums">{at ? fmtDateTime(at) : "—"}</span>;
       },
     },
     {
@@ -311,12 +302,13 @@ export function WorkTimingMasterScreen({
     },
   ];
 
-  const history = editing ? rows.filter((r) => r.category_id === editing.id).slice().reverse() : [];
-  const current = editing ? timingOn(rows, editing.id, today) : null;
+  const savedAt = editing ? (lastSaved(rows, editing.id)?.updated_at ?? null) : null;
   const dirty = (Object.keys(form) as (keyof Form)[]).some((k) => form[k] !== initial[k]);
   const sameInOut = !!form.in_time && form.in_time === form.out_time;
   const problem = sameInOut ? "Punch Out can't be the same as Punch In." : breakProblem(form);
-  const canSave = !isPending && !!form.in_time && !!form.out_time && !!form.effective_from && !problem;
+  // `dirty` too: Save on an untouched form filed an identical revision under
+  // today's date — a "change" that changed nothing but the Last Saved time.
+  const canSave = !isPending && dirty && !!form.in_time && !!form.out_time && !!form.effective_from && !problem;
   const span = form.in_time && form.out_time && !sameInOut ? shiftMinutes(form) : 0;
   const breaks = span ? breakMinutes(form) : 0;
 
@@ -375,6 +367,11 @@ export function WorkTimingMasterScreen({
               onChange={(e) => set({ effective_from: e.target.value })}
             />
           </Field>
+          {/* Beside the box, not a `hint` under it: a hint makes this field
+              taller and lifts its box out of line with Punch In / Out. */}
+          <p className="self-end pb-2.5 text-xs tabular-nums text-muted-foreground">
+            {savedAt ? `Last saved ${fmtDate(savedAt)}` : "Not saved yet"}
+          </p>
         </FieldRow>
       </section>
 
@@ -383,7 +380,11 @@ export function WorkTimingMasterScreen({
           <h3 className="text-sm font-semibold text-foreground">Breaks</h3>
           <p className="text-xs text-muted-foreground">Leave a break blank if this category doesn&apos;t have it.</p>
         </div>
-        {BREAKS.map((b) => {
+        {/* From / To head the FIRST break only (user 2026-11-02: "for 1 is
+            enough") — the rows beneath are the same two columns, and the
+            label row on each doubled the section's height. The boxes below
+            still carry their names for a screen reader. */}
+        {BREAKS.map((b, i) => {
           const s = form[b.start];
           const e = form[b.end];
           const len = s && e ? timeToMinutes(e) - timeToMinutes(s) : 0;
@@ -393,11 +394,11 @@ export function WorkTimingMasterScreen({
                 <span className={cn("h-2.5 w-2.5 rounded-full", "bg-amber-400")} />
                 <span className="text-sm font-medium text-foreground">{b.label}</span>
               </div>
-              <Field label="From" w="code" htmlFor={`ct-${b.key}-from`}>
-                <Input id={`ct-${b.key}-from`} type="time" value={s} onChange={(ev) => set({ [b.start]: ev.target.value })} />
+              <Field label={i === 0 ? "From" : undefined} w="code" htmlFor={`ct-${b.key}-from`}>
+                <Input id={`ct-${b.key}-from`} aria-label={`${b.label} from`} type="time" value={s} onChange={(ev) => set({ [b.start]: ev.target.value })} />
               </Field>
-              <Field label="To" w="code" htmlFor={`ct-${b.key}-to`}>
-                <Input id={`ct-${b.key}-to`} type="time" value={e} onChange={(ev) => set({ [b.end]: ev.target.value })} />
+              <Field label={i === 0 ? "To" : undefined} w="code" htmlFor={`ct-${b.key}-to`}>
+                <Input id={`ct-${b.key}-to`} aria-label={`${b.label} to`} type="time" value={e} onChange={(ev) => set({ [b.end]: ev.target.value })} />
               </Field>
               <p className="self-end pb-2.5 text-sm tabular-nums text-muted-foreground">
                 {len > 0 ? `${len} min` : len < 0 ? `${len + 1440} min` : ""}
@@ -414,26 +415,6 @@ export function WorkTimingMasterScreen({
             : "Late after Punch In + grace. Leaving before Punch Out is early (no grace).")}
       </p>
     </div>
-  );
-
-  const changesSection = (
-    <ul className="max-w-[44rem] divide-y divide-border rounded-xl border border-border">
-      {history.map((r) => (
-        <li key={r.id} className="flex items-center gap-4 px-4 py-3 text-sm">
-          <span className="w-24 shrink-0 tabular-nums text-muted-foreground">{fmtDate(r.effective_from)}</span>
-          <span className={cn("flex-1 tabular-nums", r.id === current?.id && "font-semibold")}>
-            {fmtTime(r.in_time)} – {fmtTime(r.out_time)} · grace {r.grace_minutes}m
-            {breakMinutes(r) ? ` · breaks ${breakMinutes(r)}m` : ""}
-          </span>
-          <span className="w-20 text-xs text-muted-foreground">
-            {r.id === current?.id ? "In force" : r.effective_from.slice(0, 10) > today ? "Upcoming" : "Earlier"}
-          </span>
-          {perms.canDelete && (
-            <RowIconAction label="Remove" name={fmtDate(r.effective_from)} icon={Trash2} danger onClick={() => setDoomed(r)} />
-          )}
-        </li>
-      ))}
-    </ul>
   );
 
   return (
@@ -476,7 +457,6 @@ export function WorkTimingMasterScreen({
         }}
         sections={[
           { key: "timing", label: "Timing", icon: Clock, done: !!(form.in_time && form.out_time), content: timingSection },
-          ...(history.length ? [{ key: "changes", label: "Changes", icon: History, done: true, content: changesSection }] : []),
         ]}
         footer={{
           status: dirty ? "Unsaved changes" : undefined,
@@ -488,15 +468,6 @@ export function WorkTimingMasterScreen({
         }}
       />
 
-      <ConfirmDialog
-        open={doomed !== null}
-        title={`Remove the ${doomed ? fmtDate(doomed.effective_from) : ""} timing?`}
-        body="Days from that date will be judged by the revision before it."
-        confirmLabel="Remove"
-        isPending={isPending}
-        onConfirm={remove}
-        onCancel={() => setDoomed(null)}
-      />
     </div>
   );
 }
