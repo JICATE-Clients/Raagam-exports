@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { Loader2, Users } from "lucide-react";
+import { Building2, Loader2, Megaphone, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { createGroup, openDirect } from "@/lib/comms/actions";
 import type { DirectoryPerson } from "@/lib/comms/types";
 import { PeoplePicker } from "./people-picker";
+import { NewCommunitySheet } from "./new-community-sheet";
 
 /**
  * New message, WhatsApp's way (user 2026-10-29: "select a person, it should
@@ -27,6 +28,7 @@ export function NewConversationSheet({ open, meId, onClose }: { open: boolean; m
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
+  const [community, setCommunity] = useState(false);
 
   function close() {
     setGroup(false);
@@ -64,6 +66,7 @@ export function NewConversationSheet({ open, meId, onClose }: { open: boolean; m
   }
 
   return (
+    <>
     <Sheet
       open={open}
       onClose={close}
@@ -111,6 +114,29 @@ export function NewConversationSheet({ open, meId, onClose }: { open: boolean; m
       }
     >
       <div className="flex h-[26rem] flex-col gap-3">
+        {!group && (
+          // The mockup's shortcut rows (user 2026-11-02): New channel and New
+          // community sit above the contacts, as WhatsApp's New chat does.
+          <div className="-mb-1 space-y-0.5">
+            {([
+              { label: "New channel", icon: Megaphone, onClick: () => { close(); router.push("/comms/channels?create=1"); } },
+              { label: "New community", icon: Building2, onClick: () => setCommunity(true) },
+            ] as const).map(({ label, icon: Icon, onClick }) => (
+              <button
+                key={label}
+                type="button"
+                onClick={onClick}
+                disabled={pending}
+                className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm font-medium hover:bg-surface-muted"
+              >
+                <span className="grid h-9 w-9 place-items-center rounded-full bg-primary text-primary-foreground">
+                  <Icon className="h-4 w-4" aria-hidden />
+                </span>
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
         {group ? (
           <PeoplePicker key="group" selected={people} onChange={setPeople} exclude={[meId]} autoFocus />
         ) : (
@@ -134,5 +160,7 @@ export function NewConversationSheet({ open, meId, onClose }: { open: boolean; m
         )}
       </div>
     </Sheet>
+    <NewCommunitySheet open={community} onClose={() => { setCommunity(false); close(); }} />
+    </>
   );
 }

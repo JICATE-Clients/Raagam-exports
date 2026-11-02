@@ -474,7 +474,7 @@ export function ConversationList({
         {!searching && (
           // ONE ROW, ALWAYS (user 2026-11-02): the five filters never wrap; on a pane
           // too narrow for them the words give way with an ellipsis, the ⌄ never does.
-          <div role="group" aria-label="Show chats" className="flex min-w-0 flex-nowrap items-center gap-1.5">
+          <div role="group" aria-label="Show chats" className="scrollbar-none flex min-w-0 flex-nowrap items-center gap-1.5 max-md:overflow-x-auto">
             {(ROW.includes(filter) ? FILTERS.filter((f) => ROW.includes(f.value)) : FILTERS.filter((f) => f.value === "all" || f.value === filter)).map((f) => {
               const on = filter === f.value;
               const count = f.value === "all" ? 0 : countOf(f.value);
@@ -485,7 +485,7 @@ export function ConversationList({
                   type="button"
                   aria-pressed={on}
                   onClick={() => setFilter(f.value)}
-                  className={cn(CHIP, on ? CHIP_ON : CHIP_OFF)}
+                  className={cn(CHIP, "max-md:shrink-0", on ? CHIP_ON : CHIP_OFF)}
                 >
                   {/* truncate-reveal: exempt -- a fixed filter word, shortened only on a pane narrower than any real one */}
                   <span className="min-w-0 truncate">{f.label}</span>
