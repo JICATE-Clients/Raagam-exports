@@ -388,6 +388,7 @@ export function RepeatsPanel({
   const columns: ChildGridColumn<YdRepeatRow>[] = [
     {
       header: "Yarn",
+      // pick-once: exempt -- the same material repeats across colour / size / component lines
       width: SHARED_W.yarn,
       cell: (r) => (
         <RecordPicker

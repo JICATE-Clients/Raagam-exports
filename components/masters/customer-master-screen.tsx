@@ -1896,6 +1896,7 @@ export function CustomerMasterScreen({
                         columns={[
                           {
                             header: "Department",
+                            // pick-once: exempt -- a party attribute of the line — several lines share one
                             width: FIELD_WIDTH_CSS.code,
                             cell: (c) => (
                               <LookupDialogPicker kind="department" label="Department" options={departments} value={c.department_id || null} onChange={(id) => setContactAt(c.key, { department_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} canDelete={perms.canDelete} compact />
@@ -1908,6 +1909,7 @@ export function CustomerMasterScreen({
                           },
                           {
                             header: "Designation",
+                            // pick-once: exempt -- a party attribute of the line — several lines share one
                             width: FIELD_WIDTH_CSS.code,
                             cell: (c) => (
                               <LookupDialogPicker kind="designation" label="Designation" options={designations} value={c.designation_id || null} onChange={(id) => setContactAt(c.key, { designation_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} canDelete={perms.canDelete} compact />
@@ -1930,6 +1932,7 @@ export function CustomerMasterScreen({
                           },
                           {
                             header: "Internal Dept.",
+                            // pick-once: exempt -- a party attribute of the line — several lines share one
                             width: FIELD_WIDTH_CSS.code,
                             cell: (c) => (
                               <LookupDialogPicker kind="internal_department" label="Internal Department" options={internalDepartments} value={c.internal_department_id || null} onChange={(id) => setContactAt(c.key, { internal_department_id: id })} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />
@@ -1987,6 +1990,7 @@ export function CustomerMasterScreen({
                       columns={[
                         {
                           header: "Agent Type",
+                          // pick-once: exempt -- a process / stage / type on the line — a sequence repeats it by design
                           // Both columns declare a width, which is what makes
                           // the table hug instead of filling the pane — see
                           // `AGENTS_W` for the arithmetic and why it is
@@ -1998,6 +2002,7 @@ export function CustomerMasterScreen({
                         },
                         {
                           header: "Agent",
+                          // pick-once: exempt -- a party attribute of the line — several lines share one
                           width: AGENTS_W.agent,
                           cell: (a) => (
                             <LookupDialogPicker kind="agent" label="Agent" options={agentOptions} value={a.agent_id || null} onChange={(id) => { setAgents((xs) => xs.map((r) => (r.key === a.key ? { ...r, agent_id: id } : r))); setDirty(true); }} canCreate={perms.canCreate} canEdit={perms.canEdit} compact />

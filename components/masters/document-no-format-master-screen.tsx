@@ -223,6 +223,7 @@ export function DocumentNoFormatMasterScreen({
   const segmentColumns = (menuKey: string): ChildGridColumn<SegRow>[] => [
     {
       header: "Value Type",
+      // pick-once: exempt -- a process / stage / type on the line — a sequence repeats it by design
       width: "12rem",
       cell: (s) => (
         <LookupDialogPicker
@@ -282,6 +283,7 @@ export function DocumentNoFormatMasterScreen({
     },
     {
       header: "Value From",
+      // pick-once: exempt -- a process / stage / type on the line — a sequence repeats it by design
       width: "12rem",
       cell: (s) => (
         <LookupDialogPicker
@@ -322,6 +324,8 @@ export function DocumentNoFormatMasterScreen({
   const menuColumns: ChildGridColumn<MenuRow>[] = [
     {
       header: "Menu",
+      // PICK ONCE (2026-11-02): the same value on two rows is a duplicate, not data.
+      unique: (m) => m.menu_id || null,
       cell: (m) => (
         <LookupDialogPicker
           kind="doc_menu"

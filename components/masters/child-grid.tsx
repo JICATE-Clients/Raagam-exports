@@ -1,5 +1,6 @@
 "use client";
 
+import { PickOnceScope } from "@/components/ui/pick-once";
 import { Fragment, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -1486,6 +1487,15 @@ export interface ChildGridColumn<T> {
    * Mandatory fields carries the reasoning.
    */
   required?: boolean;
+  /**
+   * PICK ONCE (user 2026-11-02, components/ui/pick-once.tsx): this column's value may not
+   * repeat across rows. Return the row's picked id (or null while blank); the grid hands
+   * the set of every row's value to the cell, and its picker greys the ones another row
+   * holds as "(already added)". A column whose repeats are REAL data says so instead with
+   * `// pick-once: exempt -- <reason>` — `npm run check:pick-once` wants one or the other
+   * on every picker column.
+   */
+  unique?: (row: T) => string | null | undefined;
 }
 
 /**
@@ -2594,6 +2604,19 @@ export function ChildGrid<T extends { key: string }>({
    *  when at least one column declares a `total`. Defaults to "Total". */
   totalsLabel?: ReactNode;
 }) {
+  /* PICK ONCE: each `unique` column's values over EVERY row (never the visible page), handed
+     to its cells through `PickOnceScope`. A plain computation, not a hook, so it can sit
+     anywhere in the body. */
+  const pickOnce = new Map<ChildGridColumn<T>, ReadonlySet<string>>();
+  for (const c of columns) {
+    if (!c.unique) continue;
+    const set = new Set<string>();
+    for (const r of rows) {
+      const v = c.unique(r);
+      if (v) set.add(v);
+    }
+    pickOnce.set(c, set);
+  }
   // A LOCKED RECORD'S ROWS ARE FIXED (`LockScope`, field.tsx): no "+ Add", no ✕,
   // no Ctrl+Del — the same two switches a caller would flip, so every layout
   // honours it without learning about locks.
@@ -3303,12 +3326,12 @@ export function ChildGrid<T extends { key: string }>({
                         cellWithRemove(
                           row,
                           <RequiredScope required={c.required && !isTail(row)} label={c.header}>
-                            {c.cell(row, i)}
+                            <PickOnceScope used={pickOnce.get(c) ?? null}>{c.cell(row, i)}</PickOnceScope>
                           </RequiredScope>,
                         )
                       ) : (
                         <RequiredScope required={c.required && !isTail(row)} label={c.header}>
-                          {c.cell(row, i)}
+                          <PickOnceScope used={pickOnce.get(c) ?? null}>{c.cell(row, i)}</PickOnceScope>
                         </RequiredScope>
                       )}
                     </td>
@@ -3402,7 +3425,7 @@ export function ChildGrid<T extends { key: string }>({
                           because this wrapper is here (AGENTS.md, "a grid that
                           renders its own row must declare `required` twice"). */}
                       <RequiredScope required={c.required && !isTail(row)} label={c.header}>
-                        {c.cell(row, i)}
+                        <PickOnceScope used={pickOnce.get(c) ?? null}>{c.cell(row, i)}</PickOnceScope>
                       </RequiredScope>
                     </div>
                   ))}
@@ -3595,7 +3618,7 @@ export function ChildGrid<T extends { key: string }>({
                     style={c.width ? { width: c.width } : undefined}
                   >
                     <RequiredScope required={c.required && !isTail(row)} label={c.header}>
-                      {c.cell(row, i)}
+                      <PickOnceScope used={pickOnce.get(c) ?? null}>{c.cell(row, i)}</PickOnceScope>
                     </RequiredScope>
                   </div>
                 ))}
@@ -4106,7 +4129,7 @@ export function ChildGrid<T extends { key: string }>({
                     </div>
                   )}
                   <RequiredScope required={c.required && !isTail(row)} label={c.header}>
-                    {c.cell(row, i)}
+                    <PickOnceScope used={pickOnce.get(c) ?? null}>{c.cell(row, i)}</PickOnceScope>
                   </RequiredScope>
                 </div>
               ));

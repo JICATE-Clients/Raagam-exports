@@ -243,6 +243,7 @@ export function StyleProcessGrid({
     },
     {
       header: "Component",
+      // pick-once: exempt -- the same material repeats across colour / size / component lines
       width: W.component,
       /**
        * WHICH CUT PANEL (0421). "Work on cut panels — printing a logo or

@@ -131,6 +131,8 @@ export function CmtBreakupSheet({
   const columns: ChildGridColumn<CmtOpRow>[] = [
     {
       header: "Operation",
+      // PICK ONCE (2026-11-02): the same value on two rows is a duplicate, not data.
+      unique: (r) => r.cmt_process_id ?? null,
       width: FIELD_WIDTH_CSS.term,
       cell: (r) => (
         <Combobox

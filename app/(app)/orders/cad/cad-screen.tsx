@@ -861,6 +861,8 @@ export function CadScreen({
     },
     {
       header: "Panel",
+      // PICK ONCE (2026-11-02): the same value on two rows is a duplicate, not data.
+      unique: (r) => (r.component_id ? panelId(r.coordinate_id, r.component_id, r.fabric_category_id) : null),
       width: FIELD_WIDTH_CSS.name,
       cell: (r) => (
         <RecordPicker

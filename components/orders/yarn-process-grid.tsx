@@ -253,6 +253,7 @@ export function YarnProcessGrid({
        * the defaulted-vocabulary mistake AGENTS.md records under "Near misses".
        */
       header: "Stage",
+      // pick-once: exempt -- a process / stage / type on the line — a sequence repeats it by design
       width: "7rem",
       required: rows.some(yarnStageStarted),
       cell: (r) => (
@@ -308,6 +309,7 @@ export function YarnProcessGrid({
        * every stored value in this app.
        */
       header: "Process",
+      // pick-once: exempt -- a process / stage / type on the line — a sequence repeats it by design
       width: "12rem",
       required: rows.some(yarnStageStarted),
       cell: (r) => {
@@ -406,6 +408,7 @@ export function YarnProcessGrid({
        * a lot the label denies scoping to.
        */
       header: "For",
+      // pick-once: exempt -- a process / stage / type on the line — a sequence repeats it by design
       width: "8rem",
       cell: (r) =>
         isConversion(r) ? (
@@ -778,6 +781,7 @@ export function YarnProcessGrid({
     },
     {
       header: "Loose Fabric",
+      // pick-once: exempt -- the same material repeats across colour / size / component lines
       width: "16rem",
       cell: (g, i) => (
         <RecordPicker

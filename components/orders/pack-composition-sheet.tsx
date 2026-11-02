@@ -129,6 +129,7 @@ export function PackCompositionSheet({
   const columns: ChildGridColumn<PackComponentRow>[] = [
     {
       header: "Coordinate",
+      // pick-once: exempt -- the same material repeats across colour / size / component lines
       width: "16rem",
       required: true,
       cell: (r) => (
@@ -160,6 +161,7 @@ export function PackCompositionSheet({
     },
     {
       header: "Colour",
+      // pick-once: exempt -- the same material repeats across colour / size / component lines
       width: "14rem",
       /**
        * WHICH COLOURWAY THIS MEMBER IS MADE IN — the axis that makes a 3-pack a

@@ -975,6 +975,7 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
   const compColumns: ChildGridColumn<CompRow>[] = [
     {
       header: "Coordinate",
+      // pick-once: exempt -- the same material repeats across colour / size / component lines
       cell: (r) => (
         <ItemPicker
           label="Coordinate"
@@ -998,6 +999,7 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
     },
     {
       header: "Component",
+      // pick-once: exempt -- the same material repeats across colour / size / component lines
       cell: (r) => (
         <ComponentPicker
           label="Component"
@@ -1080,6 +1082,7 @@ export function StyleMasterScreen({ rows, data, perms, masterPerms }: Props) {
     },
     {
       header: "Structure",
+      // pick-once: exempt -- the same material repeats across colour / size / component lines
       /**
        * THE FABRIC CATEGORY — SINGLE JERSEY, FLEECE, 1X1 LYCRA RIB (client
        * 2026-08-11, "structure is fabric category data").

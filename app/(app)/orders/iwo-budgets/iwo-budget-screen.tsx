@@ -819,6 +819,7 @@ export function IwoBudgetScreen({
 
   const processCol = (applies: (p: IwoBudgetFormData["processes"][number]) => boolean): CostCol => ({
     header: "Process",
+    // pick-once: exempt -- a process / stage / type on the line — a sequence repeats it by design
     cell: (r) => (
       <RecordPicker
         label="Process"
@@ -900,6 +901,7 @@ export function IwoBudgetScreen({
 
   const unitCol: CostCol = {
     header: "Unit",
+    // pick-once: exempt -- a unit — many lines share one unit
     cell: (r) => (
       <RecordPicker
         label="Unit"
@@ -1085,6 +1087,7 @@ export function IwoBudgetScreen({
 
   const headCol: CostCol = {
     header: "Head",
+    // pick-once: exempt -- a process / stage / type on the line — a sequence repeats it by design
     cell: (r) => (
       <RecordPicker
         label="Head"

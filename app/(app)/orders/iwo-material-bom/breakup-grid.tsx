@@ -256,6 +256,7 @@ export function BreakupGrid({
       ? [
           {
             header: "Item Color",
+            // pick-once: exempt -- the same material repeats across colour / size / component lines
             width: FIELD_WIDTH_CSS.code,
             cell: (r: BreakupRow) => (
               <LookupDialogPicker
@@ -276,6 +277,7 @@ export function BreakupGrid({
       ? [
           {
             header: "Size",
+            // pick-once: exempt -- the same material repeats across colour / size / component lines
             required: true,
             width: FIELD_WIDTH_CSS.code,
             cell: (r: BreakupRow) => (

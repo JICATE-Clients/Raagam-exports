@@ -222,6 +222,30 @@ mandatory field (below). Full contract, reasoning and the accessibility trade-of
 `raagam-keyboard-contract` skill; checked by
 `python .claude/skills/raagam-keyboard-contract/scripts/audit_keyboard.py . --check tab-fields`.
 
+## Pick once (STANDING)
+
+**A grid column that picks master data decides, in writing, whether a value may repeat
+across rows** (user 2026-11-02: "globally don't allow duplicates in any entry in the
+application"). Where the picked value IS the row — the T&A activity, the style's coordinate,
+the customer's nominated vendor, the bin of a split — the same value twice is a duplicate,
+not data. Where it is an attribute of the row — a UOM, a stage, a department, the same
+material in two colours — repeats are normal and blocking them would refuse real entries
+(the user chose "block, except real repeats").
+
+- **Declare it on the column:** `unique: (row) => row.item_id`. `ChildGrid` gathers that
+  column's values over EVERY row and hands them to the cell through `PickOnceScope`
+  (`components/ui/pick-once.tsx`); `DataPicker` (and every adapter on it) and `Combobox`
+  (and the `<Select>` on it) grey a value another row holds as "(already added)". A row
+  always keeps its own value. Nothing is wired per cell.
+- **Or say why not:** `// pick-once: exempt -- <reason>` inside the column.
+- **`npm run check:pick-once`** (inside `build:check`) fails a picker column that says
+  neither. Verified by being made to FAIL first. 109 columns decided on 2026-11-02: 25 unique
+  (9 by the new prop, 16 already passing `usedIds` by hand), the rest exempt with reasons.
+- **Reset at every portal:** `Sheet` and the `DataPicker` panel open a clean scope, as for
+  `RequiredScope` — a quick-create sheet opened from a unique cell is not blocked by it.
+- **Its floor:** it sees `ChildGrid` columns only. A hand-rolled grid row (~22 screens) and
+  split rows inside one cell (the GRN bins) pass `usedIds` to their picker by hand.
+
 ## Mandatory fields (STANDING)
 
 **A field the record cannot be saved without HOLDS THE CURSOR while it is blank**

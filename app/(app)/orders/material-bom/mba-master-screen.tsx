@@ -4525,6 +4525,7 @@ export function MbaMasterScreen({
   const itemColumns: ChildGridColumn<ItemRow>[] = [
     {
       header: H.category,
+      // pick-once: exempt -- the same material repeats across colour / size / component lines
       className: "min-w-[150px]",
       /* REQUIRED (client 2026-08-24). Declared on the COLUMN for the header `*`
          and the cell's `RequiredScope`, and again on the control below — the
@@ -4587,6 +4588,7 @@ export function MbaMasterScreen({
     },
     {
       header: H.material,
+      // pick-once: exempt -- the same material repeats across colour / size / component lines
       className: "min-w-[160px]",
       required: true,
       cell: (r) => (
@@ -4939,6 +4941,7 @@ export function MbaMasterScreen({
      */
     {
       header: H.purchaseUom,
+      // pick-once: exempt -- the same material repeats across colour / size / component lines
       className: "min-w-[130px]",
       // NARROWED TO THE MATERIAL'S OWN UNITS (client 2026-08-19) — see
       // `uomOptionsFor` for why the master list was wrong here and what the
@@ -5048,6 +5051,7 @@ export function MbaMasterScreen({
     },
     {
       header: H.consumptionUom,
+      // pick-once: exempt -- the same material repeats across colour / size / component lines
       className: "min-w-[130px]",
       cell: (r) => (
         <RecordPicker
@@ -5783,6 +5787,7 @@ export function MbaMasterScreen({
        cells is this block again; nothing downstream has to change. */
     {
       header: "Material",
+      // pick-once: exempt -- the same material repeats across colour / size / component lines
       className: "min-w-[160px]",
       cell: (r) => (
         <RecordPicker
@@ -5856,6 +5861,7 @@ export function MbaMasterScreen({
     },
     {
       header: "Process",
+      // pick-once: exempt -- a process / stage / type on the line — a sequence repeats it by design
       className: "min-w-[150px]",
       cell: (r) => (
         <RecordPicker

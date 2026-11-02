@@ -969,6 +969,7 @@ export function ComponentMapBody({
 
   const componentColumn: ChildGridColumn<PanelRow> = {
       header: "Component",
+      // pick-once: exempt -- the same material repeats across colour / size / component lines
       required: true,
       width: "8rem",
       cell: (p) => {
@@ -1211,6 +1212,7 @@ export function ComponentMapBody({
          body and a navy body may legitimately name two cloths; the panel row
          above writes every colourway at once and this changes one. */
       header: "Fabric",
+      // pick-once: exempt -- the same material repeats across colour / size / component lines
       /* 10rem, up from 8rem now the standalone `Gsm` column is gone (client
          cleanup spec, 2026-09-04 — same instruction as the panel row above
          and Fabric Allocation's own Fabric cell).
@@ -1388,6 +1390,7 @@ export function ComponentMapBody({
          classification of the cloth. `colourOptions` remains the list for
          every fabric group that has declared no combos at all. */
       header: "Required Color",
+      // pick-once: exempt -- the same material repeats across colour / size / component lines
       /* 9rem, up from 6rem — the header on one line (see `headerClassName`
          on the grid), and a colour name like NAVY BLUE readable in the box. */
       width: "7rem",
@@ -1408,6 +1411,7 @@ export function ComponentMapBody({
     },
     {
       header: "Required Print",
+      // pick-once: exempt -- the same material repeats across colour / size / component lines
       /* 9rem, up from 6rem — Required Color's reason. */
       width: "7rem",
       cell: (l) => (

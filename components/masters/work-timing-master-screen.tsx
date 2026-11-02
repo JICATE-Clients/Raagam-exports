@@ -181,6 +181,7 @@ export function WorkTimingMasterScreen({
   const lineColumns: ChildGridColumn<LineRow>[] = [
     {
       header: "Shift Category",
+      // pick-once: exempt -- a party attribute of the line — several lines share one
       cell: (l) => (
         <LookupDialogPicker
           kind="shift_category"

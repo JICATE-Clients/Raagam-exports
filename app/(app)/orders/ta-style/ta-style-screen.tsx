@@ -278,6 +278,8 @@ export function TaStyleScreen({ rows, data, perms }: Props) {
   const activityColumns: ChildGridColumn<ActivityRow>[] = [
     {
       header: "Activity",
+      // PICK ONCE (2026-11-02): the same value on two rows is a duplicate, not data.
+      unique: (r) => r.activity_id,
       cell: (r) => (
         <RecordPicker
           label="Activity"
@@ -292,6 +294,7 @@ export function TaStyleScreen({ rows, data, perms }: Props) {
     },
     {
       header: "From Activity",
+      // pick-once: exempt -- an attribute of the line — several lines share it by design
       cell: (r) => (
         <RecordPicker
           label="From Activity"

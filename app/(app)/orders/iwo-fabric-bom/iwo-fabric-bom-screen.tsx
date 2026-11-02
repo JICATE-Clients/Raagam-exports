@@ -1945,6 +1945,7 @@ export function IwoFabricBomScreen({
   const allocationColumns: ChildGridColumn<LineRow>[] = [
     {
       header: "Structure",
+      // pick-once: exempt -- the same material repeats across colour / size / component lines
       width: FIELD_WIDTH_CSS.term,
       cell: (r) => (
         <RecordPicker
@@ -1966,6 +1967,7 @@ export function IwoFabricBomScreen({
     },
     {
       header: "Fabric",
+      // pick-once: exempt -- the same material repeats across colour / size / component lines
       required: true,
       width: FIELD_WIDTH_CSS.name,
       cell: (r) => (
@@ -1996,6 +1998,7 @@ export function IwoFabricBomScreen({
     },
     {
       header: "Mixing Uom",
+      // pick-once: exempt -- a unit — many lines share one unit
       width: FIELD_WIDTH_CSS.hug,
       required: lines.some(owesMixing),
       // A PER-ROW HOLD UNDER A PER-COLUMN STAR: the column's scope is an OR, so
@@ -2452,6 +2455,7 @@ export function IwoFabricBomScreen({
     },
     {
       header: "Stage",
+      // pick-once: exempt -- a process / stage / type on the line — a sequence repeats it by design
       required: true,
       width: FIELD_WIDTH_CSS.hug,
       cell: (r) => {
@@ -2712,6 +2716,7 @@ export function IwoFabricBomScreen({
     },
     {
       header: "Stage",
+      // pick-once: exempt -- a process / stage / type on the line — a sequence repeats it by design
       required: true,
       width: FIELD_WIDTH_CSS.code,
       cell: (r) => (

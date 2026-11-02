@@ -1,5 +1,6 @@
 "use client";
 
+import { PickOnceScope, usePickOnce } from "@/components/ui/pick-once";
 import {
   useCallback,
   useEffect,
@@ -458,7 +459,10 @@ export function DataPicker({
     [rows, value],
   );
 
-  const used = useMemo(() => new Set(usedIds ?? []), [usedIds]);
+  // PICK ONCE: the caller's `usedIds`, else what a `unique` grid column hands down
+  // (components/ui/pick-once.tsx) — so a grid declares the rule once, on the column.
+  const gridUsed = usePickOnce();
+  const used = useMemo(() => new Set(usedIds ?? gridUsed ?? []), [usedIds, gridUsed]);
 
   /**
    * WHY A ROW CANNOT BE CHOSEN — or null when it can. One predicate, so the
@@ -1488,7 +1492,7 @@ export function DataPicker({
           // reaches it from wherever the picker was rendered. In a mandatory
           // ChildGrid cell the inline Add form's Name box inherited that cell's
           // `RequiredScope` and held the cursor quoting the CELL's label.
-          <RequiredScope required={false} label={null}>
+          <RequiredScope required={false} label={null}><PickOnceScope used={null}>
             {/* Form mode is modal — the scrim is what stops a stray click
                 discarding a half-typed value. List mode has none: a dropdown
                 that greys the page is a dialog wearing a disguise. */}
@@ -1514,7 +1518,7 @@ export function DataPicker({
             >
               {body}
             </div>
-          </RequiredScope>,
+          </PickOnceScope></RequiredScope>,
           document.body,
         )}
     </div>

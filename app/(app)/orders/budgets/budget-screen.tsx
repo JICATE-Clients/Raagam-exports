@@ -2111,6 +2111,7 @@ export function BudgetScreen({
     applies: (p: BudgetFormData["processes"][number]) => boolean = () => true,
   ): CostCol => ({
     header: "Process",
+    // pick-once: exempt -- a process / stage / type on the line — a sequence repeats it by design
     cell: (r) => (
       <RecordPicker
         label="Process"
@@ -2177,6 +2178,7 @@ export function BudgetScreen({
    *  figure on a typed one. */
   const derivedReqdUnitCol: CostCol = {
     header: "Reqd",
+    // pick-once: exempt -- the same material repeats across colour / size / component lines
     cell: (r) => (
       <>
         {bomLocked(r) ? (
@@ -2254,6 +2256,7 @@ export function BudgetScreen({
     data.lookups.filter((l) => l.kind === kind && (!isInactive(l) || l.id === held));
   const stageCol = (kind: StageKind): CostCol => ({
     header: "Stage",
+    // pick-once: exempt -- a process / stage / type on the line — a sequence repeats it by design
     cell: (r) =>
       // THE PICKER HAS NO READ-ONLY STATE — the Head column's own answer. A
       // pulled line's stage is the BOM's, so it shows as text too.
