@@ -532,7 +532,7 @@ export function Composer({
 
   return (
     <div
-      className={cn("relative bg-surface", chat ? "border-t border-border px-4 py-2.5" : "border-t border-border p-3", dragging && "bg-primary-soft/40 ring-2 ring-inset ring-primary")}
+      className={cn("relative bg-surface", chat ? "px-2 py-2" : "border-t border-border p-3", dragging && "bg-primary-soft/40 ring-2 ring-inset ring-primary")}
       onDragOver={onDragOver}
       onDragLeave={() => setDragging(false)}
       onDrop={onDrop}

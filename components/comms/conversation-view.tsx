@@ -541,7 +541,7 @@ export function ConversationView({
     // sits on the keyboard (globals.css, "PHONE CHAT").
     <div data-chat-page="" className="flex min-h-0 flex-1 flex-col">
       {/* WhatsApp spacing (user 2026-11-02): 60px, 16px margin, 12px avatar-to-name. */}
-      <header className={cn("flex min-h-[60px] items-center gap-3 border-b border-border pl-4 pr-3", chat ? "py-2" : "py-2.5")}>
+      <header className={cn("flex min-h-[60px] items-center gap-3 pl-4 pr-3", chat ? "shadow-[0_1px_0_rgba(0,0,0,.05)]" : "border-b border-border", chat ? "py-2" : "py-2.5")}>
         {/* Inside Pulse's frame (`data-pulse`, comms-shell.tsx) the sidebar is
             beside the conversation once the hub is wide, so the back arrow is
             for narrow screens only; a conversation opened from outside Pulse
