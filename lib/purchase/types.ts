@@ -660,6 +660,12 @@ export const grnInput = z.object({
   /** A Replacement GRN (0780) receives against the Rejection DC it names. */
   kind: z.enum(["regular", "replacement"]).default("regular"),
   vendor_return_id: z.string().uuid().optional().nullable(),
+  /** Place of Delivery (0792): our store, or straight to a processor on its Process Order. */
+  delivery_kind: z.enum(["store", "direct"]).default("store"),
+  delivery_vendor_id: z.string().uuid().optional().nullable(),
+  process_order_id: z.string().uuid().optional().nullable(),
+  /** The lorry / courier that brought it. */
+  vehicle_ref: capsTextNullable(),
   /**
    * The Store Manager override for lines beyond the PO's over-receipt
    * tolerance (0620). A REASON, never a user id: the action stamps the caller

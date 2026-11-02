@@ -7,6 +7,8 @@ import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid
 import { Button } from "@/components/ui/button";
 import { Field, FieldError, FIELD_WIDTH_CSS } from "@/components/ui/field";
 import { FilterPill, type FilterPillOption } from "@/components/ui/filter-pill";
+// GRID_HEAD, DENSE and the hint-chip tones are shared with the GRN entry (2026-11-02).
+import { DENSE, GRID_HEAD, HINT_CHIP_TONES } from "@/components/purchase/doc-surface";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Tabs } from "@/components/ui/tabs";
@@ -122,21 +124,6 @@ type RowState = {
   loopLength?: string;
 };
 
-/**
- * THE GRID HEADER IN THE ORDERS TABLE BAND (user 2026-10-23, screenshot 3697): the
- * soft blue `--table-head-bg` every `DataTable` header wears, labels on ONE line.
- * `ChildGrid`'s own header is white and wraps a label that is wider than its column
- * ("ORDER / QTY" on two lines), so both are set here through `headerClassName`.
- */
-const GRID_HEAD = "whitespace-nowrap bg-[var(--table-head-bg)]";
-/**
- * DENSE, ONE SIZE WITH THE RAIL (user 2026-10-30, plan B, mockup "Raise PO column widths"):
- * the PO grids read 12px — the rail's RE number is 12px — with 11px headers, so the item
- * name gets the width to show in full. One wrapper on the grid pane rather than a size on
- * every cell. The typed boxes take their 12px from `CELL_INPUT` (which out-merges the
- * `Input` primitive's `md:text-sm`). This screen only — not the app-wide type scale.
- */
-const DENSE = "[&_td]:text-xs [&_.text-sm]:text-xs [&_th]:text-[11px]";
 /**
  * A CELL YOU TYPE IN, NOT A BOX IN A CELL (user 2026-10-24, screenshot 3707: "that
  * separate cell border for the rate, qty, delivery date — as table"). The grid's own
@@ -1683,11 +1670,7 @@ export function RequirementPoForm({
      green = ready. Fixed colour pairs, as in FilterPill — the skin cannot repaint them. */
   const hintKind: "todo" | "md" | "ready" =
     unpriced > 0 || !vendorId || undated > 0 || orderIds.length === 0 || !anyClass || active.length === 0 ? "todo" : goesToMd ? "md" : "ready";
-  const HINT_CHIP = {
-    todo: { box: "border-[#f1d48a] bg-[#fff7e0] text-[#8a5800]", dot: "bg-[#d9a400]" },
-    md: { box: "border-[#f5b8b0] bg-[#fdecea] text-[#b42318]", dot: "bg-[#d92d20]" },
-    ready: { box: "border-[#a6dcb9] bg-[#e8f6ee] text-[#14803f]", dot: "bg-[#14803f]" },
-  }[hintKind];
+  const HINT_CHIP = HINT_CHIP_TONES[hintKind];
   const charges = chargesNet(commercial);
 
   const itemsToPrice = itemGroups.filter((g) => g.supplied && g.qty > 0 && !g.rate && !g.mixedRate).length;

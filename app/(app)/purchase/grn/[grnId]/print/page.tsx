@@ -45,12 +45,14 @@ export default async function GrnSlipPage({ params }: { params: Promise<{ grnId:
   );
 
   const facts = presentFacts([
-    { label: "Received from", value: grn.vendors?.name ?? null },
+    // GRN No first, Invoice Date straight after Invoice No (user 2026-11-02).
+    { label: "GRN No", value: grn.code, mono: true },
     { label: "GRN Date", value: grn.grn_date ? fmtDate(grn.grn_date) : null, mono: true },
-    { label: "PO No", value: [...new Set(lines.map((l) => l.po_code).filter(Boolean))].join(", "), mono: true },
     { label: "Invoice No", value: grn.invoice_no, mono: true },
-    { label: "Invoice Date", value: grn.invoice_date ? fmtDate(grn.invoice_date) : null, mono: true },
+    { label: grn.dc_no && !grn.invoice_no ? "DC Date" : "Invoice Date", value: grn.invoice_date ? fmtDate(grn.invoice_date) : null, mono: true },
     { label: "DC No", value: grn.dc_no, mono: true },
+    { label: "Received from", value: grn.vendors?.name ?? null },
+    { label: "PO No", value: [...new Set(lines.map((l) => l.po_code).filter(Boolean))].join(", "), mono: true },
   ]);
 
   return (

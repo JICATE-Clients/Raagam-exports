@@ -18,7 +18,7 @@ import { ProductionDcReceiveForm } from "../../stores/production-dc/_components/
 /**
  * PURCHASE ▸ RECEIVING ▸ DELIVERY CHALLANS — THE ONE DC HUB (user 2026-10-31: "consolidate the
  * Delivery Challan screens into a single screen"). The register of every DC (Process,
- * Production, Rejection, Replacement) and, over it, ONE drawer the URL opens:
+ * Production, Rejection, Replacement) and, in its place, ONE form the URL opens:
  *
  *   ?new=process|production        → the Send form for that type (DC Type selector on top)
  *   ?new=rejection|replacement     → what is open of that type; they are raised by a GRN
@@ -42,11 +42,14 @@ export default async function DcHubPage({ searchParams }: { searchParams: Promis
   ]);
   const type = sp.type ?? null;
 
+  // THE FORM REPLACES THE REGISTER, IN THE PAGE (user 2026-11-02, Raise PO's way) — no
+  // drawer over the list, so the sidebar stays and the form uses the full page width.
+  const form = await drawer(sp, type, rows);
   return (
-    <div className="space-y-4">
+    /* No floating "← Back" over an open form (Raise PO's rule); the list keeps it. */
+    <div className="space-y-4 [&:has([data-dc-editor])>[data-focus-region=header]>div]:hidden">
       <PageHeader title="Delivery Challans" description="Every DC — job work, unit transfers, rejections and replacements" />
-      <DcRegisterScreen rows={rows} canCreate={canCreate} initialType={type} />
-      {await drawer(sp, type, rows)}
+      {form ?? <DcRegisterScreen rows={rows} canCreate={canCreate} initialType={type} />}
     </div>
   );
 }
@@ -132,7 +135,7 @@ async function drawer(sp: Search, type: string | null, rows: Awaited<ReturnType<
   const kind = formType as Extract<NewType, "rejection" | "replacement">;
   const open = rows.filter((r) => r.kind === kind && !["closed", "replaced", "cancelled"].includes(r.status));
   return (
-    <DcDrawer title="New Delivery Challan" type={type} chooser={kind}>
+    <DcDrawer title="New Delivery Challan" type={type} chooser={kind} showBack>
       <div className="max-w-[48rem] space-y-3">
         <p className="text-sm">
           {kind === "rejection"
