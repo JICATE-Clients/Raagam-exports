@@ -4,6 +4,7 @@ import { useState, type KeyboardEvent } from "react";
 import {
   Bookmark,
   BookmarkCheck,
+  ChevronDown,
   Copy,
   MessageSquareReply,
   Pencil,
@@ -13,6 +14,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DropdownMenu, type DropdownItem } from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
 import { MESSAGE_MAX, mentionToken, plainText, type CommAttachment, type CommMessage } from "@/lib/comms/types";
@@ -44,12 +46,14 @@ export type MessageActions = {
  * the same person wrote it within five minutes — the shape every team chat
  * uses, and what keeps a back-and-forth readable.
  *
- * The action bar appears on hover or keyboard focus. On a touch screen (no
- * hover) a TAP on the message opens it and a second tap closes it, as chat
- * apps do (2026-10-29). It used to be always shown there, which put a
- * seven-button bar over every message on a phone, each one covering the
- * message above it. A tap on a link, a button or a field inside the message
- * keeps its own meaning and never toggles the bar.
+ * ACTIONS LIVE IN A ⌄ MENU, WHATSAPP'S WAY (user 2026-11-02, screenshots
+ * 151645 / 151550 / 152635: "remove this message mouse hover … give dropdown").
+ * The seven-icon bar that floated over the message above is gone. A small V
+ * sits after the time inside the bubble (top-right of a channel row) and opens
+ * Reply · Copy · React · Pin · Save · Edit · Delete. Its space is ALWAYS kept
+ * and only its opacity changes on hover or focus, so nothing in the chat moves
+ * as the mouse passes over ("keep the chat fixed in place"). On a touch screen
+ * there is no hover, so it is always shown.
  */
 export function MessageItem({
   message: m,
@@ -79,8 +83,6 @@ export function MessageItem({
   const [editing, setEditing] = useState(false);
   const [reacting, setReacting] = useState(false);
   const [pickerAnchor, setPickerAnchor] = useState<HTMLSpanElement | null>(null);
-  // Touch only: the bar is open for this message (see the header comment).
-  const [touchOpen, setTouchOpen] = useState(false);
 
   // The text as the reader sees it — @Name, never the <@uuid> token.
   function copy() {
@@ -101,6 +103,83 @@ export function MessageItem({
   const contact = card === "contact" ? contactOf(m.body) : null;
   const sticker = card === "sticker";
   const author = m.author_name ?? (m.author_id ? "Former user" : "System");
+
+  const menuItems: DropdownItem[] =
+    deleted || editing
+      ? []
+      : [
+          ...(canAct && actions.onReply && !m.parent_id
+            ? [{ label: "Reply in thread", icon: MessageSquareReply, onClick: () => actions.onReply!(m) }]
+            : []),
+          ...(m.body ? [{ label: "Copy", icon: Copy, onClick: copy }] : []),
+          ...(canAct && actions.onReact ? [{ label: "React", icon: SmilePlus, onClick: () => setReacting(true) }] : []),
+          ...(canAct && actions.onPin
+            ? [{ label: m.pinned ? "Unpin" : "Pin", icon: m.pinned ? PinOff : Pin, onClick: () => actions.onPin!(m) }]
+            : []),
+          ...(actions.onSave
+            ? [{ label: m.saved ? "Unsave" : "Save", icon: m.saved ? BookmarkCheck : Bookmark, onClick: () => actions.onSave!(m) }]
+            : []),
+          ...(mine && canAct && actions.onEdit && !card ? [{ label: "Edit", icon: Pencil, onClick: () => setEditing(true) }] : []),
+          ...(canDelete && actions.onDelete
+            ? [{ label: "Delete", icon: Trash2, danger: true, separatorBefore: true, onClick: () => actions.onDelete!(m) }]
+            : []),
+        ];
+
+  // The ⌄ and, when React is picked, the emoji picker anchored to it.
+  const menu =
+    menuItems.length === 0 ? null : (
+      <span
+        ref={setPickerAnchor}
+        className={cn(
+          "inline-flex shrink-0 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100",
+          "has-[[aria-expanded=true]]:opacity-100 [@media(hover:none)]:opacity-100",
+          reacting && "opacity-100",
+        )}
+      >
+        <DropdownMenu
+          label="Message actions"
+          trigger={<ChevronDown className="h-[18px] w-[18px]" strokeWidth={2.2} aria-hidden />}
+          triggerClassName="inline-flex h-[18px] w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          items={menuItems}
+          menuWidth={200}
+        />
+        {reacting && actions.onReact && (
+          <EmojiPicker
+            anchor={pickerAnchor?.querySelector("button") ?? null}
+            onClose={() => setReacting(false)}
+            onPick={(e) => {
+              setReacting(false);
+              // Picking an emoji you already wear is a no-op, not a removal:
+              // the picker ADDS; the chip is what toggles.
+              actions.onReact!(m, e, true);
+            }}
+          />
+        )}
+      </span>
+    );
+
+  // WHATSAPP'S TIME LINE (user 2026-11-02, screenshot 153534): pin, saved,
+  // Edited, the time and the ⌄. In a plain text bubble it floats at the end of
+  // the last line, so a short message is one slim line; anything that follows
+  // the text (files, reactions, a poll) puts it on its own line at the bottom.
+  const timeInText =
+    !!bubble && !deleted && !editing && !card && !!m.body && m.attachments.length === 0 && m.reactions.length === 0 && m.reply_count === 0;
+  function metaLine(inText: boolean) {
+    return (
+      <span
+        className={cn(
+          "inline-flex h-[15px] items-center gap-1 whitespace-nowrap text-[11px] leading-[15px] text-muted-foreground",
+          inText && "relative top-[5px] float-right -mb-[5px] ml-2.5",
+        )}
+      >
+        {m.pinned && <Pin className="h-3 w-3" aria-label="Pinned" />}
+        {m.saved && <BookmarkCheck className="h-3 w-3" aria-label="Saved" />}
+        {m.edited_at && <span>Edited</span>}
+        <time dateTime={m.created_at}>{clockTime(m.created_at)}</time>
+        {menu}
+      </span>
+    );
+  }
 
   // The message's own pieces, drawn in both layouts below.
   const content = (
@@ -127,11 +206,12 @@ export function MessageItem({
           ) : contact ? (
             <ContactCard contact={contact} meId={meId} />
           ) : sticker ? null : (
-            m.body && <MessageBody body={m.body} names={names} meId={meId} />
+            m.body && <MessageBody body={m.body} names={names} meId={meId} trailer={timeInText ? metaLine(true) : undefined} />
           )}
-          {m.edited_at && <span className="text-[11px] text-muted-foreground">(edited)</span>}
+          {/* A bubble shows Edited and Saved beside its time instead (metaLine). */}
+          {!bubble && m.edited_at && <span className="text-[11px] text-muted-foreground">(edited)</span>}
           {/* Your own bookmark, always visible — `saved` is read per person (0737), never anyone else's. */}
-          {m.saved && (
+          {!bubble && m.saved && (
             <span className="inline-flex items-center gap-0.5 text-[11px] font-medium text-primary">
               <BookmarkCheck className="h-3 w-3" aria-hidden /> Saved
             </span>
@@ -187,74 +267,6 @@ export function MessageItem({
     </>
   );
 
-  const actionBar = (
-    <>
-      {!deleted && !editing && (
-        <div
-          data-open={touchOpen || reacting}
-          className={cn(
-            "absolute -top-3 right-2 z-10 flex items-center gap-0.5 rounded-lg border border-border bg-surface p-0.5 shadow-sm",
-            "opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100",
-            "[@media(hover:none)]:hidden [@media(hover:none)]:opacity-100 [@media(hover:none)]:data-[open=true]:flex",
-            reacting && "opacity-100",
-          )}
-        >
-          {canAct && actions.onReact && (
-            <div className="relative">
-              <span ref={setPickerAnchor} className="inline-flex">
-                <IconAction label="Add reaction" onClick={() => setReacting((v) => !v)}>
-                  <SmilePlus className="h-4 w-4" />
-                </IconAction>
-              </span>
-              {reacting && (
-                <EmojiPicker
-                  anchor={pickerAnchor?.querySelector("button") ?? null}
-                  onClose={() => setReacting(false)}
-                  onPick={(e) => {
-                    setReacting(false);
-                    // Picking an emoji you already wear is a no-op, not a removal:
-                    // the picker ADDS; the chip is what toggles.
-                    actions.onReact!(m, e, true);
-                  }}
-                />
-              )}
-            </div>
-          )}
-          {canAct && actions.onReply && !m.parent_id && (
-            <IconAction label="Reply in thread" onClick={() => actions.onReply!(m)}>
-              <MessageSquareReply className="h-4 w-4" />
-            </IconAction>
-          )}
-          {actions.onSave && (
-            <IconAction label={m.saved ? "Remove from saved" : "Save for later"} onClick={() => actions.onSave!(m)}>
-              {m.saved ? <BookmarkCheck className="h-4 w-4 text-primary" /> : <Bookmark className="h-4 w-4" />}
-            </IconAction>
-          )}
-          {canAct && actions.onPin && (
-            <IconAction label={m.pinned ? "Unpin" : "Pin to conversation"} onClick={() => actions.onPin!(m)}>
-              {m.pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
-            </IconAction>
-          )}
-          {!!m.body && (
-            <IconAction label="Copy text" onClick={copy}>
-              <Copy className="h-4 w-4" />
-            </IconAction>
-          )}
-          {mine && canAct && actions.onEdit && !card && (
-            <IconAction label="Edit message" onClick={() => setEditing(true)}>
-              <Pencil className="h-4 w-4" />
-            </IconAction>
-          )}
-          {canDelete && actions.onDelete && (
-            <IconAction label="Delete message" onClick={() => actions.onDelete!(m)} danger>
-              <Trash2 className="h-4 w-4" />
-            </IconAction>
-          )}
-        </div>
-      )}
-    </>
-  );
-
   // BUBBLES (the Pulse redesign, 2026-10-29) for direct and group chats: yours
   // on the right in the primary colour, everyone else's on the left on white,
   // a sender's name in their own colour above a group bubble, the time inside
@@ -274,13 +286,10 @@ export function MessageItem({
     return (
       <div
         id={`msg-${m.id}`}
-        onClick={(e) => {
-          if ((e.target as HTMLElement).closest("a, button, input, textarea, select, [role='dialog']")) return;
-          setTouchOpen((v) => !v);
-        }}
         className={cn(
           "group relative flex scroll-mt-16 items-end gap-2 px-3",
-          grouped ? "py-px" : "pt-1 pb-px",
+          // 2px between one person's messages, 12px when the sender changes.
+          grouped ? "pt-0.5" : "pt-3",
           mine ? "justify-end" : "justify-start",
           highlight && "rounded-md bg-warning-soft ring-2 ring-warning/60 transition-colors",
         )}
@@ -300,13 +309,21 @@ export function MessageItem({
         )}
         <div
           className={cn(
-            "min-w-0 max-w-[min(78%,32.5rem)] rounded-2xl px-2.5 py-1",
+            // WhatsApp's sizes (screenshot 153534: 14.2px text on a 19px line,
+            // padding 6 / 8 / 8 / 10) in the THEME's colour (user 2026-11-02):
+            // yours is --primary mixed 14% into the surface (28% for the border,
+            // the text deepened from it), so it changes with the topbar colour
+            // menu, light and dark; theirs white with a hairline border. 12px
+            // corners with a 4px one on the sender's side.
+            "relative min-w-0 max-w-[min(65%,32.5rem)] rounded-xl pb-2 pl-2.5 pr-2 pt-1.5 [&_.text-sm]:text-[14.2px] [&_.text-sm]:leading-[19px]",
             // A sticker is drawn without a bubble, as WhatsApp does.
             sticker
               ? "bg-transparent px-0 shadow-none [&_.text-muted-foreground]:text-muted-foreground"
               : mine
-              ? "rounded-br-md bg-primary text-primary-foreground [&_.text-foreground]:text-primary-foreground [&_a]:text-primary-foreground [&_.text-muted-foreground]:text-primary-foreground/75"
-              : "rounded-bl-md bg-surface shadow-[0_1px_2px_rgba(26,34,51,.08)] dark:border dark:border-border",
+              ? "border border-[color-mix(in_srgb,var(--primary)_28%,var(--surface))] bg-[color-mix(in_srgb,var(--primary)_14%,var(--surface))] text-[color-mix(in_srgb,var(--primary)_35%,var(--foreground))] shadow-[0_1px_2px_rgba(13,15,19,.06)] [&_.text-foreground]:text-[color-mix(in_srgb,var(--primary)_35%,var(--foreground))] [&_.text-muted-foreground]:text-[color-mix(in_srgb,var(--primary)_55%,var(--muted-foreground))]"
+              : "border border-border bg-surface shadow-[0_1px_2px_rgba(13,15,19,.06)]",
+            // The first bubble of a run points at its sender.
+            !sticker && !grouped && (mine ? "rounded-br-[4px]" : "rounded-bl-[4px]"),
           )}
         >
           {showWho && !grouped && (
@@ -315,12 +332,8 @@ export function MessageItem({
             </p>
           )}
           {content}
-          <p className={cn("-mt-0.5 flex items-center justify-end gap-1 text-[11px]", mine ? "text-primary-foreground/75" : "text-muted-foreground")}>
-            {m.pinned && <Pin className="h-3 w-3" aria-label="Pinned" />}
-            <time dateTime={m.created_at}>{clockTime(m.created_at)}</time>
-          </p>
+          {!timeInText && <p className="mt-0.5 flex justify-end">{metaLine(false)}</p>}
         </div>
-        {actionBar}
       </div>
     );
   }
@@ -328,10 +341,6 @@ export function MessageItem({
   return (
     <div
       id={`msg-${m.id}`}
-      onClick={(e) => {
-        if ((e.target as HTMLElement).closest("a, button, input, textarea, select, [role='dialog']")) return;
-        setTouchOpen((v) => !v);
-      }}
       className={cn(
         "group relative flex scroll-mt-16 gap-3 rounded-md px-3 hover:bg-surface-muted/60 focus-within:bg-surface-muted/60",
         grouped ? "py-0.5" : "pt-2 pb-0.5",
@@ -367,36 +376,8 @@ export function MessageItem({
         {content}
       </div>
 
-      {actionBar}
+      {menu && <div className="shrink-0 pt-1">{menu}</div>}
     </div>
-  );
-}
-
-function IconAction({
-  label,
-  onClick,
-  danger,
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  danger?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={label}
-      title={label}
-      className={cn(
-        // 36px on touch, 28px under a mouse.
-        "rounded-md p-2.5 text-muted-foreground hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [@media(hover:hover)]:p-1.5",
-        danger ? "hover:text-danger" : "hover:text-foreground",
-      )}
-    >
-      {children}
-    </button>
   );
 }
 

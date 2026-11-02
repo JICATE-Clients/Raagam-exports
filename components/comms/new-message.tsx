@@ -3,8 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition, type KeyboardEvent } from "react";
 import { Hash, Lightbulb, Loader2, Lock, Send, X } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Truncated } from "@/components/ui/truncated";
 import { createGroup, findPeople, openDirect, sendMessage } from "@/lib/comms/actions";
 import { MESSAGE_MAX, type DirectoryPerson } from "@/lib/comms/types";
 import { useUnsavedGuard } from "@/lib/reload-guard";
@@ -13,6 +13,8 @@ import { avatarStyle } from "./conversation-list";
 import { initials } from "./message-body";
 
 /** Somebody or somewhere the message can go. */
+export type QuickPick = Target;
+
 type Target =
   | { kind: "person"; id: string; label: string; sub: string | null }
   | { kind: "channel"; id: string; label: string; sub: string | null; visibility: "public" | "private" };
@@ -38,7 +40,19 @@ export type ChannelOption = { id: string; name: string; visibility: "public" | "
  * Every send goes through `sendMessage`, the same action the chat box uses,
  * with a client id minted once per message, and then opens the conversation.
  */
-export function NewMessage({ channels, meId }: { channels: ChannelOption[]; meId: string }) {
+export function NewMessage({
+  channels,
+  meId,
+  recent = [],
+  people: directory = [],
+}: {
+  channels: ChannelOption[];
+  meId: string;
+  /** The caller's latest direct chats and channels, newest first (page.tsx). */
+  recent?: QuickPick[];
+  /** A first page of colleagues from the directory (page.tsx). */
+  people?: QuickPick[];
+}) {
   const router = useRouter();
   const toRef = useRef<HTMLInputElement>(null);
   const [to, setTo] = useState<Target[]>([]);
@@ -157,7 +171,7 @@ export function NewMessage({ channels, meId }: { channels: ChannelOption[]; meId
 
   const tip =
     to.length === 0
-      ? { title: "Draft a message, without distractions", text: "From here you can message any colleague or channel. Type a name or #channel in To:, or pick someone under Direct messages." }
+      ? { title: "Pick a person or channel", text: "or type a name or #channel in To. Your message stays here while you choose." }
       : chans.length === 1 && persons.length === 0
         ? { title: `To #${chans[0].label}`, text: "Type your message below and press Enter. It is posted in the channel." }
         : persons.length === 1 && chans.length === 0
@@ -165,12 +179,14 @@ export function NewMessage({ channels, meId }: { channels: ChannelOption[]; meId
           : { title: `To ${persons.length} people`, text: "Type your message below and press Enter. It starts a new group with them." };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-surface-muted/50">
-      <header className="relative z-10 border-b border-border bg-surface shadow-sm">
-        <h2 className="px-5 pb-2 pt-4 text-lg font-bold text-heading">New message</h2>
-        <div className="relative flex flex-wrap items-center gap-1.5 border-t border-border px-5 py-2.5">
-          <label htmlFor="pulse-to" className="mr-2 text-sm text-foreground">
-            To:
+    // COMPACT (user 2026-11-02): a 56px title row, a slim To row, who to write
+    // to in the middle, and the same message bar an open chat has.
+    <div className="flex min-h-0 flex-1 flex-col bg-surface">
+      <header className="relative z-10 bg-surface">
+        <h2 className="flex h-14 items-center border-b border-border px-4 text-[15px] font-bold text-heading">New message</h2>
+        <div className="relative flex flex-wrap items-center gap-1.5 border-b border-border px-4 py-2.5">
+          <label htmlFor="pulse-to" className="mr-1 text-[13px] font-bold text-muted-foreground">
+            To
           </label>
           {to.map((t, i) => (
             <span key={`${t.kind}:${t.id}`} className="flex h-7 items-center gap-1 rounded-md bg-primary-soft pl-2 pr-1 text-sm font-semibold text-primary">
@@ -208,14 +224,14 @@ export function NewMessage({ channels, meId }: { channels: ChannelOption[]; meId
             }}
             onKeyDown={onToKey}
             placeholder={to.length ? "" : "#a-channel, or a colleague’s name"}
-            className="h-8 min-w-[10rem] flex-1 bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground md:text-sm"
+            className="h-9 min-w-[10rem] flex-1 rounded-lg bg-surface-muted px-3 text-base text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring md:text-sm"
           />
           {suggestions.length > 0 && (
             <ul
               id="pulse-to-list"
               role="listbox"
               aria-label="Channels and people"
-              className="absolute left-3 right-3 top-full z-20 mt-1 max-h-80 overflow-y-auto rounded-lg border border-border bg-surface py-1 shadow-lg sm:left-14 sm:right-auto sm:w-96"
+              className="absolute left-4 right-4 top-full z-20 mt-1 max-h-80 overflow-y-auto rounded-lg border border-border bg-surface py-1 shadow-lg sm:left-12 sm:right-auto sm:w-96"
             >
               {suggestions.map((t, i) => (
                 <li key={`${t.kind}:${t.id}`} role="option" aria-selected={i === lit}>
@@ -251,21 +267,27 @@ export function NewMessage({ channels, meId }: { channels: ChannelOption[]; meId
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1 items-end justify-center p-6">
-        <div className="mb-4 max-w-lg text-center">
-          <p className="mb-1.5 flex items-center justify-center gap-2 text-base font-bold text-heading">
-            <Lightbulb className="h-4 w-4 text-warning" aria-hidden /> {tip.title}
+      <div className="min-h-0 flex-1 overflow-y-auto pb-2 pt-3">
+        {to.length === 0 && (
+          <>
+            <PickList title="Recent" picks={recent.filter((t) => !taken.has(`${t.kind}:${t.id}`))} onPick={add} />
+            <PickList title="People" picks={directory.filter((t) => t.id !== meId && !taken.has(`${t.kind}:${t.id}`))} onPick={add} />
+          </>
+        )}
+        <div className="mx-4 mt-2 flex items-start gap-2 rounded-lg bg-surface-muted px-3 py-2.5 text-[12.5px] leading-relaxed text-muted-foreground">
+          <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden />
+          <p>
+            <span className="font-bold text-foreground">{tip.title}</span> {tip.text}
           </p>
-          <p className="text-sm text-muted-foreground">{tip.text}</p>
         </div>
       </div>
 
-      <div className="border-t border-border bg-surface p-3">
+      <div className="border-t border-border px-4 py-2.5">
         <div className="flex items-end gap-2">
           {/* caps-input: exempt -- a chat message is prose, not a stored value (lib/comms/types.ts) */}
           <Textarea
             uppercase={false}
-            rows={2}
+            rows={1}
             value={body}
             maxLength={MESSAGE_MAX}
             onChange={(e) => setBody(e.target.value)}
@@ -277,11 +299,22 @@ export function NewMessage({ channels, meId }: { channels: ChannelOption[]; meId
             }}
             placeholder={to.length ? "Start a new message" : "Add someone in To: first"}
             aria-label="Message"
-            className="max-h-40 min-h-12 flex-1 resize-none"
+            className="field-sizing-content max-h-40 min-h-[42px] min-w-0 flex-1 resize-none rounded-[10px] border border-border bg-[#f7f8fa] px-4 py-2.5 text-sm shadow-none focus-visible:border-primary focus-visible:bg-surface focus-visible:ring-0 focus-visible:ring-offset-0 dark:bg-surface-muted md:text-sm"
           />
-          <Button type="button" onClick={send} disabled={!canSend} aria-label="Send message" title="Send (Enter)">
-            {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-          </Button>
+          {/* button-shape: exempt -- Pulse's round Send, the same 42px blue circle as the chat box (composer.tsx) */}
+          <button
+            type="button"
+            onClick={send}
+            disabled={!canSend}
+            aria-label="Send message"
+            title={to.length ? "Send (Enter)" : "Pick who to send to first"}
+            className={cn(
+              "flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              canSend ? "bg-primary hover:bg-primary/90" : "bg-muted-foreground/40",
+            )}
+          >
+            {pending ? <Loader2 className="h-[18px] w-[18px] animate-spin" /> : <Send className="h-[18px] w-[18px]" />}
+          </button>
         </div>
         {(problem || error) && (
           <p className="mt-1.5 text-sm text-danger" role="alert">
@@ -290,5 +323,44 @@ export function NewMessage({ channels, meId }: { channels: ChannelOption[]; meId
         )}
       </div>
     </div>
+  );
+}
+
+/** One titled list of people or channels to write to; a tap puts it in To. */
+function PickList({ title, picks, onPick }: { title: string; picks: QuickPick[]; onPick: (t: QuickPick) => void }) {
+  if (picks.length === 0) return null;
+  return (
+    <section aria-label={title} className="mb-2">
+      <p className="px-4 pb-1.5 text-[11.5px] font-extrabold uppercase tracking-[0.06em] text-muted-foreground">{title}</p>
+      <ul>
+        {picks.map((t) => (
+          <li key={`${t.kind}:${t.id}`}>
+            <button
+              type="button"
+              onClick={() => onPick(t)}
+              className="flex h-[52px] w-full items-center gap-3 px-4 text-left hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+            >
+              {t.kind === "channel" ? (
+                <span aria-hidden className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-surface-muted text-muted-foreground">
+                  {t.visibility === "private" ? <Lock className="h-4 w-4" /> : <Hash className="h-4 w-4" />}
+                </span>
+              ) : (
+                <span
+                  aria-hidden
+                  style={avatarStyle(t.label)}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--ink)] text-xs font-bold text-white"
+                >
+                  {initials(t.label)}
+                </span>
+              )}
+              <span className="flex min-w-0 flex-1 flex-col">
+                <Truncated text={t.kind === "channel" ? `#${t.label}` : t.label} className="text-sm font-bold leading-snug text-heading" />
+                {t.sub && <Truncated text={t.sub} className="text-[12.5px] text-muted-foreground" />}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

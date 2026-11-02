@@ -4,31 +4,40 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition, type CSSProperties, type ReactNode } from "react";
 import {
-  Activity,
   Archive,
   ArchiveRestore,
   ArrowLeft,
+  Bell,
+  BellOff,
+  CheckCheck,
   ChevronDown,
   ChevronRight,
   Compass,
   FileText,
+  Heart,
+  HeartOff,
+  LogOut,
   Megaphone,
+  Pin,
+  PinOff,
   Hash,
   Loader2,
   Lock,
   MessageCircle,
   Plus,
   Search,
+  SquarePen,
   Star,
   Users,
   X,
 } from "lucide-react";
-import { buttonClasses } from "@/components/ui/button";
-import { DropdownMenu } from "@/components/ui/dropdown-menu";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { DropdownMenu, type DropdownItem } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Truncated } from "@/components/ui/truncated";
 import { useToast } from "@/components/ui/toast";
-import { joinChannel, setChatFlags } from "@/lib/comms/actions";
+import { joinChannel, leaveConversation, markRead, setChatFlags, setMuted } from "@/lib/comms/actions";
+import { setConversationPrefs } from "@/lib/comms/channel-actions";
 import { loadChannelsToFind, loadPulseFiles } from "@/lib/comms/pulse-actions";
 import type { FileKind, PulseFile } from "@/lib/comms/files-service";
 import { messageHref } from "@/lib/comms/search";
@@ -42,7 +51,6 @@ import { CommunityAvatar } from "./community-avatar";
 import { NewCommunitySheet } from "./new-community-sheet";
 
 type Filter = "all" | "unread" | "favorites" | "groups" | "communities" | "channels" | "files";
-type Flags = { favorite?: boolean; archived?: boolean };
 
 /**
  * WHATSAPP'S FILTER ROW (user 2026-10-31, screenshots 115240 / 122326 / 122843,
@@ -69,9 +77,11 @@ const FILTERS: { value: Filter; label: string }[] = [
 const ROW: Filter[] = ["all", "unread", "favorites", "groups"];
 
 const CHIP =
-  "inline-flex h-[34px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-[13px] text-[15px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-[420px]:h-8 max-[420px]:px-[11px] max-[420px]:text-sm";
+  "inline-flex h-[30px] min-w-0 items-center gap-1 whitespace-nowrap rounded-full border px-2.5 text-[13px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 const CHIP_OFF = "border-[#d1d7db] bg-surface text-[#54656f] hover:bg-surface-muted dark:border-[#3b4a54] dark:text-[#aebac1]";
-const CHIP_ON = "border-transparent bg-[#d9fdd3] text-[#15603e] dark:bg-[#103529] dark:text-[#7ae3a5]";
+// The chosen filter, the unread counts and the search focus follow the theme
+// colour (user 2026-11-02) instead of WhatsApp's green and the old coral.
+const CHIP_ON = "border-[color-mix(in_srgb,var(--primary)_30%,transparent)] bg-primary-soft text-primary";
 
 /** The Communities green, for the announcement tag and the community rows. */
 const COMMUNITY_TINT = "bg-[color-mix(in_srgb,#1f9d6b_14%,var(--surface))] text-[#137a52] dark:text-[#6fdcaa]";
@@ -87,8 +97,8 @@ const EMPTY: Record<Filter, [string, string]> = {
 };
 
 /** The unread colour: the time on an unread chat, its badge, a favourite's ring. */
-const UNREAD_TEXT = "text-[#c94a32] dark:text-[#ff9a85]";
-const UNREAD_FILL = "bg-[#c94a32] text-white";
+const UNREAD_TEXT = "text-primary";
+const UNREAD_FILL = "bg-primary text-primary-foreground";
 
 /**
  * The person's own colour on an avatar: the same stable per-name hue the buyer
@@ -177,12 +187,13 @@ export function ConversationList({
     };
   }, [filter, findChannels, files]);
   const [showArchived, setShowArchived] = useState(false);
-  // Optimistic flags until the refreshed list arrives with the stored ones.
-  const [flags, setFlags] = useState<Record<string, Flags>>({});
   const [hits, setHits] = useState<MessageHit[]>([]);
   const [searchingMsgs, setSearchingMsgs] = useState(false);
   const [now] = useState(() => Date.now());
   const [, start] = useTransition();
+  // The ⌄ menu on each row (user 2026-11-02, WhatsApp's chat menu).
+  const [menuBusy, startMenu] = useTransition();
+  const [leaving, setLeaving] = useState<ConversationSummary | null>(null);
   const seq = useRef(0);
 
   const term = q.trim();
@@ -201,7 +212,9 @@ export function ConversationList({
     return () => clearTimeout(t);
   }, [term]);
 
-  const all = conversations.map((c) => ({ ...c, ...flags[c.id] }));
+  // A pinned chat sits at the top, newest activity first among the pinned
+  // (sort is stable, so each half keeps the server's order).
+  const all = [...conversations].sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned));
   const active = all.filter((c) => !c.archived);
   const archived = all.filter((c) => c.archived);
   // Each filter carries how many conversations it would show, counted by the
@@ -236,8 +249,6 @@ export function ConversationList({
     : active.filter(tests[filter]);
   const favourites = !searching && filter === "all" ? active.filter((c) => c.favorite) : [];
   const msgHits = term.length >= 2 ? hits : [];
-  const unreadTotal = active.reduce((n, c) => n + (c.id === activeId || c.muted ? 0 : c.unread_count), 0);
-  const summary = `${unreadTotal ? `${unreadTotal} unread ${unreadTotal === 1 ? "message" : "messages"}` : "All caught up"} · ${active.length} ${active.length === 1 ? "chat" : "chats"}`;
 
   function when(iso: string | null): string {
     if (!iso) return "";
@@ -254,20 +265,79 @@ export function ConversationList({
     return fmtDate(iso);
   }
 
-  function flag(c: ConversationSummary, change: Flags) {
-    const before: Flags = { favorite: c.favorite, archived: c.archived };
-    setFlags((prev) => ({ ...prev, [c.id]: { ...prev[c.id], ...change } }));
-    start(async () => {
-      const r = await setChatFlags({ conversation_id: c.id, ...change });
+  /**
+   * THE ROW'S ⌄ MENU (user 2026-11-02): WhatsApp's chat menu, holding only what
+   * the database can already do — archive, mark read, favourite, mute, leave.
+   * The same actions the open chat's ⋮ menu runs (conversation-view.tsx).
+   */
+  function runMenu(task: () => Promise<{ ok: true } | { ok: false; error: string }>, done?: string, after?: () => void) {
+    startMenu(async () => {
+      const r = await task();
       if (!r.ok) {
-        setFlags((prev) => ({ ...prev, [c.id]: before }));
         toast.error(r.error);
         return;
       }
-      if (change.archived !== undefined) toast.success(change.archived ? `${c.title} archived` : `${c.title} moved back to Pulse`);
+      if (done) toast.success(done);
+      after?.();
       router.refresh();
     });
   }
+  const rowMenu = (c: ConversationSummary): DropdownItem[] => [
+    {
+      label: c.archived ? "Unarchive chat" : "Archive chat",
+      icon: c.archived ? ArchiveRestore : Archive,
+      disabled: menuBusy,
+      onClick: () =>
+        runMenu(
+          () => setChatFlags({ conversation_id: c.id, archived: !c.archived }),
+          c.archived ? `${c.title} moved back to Pulse` : `${c.title} archived`,
+          () => {
+            if (!c.archived && c.id === activeId) router.push("/comms");
+          },
+        ),
+    },
+    {
+      label: c.pinned ? "Unpin chat" : "Pin chat",
+      icon: c.pinned ? PinOff : Pin,
+      disabled: menuBusy,
+      onClick: () =>
+        runMenu(
+          () => setConversationPrefs({ conversation_id: c.id, pinned: !c.pinned }),
+          c.pinned ? "Chat unpinned" : "Chat pinned",
+        ),
+    },
+    ...(c.unread_count > 0 && c.id !== activeId
+      ? [{ label: "Mark as read", icon: CheckCheck, disabled: menuBusy, onClick: () => runMenu(() => markRead(c.id)) }]
+      : []),
+    {
+      label: c.favorite ? "Remove from favourites" : "Add to favourites",
+      icon: c.favorite ? HeartOff : Heart,
+      disabled: menuBusy,
+      onClick: () =>
+        runMenu(
+          () => setChatFlags({ conversation_id: c.id, favorite: !c.favorite }),
+          c.favorite ? "Removed from favourites" : "Added to favourites",
+        ),
+    },
+    {
+      label: c.muted ? "Unmute notifications" : "Mute notifications",
+      icon: c.muted ? Bell : BellOff,
+      disabled: menuBusy,
+      onClick: () => runMenu(() => setMuted(c.id, !c.muted), c.muted ? "Notifications on" : "Notifications muted"),
+    },
+    ...(c.kind !== "direct" && !c.is_announcement
+      ? [
+          {
+            label: c.kind === "channel" ? "Leave channel" : "Exit group",
+            icon: LogOut,
+            danger: true,
+            separatorBefore: true,
+            disabled: menuBusy,
+            onClick: () => setLeaving(c),
+          },
+        ]
+      : []),
+  ];
 
   const row = (c: ConversationSummary) => (
     <Row
@@ -276,7 +346,30 @@ export function ConversationList({
       when={when(c.last_message_at)}
       active={c.id === activeId}
       community={c.community_id ? communityName.get(c.community_id) ?? null : null}
-      onFlag={(ch) => flag(c, ch)}
+      menu={rowMenu(c)}
+    />
+  );
+
+  const leaveDialog = (
+    <ConfirmDialog
+      open={!!leaving}
+      title={`Leave ${leaving?.title ?? ""}?`}
+      body="You keep what was said before you left. Someone can add you back later."
+      confirmLabel={leaving?.kind === "channel" ? "Leave channel" : "Exit group"}
+      isPending={menuBusy}
+      onCancel={() => setLeaving(null)}
+      onConfirm={() => {
+        const c = leaving;
+        if (!c) return;
+        runMenu(
+          () => leaveConversation(c.id),
+          c.kind === "channel" ? `You left #${c.title.replace(/^#/, "")}` : `You left ${c.title}`,
+          () => {
+            setLeaving(null);
+            if (c.id === activeId) router.push("/comms");
+          },
+        );
+      }}
     />
   );
 
@@ -305,6 +398,7 @@ export function ConversationList({
             <ul className="space-y-0.5">{archived.map(row)}</ul>
           )}
         </nav>
+        {leaveDialog}
       </div>
     );
   }
@@ -315,34 +409,21 @@ export function ConversationList({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-surface">
-      <header className="space-y-2 px-3 pb-2 pt-2.5">
-        <div className="flex items-center gap-2">
-          <span aria-hidden className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-            <Activity className="h-4 w-4" strokeWidth={2.4} />
-          </span>
-          <div className="min-w-0 flex-1">
-            <h1 className="text-[22px] font-extrabold leading-none tracking-tight text-heading">Pulse</h1>
-            <p className="text-[13px] text-muted-foreground">{summary}</p>
-          </div>
-          {/* The To: screen is the right-hand pane, so a phone (one pane at a
-              time) gets the tap-a-person sheet instead. */}
-          <Link
-            href="/comms"
-            aria-current={composing ? "page" : undefined}
-            className={buttonClasses({ className: cn(NEW_CHAT, "hidden @3xl/comms:inline-flex") })}
-          >
-            <Plus aria-hidden /> New chat
-          </Link>
-          <Link href="/comms?new=1" className={buttonClasses({ className: cn(NEW_CHAT, "@3xl/comms:hidden") })}>
-            <Plus aria-hidden /> New chat
-          </Link>
-        </div>
+      {/* WhatsApp Web spacing (user 2026-11-02): 16px side margin, 12px between
+          search, chips and the list. */}
+      <header className="space-y-3 px-4 py-3">
+        {/* No "Pulse" title or "All caught up · N chats" line (user 2026-11-02:
+            remove the words) — the heading stays for screen readers only. */}
+        <h1 className="sr-only">Pulse</h1>
 
-        <div role="search" className="relative">
+        {/* WhatsApp Web's header (user 2026-11-02, option A): New chat is a small
+            round icon on the search row, not a big red button on its own row. */}
+        <div className="flex items-center gap-2">
+        <div role="search" className="relative min-w-0 flex-1">
           {term.length >= 2 && searchingMsgs ? (
-            <Loader2 className="pointer-events-none absolute left-5 top-1/2 h-5 w-5 -translate-y-1/2 animate-spin text-[#54656f] dark:text-[#aebac1]" aria-hidden />
+            <Loader2 className="pointer-events-none absolute left-4 top-1/2 h-[18px] w-[18px] -translate-y-1/2 animate-spin text-[#54656f] dark:text-[#aebac1]" aria-hidden />
           ) : (
-            <Search className="pointer-events-none absolute left-5 top-1/2 h-5 w-5 -translate-y-1/2 text-[#54656f] dark:text-[#aebac1]" aria-hidden />
+            <Search className="pointer-events-none absolute left-4 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-[#54656f] dark:text-[#aebac1]" aria-hidden />
           )}
           {/* caps-input: exempt -- a search box; the query is not a stored value */}
           <Input
@@ -359,8 +440,8 @@ export function ConversationList({
             }}
             placeholder="Search or start a new chat"
             aria-label="Search or start a new chat"
-            // WhatsApp's search (screenshot 122843): a full pill on a warm grey.
-            className="h-11 rounded-full border-2 border-transparent bg-[#f5f4f2] pl-[3.25rem] pr-10 text-base placeholder:text-[#54656f] focus-visible:border-[#15603e] focus-visible:bg-surface focus-visible:ring-0 dark:bg-[#202c33] dark:placeholder:text-[#aebac1] dark:focus-visible:border-[#7ae3a5] md:text-[15px] [&::-webkit-search-cancel-button]:appearance-none"
+            // WhatsApp Web's search (user 2026-11-02): a 40px pill on a warm grey.
+            className="h-10 rounded-full border-2 border-transparent bg-surface-muted pl-11 pr-9 text-sm placeholder:text-muted-foreground focus-visible:border-primary focus-visible:bg-surface focus-visible:ring-0 md:text-sm [&::-webkit-search-cancel-button]:appearance-none"
           />
           {q && (
             <button
@@ -368,15 +449,32 @@ export function ConversationList({
               onClick={() => setQ("")}
               aria-label="Clear search"
               title="Clear search (Esc)"
-              className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1.5 text-muted-foreground hover:bg-surface hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1.5 text-muted-foreground hover:bg-surface hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <X className="h-3.5 w-3.5" aria-hidden />
             </button>
           )}
         </div>
+          {/* The To: screen is the right-hand pane, so a phone (one pane at a
+              time) gets the tap-a-person sheet instead. */}
+          <Link
+            href="/comms"
+            aria-current={composing ? "page" : undefined}
+            aria-label="New chat"
+            title="New chat"
+            className={cn(NEW_CHAT, "hidden @3xl/comms:grid")}
+          >
+            <SquarePen className="h-5 w-5" aria-hidden />
+          </Link>
+          <Link href="/comms?new=1" aria-label="New chat" title="New chat" className={cn(NEW_CHAT, "grid @3xl/comms:hidden")}>
+            <SquarePen className="h-5 w-5" aria-hidden />
+          </Link>
+        </div>
 
         {!searching && (
-          <div role="group" aria-label="Show chats" className="flex flex-wrap items-center gap-2 max-[420px]:gap-1.5">
+          // ONE ROW, ALWAYS (user 2026-11-02): the five filters never wrap; on a pane
+          // too narrow for them the words give way with an ellipsis, the ⌄ never does.
+          <div role="group" aria-label="Show chats" className="flex min-w-0 flex-nowrap items-center gap-1.5">
             {(ROW.includes(filter) ? FILTERS.filter((f) => ROW.includes(f.value)) : FILTERS.filter((f) => f.value === "all" || f.value === filter)).map((f) => {
               const on = filter === f.value;
               const count = f.value === "all" ? 0 : countOf(f.value);
@@ -389,16 +487,17 @@ export function ConversationList({
                   onClick={() => setFilter(f.value)}
                   className={cn(CHIP, on ? CHIP_ON : CHIP_OFF)}
                 >
-                  {f.label}
+                  {/* truncate-reveal: exempt -- a fixed filter word, shortened only on a pane narrower than any real one */}
+                  <span className="min-w-0 truncate">{f.label}</span>
                   {/* A zero says nothing — the number shows only when there is one. */}
-                  {count > 0 && <span className="text-[13px] tabular-nums opacity-90 max-[420px]:text-xs">{count}</span>}
+                  {count > 0 && <span className="shrink-0 text-xs tabular-nums opacity-90">{count}</span>}
                 </button>
               );
             })}
             <DropdownMenu
               label="More filters"
               trigger={<ChevronDown className="h-4 w-4" aria-hidden />}
-              triggerClassName={cn(CHIP, CHIP_OFF, "w-[34px] justify-center px-0 max-[420px]:w-8 max-[420px]:px-0")}
+              triggerClassName={cn(CHIP, CHIP_OFF, "w-[30px] shrink-0 justify-center px-0")}
               items={(ROW.includes(filter) ? FILTERS.filter((f) => !ROW.includes(f.value)) : FILTERS).map((f) => ({
                 label: f.label,
                 checked: filter === f.value,
@@ -515,7 +614,7 @@ export function ConversationList({
         </section>
       )}
 
-      <nav className="min-h-0 flex-1 overflow-y-auto border-t border-border px-2 pb-2 pt-1" aria-label="Chats">
+      <nav className="min-h-0 flex-1 overflow-y-auto border-t border-border pb-2" aria-label="Chats">
         {!searching && filter === "all" && archived.length > 0 && (
           <button
             type="button"
@@ -534,10 +633,10 @@ export function ConversationList({
 
         {searching && shown.length > 0 && <Caption>Chats</Caption>}
         {shown.length > 0 ? (
-          <ul className="space-y-0.5">{shown.map(row)}</ul>
+          <ul>{shown.map(row)}</ul>
         ) : (
           <div className="mx-4 my-8 flex flex-col items-center gap-2 text-center">
-            <span aria-hidden className="flex h-[52px] w-[52px] items-center justify-center rounded-2xl bg-[color-mix(in_srgb,#f0705a_14%,var(--surface))] text-[#c94a32]">
+            <span aria-hidden className="flex h-[52px] w-[52px] items-center justify-center rounded-2xl bg-primary-soft text-primary">
               <MessageCircle className="h-6 w-6" />
             </span>
             <p className="text-[15px] font-bold text-foreground">{emptyTitle}</p>
@@ -573,20 +672,23 @@ export function ConversationList({
           </section>
         )}
 
-        {!searching && filter === "all" && (
-          <Link
-            href="/comms/channels"
-            className="mt-2 flex h-9 items-center gap-2.5 rounded-xl px-3 text-sm font-semibold text-muted-foreground hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <Compass className="h-4 w-4" aria-hidden /> Browse channels
-          </Link>
-        )}
       </nav>
+      {/* A 44px row pinned under the list (user 2026-11-02), not text floating
+          after the last chat. */}
+      {!searching && filter === "all" && (
+        <Link
+          href="/comms/channels"
+          className="flex h-11 shrink-0 items-center gap-2.5 border-t border-border px-4 text-[13.5px] font-semibold text-foreground hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        >
+          <Compass className="h-4 w-4 text-muted-foreground" aria-hidden /> Browse channels
+        </Link>
+      )}
         </>
       )}
       {communities !== null && communities !== undefined && (
         <NewCommunitySheet open={newCommunity} onClose={() => setNewCommunity(false)} taken={communityList.map((cm) => cm.name)} />
       )}
+      {leaveDialog}
     </div>
   );
 }
@@ -836,7 +938,9 @@ function CommunityBlock({
 }
 
 /** New chat: the one filled button in the pane, in the redesign's coral. */
-const NEW_CHAT = "shrink-0 gap-2 bg-[#c94a32] px-3.5 font-bold text-white hover:bg-[#b23f29]";
+// A 40px round grey icon button, WhatsApp Web style; the open To: screen keeps it tinted.
+const NEW_CHAT =
+  "h-10 w-10 shrink-0 place-items-center rounded-full text-[#54656f] transition-colors hover:bg-[#f0f2f5] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring aria-[current=page]:bg-[#f0f2f5] aria-[current=page]:text-foreground dark:text-[#aebac1] dark:hover:bg-[#202c33] dark:aria-[current=page]:bg-[#202c33]";
 
 function Caption({ children }: { children: string }) {
   return <p className="px-3 pb-1 pt-1 text-xs font-bold uppercase tracking-[0.06em] text-muted-foreground">{children}</p>;
@@ -862,7 +966,7 @@ function ChatAvatar({ c, size }: { c: ConversationSummary; size: "sm" | "md" | "
       className={cn(
         "flex shrink-0 items-center justify-center font-extrabold",
         AVATAR_TINT,
-        size === "sm" ? "h-9 w-9 text-sm" : size === "lg" ? "h-10 w-10 text-base" : "h-[50px] w-[50px] text-[17px]",
+        size === "sm" ? "h-9 w-9 text-sm" : size === "lg" ? "h-11 w-11 text-sm" : "h-[50px] w-[50px] text-[17px]",
         c.kind === "direct" ? "rounded-full" : size === "md" ? "rounded-[15px]" : "rounded-xl",
       )}
     >
@@ -897,25 +1001,23 @@ function Story({ c, unread }: { c: ConversationSummary; unread: boolean }) {
 
 /**
  * One chat card: avatar, name and time, a Group / Channel tag, the last
- * message, the star and the unread count — and, on hover or keyboard focus,
- * star and archive buttons. RESPONSIVE: with a mouse those float over the
- * card's top-right corner; on a touch screen (no hover) they sit at the card's
- * end, always shown, at a 36px target. They are siblings of the card's link,
- * never inside it, so a tap on them never opens the chat.
+ * message, the star and the unread count. No star / archive buttons on the
+ * row (user 2026-11-02) — favourite and archive live in the open chat's menu.
  */
 function Row({
   c,
   when,
   active,
   community,
-  onFlag,
+  menu,
 }: {
   c: ConversationSummary;
   when: string;
   active: boolean;
   /** 0775: the community this group is in — its name replaces the Group tag. */
   community: string | null;
-  onFlag: (change: Flags) => void;
+  /** The ⌄ menu's items (ConversationList's `rowMenu`). */
+  menu: DropdownItem[];
 }) {
   const unread = active || c.muted ? 0 : c.unread_count;
   const label = c.title.replace(/^#/, "");
@@ -935,27 +1037,29 @@ function Row({
         aria-current={active ? "page" : undefined}
         aria-label={`${label}${unread ? `, ${unread} unread` : ""}${c.mention_count && !active ? `, ${c.mention_count} mentioning you` : ""}${c.favorite ? ", favourite" : ""}`}
         className={cn(
-          "flex min-w-0 flex-1 items-center gap-2.5 rounded-xl px-2.5 py-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          "flex min-h-16 min-w-0 flex-1 items-center gap-3 px-4 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           active ? "bg-primary-soft shadow-[inset_3px_0_0_var(--color-primary)]" : "hover:bg-surface-muted",
           c.muted && !active && "opacity-60",
         )}
       >
         <ChatAvatar c={c} size="lg" />
-        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        {/* The divider starts at the text, not the avatar, as WhatsApp draws it. */}
+        <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 self-stretch border-b border-border">
           <span className="flex items-center gap-2">
-            <Truncated text={label} className="min-w-0 flex-1 text-[15px] font-bold text-heading" />
+            <Truncated text={label} className="min-w-0 flex-1 text-[15px] font-bold leading-snug text-heading" />
             <span className={cn("shrink-0 text-xs tabular-nums", unread > 0 ? cn("font-extrabold", UNREAD_TEXT) : "font-medium text-muted-foreground")}>
               {when}
             </span>
           </span>
-          <span className="flex items-center gap-2">
+          {/* Room for the ⌄ while it shows, so it never sits on the badge. */}
+          <span className="flex items-center gap-2 group-focus-within/row:pr-7 group-hover/row:pr-7 [@media(hover:none)]:pr-7">
             {tag && (
               // A community's name can be long; it is cut at 45% of the row and
               // reads whole on hover / press (Truncated).
               <Truncated
                 text={tag}
                 className={cn(
-                  "max-w-[45%] shrink-0 rounded-md px-1.5 text-[11px] font-extrabold",
+                  "max-w-[45%] shrink-0 rounded px-1.5 text-[11px] font-extrabold",
                   c.is_announcement || community
                     ? COMMUNITY_TINT
                     : tag === "Group"
@@ -964,16 +1068,18 @@ function Row({
                 )}
               />
             )}
-            <Truncated text={preview(c)} className={cn("min-w-0 flex-1 text-[13px]", unread > 0 ? "font-semibold text-foreground" : "text-muted-foreground")} />
+            <Truncated text={preview(c)} className={cn("min-w-0 flex-1 text-[13.5px] leading-snug", unread > 0 ? "font-semibold text-foreground" : "text-muted-foreground")} />
             {c.mention_count > 0 && !active && (
               <span className={cn("shrink-0 text-xs font-extrabold", UNREAD_TEXT)} aria-hidden>
                 @
               </span>
             )}
+            {c.muted && <BellOff className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-label="Muted" />}
+            {c.pinned && <Pin className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-label="Pinned" />}
             {c.favorite && <Star className="h-3.5 w-3.5 shrink-0 fill-[#f2a541] text-[#f2a541]" aria-hidden />}
             {unread > 0 && (
               <span
-                className={cn("flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-xs font-extrabold tabular-nums", UNREAD_FILL)}
+                className={cn("flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[11.5px] font-extrabold tabular-nums", UNREAD_FILL)}
                 aria-hidden
               >
                 {unread > 99 ? "99+" : unread}
@@ -982,25 +1088,17 @@ function Row({
           </span>
         </span>
       </Link>
-      <div className="flex shrink-0 gap-0.5 transition-opacity focus-within:opacity-100 group-hover/row:opacity-100 [@media(hover:hover)]:absolute [@media(hover:hover)]:right-2 [@media(hover:hover)]:top-1.5 [@media(hover:hover)]:rounded-xl [@media(hover:hover)]:bg-surface [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:shadow-sm">
-        <button
-          type="button"
-          onClick={() => onFlag({ favorite: !c.favorite })}
-          aria-label={c.favorite ? `Remove ${label} from favourites` : `Add ${label} to favourites`}
-          title={c.favorite ? "Remove from favourites" : "Add to favourites"}
-          className="rounded-xl p-2.5 text-muted-foreground hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [@media(hover:hover)]:p-1.5"
-        >
-          <Star className={cn("h-4 w-4", c.favorite && "fill-[#f2a541] text-[#f2a541]")} aria-hidden />
-        </button>
-        <button
-          type="button"
-          onClick={() => onFlag({ archived: !c.archived })}
-          aria-label={c.archived ? `Unarchive ${label}` : `Archive ${label}`}
-          title={c.archived ? "Unarchive" : "Archive"}
-          className="rounded-xl p-2.5 text-muted-foreground hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [@media(hover:hover)]:p-1.5"
-        >
-          {c.archived ? <ArchiveRestore className="h-4 w-4" aria-hidden /> : <Archive className="h-4 w-4" aria-hidden />}
-        </button>
+      {/* WHATSAPP'S ⌄ (user 2026-11-02): appears on hover or keyboard focus at
+          the row's bottom-right, always on a touch screen. A sibling of the
+          link, never inside it, so opening the menu never opens the chat. */}
+      <div className="absolute bottom-[11px] right-4 opacity-0 transition-opacity focus-within:opacity-100 group-hover/row:opacity-100 has-[[aria-expanded=true]]:opacity-100 [@media(hover:none)]:opacity-100">
+        <DropdownMenu
+          label={`Actions for ${label}`}
+          trigger={<ChevronDown className="h-5 w-5" aria-hidden />}
+          triggerClassName="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-surface hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          items={menu}
+          menuWidth={232}
+        />
       </div>
     </li>
   );
