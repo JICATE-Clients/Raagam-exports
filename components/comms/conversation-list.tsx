@@ -77,7 +77,7 @@ const FILTERS: { value: Filter; label: string }[] = [
 const ROW: Filter[] = ["all", "unread", "favorites", "groups"];
 
 const CHIP =
-  "inline-flex h-[30px] min-w-0 items-center gap-1 whitespace-nowrap rounded-full border px-2.5 text-[13px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  "inline-flex h-8 min-w-0 items-center gap-1 md:h-6 whitespace-nowrap rounded-full border px-3 text-[13px] font-semibold md:px-2 md:text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 const CHIP_OFF = "border-[#d1d7db] bg-surface text-[#54656f] hover:bg-surface-muted dark:border-[#3b4a54] dark:text-[#aebac1]";
 // The chosen filter, the unread counts and the search focus follow the theme
 // colour (user 2026-11-02) instead of WhatsApp's green and the old coral.
@@ -411,7 +411,7 @@ export function ConversationList({
     <div className="flex min-h-0 flex-1 flex-col bg-surface">
       {/* WhatsApp Web spacing (user 2026-11-02): 16px side margin, 12px between
           search, chips and the list. */}
-      <header className="space-y-3 px-4 py-3">
+      <header className="space-y-1.5 py-2 pl-1.5 pr-1 md:py-1.5">
         {/* No "Pulse" title or "All caught up · N chats" line (user 2026-11-02:
             remove the words) — the heading stays for screen readers only. */}
         <h1 className="sr-only">Pulse</h1>
@@ -441,7 +441,7 @@ export function ConversationList({
             placeholder="Search or start a new chat"
             aria-label="Search or start a new chat"
             // WhatsApp Web's search (user 2026-11-02): a 40px pill on a warm grey.
-            className="h-10 rounded-full border-2 border-transparent bg-surface-muted pl-11 pr-9 text-sm placeholder:text-muted-foreground focus-visible:border-primary focus-visible:bg-surface focus-visible:ring-0 md:text-sm [&::-webkit-search-cancel-button]:appearance-none"
+            className="h-10 rounded-full border-2 border-transparent md:h-8 bg-surface-muted pl-11 pr-9 text-sm placeholder:text-muted-foreground focus-visible:border-primary focus-visible:bg-surface focus-visible:ring-0 md:text-sm [&::-webkit-search-cancel-button]:appearance-none"
           />
           {q && (
             <button
@@ -474,7 +474,7 @@ export function ConversationList({
         {!searching && (
           // ONE ROW, ALWAYS (user 2026-11-02): the five filters never wrap; on a pane
           // too narrow for them the words give way with an ellipsis, the ⌄ never does.
-          <div role="group" aria-label="Show chats" className="scrollbar-none flex min-w-0 flex-nowrap items-center gap-1.5 max-md:overflow-x-auto">
+          <div role="group" aria-label="Show chats" className="scrollbar-none flex min-w-0 flex-nowrap items-center gap-1 overflow-x-auto">
             {(ROW.includes(filter) ? FILTERS.filter((f) => ROW.includes(f.value)) : FILTERS.filter((f) => f.value === "all" || f.value === filter)).map((f) => {
               const on = filter === f.value;
               const count = f.value === "all" ? 0 : countOf(f.value);
@@ -485,7 +485,7 @@ export function ConversationList({
                   type="button"
                   aria-pressed={on}
                   onClick={() => setFilter(f.value)}
-                  className={cn(CHIP, "max-md:shrink-0", on ? CHIP_ON : CHIP_OFF)}
+                  className={cn(CHIP, "shrink-0", on ? CHIP_ON : CHIP_OFF)}
                 >
                   {/* truncate-reveal: exempt -- a fixed filter word, shortened only on a pane narrower than any real one */}
                   <span className="min-w-0 truncate">{f.label}</span>
@@ -497,7 +497,7 @@ export function ConversationList({
             <DropdownMenu
               label="More filters"
               trigger={<ChevronDown className="h-4 w-4" aria-hidden />}
-              triggerClassName={cn(CHIP, CHIP_OFF, "w-[30px] shrink-0 justify-center px-0")}
+              triggerClassName={cn(CHIP, CHIP_OFF, "w-6 shrink-0 justify-center px-0")}
               items={(ROW.includes(filter) ? FILTERS.filter((f) => !ROW.includes(f.value)) : FILTERS).map((f) => ({
                 label: f.label,
                 checked: filter === f.value,
@@ -614,7 +614,7 @@ export function ConversationList({
         </section>
       )}
 
-      <nav className="min-h-0 flex-1 overflow-y-auto border-t border-border pb-2" aria-label="Chats">
+      <nav className="scrollbar-none min-h-0 flex-1 overflow-y-auto pb-2" aria-label="Chats">
         {!searching && filter === "all" && archived.length > 0 && (
           <button
             type="button"
@@ -940,7 +940,7 @@ function CommunityBlock({
 /** New chat: the one filled button in the pane, in the redesign's coral. */
 // A 40px round grey icon button, WhatsApp Web style; the open To: screen keeps it tinted.
 const NEW_CHAT =
-  "h-10 w-10 shrink-0 place-items-center rounded-full text-[#54656f] transition-colors hover:bg-[#f0f2f5] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring aria-[current=page]:bg-[#f0f2f5] aria-[current=page]:text-foreground dark:text-[#aebac1] dark:hover:bg-[#202c33] dark:aria-[current=page]:bg-[#202c33]";
+  "h-10 w-10 shrink-0 place-items-center rounded-full text-[#54656f] md:h-8 md:w-8 transition-colors hover:bg-[#f0f2f5] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring aria-[current=page]:bg-[#f0f2f5] aria-[current=page]:text-foreground dark:text-[#aebac1] dark:hover:bg-[#202c33] dark:aria-[current=page]:bg-[#202c33]";
 
 function Caption({ children }: { children: string }) {
   return <p className="px-3 pb-1 pt-1 text-xs font-bold uppercase tracking-[0.06em] text-muted-foreground">{children}</p>;
@@ -956,7 +956,7 @@ function preview(c: ConversationSummary): string {
   return c.kind === "direct" ? "No messages yet" : `${c.member_count} members`;
 }
 
-function ChatAvatar({ c, size }: { c: ConversationSummary; size: "sm" | "md" | "lg" }) {
+function ChatAvatar({ c, size }: { c: ConversationSummary; size: "sm" | "md" | "lg" | "compact" }) {
   const channel = c.kind === "channel";
   const Icon = c.is_announcement ? Megaphone : channel ? (c.visibility === "private" ? Lock : Hash) : c.kind === "group" && !c.name ? Users : null;
   return (
@@ -966,7 +966,7 @@ function ChatAvatar({ c, size }: { c: ConversationSummary; size: "sm" | "md" | "
       className={cn(
         "flex shrink-0 items-center justify-center font-extrabold",
         AVATAR_TINT,
-        size === "sm" ? "h-9 w-9 text-sm" : size === "lg" ? "h-11 w-11 text-sm" : "h-[50px] w-[50px] text-[17px]",
+        size === "compact" ? "h-[38px] w-[38px] text-[13px] max-md:h-11 max-md:w-11 max-md:text-sm" : size === "sm" ? "h-9 w-9 text-sm" : size === "lg" ? "h-11 w-11 text-sm" : "h-[50px] w-[50px] text-[17px]",
         c.kind === "direct" ? "rounded-full" : size === "md" ? "rounded-[15px]" : "rounded-xl",
       )}
     >
@@ -1037,22 +1037,22 @@ function Row({
         aria-current={active ? "page" : undefined}
         aria-label={`${label}${unread ? `, ${unread} unread` : ""}${c.mention_count && !active ? `, ${c.mention_count} mentioning you` : ""}${c.favorite ? ", favourite" : ""}`}
         className={cn(
-          "flex min-h-16 min-w-0 flex-1 items-center gap-3 px-4 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-          active ? "bg-primary-soft shadow-[inset_3px_0_0_var(--color-primary)]" : "hover:bg-surface-muted",
+          "flex min-h-12 min-w-0 flex-1 items-center gap-3 py-1.5 pl-1.5 pr-1 transition-colors md:gap-2 md:py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          active ? "bg-surface-muted" : "hover:bg-surface-muted",
           c.muted && !active && "opacity-60",
         )}
       >
-        <ChatAvatar c={c} size="lg" />
-        {/* The divider starts at the text, not the avatar, as WhatsApp draws it. */}
-        <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 self-stretch border-b border-border">
+        <ChatAvatar c={c} size="compact" />
+        {/* The divider runs edge to edge on the row itself (user 2026-11-02). */}
+        <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 self-stretch">
           <span className="flex items-center gap-2">
             <Truncated text={label} className="min-w-0 flex-1 text-[15px] font-bold leading-snug text-heading" />
             <span className={cn("shrink-0 text-xs tabular-nums", unread > 0 ? cn("font-extrabold", UNREAD_TEXT) : "font-medium text-muted-foreground")}>
               {when}
             </span>
           </span>
-          {/* Room for the ⌄ while it shows, so it never sits on the badge. */}
-          <span className="flex items-center gap-2 group-focus-within/row:pr-7 group-hover/row:pr-7 [@media(hover:none)]:pr-7">
+          {/* No padding change on hover (user 2026-11-02): the ⌄ floats over the row, so the text never reflows. */}
+          <span className="flex items-center gap-2">
             {tag && (
               // A community's name can be long; it is cut at 45% of the row and
               // reads whole on hover / press (Truncated).
@@ -1068,7 +1068,7 @@ function Row({
                 )}
               />
             )}
-            <Truncated text={preview(c)} className={cn("min-w-0 flex-1 text-[13.5px] leading-snug", unread > 0 ? "font-semibold text-foreground" : "text-muted-foreground")} />
+            <span className={cn("line-clamp-2 min-w-0 flex-1 break-words text-[13px] leading-tight", unread > 0 ? "font-semibold text-foreground" : "text-muted-foreground")}>{preview(c)}</span>
             {c.mention_count > 0 && !active && (
               <span className={cn("shrink-0 text-xs font-extrabold", UNREAD_TEXT)} aria-hidden>
                 @
@@ -1091,7 +1091,7 @@ function Row({
       {/* WHATSAPP'S ⌄ (user 2026-11-02): appears on hover or keyboard focus at
           the row's bottom-right, always on a touch screen. A sibling of the
           link, never inside it, so opening the menu never opens the chat. */}
-      <div className="absolute bottom-[11px] right-4 opacity-0 transition-opacity focus-within:opacity-100 group-hover/row:opacity-100 has-[[aria-expanded=true]]:opacity-100 [@media(hover:none)]:opacity-100">
+      <div className="absolute bottom-[6px] right-1 rounded-md bg-surface-muted opacity-0 max-md:hidden transition-opacity focus-within:opacity-100 group-hover/row:opacity-100 has-[[aria-expanded=true]]:opacity-100 [@media(hover:none)]:opacity-100">
         <DropdownMenu
           label={`Actions for ${label}`}
           trigger={<ChevronDown className="h-5 w-5" aria-hidden />}

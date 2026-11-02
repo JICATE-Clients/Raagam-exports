@@ -116,7 +116,7 @@ export function CommsShell({
     <div
       data-focus-scope="off"
       data-comms-frame=""
-      className="@container/comms flex min-h-[22rem] flex-1 flex-col overflow-hidden rounded-lg border border-border bg-surface md:min-h-[30rem]"
+      className="@container/comms flex min-h-[22rem] flex-1 flex-col overflow-hidden rounded-lg border border-border bg-surface max-md:rounded-none max-md:border-0 md:min-h-[30rem]"
     >
       {top}
       {pulse && chats ? (
@@ -130,7 +130,7 @@ export function CommsShell({
               PANE,
               // WhatsApp's width (user 2026-10-31, screenshot 122843): 460px wide fits
               // All · Unread · Favourites · Groups · ▾ on one line.
-              "@3xl/comms:flex @3xl/comms:w-[22rem] @3xl/comms:shrink-0 @5xl/comms:w-[26rem] @6xl/comms:w-[28.75rem]",
+              "@3xl/comms:flex @3xl/comms:w-[18rem] @3xl/comms:shrink-0",
               isHome ? "flex w-full" : "hidden",
             )}
           >
