@@ -115,6 +115,7 @@ export const GROUP_HUB_ICONS: Readonly<Record<string, HubMark>> = {
   "/hr/attendance": { icon: CalendarCheck, tone: "info" },
   "/hr/piece-records": { icon: Scissors, tone: "accent" },
   "/hr/leave": { icon: CalendarOff, tone: "primary" },
+  "/hr/movement-register": { icon: ListOrdered, tone: "info" },
 
   // Pay — Salary Registry (accent) · Bank Details (primary) lead it, then
   // Payroll Runs (success); no two adjacent cards share a tone.

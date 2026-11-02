@@ -1324,6 +1324,9 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         children: [
           { href: "/hr/attendance", label: "Attendance", description: "Mark and review daily attendance" },
           { href: "/hr/piece-records", label: "Piece Records", description: "Piece-rate output per worker" },
+          // Client 2026-11-02 — the legacy register of the same name: every
+          // punch of the day as Time 1, Time 2, … Read-only, from `punches`.
+          { href: "/hr/movement-register", label: "Daily Movement Register", description: "Every punch of the day, in order, per person" },
           { href: "/hr/leave", label: "Leave & Encashment", description: "Leave balances, applications and encashment" },
         ],
       },
