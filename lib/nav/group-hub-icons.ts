@@ -21,6 +21,8 @@ import {
   UserMinus,
   Wallet,
   Gavel,
+  MailWarning,
+  ScrollText,
   TriangleAlert,
   ClipboardList,
   Wrench,
@@ -113,6 +115,7 @@ export const GROUP_HUB_ICONS: Readonly<Record<string, HubMark>> = {
 
   // Time & Attendance
   "/hr/attendance": { icon: CalendarCheck, tone: "info" },
+  "/hr/movement-register": { icon: ListOrdered, tone: "info" },
   "/hr/piece-records": { icon: Scissors, tone: "accent" },
   "/hr/leave": { icon: CalendarOff, tone: "primary" },
 
@@ -156,6 +159,10 @@ export const GROUP_HUB_ICONS: Readonly<Record<string, HubMark>> = {
   "/hr/performance/appraisals": { icon: ClipboardPen, tone: "info" },
   "/hr/performance/promotions": { icon: TrendingUp, tone: "success" },
   "/hr/performance/training": { icon: GraduationCap, tone: "accent" },
+  // Conduct & Policies (0791)
+  "/hr/conduct/memos": { icon: MailWarning, tone: "warning" },
+  "/hr/conduct/cases": { icon: ShieldAlert, tone: "danger" },
+  "/hr/conduct/policies": { icon: ScrollText, tone: "primary" },
 
   // Resolve Hub — Reporting · Work · Administration
   "/resolve/report": { icon: TriangleAlert, tone: "danger" },

@@ -1,9 +1,10 @@
 import "server-only";
+import { readPunches } from "@/lib/hr/punch-read";
 import { createClient } from "@/lib/supabase/server";
 import { listCategoryTimings } from "@/lib/masters/category-timing-service";
 import type { CategoryTiming, PersonKind } from "@/lib/masters/category-timing-types";
 import { listDevices, type DeviceRow } from "./punch-service";
-import { computeGroupDays, fetchFrom, type GroupDay, type Person, type RawPunch } from "./timing-calc";
+import { computeGroupDays, fetchFrom, istDay as istDayOf, type GroupDay, type Person, type PersonDay, type RawPunch } from "./timing-calc";
 
 // created-by: exempt -- a dashboard read model, not a listing of records.
 
@@ -42,7 +43,86 @@ export interface HrDashboard {
   trendByDept: boolean;
   /** Approved Time Off covering today, one per person (by device id). */
   timeOff: TimeOffToday[];
+  /** The "Needs attention" list — patterns over the last week, not today's counts. */
+  attention: Attention;
+  /** Everyone active, on the reader or not — celebrations and workforce mix. */
+  roster: RosterPerson[];
+  /** Time Off requests still waiting for a decision, oldest first. */
+  pendingTimeOff: PendingTimeOff[];
+  /** Approval steps waiting on the person viewing (every module, not only HR). */
+  waitingOnMe: number;
+  /** Open work across the HR modules — the unit in view, not narrowed by the filter. */
+  pipeline: HrPipeline;
 }
+
+export interface RosterPerson {
+  /** "staff:<id>" / "worker:<id>". */
+  key: string;
+  kind: PersonKind;
+  name: string;
+  code: string | null;
+  departmentId: string | null;
+  departmentName: string | null;
+  designation: string | null;
+  gender: string | null;
+  dob: string | null;
+  joined: string | null;
+}
+
+export interface PendingTimeOff {
+  id: string;
+  personKey: string;
+  name: string;
+  kind: "leave" | "permission";
+  type: string;
+  from: string;
+  to: string;
+  days: number;
+  createdAt: string;
+}
+
+export interface HrPipeline {
+  openJobs: number;
+  candidates: number;
+  joining: number;
+  exits: number;
+  memos: number;
+  cases: number;
+}
+
+/** One person in a "Needs attention" line. */
+export interface AttentionPerson {
+  /** "staff:<id>" / "worker:<id>" — what Issue memo pre-fills. */
+  key: string | null;
+  bio: string;
+  name: string;
+  code: string | null;
+  kind: PersonKind;
+  departmentId: string | null;
+  departmentName: string | null;
+  /** Late: days late. Absent: working days running. Missed out: 1. */
+  count: number;
+  /** Late: average minutes late. Missed out: their In (epoch ms). */
+  detail: number;
+}
+
+export interface Attention {
+  /** Late on 3 or more of the last 7 shift days (today included). */
+  late: AttentionPerson[];
+  /** Absent 2 or more working days running, up to today, with no approved leave / on duty. */
+  absent: AttentionPerson[];
+  /** Punched In on the last shift day and never Out. */
+  missedOut: AttentionPerson[];
+  /** The shift day "missed out" is about (YYYY-MM-DD). */
+  missedOutDay: string;
+  /** Devices switched on that have been silent for 30 minutes or more. */
+  silentDevices: DeviceRow[];
+}
+
+/** How many late days in the week make a pattern; how many absent days in a row. */
+export const LATE_PATTERN = 3;
+export const ABSENT_RUN = 2;
+const SILENT_MS = 30 * 60_000;
 
 /**
  * What an approved Time Off request makes of a person today (0770): Leave
@@ -88,6 +168,10 @@ const FEED_ROWS = 25;
  * filters"): Staff lists only departments that have staff on the reader, and a
  * picked department the side doesn't have is dropped rather than kept.
  */
+function keepAttention(a: Attention, keep: (p: AttentionPerson) => boolean): Attention {
+  return { ...a, late: a.late.filter(keep), absent: a.absent.filter(keep), missedOut: a.missedOut.filter(keep) };
+}
+
 export function filterHrDashboard(
   data: HrDashboard,
   filter: HrDashboardFilter,
@@ -132,6 +216,12 @@ export function filterHrDashboard(
         return data.timeOff.filter((t) => bios.has(t.bio));
       })(),
       feed: data.feed.filter((f) => f.kind === filter.kind && keep(f.departmentId)).slice(0, FEED_ROWS),
+      attention: keepAttention(data.attention, (p) => p.kind === filter.kind && keep(p.departmentId)),
+      ...(() => {
+        const roster = data.roster.filter((p) => p.kind === filter.kind && keep(p.departmentId));
+        const keys = new Set(roster.map((p) => p.key));
+        return { roster, pendingTimeOff: data.pendingTimeOff.filter((t) => keys.has(t.personKey)) };
+      })(),
     },
     depts,
     picked,
@@ -150,29 +240,20 @@ type PersonRow = {
 };
 
 /**
- * A day of punches can outgrow one PostgREST read (~1,800 people × 4 punches),
- * so read it in pages instead of trusting one `.limit()` to cover it.
+ * A week of punches outgrows one PostgREST read (~1,800 people × 4 punches a
+ * day), so it is read in pages — side by side, through `readPunches`, not one
+ * after another (client 2026-11-02: the HR module loading slowly). `toIso`
+ * bounds the read when only a slice is wanted.
  */
-async function punchesSince(fromIso: string): Promise<RawPunch[]> {
+async function punchesSince(fromIso: string, toIso?: string): Promise<RawPunch[]> {
   const s = await createClient();
-  const out: RawPunch[] = [];
-  const PAGE = 1000;
-  for (let page = 0; page < 20; page++) {
-    const { data, error } = await s
-      .from("punches")
-      .select("user_id, punch_time")
-      .gte("punch_time", fromIso)
-      .order("punch_time", { ascending: true })
-      .order("id", { ascending: true })
-      .range(page * PAGE, page * PAGE + PAGE - 1);
-    if (error) {
-      console.error("[hr-dashboard] punches failed", error);
-      break;
-    }
-    out.push(...((data ?? []) as RawPunch[]));
-    if (!data || data.length < PAGE) break;
+  try {
+    const { rows } = await readPunches<RawPunch & { id: number }>(s, "id, user_id, punch_time", fromIso, toIso);
+    return rows;
+  } catch (error) {
+    console.error("[hr-dashboard] punches failed", error);
+    return [];
   }
-  return out;
 }
 
 async function enrolledPeople(): Promise<{ people: Person[]; noCategory: number; bioOf: Map<string, string> }> {
@@ -204,6 +285,7 @@ async function enrolledPeople(): Promise<{ people: Person[]; noCategory: number;
     if (!r.category_id) noCategory++;
     people.push({
       bio,
+      key: `${kind}:${r.id}`,
       name: r.name,
       code: r.code,
       kind,
@@ -266,6 +348,128 @@ async function timeOffToday(now: number, bioOf: Map<string, string>): Promise<Ti
   return [...out.values()];
 }
 
+/**
+ * Approved Leave / On Duty days per person over [from, to] — what excuses an
+ * absence. Permission (short time off) never excuses a whole day.
+ */
+async function excusedDays(from: string, to: string, bioOf: Map<string, string>): Promise<Map<string, Set<string>>> {
+  const s = await createClient();
+  const { data, error } = await s
+    .from("timeoff_requests")
+    .select("staff_id, worker_id, start_date, end_date")
+    .eq("status", "approved")
+    .neq("request_category", "short_time_off")
+    .lte("start_date", to)
+    .gte("end_date", from);
+  if (error) {
+    console.error("[hr-dashboard] time off (week) failed", error);
+    return new Map();
+  }
+  const out = new Map<string, Set<string>>();
+  type Row = { staff_id: string | null; worker_id: string | null; start_date: string; end_date: string };
+  for (const r of (data ?? []) as Row[]) {
+    const bio = r.staff_id ? bioOf.get(`staff:${r.staff_id}`) : r.worker_id ? bioOf.get(`worker:${r.worker_id}`) : undefined;
+    if (!bio) continue;
+    const set = out.get(bio) ?? new Set<string>();
+    for (let d = r.start_date > from ? r.start_date : from; d <= r.end_date && d <= to; d = addDay(d, 1)) set.add(d);
+    out.set(bio, set);
+  }
+  return out;
+}
+
+function addDay(day: string, n: number): string {
+  return new Date(Date.parse(`${day}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+}
+
+const WEEK = 7;
+/** A day counts as a working day for a side when at least this share of it punched in. */
+const WORKING_DAY_SHARE = 0.2;
+const PRESENT_STATUSES = new Set(["inside", "stepped_out", "left", "left_early"]);
+
+/**
+ * NEEDS ATTENTION (client 2026-11-02, in place of the punches-per-hour chart):
+ * patterns HR can act on, worked out from the same punches and the same rules
+ * as everything else here — each past shift day through `computeGroupDays`
+ * with that day fixed.
+ *
+ * Sundays and holidays are not in any master the dashboard reads, so a day
+ * only counts toward an absence run when the factory was evidently working:
+ * at least a fifth of that side punched in. A day nobody came is nobody's
+ * absence.
+ */
+function attentionOf(
+  people: Person[],
+  punches: RawPunch[],
+  timings: CategoryTiming[],
+  now: number,
+  today: GroupDay[],
+  excused: Map<string, Set<string>>,
+  devices: DeviceRow[],
+): Attention {
+  const todayDay = istDayOf(now);
+  // Oldest first: days[0] = 6 days ago … days[6] = today.
+  const days = Array.from({ length: WEEK }, (_, i) => addDay(todayDay, i - (WEEK - 1)));
+  const perDay: Map<string, PersonDay>[] = days.map((d, i) => {
+    const groups = i === WEEK - 1 ? today : computeGroupDays(people, punches, timings, now, d);
+    return new Map(groups.flatMap((g) => g.people.map((p) => [p.person.bio, p] as const)));
+  });
+  const working = perDay.map((m) => {
+    const ok = new Set<PersonKind>();
+    for (const kind of ["staff", "worker"] as const) {
+      const mine = people.filter((p) => p.kind === kind);
+      const came = mine.filter((p) => PRESENT_STATUSES.has(m.get(p.bio)?.status ?? "")).length;
+      if (mine.length && came / mine.length >= WORKING_DAY_SHARE) ok.add(kind);
+    }
+    return ok;
+  });
+
+  const base = (p: Person) => ({
+    key: p.key ?? null,
+    bio: p.bio,
+    name: p.name,
+    code: p.code,
+    kind: p.kind,
+    departmentId: p.departmentId,
+    departmentName: p.departmentName,
+  });
+
+  const late: AttentionPerson[] = [];
+  const absent: AttentionPerson[] = [];
+  const missedOut: AttentionPerson[] = [];
+  for (const p of people) {
+    const week = perDay.map((m) => m.get(p.bio)).filter((d): d is PersonDay => !!d);
+    const lates = week.filter((d) => PRESENT_STATUSES.has(d.status) && d.lateMin > 0);
+    if (lates.length >= LATE_PATTERN) {
+      late.push({ ...base(p), count: lates.length, detail: Math.round(lates.reduce((t, d) => t + d.lateMin, 0) / lates.length) });
+    }
+
+    // Absent run: back from today over working days. Today counts only once
+    // its Punch In + grace has passed ("absent", not "not in yet").
+    let run = 0;
+    for (let i = WEEK - 1; i >= 0; i--) {
+      const d = perDay[i].get(p.bio);
+      if (i === WEEK - 1 && d?.status === "not_in") continue;
+      if (i !== WEEK - 1 && !working[i].has(p.kind)) continue;
+      if (d?.status === "absent" && !excused.get(p.bio)?.has(days[i])) run++;
+      else break;
+    }
+    if (run >= ABSENT_RUN) absent.push({ ...base(p), count: run, detail: 0 });
+
+    const y = perDay[WEEK - 2].get(p.bio);
+    if (y && (y.status === "inside" || y.status === "stepped_out") && y.firstAt != null) {
+      missedOut.push({ ...base(p), count: 1, detail: y.firstAt });
+    }
+  }
+  late.sort((a, b) => b.count - a.count || b.detail - a.detail || a.name.localeCompare(b.name));
+  absent.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  missedOut.sort((a, b) => a.name.localeCompare(b.name));
+
+  const silentDevices = devices.filter(
+    (d) => d.is_active && d.enabled && !!d.last_seen && now - Date.parse(d.last_seen) >= SILENT_MS,
+  );
+  return { late, absent, missedOut, missedOutDay: days[WEEK - 2], silentDevices };
+}
+
 async function trend(): Promise<{ rows: TrendRow[]; byDept: boolean }> {
   const s = await createClient();
   const byDept = await s.rpc("hr_attendance_trend_by_dept", { p_days: 7 });
@@ -279,16 +483,42 @@ async function trend(): Promise<{ rows: TrendRow[]; byDept: boolean }> {
 }
 
 export async function getHrDashboard(now: number): Promise<HrDashboard> {
-  const [timings, { people, noCategory, bioOf }] = await Promise.all([listCategoryTimings(), enrolledPeople()]);
-  const from = new Date(fetchFrom([...new Set(people.map((p) => p.categoryId))], timings, now)).toISOString();
-  const [punches, trendRows, devices, timeOff] = await Promise.all([
-    punchesSince(from),
+  // Today's window, widened to the week "Needs attention" looks back over:
+  // from midnight IST six days ago, so each of those shift days is whole
+  // (short of a shift that clocks in before 4 AM).
+  const todayDay = istDayOf(now);
+  const weekFrom = Date.parse(`${addDay(todayDay, -(WEEK - 1))}T00:00:00Z`) - 330 * 60_000;
+
+  // EVERYTHING THAT DOES NOT NEED THE PEOPLE STARTS NOW (client 2026-11-02:
+  // HR "loading time is lil bit long"). Only time off needs `bioOf`, yet the
+  // week of punches, trend, devices, roster, approvals and pipeline all queued
+  // behind the people read. The punches start from the week's first midnight:
+  // a current shift starts today or yesterday, so `fetchFrom` is later — and
+  // if a timing ever starts earlier, the gap is read below rather than lost.
+  const early = Promise.all([
+    punchesSince(new Date(weekFrom).toISOString()),
     trend(),
     listDevices(),
-    timeOffToday(now, bioOf),
+    rosterOf(),
+    pendingTimeOffOf(),
+    waitingOnMeCount(),
+    pipelineOf(),
   ]);
+  const [timings, { people, noCategory, bioOf }] = await Promise.all([listCategoryTimings(), enrolledPeople()]);
+  const shiftFrom = fetchFrom([...new Set(people.map((p) => p.categoryId))], timings, now);
+  const [[weekPunches, trendRows, devices, roster, pendingTimeOff, waitingOnMe, pipeline], timeOff, excused, gap] =
+    await Promise.all([
+      early,
+      timeOffToday(now, bioOf),
+      excusedDays(addDay(todayDay, -(WEEK - 1)), todayDay, bioOf),
+      shiftFrom < weekFrom
+        ? punchesSince(new Date(shiftFrom).toISOString(), new Date(weekFrom).toISOString())
+        : Promise.resolve([] as RawPunch[]),
+    ]);
+  const punches = gap.length ? [...gap, ...weekPunches] : weekPunches;
 
   const groups = computeGroupDays(people, punches, timings, now);
+  const attention = attentionOf(people, punches, timings, now, groups, excused, devices);
 
   // The feed labels each punch by its place in that person's day, from the
   // same debounced list the statuses came from — so the feed and the tiles
@@ -324,5 +554,118 @@ export async function getHrDashboard(now: number): Promise<HrDashboard> {
     unlinkedIds: unlinked.size,
     noCategory,
     timeOff,
+    attention,
+    roster,
+    pendingTimeOff,
+    waitingOnMe,
+    pipeline,
   };
+}
+
+type One<T> = T | T[] | null;
+const one = <T,>(v: One<T>): T | null => (Array.isArray(v) ? (v[0] ?? null) : v);
+
+/** Every active staff and worker — on the punch reader or not. */
+async function rosterOf(): Promise<RosterPerson[]> {
+  const s = await createClient();
+  const sel =
+    "id, name, code, gender, date_of_birth, joined_date, department_id, department:departments!department_id(name), designation:designations!designation_id(name)";
+  const [staff, workers] = await Promise.all([
+    s.from("staff").select(sel).eq("is_active", true),
+    s.from("workers").select(sel).eq("is_active", true),
+  ]);
+  if (staff.error) console.error("[hr-dashboard] roster staff failed", staff.error);
+  if (workers.error) console.error("[hr-dashboard] roster workers failed", workers.error);
+  type Row = {
+    id: string;
+    name: string;
+    code: string | null;
+    gender: string | null;
+    date_of_birth: string | null;
+    joined_date: string | null;
+    department_id: string | null;
+    department: One<{ name: string }>;
+    designation: One<{ name: string }>;
+  };
+  const shape = (kind: PersonKind) => (r: Row): RosterPerson => ({
+    key: `${kind}:${r.id}`,
+    kind,
+    name: r.name,
+    code: r.code,
+    departmentId: r.department_id,
+    departmentName: one(r.department)?.name ?? null,
+    designation: one(r.designation)?.name ?? null,
+    gender: r.gender,
+    dob: r.date_of_birth,
+    joined: r.joined_date,
+  });
+  return [
+    ...((staff.data ?? []) as unknown as Row[]).map(shape("staff")),
+    ...((workers.data ?? []) as unknown as Row[]).map(shape("worker")),
+  ];
+}
+
+async function pendingTimeOffOf(): Promise<PendingTimeOff[]> {
+  const s = await createClient();
+  const { data, error } = await s
+    .from("timeoff_requests")
+    .select(
+      "id, staff_id, worker_id, request_category, start_date, end_date, total_days, created_at, " +
+        "staff:staff!staff_id(name), worker:workers!worker_id(name), type:timeoff_leave_types!leave_type_id(name)",
+    )
+    .eq("status", "pending")
+    .order("created_at")
+    .limit(200);
+  if (error) {
+    console.error("[hr-dashboard] pending time off failed", error);
+    return [];
+  }
+  type Row = {
+    id: string;
+    staff_id: string | null;
+    worker_id: string | null;
+    request_category: string;
+    start_date: string;
+    end_date: string;
+    total_days: number | null;
+    created_at: string;
+    staff: One<{ name: string }>;
+    worker: One<{ name: string }>;
+    type: One<{ name: string }>;
+  };
+  return ((data ?? []) as unknown as Row[]).map((r) => ({
+    id: r.id,
+    personKey: r.staff_id ? `staff:${r.staff_id}` : `worker:${r.worker_id}`,
+    name: one(r.staff)?.name ?? one(r.worker)?.name ?? "—",
+    kind: r.request_category === "short_time_off" ? "permission" : "leave",
+    type: one(r.type)?.name ?? (r.request_category === "short_time_off" ? "Permission" : "Leave"),
+    from: r.start_date,
+    to: r.end_date,
+    days: Number(r.total_days ?? 0),
+    createdAt: r.created_at,
+  }));
+}
+
+/** The engine's inbox may refuse a login without approvals access — that only means 0. */
+async function waitingOnMeCount(): Promise<number> {
+  const s = await createClient();
+  const { data, error } = await s.rpc("approval_my_queue", { p_workflow_key: null, p_tenant_id: null, p_limit: 500, p_offset: 0 });
+  return error ? 0 : ((data ?? []) as unknown[]).length;
+}
+
+async function pipelineOf(): Promise<HrPipeline> {
+  const s = await createClient();
+  const n = async (table: string, col: string, values: string[]): Promise<number> => {
+    const { count, error } = await s.from(table).select("id", { count: "exact", head: true }).in(col, values);
+    return error ? 0 : (count ?? 0);
+  };
+  const [openJobs, candidates, joining, exits, memos, cases] = await Promise.all([
+    n("rc_jobs", "status", ["open"]),
+    n("rc_candidates", "status", ["new", "shortlisted", "interview", "pending_approval", "approved", "offered"]),
+    n("lc_onboardings", "status", ["in_progress"]),
+    n("lc_exits", "status", ["pending_approval", "open"]),
+    n("cd_memos", "status", ["issued", "disputed"]),
+    n("cd_cases", "status", ["active", "pending_approval"]),
+  ]);
+  return { openJobs, candidates, joining, exits, memos, cases };
 }

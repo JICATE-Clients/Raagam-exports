@@ -1,7 +1,8 @@
-import { forwardRef, type InputHTMLAttributes } from "react";
+import { forwardRef, useState, type ChangeEvent, type InputHTMLAttributes } from "react";
 import { useLocked, useRequiredHold } from "@/components/ui/field";
 import { cn } from "@/lib/utils";
 import { hint } from "@/lib/ui/placeholders";
+import { flipMeridiem, fmt12, isPm, parseTime12 } from "@/lib/time12";
 
 /**
  * Is this control empty, for the mandatory-field hold?
@@ -127,9 +128,7 @@ function capsByDefault(type: string | undefined, readOnly: boolean | undefined) 
  */
 export const DATE_MAX = "9999-12-31";
 
-export const Input = forwardRef<
-  HTMLInputElement,
-  InputHTMLAttributes<HTMLInputElement> & {
+type InputProps = InputHTMLAttributes<HTMLInputElement> & {
     /** Render + store CAPITALS as the user types (master Name fields — client
      *  2026-07-23). Mutates the value before onChange so the saved data is
      *  genuinely uppercase, AND applies `text-transform: uppercase` so values
@@ -141,8 +140,9 @@ export const Input = forwardRef<
      *  See `capsByDefault` below for why the default flipped and what exempts
      *  itself without being asked. */
     uppercase?: boolean;
-  }
->(({ className, uppercase, onChange, readOnly: ownReadOnly, tabIndex, placeholder, ...props }, ref) => {
+};
+
+const TextInput = forwardRef<HTMLInputElement, InputProps>(({ className, uppercase, onChange, readOnly: ownReadOnly, tabIndex, placeholder, ...props }, ref) => {
   /**
    * A LOCKED RECORD IS READ-ONLY (`LockScope`, field.tsx) — the field's own
    * `readOnly` OR the surface's lock. Two readers keep reading the CALLER'S
@@ -456,4 +456,105 @@ export const Input = forwardRef<
   />
   );
 });
+TextInput.displayName = "TextInput";
+
+/**
+ * TIME IS 12-HOUR ON EVERY MACHINE (client 2026-11-02: "when the client tried
+ * to enter the timing it shows them in 24 hrs … everyone also needs to see 12
+ * hrs").
+ *
+ * `<input type="time">` is browser chrome: it draws 09:00 AM or 09:00 by the
+ * COMPUTER'S region, and no attribute, CSS or prop on the page can choose — the
+ * same wall the date box hits (LAYOUT.md §12). Ours read 12-hour and the
+ * client's 24-hour, from one build. So a time is a TEXT box here, drawn
+ * "09:30 AM" by `fmt12` whatever the machine, typed the way people write a time
+ * (`parseTime12`: 9 · 930 · 9:30 · 9:30pm · 21:30), with an AM/PM switch inside
+ * it for the mouse.
+ *
+ * NOTHING ABOUT THE VALUE CHANGES. Screens still receive "HH:MM", 24-hour,
+ * through `e.target.value` — the shape `type="time"` gave them and a Postgres
+ * `time` column stores — so every `<Input type="time">` in the app, and every
+ * one written later, is 12-hour without being edited. ONE PLACE, for the reason
+ * this file gives for capitals and number fields.
+ *
+ * What the box shows while typing is the operator's own text; it is redrawn in
+ * the house form when they leave it, so the reading of a bare "1" (1 PM next to
+ * a 2:00 PM lunch) is never hidden. Text that is not a time puts the last good
+ * value back. The switch is off the Tab path (Tab lands on fields) and keeps
+ * the caret where it was.
+ */
+const TimeInput = forwardRef<HTMLInputElement, InputProps>(function TimeInput(
+  { value, onChange, onFocus, onBlur, className, placeholder, type: _type, min: _min, max: _max, step: _step, ...rest },
+  ref,
+) {
+  const stored = typeof value === "string" ? value : "";
+  const [text, setText] = useState(() => fmt12(stored));
+  /** The stored value `text` was last drawn from — a new one from outside redraws it. */
+  const [drawn, setDrawn] = useState(stored);
+  /** The value when the field was entered: which side of noon a bare "1" means. */
+  const [entered, setEntered] = useState<string | null>(null);
+  if (stored !== drawn) {
+    setDrawn(stored);
+    setText(fmt12(stored));
+  }
+  const emit = (next: string) => {
+    setDrawn(next);
+    onChange?.({ target: { value: next }, currentTarget: { value: next } } as unknown as ChangeEvent<HTMLInputElement>);
+  };
+  const pm = isPm(stored);
+  const live = !rest.readOnly && !rest.disabled;
+  return (
+    <div className="relative w-full">
+      <TextInput
+        ref={ref}
+        {...rest}
+        type="text"
+        inputMode="text"
+        value={text}
+        placeholder={placeholder ?? "hh:mm AM"}
+        className={cn("pr-11 tabular-nums", className)}
+        onFocus={(e) => {
+          setEntered(stored);
+          onFocus?.(e);
+        }}
+        onChange={(e) => {
+          const raw = e.target.value;
+          setText(raw);
+          if (!raw.trim()) {
+            if (stored) emit("");
+            return;
+          }
+          const next = parseTime12(raw, entered ?? stored);
+          if (next && next !== stored) emit(next);
+        }}
+        onBlur={(e) => {
+          setText(fmt12(stored));
+          setEntered(null);
+          onBlur?.(e);
+        }}
+      />
+      {pm !== null && live && (
+        <button
+          type="button"
+          tabIndex={-1}
+          aria-label={`Switch to ${pm ? "AM" : "PM"}`}
+          title={`Switch to ${pm ? "AM" : "PM"}`}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => {
+            const next = flipMeridiem(stored);
+            setText(fmt12(next));
+            emit(next);
+          }}
+          className="absolute inset-y-1 right-1 rounded px-1.5 text-xs font-semibold text-muted-foreground hover:bg-surface-muted hover:text-foreground"
+        >
+          {pm ? "PM" : "AM"}
+        </button>
+      )}
+    </div>
+  );
+});
+
+export const Input = forwardRef<HTMLInputElement, InputProps>((props, ref) =>
+  props.type === "time" ? <TimeInput {...props} ref={ref} /> : <TextInput {...props} ref={ref} />,
+);
 Input.displayName = "Input";

@@ -36,6 +36,7 @@ import {
   Receipt,
   Ruler,
   Scale,
+  ShieldAlert,
   Scissors,
   Server,
   Settings,
@@ -1324,6 +1325,9 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         description: "Attendance, piece records and leave",
         children: [
           { href: "/hr/attendance", label: "Attendance", description: "Mark and review daily attendance" },
+          // Client 2026-11-02 — the legacy register of the same name: every
+          // punch of the day as Time 1, Time 2, … Read-only, from `punches`.
+          { href: "/hr/movement-register", label: "Daily Movement Register", description: "Every punch of the day, in order, per person" },
           { href: "/hr/piece-records", label: "Piece Records", description: "Piece-rate output per worker" },
           { href: "/hr/leave", label: "Leave & Encashment", description: "Leave balances, applications and encashment" },
         ],
@@ -1426,6 +1430,18 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           { href: "/hr/performance/appraisals", label: "Appraisals", description: "Self-rating, supervisor rating and approval for each person" },
           { href: "/hr/performance/promotions", label: "Promotions", description: "Promotions sent for approval; approval sets the designation" },
           { href: "/hr/performance/training", label: "Training", description: "Training sessions, attendance and certificates" },
+        ],
+      },
+      {
+        kind: "group",
+        slug: "conduct",
+        label: "Conduct & Policies",
+        icon: ShieldAlert,
+        description: "Memos, disciplinary cases and the policy library",
+        children: [
+          { href: "/hr/conduct/memos", label: "Memos", description: "Memos issued to a person, their reply, and how each was closed" },
+          { href: "/hr/conduct/cases", label: "Disciplinary Cases", description: "Enquiry, hearing and a decision approved by the MD" },
+          { href: "/hr/conduct/policies", label: "Policies", description: "Written policies, their versions, and who has read them" },
         ],
       },
     ],
