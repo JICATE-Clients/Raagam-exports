@@ -24,6 +24,8 @@ import {
   ShieldAlert,
   TrendingUp,
   UserCheck,
+  Warehouse,
+  IndianRupee,
   type LucideIcon,
 } from "lucide-react";
 import type { Module } from "@/lib/auth/types";
@@ -138,6 +140,20 @@ export const REPORTS: ReportDefinition[] = [
     label: "Material In Transit",
     description: "Sent between Raagam HO, Unit 2 and Unit 3 and not yet received",
     icon: Truck,
+    module: "stores",
+  },
+  {
+    slug: "stock-statement",
+    label: "Stock Statement",
+    description: "Stock on hand per store, bin, GRN and lot - accepted, rejected, replacement and its age",
+    icon: Warehouse,
+    module: "stores",
+  },
+  {
+    slug: "stock-statement-value",
+    label: "Stock Statement with Value",
+    description: "Stock on hand at the approved PO rate - yarn, fabric and total inventory value",
+    icon: IndianRupee,
     module: "stores",
   },
   {
