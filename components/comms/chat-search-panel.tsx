@@ -101,7 +101,7 @@ export function ChatSearchPanel({
           }}
           placeholder="Search…"
           aria-label="Search messages in this chat"
-          className="h-10 rounded-full border-2 border-transparent bg-[#f5f4f2] pl-11 pr-4 focus-visible:border-[#15603e] focus-visible:bg-surface focus-visible:ring-0 dark:bg-[#202c33] dark:focus-visible:border-[#7ae3a5] [&::-webkit-search-cancel-button]:appearance-none"
+          className="h-10 rounded-full border-2 border-transparent bg-surface-muted pl-11 pr-4 focus-visible:border-primary focus-visible:bg-surface focus-visible:ring-0 [&::-webkit-search-cancel-button]:appearance-none"
         />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto" role="list" aria-label="Results">

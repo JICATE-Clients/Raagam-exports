@@ -30,6 +30,7 @@ export function MessageBody({
   meId,
   className,
   recordLinks = true,
+  trailer,
 }: {
   body: string | null;
   names: Map<string, string | null>;
@@ -37,11 +38,19 @@ export function MessageBody({
   className?: string;
   /** False when the whole message is already a link (Saved, Search). */
   recordLinks?: boolean;
+  /**
+   * Drawn at the END of the last paragraph — a chat bubble's time, floated
+   * right, so a short message keeps its time on the same line as WhatsApp does
+   * ("3471  2:00 PM ✓✓"). After any other last block it gets a line of its own.
+   */
+  trailer?: ReactNode;
 }) {
   const ctx: Ctx = { names, meId, recordLinks, links: true };
+  const blocks = parseBlocks(body);
+  const lastIsText = blocks.length > 0 && !["code", "quote", "ul", "ol"].includes(blocks[blocks.length - 1].kind);
   return (
     <div className={cn("space-y-1 break-words text-sm leading-relaxed text-foreground", className)}>
-      {parseBlocks(body).map((b, i) => {
+      {blocks.map((b, i) => {
         switch (b.kind) {
           case "code":
             return (
@@ -75,10 +84,12 @@ export function MessageBody({
             return (
               <p key={i} className="whitespace-pre-wrap">
                 {inline(parseInline(b.text), ctx)}
+                {i === blocks.length - 1 && trailer}
               </p>
             );
         }
       })}
+      {trailer && !lastIsText && <p className="flow-root">{trailer}</p>}
     </div>
   );
 }

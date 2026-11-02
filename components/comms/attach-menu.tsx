@@ -127,7 +127,7 @@ export function AttachMenu({ onPick, disabled = false }: { onPick: (item: Attach
         aria-label="Attach"
         title="Attach"
         className={cn(
-          "inline-flex h-9 w-9 items-center justify-center rounded-control text-[#54656f] hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 dark:text-[#aebac1]",
+          "inline-flex h-10 w-10 items-center justify-center rounded-full text-[#54656f] hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 dark:text-[#aebac1]",
           open && "bg-surface-muted text-foreground",
         )}
       >

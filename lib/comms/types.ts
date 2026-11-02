@@ -95,6 +95,9 @@ export interface ConversationSummary {
    *  section. `archived` is personal; `is_archived` is a channel closed for all. */
   favorite: boolean;
   archived: boolean;
+  /** 0751's pinned_at on the caller's own membership: the chat sits at the top
+   *  of Pulse (user 2026-11-02, the row ⌄ menu's "Pin chat"). */
+  pinned?: boolean;
   /** 0764: the newest top-level message the caller may read, for the row's
    *  preview. `last_body` is null when it was deleted or file-only. */
   last_body: string | null;

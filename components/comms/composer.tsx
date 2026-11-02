@@ -521,7 +521,7 @@ export function Composer({
 
   return (
     <div
-      className={cn("relative bg-surface", chat ? "px-2 pb-2 pt-1.5" : "border-t border-border p-3", dragging && "bg-primary-soft/40 ring-2 ring-inset ring-primary")}
+      className={cn("relative bg-surface", chat ? "border-t border-border px-4 py-2.5" : "border-t border-border p-3", dragging && "bg-primary-soft/40 ring-2 ring-inset ring-primary")}
       onDragOver={onDragOver}
       onDragLeave={() => setDragging(false)}
       onDrop={onDrop}
@@ -615,7 +615,7 @@ export function Composer({
       <div
         className={cn(
           chat
-            ? "relative flex items-end gap-1"
+            ? "relative flex items-end gap-2"
             : "rounded-lg border border-border bg-surface focus-within:border-primary focus-within:ring-1 focus-within:ring-primary",
         )}
       >
@@ -655,7 +655,7 @@ export function Composer({
           onBlur={() => setMention(null)}
           className={
             chat
-              ? "order-3 field-sizing-content max-h-32 min-h-11 min-w-0 flex-1 resize-none rounded-[22px] border-2 border-transparent bg-[#f5f4f2] px-4 py-2.5 shadow-none placeholder:text-[#54656f] focus-visible:border-[#15603e] focus-visible:ring-0 focus-visible:ring-offset-0 dark:bg-[#202c33] dark:placeholder:text-[#aebac1] dark:focus-visible:border-[#7ae3a5] max-md:max-h-28"
+              ? "order-3 field-sizing-content max-h-32 min-h-[42px] min-w-0 flex-1 resize-none rounded-[10px] border border-border bg-[#f7f8fa] px-4 py-2.5 text-sm shadow-none md:text-sm placeholder:text-muted-foreground focus-visible:border-primary focus-visible:bg-surface focus-visible:ring-0 focus-visible:ring-offset-0 dark:bg-surface-muted max-md:max-h-28"
               : "max-h-48 min-h-14 w-full resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 max-md:max-h-28"
           }
         />
@@ -677,7 +677,7 @@ export function Composer({
           <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" aria-hidden tabIndex={-1} onChange={(e) => { void addFiles(e.target.files); e.target.value = ""; }} />
           <input ref={audioRef} type="file" multiple accept="audio/mpeg,audio/mp4,audio/x-m4a,audio/aac,audio/ogg,audio/wav,audio/x-wav,audio/webm,.mp3,.m4a,.aac,.ogg,.wav" className="hidden" aria-hidden tabIndex={-1} onChange={(e) => { void addFiles(e.target.files); e.target.value = ""; }} />
           <input ref={stickerRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" className="hidden" aria-hidden tabIndex={-1} onChange={(e) => void sendSticker(e.target.files?.[0])} />
-          <span title={`Attach: ${ATTACHMENT_TYPES_LABEL}`} className={cn(chat && "order-1 pb-1")}>
+          <span title={`Attach: ${ATTACHMENT_TYPES_LABEL}`} className={cn(chat && "order-1 mb-px")}>
             <AttachMenu onPick={pickAttach} disabled={stickering} />
           </span>
           <Button
@@ -708,7 +708,7 @@ export function Composer({
             aria-label="Emoji"
             aria-expanded={!!emojiAt}
             title="Emoji"
-            className={cn(chat && "order-2 mb-1 text-[#54656f] dark:text-[#aebac1]")}
+            className={cn(chat && "order-2 mb-px h-10 w-10 text-[#54656f] dark:text-[#aebac1]")}
           >
             <Smile className={chat ? "h-5 w-5" : "h-4 w-4"} />
           </Button>
@@ -736,11 +736,12 @@ export function Composer({
               aria-label="Send message"
               title="Send (Enter)"
               className={cn(
-                "order-4 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                canSend ? "bg-[#c94a32] shadow-[0_6px_14px_rgba(240,112,90,.35)] hover:bg-[#b23f29]" : "bg-muted-foreground/40",
+                "order-4 flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                // 42px, in the brand blue (user 2026-11-02, the chat-theme artifact).
+                canSend ? "bg-primary hover:bg-primary/90" : "bg-muted-foreground/40",
               )}
             >
-              {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
+              {busy ? <Loader2 className="h-[18px] w-[18px] animate-spin" /> : <Send className="h-[18px] w-[18px]" />}
             </button>
           ) : (
             <Button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => void submit()} disabled={!canSend} aria-label="Send message" title="Send (Enter)">

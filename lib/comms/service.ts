@@ -172,7 +172,7 @@ export const listMyConversations = cache(async function listMyConversations(
   if (error) fail("conversations", error);
   const rows = (data ?? []) as MyConversationRow[];
 
-  const [titles, depts, authors, communityOf] = await Promise.all([
+  const [titles, depts, authors, communityOf, pinned] = await Promise.all([
     titlesFor(s, rows, me),
     departmentNames(s, rows.map((r) => r.department_id)),
     // Authors of the last messages and everyone those messages @mention, in one call.
@@ -181,9 +181,11 @@ export const listMyConversations = cache(async function listMyConversations(
       ...rows.flatMap((r) => mentionIds(r.last_body)),
     ]),
     communityLinks(s, rows.filter((r) => r.kind === "group").map((r) => r.id)),
+    pinnedChats(s, me),
   ]);
   return rows.map((r) => ({
     ...r,
+    pinned: pinned.has(r.id),
     community_id: communityOf.get(r.id)?.community_id ?? null,
     is_announcement: communityOf.get(r.id)?.is_announcement ?? false,
     // `?? false` / `?? null`: before 0764 is applied the RPC has no such columns.
@@ -206,6 +208,26 @@ export const listMyConversations = cache(async function listMyConversations(
  * re-creating that RPC. Before 0775 is applied the columns do not exist
  * (42703) and every group simply belongs to no community.
  */
+/**
+ * The chats the caller pinned (0751's comm_members.pinned_at — the column the
+ * channel sidebar already sorts by). Read from the caller's own membership
+ * rows; before 0751 the column is missing and nothing is pinned.
+ */
+async function pinnedChats(s: Sb, me: string | null): Promise<Set<string>> {
+  if (!me) return new Set();
+  const { data, error } = await s
+    .from("comm_members")
+    .select("conversation_id")
+    .eq("user_id", me)
+    .is("removed_at", null)
+    .not("pinned_at", "is", null);
+  if (error) {
+    if (error.code === "42703") return new Set();
+    fail("pinned chats", error);
+  }
+  return new Set(((data ?? []) as { conversation_id: string }[]).map((r) => r.conversation_id));
+}
+
 async function communityLinks(
   s: Sb,
   ids: string[],

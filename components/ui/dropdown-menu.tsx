@@ -102,6 +102,7 @@ export function DropdownMenu({
   trigger,
   align = "right",
   triggerClassName,
+  menuWidth = 176,
 }: {
   items: DropdownItem[];
   label?: string;
@@ -113,6 +114,9 @@ export function DropdownMenu({
    *  colored bar, say). Omit to keep the standard neutral button every other
    *  call site already uses. */
   triggerClassName?: string;
+  /** The open menu's width in px. 176 (w-44) unless a menu's labels need more —
+   *  Pulse's chat-row menu ("Remove from favourites" beside an icon). */
+  menuWidth?: number;
 }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -124,12 +128,12 @@ export function DropdownMenu({
     const el = btnRef.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    const width = 176; // w-44
+    const width = menuWidth;
     setPos({
       top: r.bottom + 4,
       left: align === "right" ? r.right - width : r.left,
     });
-  }, [align]);
+  }, [align, menuWidth]);
 
   useEffect(() => {
     if (!open) return;
@@ -213,7 +217,7 @@ export function DropdownMenu({
             role="menu"
             tabIndex={-1}
             onKeyDown={onMenuKeyDown}
-            style={{ position: "fixed", top: pos.top, left: pos.left, width: 176, zIndex: 150 }}
+            style={{ position: "fixed", top: pos.top, left: pos.left, width: menuWidth, zIndex: 150 }}
             className="max-h-[min(70vh,32rem)] overflow-y-auto rounded-md border border-border bg-surface py-1 shadow-lg focus:outline-none"
           >
             {items.map((item, i) => {

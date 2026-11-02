@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useTransition, type CSSProperties } from "react";
+import { CHAT_WALL_MASK } from "@/lib/comms/chat-wall";
 import { ArrowLeft, Hash, Loader2, Lock, Megaphone, MoreVertical, RotateCw, Search, Users, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -509,11 +510,13 @@ export function ConversationView({
               }),
           },
           {
-            label: "Archive chat",
+            // The list rows no longer carry an archive button, so this menu is
+            // the one way in AND out of Archived.
+            label: conversation.me?.archived ? "Unarchive chat" : "Archive chat",
             disabled: menuBusy,
             onClick: () =>
               startMenu(async () => {
-                const r = await setChatFlags({ conversation_id: id, archived: true });
+                const r = await setChatFlags({ conversation_id: id, archived: !conversation.me?.archived });
                 if (!r.ok) return toastError(r.error);
                 router.push("/comms");
                 router.refresh();
@@ -535,7 +538,8 @@ export function ConversationView({
     // `data-chat-page`: on a phone the conversation takes the whole screen and
     // sits on the keyboard (globals.css, "PHONE CHAT").
     <div data-chat-page="" className="flex min-h-0 flex-1 flex-col">
-      <header className={cn("flex items-center gap-2 border-b border-border px-3", chat ? "py-1.5" : "py-2")}>
+      {/* WhatsApp spacing (user 2026-11-02): 60px, 16px margin, 12px avatar-to-name. */}
+      <header className={cn("flex min-h-[60px] items-center gap-3 border-b border-border pl-4 pr-3", chat ? "py-2" : "py-2.5")}>
         {/* Inside Pulse's frame (`data-pulse`, comms-shell.tsx) the sidebar is
             beside the conversation once the hub is wide, so the back arrow is
             for narrow screens only; a conversation opened from outside Pulse
@@ -553,7 +557,7 @@ export function ConversationView({
         {announcement ? (
           <span
             aria-hidden
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[color-mix(in_srgb,#1f9d6b_14%,var(--surface))] text-[#137a52] dark:text-[#6fdcaa]"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[color-mix(in_srgb,#1f9d6b_14%,var(--surface))] text-[#137a52] dark:text-[#6fdcaa]"
           >
             <Megaphone className="h-5 w-5" />
           </span>
@@ -561,7 +565,7 @@ export function ConversationView({
           <span
             aria-hidden
             style={avatarStyle(conversation.title)}
-            className={cn("flex h-9 w-9 shrink-0 items-center justify-center text-sm font-bold", AVATAR_TINT, chat === "group" ? "rounded-xl" : "rounded-full")}
+            className={cn("flex h-10 w-10 shrink-0 items-center justify-center text-sm font-bold", AVATAR_TINT, chat === "group" ? "rounded-xl" : "rounded-full")}
           >
             {chat === "group" && !conversation.name ? <Users className="h-5 w-5" /> : initials(conversation.title)}
           </span>
@@ -569,10 +573,10 @@ export function ConversationView({
           <KindIcon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
         )}
         <div className="min-w-0 flex-1">
-          <h1 className={cn("break-words font-semibold text-heading", chat ? "text-base" : "text-sm")}>
+          <h1 className="break-words text-[15px] font-semibold leading-snug text-heading">
             {announcement ? "Announcements" : conversation.kind === "channel" ? conversation.title.replace(/^#/, "") : conversation.title}
           </h1>
-          <p className="break-words text-xs text-muted-foreground">
+          <p className="break-words text-[12.5px] text-muted-foreground">
             {/* 0775: a community's group or Announcements names its community, linked to it. */}
             {conversation.community && (
               <>
@@ -600,14 +604,14 @@ export function ConversationView({
           aria-pressed={searchOpen}
           aria-label="Search messages"
           title="Search"
-          className={cn(searchOpen && "bg-surface-muted")}
+          className={cn("h-10 w-10", searchOpen && "bg-surface-muted")}
         >
           <Search className="h-5 w-5" />
         </Button>
         <DropdownMenu
           label="Menu"
           trigger={<MoreVertical className="h-5 w-5" />}
-          triggerClassName="inline-flex h-9 w-9 items-center justify-center rounded-control text-foreground hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          triggerClassName="inline-flex h-10 w-10 items-center justify-center rounded-control text-foreground hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           items={chatMenu}
         />
       </header>
@@ -615,12 +619,24 @@ export function ConversationView({
       {/* The chat and, while 🔍 is on, Search messages beside it (over it on a
           narrow pane — chat-search-panel.tsx). */}
       <div className="relative flex min-h-0 flex-1">
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div
+        className={cn(
+          "flex min-w-0 flex-1 flex-col",
+          // THE WALL FOLLOWS THE THEME (user 2026-11-02): a 5% wash of
+          // --primary, and the garment doodle as a mask over a --primary layer
+          // (lib/comms/chat-wall.ts). It sits on this non-scrolling column, so
+          // the drawings hold still while messages scroll; the message box and
+          // quick replies carry their own surface over it.
+          chat &&
+            "relative isolate bg-[color-mix(in_srgb,var(--primary)_5%,var(--surface-muted))] before:pointer-events-none before:absolute before:inset-0 before:-z-10 before:bg-primary before:opacity-[.11] before:content-[''] before:[-webkit-mask:var(--pulse-wall)_0_0/240px_240px_repeat] before:[mask:var(--pulse-wall)_0_0/240px_240px_repeat] dark:before:opacity-[.09]",
+        )}
+        style={chat ? ({ "--pulse-wall": CHAT_WALL_MASK } as CSSProperties) : undefined}
+      >
 
       <div
         ref={listRef}
         onScroll={onScroll}
-        className={cn("min-h-0 flex-1 overflow-y-auto py-2", chat && "bg-surface-muted/60 @3xl/comms:px-[3%]")}
+        className={cn("min-h-0 flex-1 overflow-y-auto py-3", chat && "@3xl/comms:px-[7%]")}
         role="log"
         aria-live="polite"
         aria-label={`Messages in ${conversation.title}`}
@@ -671,7 +687,11 @@ export function ConversationView({
             )}
           </section>
         ) : messages.length > 0 ? (
-          <p className="py-3 text-center text-xs text-muted-foreground">This is the start of the conversation.</p>
+          <p className="flex justify-center py-3">
+            <span className={cn("text-xs text-muted-foreground", chat && "rounded-full border border-border bg-surface px-3 py-1")}>
+              This is the start of the conversation.
+            </span>
+          </p>
         ) : null}
 
         {messages.length === 0 && pending.length === 0 && (
@@ -689,8 +709,10 @@ export function ConversationView({
           return (
             <div key={m.id}>
               {newDay && chat ? (
-                <div className="my-1.5 flex justify-center px-3" role="separator">
-                  <span className="rounded-full bg-primary-soft px-3 py-0.5 text-xs font-bold text-primary">{dayLabel(m.created_at)}</span>
+                // WhatsApp's day chip: 12.5px, 7.5px corners, 12px above; the
+                // bubble below brings its own 12px.
+                <div className="mt-3 flex justify-center px-3" role="separator">
+                  <span className="rounded-full border border-border bg-surface px-3 pb-[5px] pt-1 text-xs font-semibold leading-tight text-muted-foreground">{dayLabel(m.created_at)}</span>
                 </div>
               ) : newDay && (
                 <div className="my-2 flex items-center gap-3 px-3" role="separator">

@@ -41,8 +41,10 @@ export default async function CommsLayout({ children }: { children: ReactNode })
   }
   if (workspace?.my_status === "deactivated") return <WorkspaceDeactivated workspace={workspace} />;
   // `chats` feeds Pulse's list pane (comms-shell.tsx, "PULSE IS TWO PANES").
+  // The workspace name bar is hidden (user 2026-11-02: remove the "RAAGAM"
+  // strip); it only shows while the workspace is suspended, to carry the Paused pill.
   return (
-    <CommsShell top={workspace ? <WorkspaceBar workspace={workspace} /> : null} chats={chats} communities={communities}>
+    <CommsShell top={workspace?.status === "suspended" ? <WorkspaceBar workspace={workspace} /> : null} chats={chats} communities={communities}>
       {children}
     </CommsShell>
   );
