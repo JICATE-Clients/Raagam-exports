@@ -1,3 +1,5 @@
+import { buttonClasses } from "@/components/ui/button";
+import { hasPermission } from "@/lib/auth/types";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requirePermission } from "@/lib/auth/server";
@@ -77,7 +79,7 @@ export default async function GrnDetailPage({
 }: {
   params: Promise<{ grnId: string }>;
 }) {
-  await requirePermission("materials_purchase", "view");
+  const user = await requirePermission("materials_purchase", "view");
   const { grnId } = await params;
 
   const [grn, lines] = await Promise.all([getGrn(grnId), getGrnLines(grnId)]);
@@ -98,6 +100,12 @@ export default async function GrnDetailPage({
               {isDraft ? "Draft" : "Posted"}
             </StatusPill>
             {isDraft && <PostGrnButton grnId={grnId} />}
+            {/* EDIT A POSTED GRN (0792): the paper always; quantities while nothing has moved. */}
+            {!isDraft && hasPermission(user, "materials_purchase", "edit") ? (
+              <Link href={`/purchase/grn/${grnId}/edit`} className={buttonClasses({ size: "md" })}>
+                Edit GRN
+              </Link>
+            ) : null}
             {/* The GRN slip, with each line's bin breakdown (user 2026-10-31). */}
             <Link
               href={`/purchase/grn/${grnId}/print`}
@@ -187,23 +195,20 @@ export default async function GrnDetailPage({
         </Card>
       ) : null}
 
-      {/* GRN header card */}
+      {/* GRN header card — GRN No first, then the vendor's paper (No → Date), then the
+          vendor and every PO the GRN received against (user 2026-11-02, screenshot 3952). */}
       <Card>
         <CardHeader>
-          <CardTitle>Header</CardTitle>
+          <CardTitle>GRN Details</CardTitle>
         </CardHeader>
         <CardBody>
           <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
             <div>
-              <dt className="text-xs text-muted-foreground">Code</dt>
+              <dt className="text-xs text-muted-foreground">GRN No</dt>
               <dd className="mt-0.5 font-medium">{grn.code ?? "—"}</dd>
             </div>
             <div>
-              <dt className="text-xs text-muted-foreground">Vendor</dt>
-              <dd className="mt-0.5">{grn.vendors?.name ?? "—"}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Date</dt>
+              <dt className="text-xs text-muted-foreground">GRN Date</dt>
               <dd className="mt-0.5">{fmtDate(grn.grn_date)}</dd>
             </div>
             {/* The vendor's papers (0777); a GRN saved before then kept one Challan / Inv box. */}
@@ -233,6 +238,27 @@ export default async function GrnDetailPage({
                 </div>
               </>
             )}
+            <div>
+              <dt className="text-xs text-muted-foreground">Vendor</dt>
+              <dd className="mt-0.5">{grn.vendors?.name ?? "—"}</dd>
+            </div>
+            {/* PLACE OF DELIVERY + VEHICLE (0792). */}
+            <div>
+              <dt className="text-xs text-muted-foreground">Place of Delivery</dt>
+              <dd className="mt-0.5">
+                {(grn as { delivery_kind?: string | null }).delivery_kind === "direct" ? "Direct to processor" : "Our store"}
+              </dd>
+            </div>
+            {(grn as { vehicle_ref?: string | null }).vehicle_ref ? (
+              <div>
+                <dt className="text-xs text-muted-foreground">Vehicle / Transport Ref</dt>
+                <dd className="mt-0.5">{(grn as { vehicle_ref?: string | null }).vehicle_ref}</dd>
+              </div>
+            ) : null}
+            <div>
+              <dt className="text-xs text-muted-foreground">PO No</dt>
+              <dd className="mt-0.5">{[...new Set(lines.map((l) => l.po_code).filter(Boolean))].join(", ") || "—"}</dd>
+            </div>
             {/* Notes left the entry on 2026-10-31; a GRN saved before keeps its note. */}
             {grn.notes ? (
               <div>

@@ -13,6 +13,7 @@ import { fmtDate, fmtNumber } from "@/lib/format";
 import type {
   GrnBinOption,
   GrnGroupKind,
+  GrnProcessOrderOption,
   GrnStoreOption,
   GrnWithVendor,
   OpenPoLine,
@@ -120,6 +121,8 @@ export function GrnScreen({
   stores,
   bins,
   defaultStoreId,
+  processOrders,
+  canCreateBin = false,
 }: {
   openPoLines: OpenPoLine[];
   grns: GrnWithVendor[];
@@ -130,6 +133,8 @@ export function GrnScreen({
   stores: GrnStoreOption[];
   bins: GrnBinOption[];
   defaultStoreId: string | null;
+  processOrders: GrnProcessOrderOption[];
+  canCreateBin?: boolean;
 }) {
   const router = useRouter();
   const [word, setWord] = useState<QuickWord>("pending");
@@ -241,6 +246,8 @@ export function GrnScreen({
         initialVendorId={lf.vendor.length === 1 ? lf.vendor[0] : null}
         replacement={replacing}
         replacements={replacements}
+        processOrders={processOrders}
+        canCreateBin={canCreateBin}
         onCancel={() => setEditing(null)}
       />
     );
@@ -253,6 +260,12 @@ export function GrnScreen({
       setReplacing(r.replacement ?? null);
       setEditing(r.replacement ? "" : r.id);
     } else router.push(`/purchase/grn/${r.id}`);
+  };
+  /* THE PENCIL EDITS (0792, user 2026-11-02): on a posted GRN it opens Edit GRN; the GRN
+     No link still opens the record. Pending opens the entry; a draft opens to be posted. */
+  const edit = (r: Row) => {
+    if (r.word !== "pending" && r.status === "posted") router.push(`/purchase/grn/${r.id}/edit`);
+    else open(r);
   };
 
   /* Downstream picks that fall out of scope go; ones still in scope stay. */
@@ -387,7 +400,7 @@ export function GrnScreen({
       searchText={(r) => [r.no, r.vendor, r.refs, r.detail].filter(Boolean).join(" ")}
       searchPlaceholder={isPendingView ? "Search PO No, vendor, RE No or class…" : "Search GRN No, vendor or invoice…"}
       columns={columns}
-      actions={{ onEdit: open, menuAs: "icons" }}
+      actions={{ onEdit: edit, menuAs: "icons" }}
       rowLabel={(r) => r.no}
       empty={
         isPendingView
@@ -406,7 +419,7 @@ export function GrnScreen({
           r.word === "pending" ? null : (
             <StatusPill tone={statusTone(r.status)}>{r.status === "posted" ? "Posted" : "Draft"}</StatusPill>
           ),
-        onEdit: open,
+        onEdit: edit,
       }}
     />
   );

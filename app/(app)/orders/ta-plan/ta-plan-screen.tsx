@@ -614,6 +614,8 @@ export function TaPlanScreen({ rows, data, perms }: Props) {
   const activityColumns: ChildGridColumn<LineRow>[] = [
     {
       header: "Activity",
+      // PICK ONCE (2026-11-02): the same value on two rows is a duplicate, not data.
+      unique: (r) => r.activity_id,
       className: "min-w-[180px]",
       cell: (r) => (
         <RecordPicker

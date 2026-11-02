@@ -1,5 +1,6 @@
 "use client";
 
+import { usePickOnce } from "@/components/ui/pick-once";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useLocked, useRequiredHold } from "@/components/ui/field";
@@ -57,7 +58,7 @@ export interface ComboboxOption {
  * and resize while open. The value stays a controlled string via value/onChange.
  */
 export function Combobox({
-  options,
+  options: ownOptions,
   value,
   onChange,
   // AN UNFILLED CONTROL SHOWS NOTHING — not "Select…", and not the "—" this
@@ -116,6 +117,20 @@ export function Combobox({
   // A locked record cannot be changed (`LockScope`, field.tsx) — disabled with it.
   const locked = useLocked();
   const disabled = ownDisabled || locked;
+  /* PICK ONCE (components/ui/pick-once.tsx): inside a `unique` grid column, a value another
+     row already holds is offered greyed, "(already added)" — this row's own stays pickable. */
+  const gridUsed = usePickOnce();
+  const options = useMemo(
+    () =>
+      gridUsed
+        ? ownOptions.map((o) =>
+            o.value !== value && gridUsed.has(o.value)
+              ? { ...o, disabled: true, disabledNote: o.disabledNote ?? "(already added)" }
+              : o,
+          )
+        : ownOptions,
+    [ownOptions, gridUsed, value],
+  );
   // Empty is "no value picked" — the typed query is a search, not a value.
   // `required` is threaded from <Select required> on the desktop-enhanced
   // branch, which renders this instead of a native <select>; ORed with an

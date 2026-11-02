@@ -158,6 +158,7 @@ export function ProductionDcSendForm({
     },
     {
       header: "Item",
+      // pick-once: exempt -- the same material repeats across colour / size / component lines
       width: FIELD_WIDTH_CSS.name,
       required: true,
       cell: (l) => {

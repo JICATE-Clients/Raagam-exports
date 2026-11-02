@@ -269,6 +269,8 @@ export function ProcessAmendmentScreen({ rows, data, perms }: Props) {
          shows the style's name, so the read-only "Style" column that repeated
          it beside the picker is gone; Article No stays. */
       header: "Style",
+      // PICK ONCE (2026-11-02): the same value on two rows is a duplicate, not data.
+      unique: (r) => r.style_id,
       cell: (r) => (
         <RecordPicker
           label="Style"

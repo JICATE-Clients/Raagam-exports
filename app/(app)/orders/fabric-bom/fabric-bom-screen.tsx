@@ -4478,6 +4478,7 @@ export function FabricBomScreen({
            `measured` below) — so only the printed word changes; the field
            stays `dia`, unrenamed. */
         header: "Finish Dia",
+        // pick-once: exempt -- the same material repeats across colour / size / component lines
         /* 8rem, up from 5.5 (2026-10-05): a stored dia reads `72" Open
            Width`, ~100px of text plus the ▼ slot. At 5.5rem it only fitted
            because `fill` was stretching the column; hugging, it would cut
@@ -5300,6 +5301,7 @@ export function FabricBomScreen({
   const manualEntryColumns: ManualEntryColumn[] = [
     {
       header: "Fabric",
+      // pick-once: exempt -- the same material repeats across colour / size / component lines
       width: "9rem",
       cell: (e) => (
         <div className="min-w-0">
@@ -6850,6 +6852,7 @@ export function FabricBomScreen({
 
     {
       header: "Structure",
+      // pick-once: exempt -- the same material repeats across colour / size / component lines
       /* 10rem — 160px (client 2026-09-03), up from 6.5rem/104px.
          "SINGLE JERSEY" is thirteen characters and did not fit 104px, so
          the cell the brief calls expanding was in fact the one clipping
@@ -7231,6 +7234,7 @@ export function FabricBomScreen({
        * star stay in agreement.
        */
       header: "Mixing Uom",
+      // pick-once: exempt -- a unit — many lines share one unit
       /* 4.5rem — 72px. A UOM code is "KG", "MTR", "PCS". */
       width: "4.5rem",
       required: lines.some((l) => l.item_id && isYarnDyed(fabricTypeOf(l.item_id))),

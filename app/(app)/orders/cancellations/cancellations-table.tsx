@@ -247,6 +247,7 @@ export function CancellationsTable({ cancellations, orders, buyers }: Props) {
     },
     {
       header: "RE No",
+      // pick-once: exempt -- picks the one record this entry is for — there are no sibling rows
       cell: (row) =>
         isEntry(row) ? (
           /* `compact` — NO LABEL OF ITS OWN INSIDE THE CELL (client
@@ -276,6 +277,7 @@ export function CancellationsTable({ cancellations, orders, buyers }: Props) {
     },
     {
       header: "Customer",
+      // pick-once: exempt -- picks the one record this entry is for — there are no sibling rows
       cell: (row) =>
         isEntry(row) ? (
           <Field w="code">

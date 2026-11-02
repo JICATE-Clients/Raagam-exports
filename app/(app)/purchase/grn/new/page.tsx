@@ -1,4 +1,4 @@
-import { requirePermission } from "@/lib/auth/server";
+import { can, requirePermission } from "@/lib/auth/server";
 import { getOpenPoLines, getGrnReceivingLocations, getGrnStoresAndBins, getReplacementsDue } from "@/lib/purchase/grn-service";
 import { PageHeader } from "@/components/ui/page-header";
 import { GrnNewForm } from "../_components/grn-new-form";
@@ -7,11 +7,12 @@ export default async function GrnNewPage() {
   await requirePermission("materials_purchase", "create");
 
   // The vendor list is read off the open POs (0777), so no separate vendor fetch.
-  const [openPoLines, receiving, place, replacements] = await Promise.all([
+  const [openPoLines, receiving, place, replacements, canCreateBin] = await Promise.all([
     getOpenPoLines(),
     getGrnReceivingLocations(),
     getGrnStoresAndBins(),
     getReplacementsDue(),
+    can("masters", "create"),
   ]);
 
   return (
@@ -28,6 +29,8 @@ export default async function GrnNewPage() {
         bins={place.bins}
         defaultStoreId={place.defaultStoreId}
         replacements={replacements}
+        processOrders={place.processOrders}
+        canCreateBin={canCreateBin}
       />
     </div>
   );

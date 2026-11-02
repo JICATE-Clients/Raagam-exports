@@ -2,15 +2,20 @@
 
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Sheet } from "@/components/ui/sheet";
 import { ToggleGroup } from "@/components/ui/segmented";
 
 /**
- * THE DELIVERY CHALLANS HUB'S ONE DRAWER (user 2026-10-31: "single screen, + New Delivery
- * Challan side-drawer, Receive Back inline"). The URL holds what is open
+ * THE DELIVERY CHALLANS HUB'S ONE FORM PANEL. The URL holds what is open
  * (`?new=process|production|rejection|replacement`, `?edit=<id>&type=…`, `?receive=<id>&type=…`),
- * so a reload or a shared link reopens the same drawer, and the page renders the right form
- * server-side with its data. Closing goes back to the register on the same type tab.
+ * so a reload or a shared link reopens the same form, and the page renders it server-side
+ * with its data.
+ *
+ * IN THE PAGE, NOT A DRAWER OVER IT (user 2026-11-02, screenshot 3965: "use this full screen
+ * like Raise PO — why this open-centre type of screen"). It was a full-screen `Sheet`, which
+ * hid the sidebar and floated the form in the middle of an overlay. Now the page shows this
+ * INSTEAD of the register, exactly as Raise PO swaps its list for the editor; the form's own
+ * Cancel / Dispatch go back to the register on the same type tab. The name is kept so the
+ * page's call sites read as before.
  */
 export type NewType = "process" | "production" | "rejection" | "replacement";
 
@@ -18,6 +23,7 @@ export function DcDrawer({
   title,
   type,
   chooser,
+  showBack = false,
   children,
 }: {
   title: string;
@@ -25,15 +31,18 @@ export function DcDrawer({
   type: string | null;
   /** Show the DC Type selector (a new DC only). */
   chooser?: NewType | null;
+  /** Only where the content has no Cancel of its own (the Rejection / Replacement notes). */
+  showBack?: boolean;
   children: ReactNode;
 }) {
   const router = useRouter();
   const back = `/purchase/dc${type ? `?type=${type}` : ""}`;
   return (
-    <Sheet open onClose={() => router.push(back)} title={title} size="lg">
-      <div className="space-y-4 p-4">
+    // `data-dc-editor`: page.tsx hides the page's floating "← Back" while a form is open.
+    <div data-dc-editor className="space-y-3">
+      <div className="flex flex-wrap items-center gap-3">
         {chooser ? (
-          <div className="flex flex-wrap items-center gap-3">
+          <>
             <span className="text-sm font-medium text-muted-foreground">DC Type</span>
             <ToggleGroup<NewType>
               label="DC type"
@@ -46,10 +55,19 @@ export function DcDrawer({
                 { value: "replacement", label: "Replacement DC" },
               ]}
             />
-          </div>
+          </>
+        ) : (
+          <h2 className="text-base font-bold">{title}</h2>
+        )}
+        {/* The way back to the list when a form has no Cancel of its own (the Rejection /
+            Replacement notes). A text link, not a button (AGENTS, "one job, one button"). */}
+        {showBack ? (
+          <button type="button" onClick={() => router.push(back)} className="ml-auto text-sm text-muted-foreground hover:text-foreground hover:underline">
+            ← Delivery Challans
+          </button>
         ) : null}
-        {children}
       </div>
-    </Sheet>
+      {children}
+    </div>
   );
 }

@@ -47,6 +47,8 @@ export type OpenPoLine = {
   item_class_id: string | null;
   item_class: string | null;
   category: string | null;
+  /** Yarn: the kg in one bag as the PO was raised (0758) — the GRN's bag widget opens on it. */
+  bag_weight: number | null;
 };
 
 /** Where a PO line's need came from (grn.md §1 "Group Type"). */
@@ -58,7 +60,7 @@ export type GrnLineWithPo = GrnLineItem & {
   store_name: string | null;
   bin_code: string | null;
   /** The accepted qty bin by bin when the line was split (0782); [] = one bin or none. */
-  bin_split: { code: string; qty: number }[];
+  bin_split: { code: string; qty: number; bin_id: string }[];
 };
 
 /* THE EMBED IS NAMED AFTER THE RELATIONSHIP, so both of these say
@@ -138,7 +140,7 @@ export async function getGrnLines(grnId: string): Promise<GrnLineWithPo[]> {
     .from("grn_line_items")
     // `bins!bin_id`, never bare: grn_line_bins (0782) is a second path to bins, so a bare
     // embed is PGRST201-ambiguous. The split rides along for the Bin cell.
-    .select("*, purchase_orders(code), stores(name), bins!bin_id(bin_code), grn_line_bins(qty, sort_order, bins!bin_id(bin_code))")
+    .select("*, purchase_orders(code), stores(name), bins!bin_id(bin_code), grn_line_bins(qty, sort_order, bin_id, bins!bin_id(bin_code))")
     .eq("grn_id", grnId)
     .order("sort_order");
 
@@ -147,7 +149,7 @@ export async function getGrnLines(grnId: string): Promise<GrnLineWithPo[]> {
       purchase_orders: { code: string | null } | null;
       stores: { name: string } | null;
       bins: { bin_code: string } | null;
-      grn_line_bins: { qty: number; sort_order: number; bins: { bin_code: string } | null }[] | null;
+      grn_line_bins: { qty: number; sort_order: number; bin_id: string; bins: { bin_code: string } | null }[] | null;
     })[]
   ).map(({ grn_line_bins: split, ...row }) => ({
     ...row,
@@ -156,7 +158,7 @@ export async function getGrnLines(grnId: string): Promise<GrnLineWithPo[]> {
     // A split line reads "B1 30 · B2 20" (0782); otherwise its one bin.
     bin_split: [...(split ?? [])]
       .sort((a, b) => a.sort_order - b.sort_order)
-      .map((b) => ({ code: b.bins?.bin_code ?? "?", qty: Number(b.qty) || 0 })),
+      .map((b) => ({ code: b.bins?.bin_code ?? "?", qty: Number(b.qty) || 0, bin_id: b.bin_id })),
     bin_code: split && split.length > 0
       ? [...split].sort((a, b) => a.sort_order - b.sort_order).map((b) => `${b.bins?.bin_code ?? "?"} ${b.qty}`).join(" · ")
       : (row.bins?.bin_code ?? null),
@@ -180,8 +182,21 @@ export async function getOpenPoLines(vendorId?: string): Promise<OpenPoLine[]> {
   const supabase = await createClient();
   /* ONE READ (0778): the PO, its line, the UOM, the order, the buyer and the item class
      come back together — what the Receiving screen's filter cascade reads. */
-  const { data, error } = await supabase.rpc("grn_open_po_lines");
+  /* The bag weight rides beside the RPC rather than in it (no migration): read in
+     PARALLEL, so it costs no extra round trip — only open POs' yarn lines carry one. */
+  const [{ data, error }, bagRes] = await Promise.all([
+    supabase.rpc("grn_open_po_lines"),
+    supabase
+      .from("po_line_items")
+      .select("id, bag_weight, purchase_orders!purchase_order_id!inner(status)")
+      .in("purchase_orders.status", ["approved", "partially_received"])
+      .not("bag_weight", "is", null),
+  ]);
   if (error) throw new Error(`Open POs: ${error.message}`);
+  if (bagRes.error) throw new Error(`Open POs (bag weights): ${bagRes.error.message}`);
+  const bagWeight = new Map(
+    ((bagRes.data ?? []) as { id: string; bag_weight: number | null }[]).map((r) => [r.id, Number(r.bag_weight) || null]),
+  );
   const rows = (data ?? []) as Record<string, unknown>[];
   const n = (v: unknown) => Number(v) || 0;
   const str = (v: unknown) => (v == null ? null : String(v));
@@ -214,13 +229,25 @@ export async function getOpenPoLines(vendorId?: string): Promise<OpenPoLine[]> {
         item_class_id: str(r.item_class_id),
         item_class: str(r.item_class),
         category: str(r.category),
+        bag_weight: bagWeight.get(String(r.id)) ?? null,
       };
     });
 }
 
 /** Where a received line can be put: the working unit's stores and bins (grn.md §2A). */
 export type GrnStoreOption = { id: string; code: string; name: string; store_type: string };
-export type GrnBinOption = { id: string; code: string; description: string | null };
+/** `inactive`: a switched-off bin — hidden by the picker unless a record already holds it. */
+export type GrnBinOption = { id: string; code: string; description: string | null; inactive?: boolean };
+/** An open Process Order a supplier may deliver straight to (Place of Delivery = direct, 0792). */
+export type GrnProcessOrderOption = {
+  id: string;
+  code: string | null;
+  vendor_id: string;
+  vendor_name: string;
+  process_type: string | null;
+  /** The input items on the order — a direct line must be one of them. */
+  item_ids: string[];
+};
 
 /**
  * THE WORKING UNIT'S STORES AND BINS — the Store and Bin pickers on a GRN line.
@@ -235,11 +262,12 @@ export async function getGrnStoresAndBins(): Promise<{
   stores: GrnStoreOption[];
   bins: GrnBinOption[];
   defaultStoreId: string | null;
+  processOrders: GrnProcessOrderOption[];
 }> {
   const supabase = await createClient();
   const { location } = await getCurrentLocation();
-  if (!location) return { stores: [], bins: [], defaultStoreId: null };
-  const [storesRes, binsRes] = await Promise.all([
+  if (!location) return { stores: [], bins: [], defaultStoreId: null, processOrders: [] };
+  const [storesRes, binsRes, poRes] = await Promise.all([
     supabase
       .from("stores")
       .select("id, code, name, store_type")
@@ -252,17 +280,42 @@ export async function getGrnStoresAndBins(): Promise<{
       .select("id, bin_code, description, location_id, inactive")
       .or(`location_id.eq.${location.id},location_id.is.null`)
       .order("bin_code"),
+    // DIRECT TO PROCESSOR (0792): the unit's open Process Orders and their input items.
+    supabase
+      .from("process_orders")
+      .select("id, code, vendor_id, process_type, master_vendors!vendor_id(name), process_order_lines(item_id)")
+      .in("status", ["issued", "in_process", "partially_received"])
+      .or(`location_id.eq.${location.id},location_id.is.null`)
+      .order("created_at"),
   ]);
+  if (poRes.error) throw new Error(`Process orders: ${poRes.error.message}`);
+  const processOrders = (
+    (poRes.data ?? []) as unknown as {
+      id: string;
+      code: string | null;
+      vendor_id: string;
+      process_type: string | null;
+      master_vendors: { name: string | null } | null;
+      process_order_lines: { item_id: string | null }[] | null;
+    }[]
+  ).map((o) => ({
+    id: o.id,
+    code: o.code,
+    vendor_id: o.vendor_id,
+    vendor_name: o.master_vendors?.name ?? "—",
+    process_type: o.process_type,
+    item_ids: (o.process_order_lines ?? []).map((x) => x.item_id).filter((x): x is string => !!x),
+  }));
   if (storesRes.error) throw new Error(`Stores: ${storesRes.error.message}`);
   if (binsRes.error) throw new Error(`Bins: ${binsRes.error.message}`);
   const stores = (storesRes.data ?? []) as GrnStoreOption[];
   const bins = ((binsRes.data ?? []) as { id: string; bin_code: string; description: string | null; inactive: boolean | null }[])
-    .filter((b) => !b.inactive)
-    .map((b) => ({ id: b.id, code: b.bin_code, description: b.description }));
+    // Kept, flagged: the picker hides a switched-off bin but still shows the one a GRN holds.
+    .map((b) => ({ id: b.id, code: b.bin_code, description: b.description, inactive: !!b.inactive }));
   // Accepted goods land in the MATERIAL store when nothing else is picked — what postGrn
   // has always done — so that is the default the line opens with.
   const defaultStoreId = stores.find((st) => st.store_type === "material")?.id ?? stores[0]?.id ?? null;
-  return { stores, bins, defaultStoreId };
+  return { stores, bins, defaultStoreId, processOrders };
 }
 
 // ---------- DC ----------
@@ -537,4 +590,106 @@ export async function getGrnPaper(grn: Pick<Grn, "id" | "vendor_return_id">): Pr
       ) ?? null,
     replaces: (rep.data as GrnPaper["replaces"]) ?? null,
   };
+}
+
+/** One GRN line held at Pending QC (0791) — a row on Stores ▸ Pending QC. */
+export type PendingQcLine = {
+  id: string;
+  grn_id: string;
+  grn_code: string | null;
+  grn_date: string | null;
+  grn_kind: string;
+  vendor_name: string | null;
+  po_code: string | null;
+  description: string;
+  received_qty: number;
+  uom_code: string | null;
+  lot_no: string | null;
+  store_id: string | null;
+  close_balance: boolean;
+  created_at: string | null;
+};
+
+/**
+ * EVERY LINE WAITING FOR AN INSPECTOR in the working unit (0791): posted GRNs whose line
+ * still reads QC = Pending. Unit-scoped by RLS (a GRN line follows its GRN), oldest first —
+ * the goods that have waited longest at the gate are the first to inspect.
+ */
+// created-by: exempt -- a work queue of lines; the GRN above each carries its creator
+export async function listPendingQcLines(): Promise<PendingQcLine[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("grn_line_items")
+    .select(
+      "id, grn_id, description, received_qty, roll_batch_no, store_id, close_balance, created_at, purchase_orders(code), po_line_items(uom_id, uoms(code)), grns!inner(code, grn_date, kind, status, vendors:master_vendors!master_vendor_id(name))",
+    )
+    .eq("qc_status", "pending")
+    .eq("grns.status", "posted")
+    .order("created_at");
+  if (error) throw new Error(`Pending QC: ${error.message}`);
+  return (
+    (data ?? []) as unknown as {
+      id: string;
+      grn_id: string;
+      description: string | null;
+      received_qty: number | null;
+      roll_batch_no: string | null;
+      store_id: string | null;
+      close_balance: boolean | null;
+      created_at: string | null;
+      purchase_orders: { code: string | null } | null;
+      po_line_items: { uoms: { code: string | null } | null } | null;
+      grns: { code: string | null; grn_date: string | null; kind: string; vendors: { name: string | null } | null } | null;
+    }[]
+  ).map((r) => ({
+    id: r.id,
+    grn_id: r.grn_id,
+    grn_code: r.grns?.code ?? null,
+    grn_date: r.grns?.grn_date ?? null,
+    grn_kind: r.grns?.kind ?? "regular",
+    vendor_name: r.grns?.vendors?.name ?? null,
+    po_code: r.purchase_orders?.code ?? null,
+    description: r.description ?? "",
+    received_qty: Number(r.received_qty) || 0,
+    uom_code: r.po_line_items?.uoms?.code ?? null,
+    lot_no: r.roll_batch_no,
+    store_id: r.store_id,
+    close_balance: !!r.close_balance,
+    created_at: r.created_at,
+  }));
+}
+
+/**
+ * WHY A POSTED GRN'S QUANTITIES CANNOT BE EDITED — null when they can (0792). The same
+ * refusals `grn_edit_posted` makes, asked up front so the edit screen can say so before
+ * the operator types; the function stays the guard. The paper is always editable.
+ */
+export async function grnQtyLockReason(grnId: string): Promise<string | null> {
+  const supabase = await createClient();
+  const [grnRes, linesRes, billsRes, notesRes, dcsRes] = await Promise.all([
+    supabase.from("grns").select("status, kind, delivery_kind").eq("id", grnId).maybeSingle(),
+    supabase.from("grn_line_items").select("close_balance").eq("grn_id", grnId),
+    supabase.from("payables").select("status").eq("grn_id", grnId),
+    supabase.from("finance_notes").select("status").eq("grn_id", grnId),
+    supabase.from("vendor_returns").select("id, status").eq("grn_id", grnId),
+  ]);
+  for (const r of [grnRes, linesRes, billsRes, notesRes, dcsRes]) if (r.error) throw new Error(`GRN edit check: ${r.error.message}`);
+  const g = grnRes.data as { status: string; kind: string; delivery_kind: string | null } | null;
+  if (!g) return "GRN not found";
+  if (g.status !== "posted") return "Only a posted GRN is edited here";
+  if (g.kind !== "regular") return "A Replacement GRN's quantities cannot be edited — it has already filled its Replacement DC";
+  if (g.delivery_kind === "direct") return "Delivered direct to a processor — its Process DC is already with the processor";
+  if (((linesRes.data ?? []) as { close_balance: boolean | null }[]).some((l) => l.close_balance)) {
+    return "A line on this GRN closed its PO balance — that cannot be undone by an edit";
+  }
+  if (((billsRes.data ?? []) as { status: string }[]).some((b) => b.status !== "draft")) return "Its bill is no longer a draft in Payables";
+  if (((notesRes.data ?? []) as { status: string }[]).some((n) => n.status !== "draft")) return "Its debit note is no longer a draft";
+  const dcs = (dcsRes.data ?? []) as { id: string; status: string }[];
+  if (dcs.some((d) => d.status !== "draft")) return "Its Rejection / Replacement DC has already gone back to the vendor";
+  if (dcs.length > 0) {
+    const { data: repl, error } = await supabase.from("grns").select("id").in("vendor_return_id", dcs.map((d) => d.id)).limit(1);
+    if (error) throw new Error(`GRN edit check: ${error.message}`);
+    if ((repl ?? []).length > 0) return "A replacement has already been received against this GRN";
+  }
+  return null;
 }

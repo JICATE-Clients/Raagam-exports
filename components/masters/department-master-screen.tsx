@@ -256,6 +256,7 @@ export function DepartmentMasterScreen({
   const locColumns: ChildGridColumn<LocRow>[] = [
     {
       header: "Location",
+      // pick-once: exempt -- a party attribute of the line — several lines share one
       cell: (l) => (
         <LocationPicker
           locations={locations}

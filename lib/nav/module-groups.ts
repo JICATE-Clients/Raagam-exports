@@ -1254,8 +1254,9 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         slug: "receipts",
         label: "Receipts & Returns",
         icon: ArrowDownToLine,
-        description: "Customer-supplied receipts (vendor returns moved to Purchase ▸ Receiving)",
+        description: "Pending QC inspection and customer-supplied receipts · vendor returns are under Purchase ▸ Receiving",
         children: [
+          { href: "/stores/qc-pending", label: "Pending QC", description: "GRN lines waiting for inspection — pass into a bin or send back" },
           { href: "/stores/csp-receipts", label: "CSP Receipts", description: "Customer-supplied and consignment material" },
         ],
       },

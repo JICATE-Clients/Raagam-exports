@@ -158,6 +158,7 @@ export function ProcessReceiptForm({
     },
     {
       header: "Output Item",
+      // pick-once: exempt -- the same material repeats across colour / size / component lines
       width: FIELD_WIDTH_CSS.term,
       cell: (l) => (
         <div data-focus-optional>

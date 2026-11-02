@@ -348,6 +348,7 @@ export function FabricPlanScreen({
     return [
       {
         header: "Process",
+        // pick-once: exempt -- a process / stage / type on the line — a sequence repeats it by design
         required: true,
         // NO WIDTH — the one flexible column, so the slack lands on the
         // longest value instead of on a percentage box.
@@ -393,6 +394,7 @@ export function FabricPlanScreen({
       },
       {
         header: "Processor",
+        // pick-once: exempt -- a process / stage / type on the line — a sequence repeats it by design
         width: "10rem",
         // REQUIRED FOR A STATE, not for the column — mandatory out-processed and
         // meaningless in-house. One declaration drives the star and the hold, so

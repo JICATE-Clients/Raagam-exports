@@ -7966,6 +7966,7 @@ export function GarmentOrderScreen({
      */
     {
       header: "Approved Sample No",
+      // pick-once: exempt -- the same material repeats across colour / size / component lines
       cell: (r) => (
         /* NOT `required` — `samples` has ZERO approved rows in this database,
            and a required field with an empty picker is a record that cannot be
@@ -7982,6 +7983,7 @@ export function GarmentOrderScreen({
     },
     {
       header: "Style Category",
+      // pick-once: exempt -- the same material repeats across colour / size / component lines
       /* MANDATORY SINCE 2026-08-31 (client): "must be explicitly chosen from
          the dropdown menu (e.g. Mens T-Shirt, Kids Wear)". Declared TWICE and
          that is the house rule, not belt-and-braces — the column draws the
@@ -8755,6 +8757,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
   const structureColumns: ChildGridColumn<StructureRow>[] = [
     {
       header: "Structure",
+      // pick-once: exempt -- the same material repeats across colour / size / component lines
       width: "16rem",
       /**
        * A FABRIC CATEGORY — SINGLE JERSEY, 1X1 LYCRA RIB (0415), not the knit
@@ -10404,6 +10407,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
     },
     {
       header: "Task Owner",
+      // pick-once: exempt -- a party attribute of the line — several lines share one
       width: "12rem",
       cell: (r) => {
         const opts = taOwnerOptions({
@@ -14349,6 +14353,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
              printed the same string (`styleNameForRef` finds the line BY this
              ref, so it always returns it) and is gone. */
           header: "Style",
+          // pick-once: exempt -- the same material repeats across colour / size / component lines
           /* SIZED, ALL THREE (2026-10-03, `erp-form-compact`): an unsized
              column stretched the nested table across the whole Packs cell.
              Every column declaring a width makes the table hug (see
@@ -14400,6 +14405,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         },
         {
           header: "Combo",
+          // pick-once: exempt -- the same material repeats across colour / size / component lines
           /* `code` (144px), down from `term` (user 2026-10-03: "innum compact
              pannu, text field-ku set aagara maari" — fit the boxes to their
              text). A combo is a colourway name, ~12 capitals at most, and
@@ -14540,6 +14546,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
   const quantityColumns: ChildGridColumn<QuantityRow>[] = [
     {
       header: "Country",
+      // pick-once: exempt -- a party attribute of the line — several lines share one
       width: FIELD_WIDTH_CSS.range,
       /* THE HEADER STAR IS UNCONDITIONAL (client 2026-08-31, screenshot 2562:
          "still which field are in option"). It means "this COLUMN is mandatory",
@@ -14666,6 +14673,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
       : []),
     {
       header: "Consignee",
+      // pick-once: exempt -- a party attribute of the line — several lines share one
       width: FIELD_WIDTH_CSS.code,
       required: true,
       cell: (r) => (
@@ -14827,6 +14835,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
     },
     {
       header: "Assortment Type",
+      // pick-once: exempt -- a process / stage / type on the line — a sequence repeats it by design
       width: FIELD_WIDTH_CSS.code,
       required: true,
       cell: (r) => (
@@ -18534,6 +18543,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
     },
     {
       header: "Component",
+      // pick-once: exempt -- the same material repeats across colour / size / component lines
       cell: (c) => (
         <RecordPicker
           label="Component"
@@ -18561,6 +18571,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
     },
     {
       header: "Structure",
+      // pick-once: exempt -- the same material repeats across colour / size / component lines
       cell: (c) => (
         /* A FABRIC CATEGORY — SINGLE JERSEY, 1X1 LYCRA RIB (0405), not the knit
            family one level up. `structureItems` is the same list the Combos
@@ -18681,6 +18692,8 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         columns={[
           {
             header: "Coordinate",
+            // PICK ONCE (2026-11-02): the same value on two rows is a duplicate, not data.
+            unique: (c) => c.coordinate_id,
             width: COORDINATE_W,
             cell: (c) => (
               /* NOT `required`. On the master it is required once a component
@@ -21407,6 +21420,7 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
               columns={[
                 {
                   header: "Currency",
+                  // pick-once: exempt -- a unit — many lines share one unit
                   required: true,
                   width: "7rem",
                   /* `compact` for the reason every picker in a grid cell takes

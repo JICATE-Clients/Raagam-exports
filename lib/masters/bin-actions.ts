@@ -6,6 +6,7 @@ import { can } from "@/lib/auth/server";
 import { binInput, type BinInput } from "./bin-types";
 import { checkDuplicateName } from "./dup-guard";
 import { deleteOrDeactivate } from "./delete-guard";
+import { getCurrentLocation } from "@/lib/auth/location";
 
 type Failure = { ok: false; error: string };
 type Result = { ok: true } | Failure;
@@ -54,4 +55,20 @@ export async function deleteBin(id: string): Promise<DeleteResult> {
   if (!res.ok) return fail(res.error);
   rev();
   return { ok: true, inactive: res.inactive, usedBy: res.usedBy };
+}
+
+/**
+ * A BIN MADE WHERE IT IS NEEDED (user 2026-11-02). The "Add Bin" form behind a bin box's
+ * "+ Add" (GRN / QC / Edit GRN) creates the bin in the unit the keeper is working in — a bin at Raagam HO belongs to HO —
+ * through `createBin`'s own rules (permission, schema, duplicate guard).
+ */
+export async function createBinInCurrentUnit(binCode: string, description: string | null = null): Promise<CreateResult> {
+  const { location } = await getCurrentLocation();
+  if (!location) return fail("Pick your working unit in the top bar first");
+  return createBin({
+    bin_code: binCode.trim().toUpperCase(),
+    location_id: location.id,
+    description: description?.trim().toUpperCase() || null,
+    inactive: false,
+  });
 }

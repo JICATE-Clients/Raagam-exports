@@ -1015,6 +1015,7 @@ export function IwoMaterialBomScreen({
        (`BreakupGrid`'s `samples`), and the line's Planned Qty is their sum. */
     {
       header: "Category",
+      // pick-once: exempt -- the same material repeats across colour / size / component lines
       width: FIELD_WIDTH_CSS.hug,
       cell: (r) => (
         <RecordPicker
@@ -1036,6 +1037,7 @@ export function IwoMaterialBomScreen({
     },
     {
       header: "Material",
+      // pick-once: exempt -- the same material repeats across colour / size / component lines
       required: true,
       width: FIELD_WIDTH_CSS.term,
       cell: (r) => (
@@ -1095,6 +1097,7 @@ export function IwoMaterialBomScreen({
     },
     {
       header: "Cons. Uom",
+      // pick-once: exempt -- a unit — many lines share one unit
       required: true,
       width: FIELD_WIDTH_CSS.num,
       cell: (r) => (
@@ -1136,6 +1139,7 @@ export function IwoMaterialBomScreen({
     },
     {
       header: "Pur. Uom",
+      // pick-once: exempt -- a unit — many lines share one unit
       width: FIELD_WIDTH_CSS.num,
       cell: (r) => (
         <RecordPicker
@@ -1183,6 +1187,7 @@ export function IwoMaterialBomScreen({
   const processColumns: ChildGridColumn<ProcRow>[] = [
     {
       header: "Material",
+      // pick-once: exempt -- the same material repeats across colour / size / component lines
       required: true,
       width: FIELD_WIDTH_CSS.name,
       cell: (r) => {
@@ -1218,6 +1223,7 @@ export function IwoMaterialBomScreen({
     },
     {
       header: "Process",
+      // pick-once: exempt -- a process / stage / type on the line — a sequence repeats it by design
       required: true,
       width: FIELD_WIDTH_CSS.term,
       cell: (r) => {
@@ -1244,6 +1250,7 @@ export function IwoMaterialBomScreen({
     },
     {
       header: "Vendor",
+      // pick-once: exempt -- a party attribute of the line — several lines share one
       width: FIELD_WIDTH_CSS.name,
       cell: (r) => (
         <RecordPicker

@@ -542,6 +542,7 @@ export function FabricProcessGrid({
        * the defaulted-vocabulary mistake AGENTS.md records under "Near misses".
        */
       header: "Stage",
+      // pick-once: exempt -- a process / stage / type on the line — a sequence repeats it by design
       width: "7rem",
       required: rows.some(fabricProcessRowStarted),
       cell: (r) => (
@@ -846,6 +847,7 @@ export function FabricProcessGrid({
        *  measured. The rest of the vocabulary is unknown, so it is a lookup the
        *  operator extends rather than a guess (0492). */
       header: "Loss for",
+      // pick-once: exempt -- a process / stage / type on the line — a sequence repeats it by design
       width: "7.5rem",
       cell: (r) => (
         <LookupDialogPicker
@@ -961,6 +963,7 @@ export function FabricProcessGrid({
        * invented to fill a column.
        */
       header: "Type",
+      // pick-once: exempt -- a process / stage / type on the line — a sequence repeats it by design
       width: "7rem",
       /* Typed here: inside the `SHOW_TYPE_COLUMN ? [...] : []` spread the
          column array's element type no longer reaches this parameter. */

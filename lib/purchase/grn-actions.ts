@@ -46,7 +46,15 @@ function friendlyGrnError(message: string): string {
   return /tolerance/i.test(message) ? OVER_TOLERANCE_MSG : message;
 }
 
-export async function createGrn(payload: GrnInput): Promise<CreateGrnResult> {
+/**
+ * SAVE A GRN. With `post`, SAVE AND POST IN ONE CLICK (user 2026-11-02: "Direct GRN
+ * Save (No Auto-Draft)") — the store keeper's entry no longer leaves a draft to be posted
+ * from a second screen. `grn_post` runs right after the insert; it is one transaction, so
+ * if it refuses, nothing it did survives, and the draft just written is deleted too — the
+ * keeper stays on the entry with the reason, exactly as if the save itself had refused.
+ * Without `post` it is the old draft save; the entry screen always posts.
+ */
+export async function createGrn(payload: GrnInput, opts: { post?: boolean } = {}): Promise<CreateGrnResult> {
   if (!(await can("materials_purchase", "create"))) throw new Error("Forbidden");
 
   const parsed = grnInput.safeParse(payload);
@@ -57,6 +65,19 @@ export async function createGrn(payload: GrnInput): Promise<CreateGrnResult> {
   const { lines: rawLines, over_receipt_reason, ...headerFields } = parsed.data;
   if (rawLines.length === 0) {
     return { ok: false, error: "Enter Today Recd on at least one line" };
+  }
+  /* PLACE OF DELIVERY (0792). Direct names the processor and its Process Order — grn_post
+     re-checks both against the order; our store names neither. */
+  if (headerFields.delivery_kind === "direct") {
+    if (!headerFields.delivery_vendor_id || !headerFields.process_order_id) {
+      return { ok: false, error: "Direct to processor: pick the processor and its Process Order" };
+    }
+    if (headerFields.kind === "replacement") {
+      return { ok: false, error: "A replacement is received into our store, not direct to a processor" };
+    }
+  } else {
+    headerFields.delivery_vendor_id = null;
+    headerFields.process_order_id = null;
   }
 
   /* ACCEPTED IS DERIVED, never typed (0620): Today Recd - Shortage / Rej. The
@@ -333,6 +354,18 @@ export async function createGrn(payload: GrnInput): Promise<CreateGrnResult> {
       await supabase.from("grns").delete().eq("id", grnId);
       return { ok: false, error: friendlyGrnError(binErr.message) };
     }
+  }
+
+  if (opts.post) {
+    const { error: postErr } = await supabase.rpc("grn_post", { p_grn_id: grnId });
+    if (postErr) {
+      await supabase.from("grns").delete().eq("id", grnId);
+      return { ok: false, error: friendlyGrnError(postErr.message) };
+    }
+    await writeAudit({ action: "grn.posted", entityType: "grn", entityId: grnId });
+    revalidatePath("/purchase/orders");
+    revalidatePath("/stores");
+    revalidatePath("/finance/payables");
   }
 
   revalidateGrn(grnId);
@@ -692,5 +725,95 @@ export async function setGrnLineRejection(
     .eq("id", lineId);
   if (upErr) return { ok: false, error: friendlyGrnError(upErr.message) };
   revalidateGrn(r.grn_id);
+  return { ok: true };
+}
+
+// ---------- PENDING QC (0791) ----------
+
+export type QcDecision = {
+  /** 0 = all passed. */
+  failed_qty: number;
+  rejection_reason: string | null;
+  /** Rejection = return for credit (the PO line closes it); Replacement = the vendor resends. */
+  rejection_action: "return" | "replace" | null;
+  store_id: string | null;
+  /** One bin, or — with `bins` — several, which must add up to the accepted qty. */
+  bin_id: string | null;
+  bins: { bin_id: string; qty: number }[];
+};
+
+/**
+ * THE INSPECTOR'S DECISION on one held GRN line (Stores ▸ Pending QC). `grn_qc_decide`
+ * does all of it in one transaction — stock into the chosen bins, the failed qty off the
+ * PO onto its DC, the accepted value's draft bill — and refuses the same things this
+ * screen does, so a stale tab gets a sentence, not a half-done decision.
+ */
+export async function decideQc(lineId: string, d: QcDecision): Promise<ActionResult> {
+  if (!((await can("stores", "edit")) || (await can("materials_purchase", "edit")))) throw new Error("Forbidden");
+  if (!Number.isFinite(d.failed_qty) || d.failed_qty < 0) return { ok: false, error: "Failed qty cannot be negative" };
+  if (d.failed_qty > 0 && !d.rejection_reason?.trim()) return { ok: false, error: "A rejection reason is required for the failed qty" };
+
+  const supabase = await createClient();
+  const { data: line } = await supabase.from("grn_line_items").select("grn_id").eq("id", lineId).maybeSingle();
+  const { error } = await supabase.rpc("grn_qc_decide", {
+    p_line_id: lineId,
+    p_failed: d.failed_qty,
+    p_reason: d.rejection_reason?.trim().toUpperCase() || null,
+    p_action: d.failed_qty > 0 ? d.rejection_action : null,
+    p_store_id: d.store_id,
+    p_bin_id: d.bins.length > 0 ? null : d.bin_id,
+    p_bins: d.bins,
+  });
+  if (error) return { ok: false, error: friendlyGrnError(error.message) };
+
+  const grnId = (line as { grn_id: string } | null)?.grn_id;
+  await writeAudit({ action: "grn.qc_decided", entityType: "grn", entityId: grnId ?? lineId });
+  if (grnId) revalidateGrn(grnId);
+  revalidatePath("/stores/qc-pending");
+  revalidatePath("/stores");
+  revalidatePath("/purchase/orders");
+  revalidatePath("/finance/payables");
+  return { ok: true };
+}
+
+// ---------- EDIT A POSTED GRN (0792) ----------
+
+export type GrnEdit = {
+  header: { invoice_no: string | null; invoice_date: string | null; dc_no: string | null; vehicle_ref: string | null };
+  /** Empty = paper only (no reversal). Otherwise every line, as corrected. */
+  lines: {
+    id: string;
+    received_qty: number;
+    roll_batch_no: string | null;
+    store_id: string | null;
+    bin_id: string | null;
+    bins: { bin_id: string; qty: number }[];
+  }[];
+};
+
+/**
+ * EDIT A POSTED GRN (user 2026-11-02, guarded). The paper is a plain update; quantities,
+ * lots and bins are undone and posted again by `grn_edit_posted` in one transaction —
+ * which refuses, with the reason, whatever cannot be undone cleanly (an approved bill, a
+ * DC already back with the vendor, stock already issued, a closed balance…).
+ */
+export async function editPostedGrn(grnId: string, e: GrnEdit): Promise<ActionResult> {
+  if (!(await can("materials_purchase", "edit"))) throw new Error("Forbidden");
+  for (const l of e.lines) {
+    if (!Number.isFinite(l.received_qty) || l.received_qty < 0) return { ok: false, error: "Received qty cannot be negative" };
+  }
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("grn_edit_posted", {
+    p_grn_id: grnId,
+    p_header: e.header,
+    p_lines: e.lines,
+  });
+  if (error) return { ok: false, error: friendlyGrnError(error.message) };
+
+  await writeAudit({ action: e.lines.length ? "grn.edited_reposted" : "grn.edited", entityType: "grn", entityId: grnId });
+  revalidateGrn(grnId);
+  revalidatePath("/purchase/orders");
+  revalidatePath("/stores");
+  revalidatePath("/finance/payables");
   return { ok: true };
 }

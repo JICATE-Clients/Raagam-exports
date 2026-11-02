@@ -619,6 +619,7 @@ export function CategoryMasterScreen({
     },
     {
       header: "Type",
+      // pick-once: exempt -- a process / stage / type on the line — a sequence repeats it by design
       cell: (r) =>
         isEditingRow(r) ? (
           showCategoryType ? (

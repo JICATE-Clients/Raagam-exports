@@ -1,5 +1,6 @@
 "use client";
 
+import { PickOnceScope } from "@/components/ui/pick-once";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 
 /**
@@ -686,7 +687,7 @@ export function Sheet({
      * sheet's own `<Field required>` / `RequiredScope` still work normally:
      * they provide their own context below this one.
      */
-    <RequiredScope required={false} label={null}>
+    <RequiredScope required={false} label={null}><PickOnceScope used={null}>
       {/* `inert` (not just aria-hidden) while closed: the closed state is only
           opacity-0 + pointer-events-none, and `focusablesIn`'s `offsetParent`
           check does NOT exclude an opacity-0 element — so every field of every
@@ -981,7 +982,7 @@ export function Sheet({
         </div>
       )}
       </div>
-    </RequiredScope>,
+    </PickOnceScope></RequiredScope>,
     document.body,
   );
 }

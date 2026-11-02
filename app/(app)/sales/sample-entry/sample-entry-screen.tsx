@@ -1007,6 +1007,8 @@ export function SampleEntryScreen({
             columns={[
               {
                 header: "Coordinate",
+                // PICK ONCE (2026-11-02): the same value on two rows is a duplicate, not data.
+                unique: (c) => c.coordinate_id,
                 // A declared width makes the table HUG (`hugsContent`) instead of
                 // `min-w-[420px]`, which scrolled sideways in this pane.
                 // OE's `COORDINATE_W`: # 2.5rem + 7.5rem = the w-40 pane above.
@@ -1350,6 +1352,7 @@ export function SampleEntryScreen({
   const sampleQuantityColumns: ChildGridColumn<QuantityRow>[] = [
     {
       header: "Country",
+      // pick-once: exempt -- a party attribute of the line — several lines share one
       required: true,
       width: FIELD_WIDTH_CSS.range,
       cell: (r) => (
@@ -1403,6 +1406,7 @@ export function SampleEntryScreen({
       : []),
     {
       header: "Consignee",
+      // pick-once: exempt -- a party attribute of the line — several lines share one
       required: true,
       width: FIELD_WIDTH_CSS.code,
       cell: (r) => (
@@ -1484,6 +1488,7 @@ export function SampleEntryScreen({
     },
     {
       header: "Assortment Type",
+      // pick-once: exempt -- a process / stage / type on the line — a sequence repeats it by design
       required: true,
       width: FIELD_WIDTH_CSS.code,
       cell: (r) => (
@@ -1625,6 +1630,7 @@ export function SampleEntryScreen({
   const structureColumnsFor = (active: StyleDraft): ChildGridColumn<StructureDraft>[] => [
     {
       header: "Structure",
+      // pick-once: exempt -- the same material repeats across colour / size / component lines
       width: FIELD_WIDTH_CSS.party,
       cell: (x) => (
         <RecordPicker
