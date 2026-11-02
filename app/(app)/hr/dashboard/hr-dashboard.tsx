@@ -701,7 +701,6 @@ export function HrDashboardView({
   const leftEarly = count(groups, (d) => d.status === "left_early");
   const trips = all.reduce((t, d) => t + d.movements.length, 0);
   const lateMinutes = all.reduce((t, d) => t + d.lateMin, 0);
-  const lostMin = lateMinutes + all.reduce((t, d) => t + d.earlyMin, 0);
   const avgLate = late ? Math.round(lateMinutes / late) : 0;
   const onTimeRate = pctOf(onTime, present);
 
@@ -1161,7 +1160,7 @@ export function HrDashboardView({
                   ))}
               </ul>
             </div>
-            <dl className="mt-5 grid grid-cols-3 divide-x divide-slate-100 rounded-xl bg-slate-50 py-3 text-center dark:divide-slate-800 dark:bg-slate-800/40">
+            <dl className="mt-5 grid grid-cols-2 divide-x divide-slate-100 rounded-xl bg-slate-50 py-3 text-center dark:divide-slate-800 dark:bg-slate-800/40">
               <div>
                 <dd className="text-base font-semibold tabular-nums text-slate-900 dark:text-white">{onTimeRate}%</dd>
                 <dt className="text-[11px] text-slate-500">On time</dt>
@@ -1169,10 +1168,6 @@ export function HrDashboardView({
               <div>
                 <dd className="text-base font-semibold tabular-nums text-slate-900 dark:text-white">{mins(avgLate)}</dd>
                 <dt className="text-[11px] text-slate-500">Avg late</dt>
-              </div>
-              <div>
-                <dd className="text-base font-semibold tabular-nums text-slate-900 dark:text-white">{mins(lostMin)}</dd>
-                <dt className="text-[11px] text-slate-500">Time lost</dt>
               </div>
             </dl>
           </Panel>
