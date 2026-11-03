@@ -359,7 +359,7 @@ export function WorkspaceTabsBar() {
   return (
     <div
       data-tab-strip=""
-      className="flex h-14 flex-none items-center gap-1.5 border-b border-border px-2 md:h-11 md:gap-1"
+      className="flex h-14 flex-none items-center gap-1.5 border-b border-border px-2 max-md:hidden md:h-11 md:gap-1"
     >
       {/* ---- PHONE (below md): L's three controls, ‹ [switcher] › ---- */}
       {/* Chrome, not fields: off the Tab path like every control here. */}

@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Bug, ChevronDown, LogOut, Search, UserRound } from "lucide-react";
+import { Bug, Check, ChevronDown, ChevronRight, LogOut, MapPin, Monitor, Moon, Search, Sun, Type, UserRound } from "lucide-react";
 import { signOut } from "@/lib/auth/actions";
 import { setCurrentLocation } from "@/lib/auth/location-actions";
 import { setRolePreview } from "@/lib/auth/role-simulation-actions";
@@ -12,13 +12,21 @@ import { useLocationState } from "@/lib/auth/location-context";
 import { confirmDiscard } from "@/lib/reload-guard";
 import { useSearch } from "@/components/search/search-provider";
 import { NotificationsBell } from "@/components/shell/notifications-bell";
-import { ThemeToggle } from "@/components/shell/theme-toggle";
-import { AppearanceMenu } from "@/components/shell/appearance-menu";
+import { useTheme } from "@/components/shell/theme-provider";
+import { useAppearanceItems } from "@/components/shell/appearance-menu";
+import type { Theme } from "@/lib/theme";
+import { SEG_IDLE, SEG_ITEM, SEG_LIT, SEG_TRACK } from "@/components/ui/segmented";
 import { InstallMenuItem } from "@/components/pwa/install-menu-item";
 import { Select } from "@/components/ui/select";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { bugPortalUrl, bugReporterConfigured } from "@/lib/bug-reporter";
 import { cn } from "@/lib/utils";
+
+const THEMES: { id: Theme; label: string; icon: typeof Sun }[] = [
+  { id: "light", label: "Light", icon: Sun },
+  { id: "dark", label: "Dark", icon: Moon },
+  { id: "system", label: "System", icon: Monitor },
+];
 
 /** Order-independent set equality, for "has the pending pick actually changed". */
 function sameRoleSet(a: string[], b: string[]): boolean {
@@ -68,6 +76,9 @@ export function Topbar({
   const search = useSearch();
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
+  const { theme, setTheme } = useTheme();
+  const appearance = useAppearanceItems();
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [switching, startSwitch] = useTransition();
   const [previewing, startPreview] = useTransition();
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -217,29 +228,6 @@ export function Topbar({
             way round: the name is re-read from the open list, while a
             half-rendered avatar is a control the operator cannot press. Above
             `sm` it is 176px exactly as before. */}
-        <Select
-          value={current?.id ?? ""}
-          onChange={(e) => onSwitchUnit(e.target.value)}
-          disabled={switching || allowed.length === 0}
-          aria-label="Location"
-          aria-describedby={error ? "location-switch-error" : undefined}
-          className="w-28 sm:w-44"
-          inputClassName={cn(BAR_CONTROL, "font-medium")}
-        >
-          {/* No unit resolved. Shown rather than auto-picking `allowed[0]`,
-              which is how the old code answered "which company's books?" by
-              array order. An empty value is a prompt; a wrong one is silent. */}
-          {!current && (
-            <option value="">
-              {allowed.length === 0 ? "No unit assigned" : "Select unit…"}
-            </option>
-          )}
-          {allowed.map((l) => (
-            <option key={l.id} value={l.id}>
-              {l.name}
-            </option>
-          ))}
-        </Select>
 
         {/* THE OPERATOR DID NOT CHOOSE THIS UNIT, SO IT IS SAID OUT LOUD.
             `"default"` is their home unit; `"fallback"` is the house default
@@ -337,30 +325,6 @@ export function Topbar({
       </div>
 
       <div className="flex items-center gap-1">
-        {/* Search Everywhere trigger */}
-        <button
-          type="button"
-          onClick={search.open}
-          aria-label="Search everywhere"
-          className={cn(
-            BAR_CONTROL,
-            // `pr-2.5`: the one bar control with no chevron — see BAR_CONTROL.
-            "pr-2.5 flex items-center gap-2 text-muted-foreground hover:bg-surface-muted",
-            "md:w-56 md:justify-start",
-          )}
-        >
-          <Search className="h-4 w-4 shrink-0" />
-          <span className="hidden flex-1 text-left md:inline">
-            Search…
-          </span>
-          <kbd className="hidden shrink-0 rounded border border-border bg-surface-muted px-1.5 py-0.5 font-mono text-[10px] md:inline">
-            ⌘K
-          </kbd>
-        </button>
-
-        <ThemeToggle />
-        <AppearanceMenu />
-
         <NotificationsBell />
 
         <div className="relative">
@@ -384,7 +348,7 @@ export function Topbar({
                 className="fixed inset-0 z-10"
                 onClick={() => setMenuOpen(false)}
               />
-              <div className="absolute right-0 top-full z-20 mt-1 w-56 rounded-md border border-border bg-surface p-1 shadow-lg">
+              <div className="absolute right-0 top-full z-20 mt-1 w-64 max-h-[80vh] overflow-y-auto rounded-md border border-border bg-surface p-1 shadow-lg">
                 <div className="border-b border-border px-3 py-2">
                   <p className="truncate text-sm font-medium">
                     {user.fullName ?? "—"}
@@ -398,6 +362,113 @@ export function Topbar({
                       : user.roleNames.join(", ") || "No roles assigned"}
                   </p>
                 </div>
+                <div className="border-b border-border px-3 py-2">
+                  <p className="mb-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <MapPin className="h-3.5 w-3.5" /> Unit
+                  </p>
+        <Select
+          value={current?.id ?? ""}
+          onChange={(e) => onSwitchUnit(e.target.value)}
+          disabled={switching || allowed.length === 0}
+          aria-label="Location"
+          aria-describedby={error ? "location-switch-error" : undefined}
+          className="w-full"
+          inputClassName={cn(BAR_CONTROL, "font-medium")}
+        >
+          {/* No unit resolved. Shown rather than auto-picking `allowed[0]`,
+              which is how the old code answered "which company's books?" by
+              array order. An empty value is a prompt; a wrong one is silent. */}
+          {!current && (
+            <option value="">
+              {allowed.length === 0 ? "No unit assigned" : "Select unit…"}
+            </option>
+          )}
+          {allowed.map((l) => (
+            <option key={l.id} value={l.id}>
+              {l.name}
+            </option>
+          ))}
+        </Select>
+                  {error && (
+                    <p role="alert" className="mt-1 text-xs text-danger">
+                      {error}
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 px-3 py-2">
+                  <Sun className="h-4 w-4 text-muted-foreground" />
+                  <span className="flex-1 text-sm">Theme</span>
+                  <div role="radiogroup" aria-label="Theme" data-segmented="" className={SEG_TRACK}>
+                    {THEMES.map(({ id, label, icon: Icon }) => (
+                      <button
+                        key={id}
+                        type="button"
+                        role="radio"
+                        aria-checked={theme === id}
+                        aria-label={label}
+                        title={label}
+                        onClick={() => setTheme(id)}
+                        className={cn(SEG_ITEM, "justify-center px-2", theme === id ? SEG_LIT : SEG_IDLE)}
+                      >
+                        <Icon aria-hidden />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  aria-expanded={appearanceOpen}
+                  title={appearance.summary}
+                  onClick={() => setAppearanceOpen((o) => !o)}
+                  className="flex w-full items-center gap-2 rounded px-3 py-2 text-sm text-foreground hover:bg-surface-muted"
+                >
+                  <Type className={cn("h-4 w-4", appearance.compact ? "text-primary" : "text-muted-foreground")} />
+                  <span className="flex-1 text-left">Appearance</span>
+                  <span className="max-w-[6rem] truncate text-xs text-muted-foreground">{appearance.styleLabel}</span>
+                  <ChevronRight className={cn("h-4 w-4 text-muted-foreground transition-transform", appearanceOpen && "rotate-90")} />
+                </button>
+                {appearanceOpen && (
+                  <div className="ml-4 border-l border-border pl-1">
+                    {appearance.items.map((item, i) => {
+                      const heading = item.section && item.section !== appearance.items[i - 1]?.section;
+                      return (
+                        <div key={`${item.section}-${item.label}`}>
+                          {heading && (
+                            <p className="px-2.5 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                              {item.section}
+                            </p>
+                          )}
+                          <button
+                            type="button"
+                            role="menuitemradio"
+                            aria-checked={!!item.checked}
+                            onClick={item.onClick}
+                            className="flex w-full items-center gap-2 rounded px-2.5 py-1 text-sm text-foreground hover:bg-surface-muted"
+                          >
+                            {item.swatch ? (
+                              <span className="h-3.5 w-3.5 flex-none rounded-full ring-1 ring-border" style={{ background: item.swatch }} />
+                            ) : (
+                              <span className="w-3.5 flex-none" />
+                            )}
+                            <span className="flex-1 truncate text-left" style={item.labelStyle}>{item.label}</span>
+                            {item.checked && <Check className="h-4 w-4 flex-none text-primary" />}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                <div className="my-1 border-t border-border" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    search.open();
+                  }}
+                  className="flex w-full items-center gap-2 rounded px-3 py-2 text-sm text-foreground hover:bg-surface-muted"
+                >
+                  <Search className="h-4 w-4" /> Search
+                </button>
                 {/* MY PROFILE (user 2026-10-01) — the signed-in person's own
                     HR staff record, for every login and with no permission
                     needed (app/(app)/my-profile). `router.push` rather than a bare

@@ -150,6 +150,7 @@ export function Composer({
   autoFocus = false,
   chat = false,
   onPosted,
+  fill,
 }: {
   conversationId: string;
   members: CommMember[];
@@ -159,6 +160,8 @@ export function Composer({
   onSend: (body: string | null, attachments: AttachmentInput[]) => Promise<boolean>;
   /** 0776: a poll or an event went straight to the server — read the newest messages. */
   onPosted?: () => void;
+  /** A smart-reply chip: put this text in the box (never sends). `n` makes a repeat pick count. */
+  fill?: { text: string; n: number } | null;
   autoFocus?: boolean;
   /** Pulse's direct and group chats (the colourful redesign, 2026-10-29):
    *  a rounded, tinted box and a round coral Send. A channel keeps the plain box. */
@@ -175,6 +178,14 @@ export function Composer({
   const [card, setCard] = useState<null | "contact" | "poll" | "event">(null);
   const [stickering, setStickering] = useState(false);
   const [text, setText] = useState("");
+  const [filledN, setFilledN] = useState(0);
+  if (fill && fill.n !== filledN) {
+    setFilledN(fill.n);
+    setText(fill.text);
+  }
+  useEffect(() => {
+    if (fill) ref.current?.focus();
+  }, [fill]);
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useTransition, type CSSProperties } from "react";
 import { CHAT_WALL_MASK } from "@/lib/comms/chat-wall";
-import { ArrowLeft, Hash, Loader2, Lock, Megaphone, MoreVertical, RotateCw, Search, Users, WifiOff } from "lucide-react";
+import { ArrowLeft, Hash, Loader2, Lock, Megaphone, MoreVertical, RotateCw, Users, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { DropdownMenu, type DropdownItem } from "@/components/ui/dropdown-menu";
@@ -42,6 +42,7 @@ import { AVATAR_TINT, avatarStyle } from "./conversation-list";
 import { PinnedSheet } from "./pinned-sheet";
 import { ThreadSheet } from "./thread-sheet";
 import { ChatSearchPanel } from "./chat-search-panel";
+import { suggestReplies } from "@/lib/comms/smart-reply-actions";
 
 type Pending = {
   client_id: string;
@@ -119,6 +120,7 @@ export function ConversationView({
   usePhoneKeyboardViewport();
 
   const [messages, setMessages] = useState<CommMessage[]>(initialPage.messages);
+  const [fill, setFill] = useState<{ text: string; n: number } | null>(null);
   const [cursor, setCursor] = useState<string | null>(initialPage.next_cursor);
   const [pending, setPending] = useState<Pending[]>([]);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -597,17 +599,7 @@ export function ConversationView({
             <WifiOff className="h-3.5 w-3.5" aria-hidden /> Reconnecting…
           </span>
         )}
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setSearchOpen((o) => !o)}
-          aria-pressed={searchOpen}
-          aria-label="Search messages"
-          title="Search"
-          className={cn("h-10 w-10", searchOpen && "bg-surface-muted")}
-        >
-          <Search className="h-5 w-5" />
-        </Button>
+        {/* No magnifier in the header (user 2026-11-02) — Search is in the ⋮ menu. */}
         <DropdownMenu
           label="Menu"
           trigger={<MoreVertical className="h-5 w-5" />}
@@ -786,7 +778,12 @@ export function ConversationView({
       </div>
 
       {canWrite && chat && (
-        <QuickReplies onPick={(text) => void send(text, [])} />
+        <QuickReplies
+          conversationId={id}
+          lastId={messages[messages.length - 1]?.id ?? null}
+          lastIsMine={messages[messages.length - 1]?.author_id === meId}
+          onPick={(text) => setFill((f) => ({ text, n: (f?.n ?? 0) + 1 }))}
+        />
       )}
       {canWrite ? (
         <Composer
@@ -796,12 +793,14 @@ export function ConversationView({
           meId={meId}
           placeholder={`Message ${conversation.title}`}
           onSend={send}
+          fill={fill}
           onPosted={() => {
             stick.current = true;
             void refreshLatest();
           }}
           autoFocus
-          chat={!!chat}
+          // The compact typing bar in every conversation, channels included (user 2026-11-02, mockup)
+          chat
         />
       ) : (
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border bg-surface-muted px-4 py-3 text-sm">
@@ -909,9 +908,32 @@ function dayLabel(iso: string): string {
  * 2026-10-29). Each sends exactly its words through the same send as typing —
  * so it is queued, retried and shown the same way.
  */
-const QUICK_REPLIES = ["Noted, thanks!", "Will check and update", "Please share the details"];
-
-function QuickReplies({ onPick }: { onPick: (text: string) => void }) {
+function QuickReplies({
+  conversationId,
+  lastId,
+  lastIsMine,
+  onPick,
+}: {
+  conversationId: string;
+  lastId: string | null;
+  lastIsMine: boolean;
+  onPick: (text: string) => void;
+}) {
+  // SMART REPLIES (user 2026-11-02): relevant to the last message, fetched when
+  // it changes. A chip FILLS the box — it never sends.
+  const [smart, setSmart] = useState<{ id: string | null; replies: string[] }>({ id: null, replies: [] });
+  useEffect(() => {
+    if (!lastId || lastIsMine) return;
+    let live = true;
+    void suggestReplies(conversationId).then((r) => live && setSmart({ id: lastId, replies: r.replies }));
+    return () => {
+      live = false;
+    };
+  }, [conversationId, lastId, lastIsMine]);
+  // No fixed fallback chips any more (user 2026-11-02): only replies written for
+  // this conversation show, and nothing shows while loading or when there are none.
+  const shown = smart.id === lastId && !lastIsMine ? smart.replies : [];
+  if (shown.length === 0) return null;
   return (
     // One row that scrolls sideways on a phone: wrapped, the four pills took
     // three lines of the little height left above the keyboard.
@@ -920,7 +942,7 @@ function QuickReplies({ onPick }: { onPick: (text: string) => void }) {
       role="group"
       aria-label="Quick replies"
     >
-      {QUICK_REPLIES.map((t) => (
+      {shown.map((t) => (
         // button-shape: exempt -- a quick-reply pill in the Pulse redesign (user 2026-10-29), a suggestion chip rather than an action button
         <button
           key={t}
