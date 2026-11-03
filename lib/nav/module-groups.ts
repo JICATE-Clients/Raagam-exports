@@ -4,11 +4,11 @@ import {
   ArchiveX,
   ArrowDownToLine,
   ArrowRightLeft,
-  ArrowUpFromLine,
   BadgeIndianRupee,
   Banknote,
   BookOpen,
   Boxes,
+  ClipboardList,
   Briefcase,
   TrendingUp,
   Building2,
@@ -19,7 +19,6 @@ import {
   ClipboardPen,
   Clock,
   Cog,
-  FileCheck,
   FileText,
   Gauge,
   Hammer,
@@ -31,7 +30,6 @@ import {
   ListTree,
   PackageCheck,
   PackageOpen,
-  PackagePlus,
   Presentation,
   Receipt,
   Ruler,
@@ -1148,6 +1146,23 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
     ],
   },
 
+  /* PURCHASE CHILD ALIGNMENT (user 2026-11-02): three sub-modules in the legacy
+     RP order — ① Procurement, ② Purchase Store, ③ General Items Purchase — and
+     "everything we have we need to move here". So the Stores screens on that list
+     (Opening Stock, Adjustment, Transfer, CSP Receipt, Department delivery, MRS)
+     MOVED routes to /purchase/* — their /stores/* addresses redirect (REDIRECTED
+     in check-module-groups.mts). Their pages and RLS still answer to `stores`,
+     so the row needs Purchase (to be listed) and the page Stores (to open) — the
+     screen catalog files a screen under its MENU module by rule
+     (check-screen-catalog: "every screen carries its menu module's permission key").
+
+     Rows of the list that are one screen here, not a row each:
+     - Rejection / Replacement delivery → Delivery Challan (its Rejection tab).
+     - Jobwork / Processing Delivery / Processing Receipt → Delivery Challans
+       (the Process DC is the job-work DC: Send, then Receive back, one register).
+     - Requisitions Approved → Material Requisition Slip (submitted → approved →
+       issued on one screen).
+     Rows with no screen and no table yet are `todo` (dashed, "Not set up yet"). */
   "/purchase": {
     label: "Purchase",
     module: "materials_purchase",
@@ -1157,54 +1172,77 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         slug: "procurement",
         label: "Procurement",
         icon: ShoppingBag,
-        description: "Indents, RFQs and purchase orders",
+        description: "Purchase orders, their approval, rate changes, cancellation and completion",
         children: [
           // doc/purchase/puchase.md (2026-10-23): RE numbers in, requirement lines out, the manager types the rate.
           // First in the group (user 2026-10-26): a PO starts from the requirement, then is worked on Purchase Orders.
           { href: "/purchase/requirement-po", label: "Raise PO", description: "Pick RE numbers; what they still need lists itself; type the rate", newUntil: "2026-11-30" },
+          { href: "/purchase/orders", label: "Purchase Orders", description: "Create from budget, submit and approve" },
           // The approver's queue of POs raised on Raise PO — Orders ▸ Approval's shape (user 2026-10-28).
           { href: "/purchase/po-approval", label: "PO Approval", description: "Approve, send back or reject a PO raised on Raise PO", newUntil: "2026-11-30" },
-          { href: "/purchase/orders", label: "Purchase Orders", description: "Create from budget, submit and approve" },
-          { href: "/purchase/rfq", label: "RFQ", description: "Request quotes from vendors and award" },
-          { href: "/purchase/indents", label: "Indents", description: "Department indents and their lines" },
-          // Was a sibling of Indents in the old flat list even though it is a
-          // route BENEATH it. This is the conflict the regrouping was asked for.
-          { href: "/purchase/indents/approval", label: "Indent Approval", description: "Acknowledge and approve raised indents" },
-        ],
-      },
-      {
-        kind: "group",
-        slug: "receiving",
-        label: "Receiving",
-        icon: PackageOpen,
-        description: "Goods receipts and delivery challans",
-        children: [
-          { href: "/purchase/grn", label: "Goods Receipts", description: "Partial receipt, QC accept or reject, posts to Stores" },
-          /* MOVED HERE FROM Stores ▸ Receipts & Returns (user 2026-10-31): every vendor
-             return is the Rejection / Replacement DC a GRN raises, and its replacement comes
-             back on a GRN — so it sits beside Goods Receipts. NOT inside Delivery Challans:
-             those are job-work DCs to processors, a different document. The old
-             /stores/vendor-returns address redirects here. */
-          { href: "/purchase/vendor-returns", label: "Vendor Returns", description: "Rejection / replacement DCs raised from a GRN" },
-          { href: "/purchase/dc", label: "Delivery Challans", description: "Issue material to processors and record returns" },
-        ],
-      },
-      {
-        kind: "group",
-        slug: "approvals",
-        label: "Approvals & Amendments",
-        icon: FileCheck,
-        description: "Rate, price and budget changes, cancellation and completion",
-        children: [
-          // 0765 — who approves a PO, by item class / above budget, on one screen
-          // (user 2026-10-28). Edits the purchase_order approval flows.
-          { href: "/purchase/po-approval-routing", label: "PO Approval Routing", description: "Who approves a PO — by item class, above budget, and the rest" },
-          { href: "/purchase/over-budget", label: "Over-budget Confirmation", description: "Budget versus quoted rate with variance" },
-          { href: "/purchase/rate-amendments", label: "Rate Amendments", description: "Revise a PO line rate and recompute the total" },
-          { href: "/purchase/price-confirmations", label: "Price Confirmation", description: "Confirm agreed purchase prices" },
-          { href: "/purchase/po-cancellations", label: "Cancel PO", description: "Cancel a purchase order with a logged reason" },
+          { href: "/purchase/over-budget", label: "More than Budget Approval", description: "Budget versus quoted rate with variance" },
+          { href: "/purchase/rate-amendments", label: "Rate Amendment", description: "Revise a PO line rate and recompute the total" },
+          { href: "/purchase/po-cancellations", label: "Cancel Purchase Order", description: "Cancel a purchase order with a logged reason" },
           { href: "/purchase/completions", label: "PO Completions", description: "Close out a completed purchase order" },
-          // Was a loose row under this group and read as one of its screens (user 2026-10-28: move it in).
+        ],
+      },
+      {
+        kind: "group",
+        slug: "store",
+        label: "Purchase Store",
+        icon: PackageOpen,
+        description: "Receipts, delivery challans, returns and stock movements",
+        children: [
+          { href: "/purchase/grn", label: "Purchase Receipts (GRN)", description: "Partial receipt, QC accept or reject, posts to Stores" },
+          /* ONE REGISTER for every DC (user 2026-11-02, the return plan): job-work (process),
+             production, and the Rejection / Replacement DCs a GRN raises — so the list's
+             Rejection, Replacement, Jobwork and Processing Delivery / Receipt rows all open
+             here. /purchase/vendor-returns redirects to its Rejection tab. */
+          { href: "/purchase/dc", label: "Delivery Challan", description: "Job-work, production, rejection and replacement DCs — send, then receive back" },
+          { href: "/purchase/interdept", label: "Department Delivery", description: "Move material between departments" },
+          // GENERAL DC (0796) — a kind of the one DC; this row opens the hub's General tab.
+          { href: "/purchase/general-delivery", label: "General Delivery", description: "Send material out for repair, sample, loan or gift — returnable or not" },
+          { href: "/purchase/delivery-returns", label: "Delivery Return", description: "Receive back goods sent on a returnable General DC" },
+          { href: "/purchase/department-returns", label: "Department Return", description: "Unused or excess material a department gives back, against an issued MRS" },
+          { href: "/purchase/opening-stock", label: "Opening Stock", description: "Set a store's initial balances" },
+          { href: "/purchase/adjustments", label: "Stock Adjustment", description: "Adjust stock in or out with a reason" },
+          { href: "/purchase/transfers", label: "Stock Transfer", description: "Move stock between stores" },
+          { href: "/purchase/csp-receipts", label: "CSP Receipt", description: "Customer-supplied and consignment material" },
+        ],
+      },
+      {
+        kind: "group",
+        slug: "general-items",
+        label: "General Items Purchase",
+        icon: ClipboardList,
+        description: "Requisitions and indents for general (non-order) items",
+        children: [
+          { href: "/purchase/requisitions", label: "Material Requisition Slip", description: "Department requests from a store — submit, approve, then issue" },
+          { href: "/purchase/indents", label: "Indent to Purchase", description: "Department indents — convert to RFQ / PO" },
+          { href: "/purchase/indents/approval", label: "Acknowledge Indent", description: "Acknowledge and approve indents raised by departments" },
+          { href: "/purchase/general-items-delivery", label: "General Items Delivery", description: "Deliver approved requisitions to the department" },
+        ],
+      },
+      // OFF THE MENU, NOT DELETED (user 2026-11-02: "hide the existing unmentioned
+      // child"). The four Purchase screens the alignment list does not name. `hidden`
+      // drops the sidebar row only — the hub still renders, the screens still open by
+      // URL and from search (`moduleLeafItems` does not filter `hidden`), and they stay
+      // in the permission tree flagged "hidden". Same shape as Orders ▸ Retired Screens.
+      {
+        kind: "group",
+        slug: "retired",
+        hidden: true,
+        label: "Retired Screens",
+        icon: ArchiveX,
+        description: "Purchase screens kept reachable, but no longer in the menu",
+        status: "provisional",
+        note:
+          "These screens are off the Purchase menu because the Purchase layout (Procurement · Purchase Store · General Items Purchase) does not list them. They all still work and still open from search — nothing has been deleted.",
+        children: [
+          { href: "/purchase/rfq", label: "RFQ", description: "Request quotes from vendors and award" },
+          { href: "/purchase/price-confirmations", label: "Price Confirmation", description: "Confirm agreed purchase prices" },
+          // 0765 — who approves a PO, by item class / above budget (user 2026-10-28).
+          { href: "/purchase/po-approval-routing", label: "PO Approval Routing", description: "Who approves a PO — by item class, above budget, and the rest" },
           { href: "/purchase/lab", label: "Lab / QC", description: "Test standards and in-house / outside-lab test reports" },
         ],
       },
@@ -1217,34 +1255,14 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
     label: "Stores",
     module: "stores",
     entries: [
-      {
-        kind: "group",
-        slug: "setup",
-        label: "Stock Setup",
-        icon: PackagePlus,
-        description: "Opening balances and stock adjustments",
-        children: [
-          { href: "/stores/opening-stock", label: "Opening Stock", description: "Set a store's initial balances" },
-          { href: "/stores/adjustments", label: "Adjustments", description: "Adjust stock in or out with a reason" },
-        ],
-      },
-      {
-        kind: "group",
-        slug: "issues",
-        label: "Issues & Requisitions",
-        icon: ArrowUpFromLine,
-        description: "Department requests and inter-department delivery",
-        children: [
-          { href: "/stores/requisitions", label: "Requisitions", description: "Material requisition slips, submit to issue" },
-          { href: "/stores/interdept", label: "Inter-dept Delivery", description: "Move material between departments" },
-        ],
-      },
+      // Stock Setup and Issues & Requisitions, CSP Receipts and Transfers moved to
+      // Purchase (user 2026-11-02); their old hub and screen addresses redirect.
       {
         kind: "group",
         slug: "processing",
         label: "Processing",
         icon: Cog,
-        description: "Process orders and the job-work DCs sent and received against them",
+        description: "Process orders — their DCs are under Purchase ▸ Purchase Store ▸ Delivery Challan",
         children: [
           { href: "/stores/process-orders", label: "Process Orders", description: "Orders raised on a processing store" },
         ],
@@ -1254,13 +1272,11 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         slug: "receipts",
         label: "Receipts & Returns",
         icon: ArrowDownToLine,
-        description: "Pending QC inspection and customer-supplied receipts · vendor returns are under Purchase ▸ Receiving",
+        description: "Pending QC inspection · receipts and returns are under Purchase ▸ Purchase Store",
         children: [
           { href: "/stores/qc-pending", label: "Pending QC", description: "GRN lines waiting for inspection — pass into a bin or send back" },
-          { href: "/stores/csp-receipts", label: "CSP Receipts", description: "Customer-supplied and consignment material" },
         ],
       },
-      { kind: "link", href: "/stores/transfers", label: "Transfers" },
     ],
   },
 

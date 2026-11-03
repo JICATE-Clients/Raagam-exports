@@ -1,8 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { FileText, PackageCheck, Undo2 } from "lucide-react";
+import { FileText, PackageCheck, Send, Undo2 } from "lucide-react";
+import { useToast } from "@/components/ui/toast";
+import { postVendorReturn } from "@/lib/stores/extras-actions";
 import { MasterListShell } from "@/components/masters/master-list-shell";
 import type { Column } from "@/components/ui/data-table";
 import { ToggleGroup } from "@/components/ui/segmented";
@@ -24,12 +26,14 @@ type Word = "all" | DcKind;
 const KIND_LABEL: Record<DcKind, string> = {
   process: "Process",
   production: "Production",
+  general: "General",
   rejection: "Rejection",
   replacement: "Replacement",
 };
 const KIND_TONE: Record<DcKind, StatusTone> = {
   process: "info",
   production: "neutral",
+  general: "info",
   rejection: "danger",
   replacement: "warning",
 };
@@ -41,33 +45,51 @@ const STATUS_LABEL: Record<string, string> = {
   closed: "Returned",
   dispatched: "In transit",
   received: "Received",
-  returned: "Sent back",
+  returned: "Dispatched",
   replaced: "Replaced",
   cancelled: "Cancelled",
+  // A non-returnable General DC once dispatched (0796) — gone for good, not "returned".
+  sent: "Sent",
 };
 const OVERRIDES = { issued: "warning", dispatched: "warning", returned: "warning", replaced: "success", closed: "success" } as const;
 
 export function DcRegisterScreen({
   rows,
   canCreate,
+  canDispatch = false,
   initialType = null,
 }: {
   rows: DcRegisterRow[];
   canCreate: boolean;
+  /** May dispatch a Rejection / Replacement DC from its row (stores:edit, as postVendorReturn). */
+  canDispatch?: boolean;
   /** The tab the URL asked for (`?type=`), so closing the drawer lands where it opened. */
   initialType?: string | null;
 }) {
   const router = useRouter();
   const [word, setWord] = useState<Word>(
-    initialType === "process" || initialType === "production" || initialType === "rejection" || initialType === "replacement" ? initialType : "all",
+    initialType === "process" || initialType === "production" || initialType === "general" || initialType === "rejection" || initialType === "replacement" ? initialType : "all",
   );
   const counts = useMemo(() => {
-    const c: Record<Word, number> = { all: rows.length, process: 0, production: 0, rejection: 0, replacement: 0 };
+    const c: Record<Word, number> = { all: rows.length, process: 0, production: 0, general: 0, rejection: 0, replacement: 0 };
     for (const r of rows) c[r.kind]++;
     return c;
   }, [rows]);
   const shown = useMemo(() => (word === "all" ? rows : rows.filter((r) => r.kind === word)), [rows, word]);
   const open = (r: DcRegisterRow) => router.push(r.href);
+  const { success, error: toastError } = useToast();
+  const [dispatching, startDispatch] = useTransition();
+  /** DISPATCH IN PLACE (user 2026-11-02, two-screen return plan): a draft Rejection /
+   *  Replacement DC goes out from its row — the failed goods leave the Rejection store —
+   *  and its print appears. No trip to a separate Vendor Returns page. */
+  const dispatch = (r: DcRegisterRow) =>
+    startDispatch(async () => {
+      const res = await postVendorReturn(r.id);
+      if (res.ok) {
+        success(`${r.code ?? "DC"} dispatched — print the return slip from its row`);
+        router.refresh();
+      } else toastError(res.error ?? "Could not dispatch");
+    });
 
   const columns: Column<DcRegisterRow>[] = [
     {
@@ -111,6 +133,7 @@ export function DcRegisterScreen({
             { value: "all", label: `All (${counts.all})` },
             { value: "process", label: `Process (${counts.process})` },
             { value: "production", label: `Production (${counts.production})` },
+            { value: "general", label: `General (${counts.general})` },
             { value: "rejection", label: `Rejection (${counts.rejection})` },
             { value: "replacement", label: `Replacement (${counts.replacement})` },
           ]}
@@ -128,6 +151,9 @@ export function DcRegisterScreen({
         menuAs: "icons",
         // The row's next step, then its print (no ⋮ — AGENTS.md "Row actions").
         menu: (r) => [
+          ...(r.action === "dispatch" && canDispatch
+            ? [{ label: dispatching ? "Dispatching…" : "Dispatch", icon: Send, onClick: () => dispatch(r) }]
+            : []),
           ...(r.action === "receive-back"
             ? [{ label: "Receive back", icon: Undo2, onClick: () => router.push(r.href) }]
             : r.action === "receive-stock"

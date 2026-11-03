@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import type { DashboardTone, TrendPoint } from "@/lib/dashboard/types";
 import { toneBg, toneVar } from "./tone";
 import { GLASS } from "./glass";
+import { CardTitle } from "./card-title";
 
 /**
  * Charts for the dashboard, as plain SVG and CSS.
@@ -52,22 +53,22 @@ export function ChartFrame({
   aside,
   children,
   className,
+  icon,
+  tone,
 }: {
   title: string;
   subtitle?: string;
   aside?: ReactNode;
   children: ReactNode;
   className?: string;
+  /** The header's icon well (`CardTitle`) — every dashboard card opens the same way. */
+  icon?: string;
+  tone?: DashboardTone;
 }) {
   return (
     <Card className={cn(GLASS, "flex min-w-0 flex-col", className)}>
-      <CardHeader className="items-start border-[var(--glass-edge)]">
-        <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-foreground">{title}</h3>
-          {subtitle && (
-            <p className="mt-0.5 text-xs text-muted-foreground">{subtitle}</p>
-          )}
-        </div>
+      <CardHeader className="items-center border-[var(--glass-edge)]">
+        <CardTitle title={title} subtitle={subtitle} icon={icon} tone={tone} />
         {aside}
       </CardHeader>
       <CardBody className="flex-1">{children}</CardBody>

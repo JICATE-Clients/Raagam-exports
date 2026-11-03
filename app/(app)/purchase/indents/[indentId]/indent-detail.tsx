@@ -12,6 +12,8 @@ import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { useToast } from "@/components/ui/toast";
 import { fmtNumber } from "@/lib/format";
+import { RecordPicker, type PickerItem } from "@/components/masters/record-picker";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   addIndentLine,
   deleteIndentLine,
@@ -31,9 +33,11 @@ interface Props {
   uoms: Uom[];
   canEdit: boolean;
   canDelete: boolean;
+  /** Master Data vendors (`master_vendors`) — the PO's vendor is asked for at conversion. */
+  vendors: PickerItem[];
 }
 
-export function IndentDetail({ indentId, status, lines, items, uoms, canEdit, canDelete }: Props) {
+export function IndentDetail({ indentId, status, lines, items, uoms, canEdit, canDelete, vendors }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -43,6 +47,23 @@ export function IndentDetail({ indentId, status, lines, items, uoms, canEdit, ca
   const [description, setDescription] = useState("");
   const [qty, setQty] = useState("");
   const [uomId, setUomId] = useState("");
+  const [vendorId, setVendorId] = useState<string | null>(null);
+  const [confirmConvert, setConfirmConvert] = useState(false);
+
+  function handleConvert() {
+    if (!vendorId) {
+      toastError("Pick the vendor to raise the PO on");
+      return;
+    }
+    setConfirmConvert(false);
+    startTransition(async () => {
+      const r = await convertIndent(indentId, vendorId);
+      if (r.ok) {
+        success(r.poCode ? `Draft PO ${r.poCode} created — enter the rates` : "Draft PO created — enter the rates");
+        router.push(`/purchase/orders/${r.poId}`);
+      } else toastError(r.error);
+    });
+  }
 
   function run(fn: () => Promise<{ ok: boolean; error?: string }>, ok: string) {
     startTransition(async () => {
@@ -126,8 +147,18 @@ export function IndentDetail({ indentId, status, lines, items, uoms, canEdit, ca
         </CardBody>
       </Card>
 
+      <ConfirmDialog
+        open={confirmConvert}
+        title="Convert to purchase order?"
+        body="A draft PO is raised on the chosen vendor with this indent's lines. Rates and terms are entered on the PO."
+        confirmLabel="Convert"
+        tone="primary"
+        isPending={isPending}
+        onConfirm={handleConvert}
+        onCancel={() => setConfirmConvert(false)}
+      />
       {canEdit && (
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap items-end gap-3">
           {status === "open" && (
             <>
               <Button disabled={isPending || lines.length === 0}
@@ -138,8 +169,10 @@ export function IndentDetail({ indentId, status, lines, items, uoms, canEdit, ca
           )}
           {status === "acknowledged" && (
             <>
-              <Button disabled={isPending}
-                onClick={() => run(() => convertIndent(indentId), "Converted — draft PO created")}>Convert to PO</Button>
+              <div className="w-72">
+                <RecordPicker label="Vendor" items={vendors} value={vendorId} onChange={setVendorId} required />
+              </div>
+              <Button disabled={isPending || !vendorId} onClick={() => setConfirmConvert(true)}>Convert to PO</Button>
               <Button variant="outline" disabled={isPending}
                 onClick={() => run(() => cancelIndent(indentId), "Cancelled")}>Cancel</Button>
             </>

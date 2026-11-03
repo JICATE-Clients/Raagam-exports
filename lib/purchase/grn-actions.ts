@@ -634,11 +634,16 @@ export async function recordDcReturn(
      here would skip all four — so it is refused, with the way in named. */
   const { data: owner } = await supabase
     .from("delivery_challans")
-    .select("process_order_id")
+    .select("process_order_id, dc_kind")
     .eq("id", line.delivery_challan_id)
     .maybeSingle();
+  /* A GENERAL DC COMES BACK ON A DELIVERY RETURN (0797): stock back from the Processing
+     store into a chosen store / bin, all or nothing — never a bare returned_qty bump. */
+  if ((owner as { dc_kind: string | null } | null)?.dc_kind === "general") {
+    return { ok: false, error: "A General DC comes back on Purchase ▸ Purchase Store ▸ Delivery Return" };
+  }
   if ((owner as { process_order_id: string | null } | null)?.process_order_id) {
-    return { ok: false, error: "This DC has a Process Order — receive it with Receive back on Purchase ▸ Receiving ▸ Delivery Challans" };
+    return { ok: false, error: "This DC has a Process Order — receive it with Receive back on Purchase ▸ Purchase Store ▸ Delivery Challan" };
   }
   const newReturned = Math.min(
     line.sent_qty,

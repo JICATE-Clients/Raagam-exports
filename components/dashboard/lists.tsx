@@ -2,7 +2,8 @@ import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { fmtAgo } from "@/lib/dashboard/format";
-import type { ActivityItem } from "@/lib/dashboard/types";
+import type { ActivityItem, DashboardTone } from "@/lib/dashboard/types";
+import { CardTitle } from "./card-title";
 import { toneBg, toneSoft } from "./tone";
 import { GLASS } from "./glass";
 
@@ -79,11 +80,17 @@ export function ActivityGroups({ items }: { items: ActivityItem[] }) {
 /** Shared card chrome for the dashboard's titled panels. */
 export function PanelCard({
   title,
+  subtitle,
+  icon,
+  tone,
   aside,
   children,
   className,
 }: {
   title: string;
+  subtitle?: string;
+  icon?: string;
+  tone?: DashboardTone;
   aside?: React.ReactNode;
   children: React.ReactNode;
   className?: string;
@@ -91,7 +98,7 @@ export function PanelCard({
   return (
     <Card className={cn(GLASS, "flex min-w-0 flex-col overflow-hidden", className)}>
       <div className="flex items-center justify-between gap-2 border-b border-[var(--glass-edge)] px-4 py-3">
-        <h3 className="text-sm font-semibold">{title}</h3>
+        <CardTitle title={title} subtitle={subtitle} icon={icon} tone={tone} />
         {aside}
       </div>
       <div className="flex-1">{children}</div>

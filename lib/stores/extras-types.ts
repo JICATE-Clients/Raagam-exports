@@ -99,7 +99,8 @@ export const VENDOR_RETURN_STATUSES = ["draft", "returned", "replaced", "closed"
 export type VendorReturnStatus = (typeof VENDOR_RETURN_STATUSES)[number];
 export const VENDOR_RETURN_STATUS_LABELS: Record<VendorReturnStatus, string> = {
   draft: "Draft",
-  returned: "Returned",
+  // The DC has gone out to the vendor (user 2026-11-02, two-screen return plan: "Dispatch").
+  returned: "Dispatched",
   replaced: "Replaced",
   closed: "Closed",
   cancelled: "Cancelled",
@@ -115,6 +116,8 @@ export interface VendorReturn {
   notes: string | null;
   /** A REJECTION DC raised by a posted GRN (0780) — its lines are that GRN's rejections. */
   grn_id: string | null;
+  /** 0781: Rejection (goes back, debited) or Replacement (the vendor resends). */
+  dc_kind?: "rejection" | "replacement" | null;
   master_vendor_id: string | null;
   debit_note_id: string | null;
   created_by: string | null;

@@ -15,6 +15,7 @@ import {
 } from "@/lib/purchase/extras-service";
 import { INDENT_STATUS_LABELS, type IndentStatus } from "@/lib/purchase/extras-types";
 import { IndentDetail } from "./indent-detail";
+import { listVendorsForPicker } from "@/lib/masters/vendor-service";
 import { statusTone } from "@/lib/ui/status-tone";
 
 const TONE_OVERRIDES = {
@@ -35,13 +36,14 @@ export default async function IndentDetailPage({
 }) {
   await requirePermission("materials_purchase", "view");
   const { indentId } = await params;
-  const [indent, lines, items, uoms, canEdit, canDelete] = await Promise.all([
+  const [indent, lines, items, uoms, canEdit, canDelete, vendors] = await Promise.all([
     getPurchaseIndent(indentId),
     getIndentLines(indentId),
     getItems(),
     getUoms(),
     can("materials_purchase", "edit"),
     can("materials_purchase", "delete"),
+    listVendorsForPicker(),
   ]);
   if (!indent) notFound();
 
@@ -109,6 +111,7 @@ export default async function IndentDetailPage({
         uoms={uoms}
         canEdit={canEdit}
         canDelete={canDelete}
+        vendors={vendors}
       />
     </div>
   );

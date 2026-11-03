@@ -14,32 +14,22 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { fmtDate } from "@/lib/format";
-import { createRequisition } from "@/lib/stores/extras-actions";
-import { MRS_STATUS_LABELS, type MrsStatus } from "@/lib/stores/extras-types";
-import type { MrsWithRefs, StoreOption } from "@/lib/stores/extras-service";
+import { createOpeningStock } from "@/lib/stores/extras-actions";
+import { OPENING_STOCK_STATUS_LABELS, type OpeningStockStatus } from "@/lib/stores/extras-types";
+import type { OpeningStockWithRefs, StoreOption } from "@/lib/stores/extras-service";
 import { withCreatedColumns } from "@/components/ui/created-columns";
-import { statusTone } from "@/lib/ui/status-tone";
 
-const TONE_OVERRIDES = {
-  // Submitted here is a hand-off that waits on no approver (was info before the shared table, kept).
-  submitted: "info",
-  // Approved is a step in this document's life, not its end — work still follows it (was warning before the shared table, kept).
-  approved: "warning",
-  // Issued is this document's completion — the goods or paper have gone (was success before the shared table, kept).
-  issued: "success",
-} as const;
-
-function tone(s: MrsStatus): StatusTone {
-  return statusTone(s, TONE_OVERRIDES);
+function tone(s: OpeningStockStatus): StatusTone {
+  return s === "draft" ? "neutral" : s === "posted" ? "success" : "danger";
 }
 
 interface Props {
-  rows: MrsWithRefs[];
+  rows: OpeningStockWithRefs[];
   stores: StoreOption[];
   canCreate: boolean;
 }
 
-export function RequisitionsClient({ rows, stores, canCreate }: Props) {
+export function OpeningStockClient({ rows, stores, canCreate }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -47,8 +37,7 @@ export function RequisitionsClient({ rows, stores, canCreate }: Props) {
   useCreateIntent(() => setOpen(true));
 
   const [storeId, setStoreId] = useState("");
-  const [department, setDepartment] = useState("");
-  const [requiredDate, setRequiredDate] = useState("");
+  const [openingDate, setOpeningDate] = useState("");
   const [notes, setNotes] = useState("");
 
   function handleCreate(e: React.FormEvent) {
@@ -58,32 +47,30 @@ export function RequisitionsClient({ rows, stores, canCreate }: Props) {
       return;
     }
     startTransition(async () => {
-      const r = await createRequisition({
+      const r = await createOpeningStock({
         store_id: storeId,
-        department,
-        required_date: requiredDate || null,
+        opening_date: openingDate || null,
         notes: notes || null,
       });
       if (r.ok) {
-        success("Requisition created");
-        router.push(`/stores/requisitions/${r.id}`);
+        success("Opening stock created");
+        router.push(`/purchase/opening-stock/${r.id}`);
       } else toastError(r.error);
     });
   }
 
-  const columns: Column<MrsWithRefs>[] = [
+  const columns: Column<OpeningStockWithRefs>[] = [
     {
-      header: "MRS #",
+      header: "Doc #",
       cell: (r) => (
-        <Link href={`/stores/requisitions/${r.id}`} className="font-mono text-xs font-medium text-primary hover:underline">
+        <Link href={`/purchase/opening-stock/${r.id}`} className="font-mono text-xs font-medium text-primary hover:underline">
           {r.code ?? "—"}
         </Link>
       ),
     },
     { header: "Store", cell: (r) => <span className="text-sm">{r.store_code ?? "—"}</span> },
-    { header: "Department", cell: (r) => <span className="text-sm">{r.department}</span> },
-    { header: "Required", cell: (r) => <span className="tabular-nums text-sm">{fmtDate(r.required_date)}</span> },
-    { header: "Status", cell: (r) => <StatusPill tone={tone(r.status)}>{MRS_STATUS_LABELS[r.status]}</StatusPill> },
+    { header: "Opening date", cell: (r) => <span className="tabular-nums text-sm">{fmtDate(r.opening_date)}</span> },
+    { header: "Status", cell: (r) => <StatusPill tone={tone(r.status)}>{OPENING_STOCK_STATUS_LABELS[r.status]}</StatusPill> },
   ];
 
   return (
@@ -92,30 +79,26 @@ export function RequisitionsClient({ rows, stores, canCreate }: Props) {
         (open ? (
           <Card>
             <CardHeader>
-              <CardTitle>New requisition</CardTitle>
+              <CardTitle>New opening stock</CardTitle>
               <Button variant="outline" size="sm" onClick={() => setOpen(false)}>Cancel</Button>
             </CardHeader>
             <CardBody>
               <form onSubmit={handleCreate} className="space-y-4">
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   <div>
-                    <Label htmlFor="mr-store">Store</Label>
-                    <Select id="mr-store" value={storeId} onChange={(e) => setStoreId(e.target.value)}>
+                    <Label htmlFor="os-store">Store</Label>
+                    <Select id="os-store" value={storeId} onChange={(e) => setStoreId(e.target.value)}>
                       <option value=""></option>
                       {stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </Select>
                   </div>
                   <div>
-                    <Label htmlFor="mr-dept">Department</Label>
-                    <Input id="mr-dept" value={department} onChange={(e) => setDepartment(e.target.value)} required />
+                    <Label htmlFor="os-date">Opening date</Label>
+                    <Input id="os-date" type="date" value={openingDate} onChange={(e) => setOpeningDate(e.target.value)} />
                   </div>
-                  <div>
-                    <Label htmlFor="mr-date">Required date</Label>
-                    <Input id="mr-date" type="date" value={requiredDate} onChange={(e) => setRequiredDate(e.target.value)} />
-                  </div>
-                  <div className="sm:col-span-2 lg:col-span-3">
-                    <Label htmlFor="mr-notes">Notes</Label>
-                    <Textarea id="mr-notes" rows={1} value={notes} onChange={(e) => setNotes(e.target.value)} />
+                  <div className="sm:col-span-2 lg:col-span-1">
+                    <Label htmlFor="os-notes">Notes</Label>
+                    <Textarea id="os-notes" rows={1} value={notes} onChange={(e) => setNotes(e.target.value)} />
                   </div>
                 </div>
                 <div className="flex justify-end gap-2 pt-1">
@@ -126,9 +109,9 @@ export function RequisitionsClient({ rows, stores, canCreate }: Props) {
             </CardBody>
           </Card>
         ) : (
-          <div className="flex justify-end"><Button onClick={() => setOpen(true)}>New requisition</Button></div>
+          <div className="flex justify-end"><Button onClick={() => setOpen(true)}>New opening stock</Button></div>
         ))}
-      <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No requisitions yet." />
+      <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No opening-stock documents yet." />
     </div>
   );
 }

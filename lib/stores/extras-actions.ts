@@ -80,8 +80,8 @@ async function postLedger(rows: LedgerRow[]): Promise<Err | null> {
 // Opening Stock
 // ============================================================================
 function revalidateOpening(id?: string): void {
-  if (id) revalidatePath(`/stores/opening-stock/${id}`);
-  revalidatePath("/stores/opening-stock");
+  if (id) revalidatePath(`/purchase/opening-stock/${id}`);
+  revalidatePath("/purchase/opening-stock");
   revalidatePath("/stores");
 }
 
@@ -173,8 +173,8 @@ export async function deleteOpeningStock(docId: string): Promise<R> {
 // Material Requisitions
 // ============================================================================
 function revalidateMrs(id?: string): void {
-  if (id) revalidatePath(`/stores/requisitions/${id}`);
-  revalidatePath("/stores/requisitions");
+  if (id) revalidatePath(`/purchase/requisitions/${id}`);
+  revalidatePath("/purchase/requisitions");
   revalidatePath("/stores");
 }
 
@@ -456,8 +456,8 @@ export async function deleteVendorReturn(docId: string): Promise<R> {
 // CSP Receipts
 // ============================================================================
 function revalidateCsp(id?: string): void {
-  if (id) revalidatePath(`/stores/csp-receipts/${id}`);
-  revalidatePath("/stores/csp-receipts");
+  if (id) revalidatePath(`/purchase/csp-receipts/${id}`);
+  revalidatePath("/purchase/csp-receipts");
   revalidatePath("/stores");
 }
 

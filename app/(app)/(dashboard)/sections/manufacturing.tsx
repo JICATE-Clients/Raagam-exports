@@ -30,6 +30,9 @@ export async function ManufacturingSection({
   return (
     <PanelCard
       title="Manufacturing"
+      subtitle="Stages recorded today"
+      icon="factory"
+      tone="success"
       aside={
         lines ? (
           <span className="text-[11px] tabular-nums text-muted-foreground">

@@ -10,10 +10,10 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { activeTone } from "@/lib/ui/status-tone";
 
 const operations = [
-  { href: "/stores/opening-stock", label: "Opening Stock", desc: "Set initial balances", icon: PackagePlus },
-  { href: "/stores/requisitions", label: "Requisitions (MRS)", desc: "Issue material to departments", icon: ClipboardList },
+  { href: "/purchase/opening-stock", label: "Opening Stock", desc: "Set initial balances", icon: PackagePlus },
+  { href: "/purchase/requisitions", label: "Requisitions (MRS)", desc: "Issue material to departments", icon: ClipboardList },
   { href: "/purchase/vendor-returns", label: "Vendor Returns", desc: "Return + replacement", icon: Undo2 },
-  { href: "/stores/csp-receipts", label: "CSP Receipts", desc: "Customer-supplied material", icon: Boxes },
+  { href: "/purchase/csp-receipts", label: "CSP Receipts", desc: "Customer-supplied material", icon: Boxes },
 ];
 import type { StoreType } from "@/lib/stores/types";
 import type { StatusTone } from "@/components/ui/status-pill";

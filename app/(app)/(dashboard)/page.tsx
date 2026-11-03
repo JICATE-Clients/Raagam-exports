@@ -15,7 +15,7 @@ import {
   LeaderboardSkeleton,
   StageGridSkeleton,
 } from "@/components/dashboard/skeletons";
-import { BoardCharts, BoardRings, BoardStrip } from "./sections/board";
+import { BoardAgeing, BoardBuying, BoardDue, BoardKpis, BoardStripInline } from "./sections/board";
 import { WelcomeSection, WelcomeSkeleton } from "./sections/welcome";
 import { AnalyticsSection } from "./sections/analytics";
 import { ManufacturingSection } from "./sections/manufacturing";
@@ -52,6 +52,13 @@ import { QuickActionsSection } from "./sections/quick-actions";
  * entry would be a cross-tenant leak. React `cache()` handles per-request
  * dedupe inside the service.
  */
+/** A band's row: stacked on a narrow pane, side by side from xl. */
+const ROW = "flex flex-col gap-4 xl:flex-row xl:items-stretch";
+/** Two-thirds / one-third of a row; a wrapper whose section rendered nothing is dropped. */
+const WIDE = "min-w-0 empty:hidden xl:flex-[2] [&>*]:h-full";
+const NARROW = "min-w-0 empty:hidden xl:flex-1 [&>*]:h-full";
+const THIRD = "min-w-0 empty:hidden xl:flex-1 [&>*]:h-full";
+
 export default async function DashboardPage({
   searchParams,
 }: {
@@ -110,78 +117,104 @@ export default async function DashboardPage({
 
       {sp.denied && <DeniedBanner module={sp.denied} />}
 
-      {/* ONE 12-COLUMN BENTO (user 2026-10-29: "more compact, like the HR
-          profile"; that page is xl:grid-cols-12 with packed cards and no
-          full-width section bands). Left 8: the day, the figures, the charts,
-          then activity beside the Top lists; right 4 from
-          the TOP of the page, so nothing sits beside empty space. Right: what
-          needs you (approvals + alerts), the week, the shortcuts, then
-          production as one compact card. Every block is a titled card, so
-          the page has no free-standing section headings left. */}
-      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-12">
-        <div className="min-w-0 space-y-4 xl:col-span-8">
-          {/* THE WELCOME CARD (user 2026-10-29) replaces the three-line header:
-              Nool greets, says how the day stands, and lists what is left. */}
+      {/* PLAN v2 (user 2026-11-02, https://claude.ai/artifact/Cx7akee4ctg36heq8ySfhG,
+          "okay do"): three bands read top to bottom — your day (Nool + Needs you), the
+          business (period bar, KPI cards, the main chart beside the week), then trends,
+          production, the order detail cards, activity and shortcuts. Every card opens with
+          the same header (`CardTitle`). Rows are flex, not grid: a section that renders
+          nothing leaves an EMPTY wrapper, `empty:hidden` drops it, and its neighbour takes
+          the width instead of sitting beside a hole. */}
+
+      {/* YOUR DAY — Nool keeps the whole welcome card and every animation (user: "maintain
+          that Nool animation"). */}
+      <div className={ROW}>
+        <div className={WIDE}>
           <Suspense fallback={<WelcomeSkeleton name={firstName} />}>
-            {/* No buttons on the card (user 2026-10-29): My Calendar is the
-                calendar panel's own "Open full calendar" link on the right,
-                and New order lives in Orders. */}
             <WelcomeSection user={user} />
           </Suspense>
-
-          <DashboardToolbar filters={filters} carry={carry} />
-
-          {/* THE BOARD (approved plan 2026-10-30, "Raagam Dashboard
-              Redesign"): six ring tiles, each a real share of a real whole
-              (no targets are stored, so nothing is drawn "vs target"), then
-              the order charts. Replaced the headline KPIs + mini-stat strip. */}
-          <Suspense fallback={<KpiRowSkeleton />}>
-            <BoardRings caps={caps} />
-          </Suspense>
-          <Suspense fallback={<ChartRowSkeleton />}>
-            <BoardCharts caps={caps} />
-          </Suspense>
-
-          {/* Hidden entirely without reports:view — the RPCs self-gate in SQL,
-              so the charts would render empty and read as broken. */}
-          {caps.reports && (
-            <Suspense fallback={<ChartRowSkeleton />}>
-              <AnalyticsSection filters={filters} caps={caps} />
-            </Suspense>
-          )}
-
-          {/* Recent activity and the Top lists share one grid, so neither sits
-              alone in a full-width row (2026-10-29). */}
-          <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
-            <Suspense fallback={<ActivitySkeleton />}>
-              <ActivitySection caps={caps} />
-            </Suspense>
-            {caps.reports && (
-              <Suspense fallback={<LeaderboardSkeleton />}>
-                <LeaderboardSection filters={filters} caps={caps} />
-              </Suspense>
-            )}
-          </div>
-
-          <Suspense fallback={null}>
-            <BoardStrip caps={caps} />
-          </Suspense>
         </div>
-
-        <aside className="min-w-0 space-y-4 xl:col-span-4" aria-label="Needs you, calendar and quick actions">
+        <div className={NARROW}>
           <Suspense fallback={<ApprovalsSkeleton />}>
             <NeedsYouSection caps={caps} />
           </Suspense>
+        </div>
+      </div>
+
+      {/* BUSINESS — the period bar names the band; the board's facts ride its right. */}
+      <DashboardToolbar
+        label="Business"
+        filters={filters}
+        carry={carry}
+        aside={
+          <Suspense fallback={null}>
+            <BoardStripInline caps={caps} />
+          </Suspense>
+        }
+      />
+      <Suspense fallback={<KpiRowSkeleton />}>
+        <BoardKpis caps={caps} />
+      </Suspense>
+      <div className={ROW}>
+        <div className={WIDE}>
+          <Suspense fallback={<ChartRowSkeleton />}>
+            <BoardDue caps={caps} />
+          </Suspense>
+        </div>
+        <div className={NARROW}>
           <Suspense fallback={<CalendarSkeleton />}>
             <CalendarSection user={user} cursor={day ?? t} scope={scope} carry={carry} />
           </Suspense>
-          <QuickActionsSection />
-          {caps.production && (
+        </div>
+      </div>
+
+      {/* TRENDS & PRODUCTION — the trend charts are hidden entirely without reports:view
+          (the RPCs self-gate in SQL, so they would render empty and read as broken). */}
+      <div className={ROW}>
+        {caps.reports && (
+          <div className={WIDE}>
+            <Suspense fallback={<ChartRowSkeleton />}>
+              <AnalyticsSection filters={filters} caps={caps} />
+            </Suspense>
+          </div>
+        )}
+        {caps.production && (
+          <div className={NARROW}>
             <Suspense fallback={<StageGridSkeleton />}>
               <ManufacturingSection filters={filters} caps={caps} lines={lines} />
             </Suspense>
-          )}
-        </aside>
+          </div>
+        )}
+      </div>
+
+      <div className={ROW}>
+        <div className={THIRD}>
+          <Suspense fallback={<ChartRowSkeleton />}>
+            <BoardAgeing caps={caps} />
+          </Suspense>
+        </div>
+        <div className={THIRD}>
+          <Suspense fallback={<ChartRowSkeleton />}>
+            <BoardBuying caps={caps} />
+          </Suspense>
+        </div>
+        {caps.reports && (
+          <div className={THIRD}>
+            <Suspense fallback={<LeaderboardSkeleton />}>
+              <LeaderboardSection filters={filters} caps={caps} />
+            </Suspense>
+          </div>
+        )}
+      </div>
+
+      <div className={ROW}>
+        <div className={WIDE}>
+          <Suspense fallback={<ActivitySkeleton />}>
+            <ActivitySection caps={caps} />
+          </Suspense>
+        </div>
+        <div className={NARROW}>
+          <QuickActionsSection />
+        </div>
       </div>
     </div>
   );

@@ -1,7 +1,6 @@
-import { GroupHub } from "@/components/shell/group-hub";
+import { redirect } from "next/navigation";
 
-// Sub-module hub — cards and permission come from lib/nav/module-groups.ts,
-// the same registry the sidebar reads.
+/** Stores ▸ Issues & Requisitions moved to Purchase (Requisitions → General Items, Inter-dept → Purchase Store) (user 2026-11-02, purchase child alignment). The group's old hub address answers. */
 export default function Page() {
-  return <GroupHub moduleHref="/stores" slug="issues" />;
+  redirect("/purchase/general-items");
 }

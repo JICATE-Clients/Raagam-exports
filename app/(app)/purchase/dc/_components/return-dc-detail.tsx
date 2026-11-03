@@ -39,7 +39,7 @@ interface Props {
   canDelete: boolean;
 }
 
-export function VendorReturnDetail({ docId, status, lines, items, canEdit, canDelete, fromGrn = false }: Props) {
+export function ReturnDcDetail({ docId, status, lines, items, canEdit, canDelete, fromGrn = false }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -132,7 +132,9 @@ export function VendorReturnDetail({ docId, status, lines, items, canEdit, canDe
         <div className="flex flex-wrap gap-3">
           {status === "draft" && (
             <>
-              <Button disabled={isPending || lines.length === 0} onClick={() => run(() => postVendorReturn(docId), "Return posted (issued from store)")}>Post return</Button>
+              {/* DISPATCH (user 2026-11-02, two-screen return plan): was "Post return". The goods
+                  leave the Rejection store; the return slip prints from then on. */}
+              <Button disabled={isPending || lines.length === 0} onClick={() => run(() => postVendorReturn(docId), "Dispatched — print the return slip")}>Dispatch</Button>
               <Button variant="outline" disabled={isPending} onClick={() => run(() => cancelVendorReturn(docId), "Cancelled")}>Cancel</Button>
             </>
           )}
@@ -140,7 +142,7 @@ export function VendorReturnDetail({ docId, status, lines, items, canEdit, canDe
             <>
               {fromGrn ? (
                 <span className="text-sm text-muted-foreground">
-                  The replacement is received on Purchase ▸ Goods Receipts — it is listed there under Pending.
+                  The replacement is received on Purchase ▸ Purchase Store ▸ Purchase Receipts (GRN) — it is listed there under Pending.
                 </span>
               ) : (
                 <Button disabled={isPending} onClick={() => run(() => recordReplacement(docId), "Replacement received")}>Record replacement</Button>
@@ -154,7 +156,7 @@ export function VendorReturnDetail({ docId, status, lines, items, canEdit, canDe
             <Button variant="outline" className="text-danger hover:border-danger" disabled={isPending}
               onClick={() => run(async () => {
                 const r = await deleteVendorReturn(docId);
-                if (r.ok) router.push("/purchase/vendor-returns");
+                if (r.ok) router.push("/purchase/dc?type=rejection");
                 return r;
               }, "Deleted")}>Delete</Button>
           )}

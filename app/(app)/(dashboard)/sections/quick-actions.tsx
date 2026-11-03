@@ -60,7 +60,7 @@ const ACTIONS: (QuickAction & { module: Module; action: Action })[] = [
   {
     label: "Material requisition",
     hint: "Issue stock to a department",
-    href: "/stores/requisitions",
+    href: "/purchase/requisitions",
     icon: "warehouse",
     tone: "accent",
     module: "stores",
@@ -94,7 +94,7 @@ export async function QuickActionsSection() {
 
   if (actions.length === 0) return null;
   return (
-    <PanelCard title="Quick actions">
+    <PanelCard title="Quick actions" subtitle="Only what your role can open" icon="zap">
       <QuickActionList actions={actions} />
     </PanelCard>
   );

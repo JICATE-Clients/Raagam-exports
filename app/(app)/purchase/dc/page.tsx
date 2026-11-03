@@ -1,10 +1,15 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { can, requirePermission } from "@/lib/auth/server";
 import { listDcRegister } from "@/lib/purchase/dc-register";
 import { getProcessDc, listOpenProcessOrders } from "@/lib/stores/process-dc-service";
 import { getProductionDc, getProductionDcSetup } from "@/lib/stores/production-dc-service";
 import { getItems } from "@/lib/stores/service";
+import { getVendorReturn, getVendorReturnLines, getItems as getReturnItems } from "@/lib/stores/extras-service";
+import { VENDOR_RETURN_STATUS_LABELS } from "@/lib/stores/extras-types";
+import { StatusPill } from "@/components/ui/status-pill";
+import { statusTone } from "@/lib/ui/status-tone";
+import { ReturnDcDetail } from "./_components/return-dc-detail";
 import { PageHeader } from "@/components/ui/page-header";
 import { Truncated } from "@/components/ui/truncated";
 import { fmtDate, fmtNumber } from "@/lib/format";
@@ -14,6 +19,8 @@ import { ProcessDcSendForm } from "../../stores/process-dc/_components/process-d
 import { ProcessReceiptForm } from "../../stores/process-dc/_components/process-receipt-form";
 import { ProductionDcSendForm } from "../../stores/production-dc/_components/production-dc-send-form";
 import { ProductionDcReceiveForm } from "../../stores/production-dc/_components/production-dc-receive-form";
+import { GeneralDcSendForm } from "../general-delivery/_components/general-dc-send-form";
+import { getGeneralDc, getGeneralDcOptions } from "@/lib/purchase/general-dc-service";
 
 /**
  * PURCHASE ▸ RECEIVING ▸ DELIVERY CHALLANS — THE ONE DC HUB (user 2026-10-31: "consolidate the
@@ -30,15 +37,17 @@ import { ProductionDcReceiveForm } from "../../stores/production-dc/_components/
  * 0788); those pages now redirect here. Purchase OR Stores may open it: job work is both
  * modules' work and a unit transfer is Stores'.
  */
-type Search = { type?: string; new?: string; edit?: string; receive?: string; order?: string };
+type Search = { type?: string; new?: string; edit?: string; receive?: string; order?: string; view?: string };
 
 export default async function DcHubPage({ searchParams }: { searchParams: Promise<Search> }) {
   const [purchaseView, storesView] = await Promise.all([can("materials_purchase", "view"), can("stores", "view")]);
   if (!purchaseView && !storesView) await requirePermission("materials_purchase", "view");
   const sp = await searchParams;
-  const [rows, canCreate] = await Promise.all([
+  const [rows, canCreate, canDispatch] = await Promise.all([
     listDcRegister(),
     (async () => (await can("stores", "create")) || (await can("materials_purchase", "create")))(),
+    // Dispatching a Rejection / Replacement DC is postVendorReturn's own gate: stores:edit.
+    can("stores", "edit"),
   ]);
   const type = sp.type ?? null;
 
@@ -49,16 +58,60 @@ export default async function DcHubPage({ searchParams }: { searchParams: Promis
     /* No floating "← Back" over an open form (Raise PO's rule); the list keeps it. */
     <div className="space-y-4 [&:has([data-dc-editor])>[data-focus-region=header]>div]:hidden">
       <PageHeader title="Delivery Challans" description="Every DC — job work, unit transfers, rejections and replacements" />
-      {form ?? <DcRegisterScreen rows={rows} canCreate={canCreate} initialType={type} />}
+      {form ?? <DcRegisterScreen rows={rows} canCreate={canCreate} canDispatch={canDispatch} initialType={type} />}
     </div>
   );
 }
 
 async function drawer(sp: Search, type: string | null, rows: Awaited<ReturnType<typeof listDcRegister>>) {
-  const newType = (["process", "production", "rejection", "replacement"] as const).find((t) => t === sp.new) ?? null;
+  const newType = (["process", "production", "general", "rejection", "replacement"] as const).find((t) => t === sp.new) ?? null;
+
+  // VIEW A REJECTION / REPLACEMENT DC — opened, dispatched and printed HERE (user 2026-11-02,
+  // two-screen return plan: GRN raises it, this screen sends it). The old Vendor Returns
+  // pages redirect to this.
+  if (sp.view) {
+    const [doc, lines, items, canEdit, canDelete] = await Promise.all([
+      getVendorReturn(sp.view),
+      getVendorReturnLines(sp.view),
+      getReturnItems(),
+      can("stores", "edit"),
+      can("stores", "delete"),
+    ]);
+    if (!doc) notFound();
+    const kindWord = doc.dc_kind === "replacement" ? "Replacement DC" : "Rejection DC";
+    const sent = doc.status !== "draft" && doc.status !== "cancelled";
+    return (
+      <DcDrawer title={`${kindWord} ${doc.code ?? ""}`.trim()} type={type} showBack>
+        <div className="max-w-[48rem] space-y-3">
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            <StatusPill tone={statusTone(doc.status, { replaced: "info", closed: "success" })}>{VENDOR_RETURN_STATUS_LABELS[doc.status]}</StatusPill>
+            <span className="text-muted-foreground">{fmtDate(doc.return_date)}</span>
+            {doc.reason ? <span className="text-muted-foreground">{doc.reason}</span> : null}
+            {/* The return slip prints once the DC has gone out (plan: Dispatch, then print). */}
+            {sent ? (
+              <Link href={`/purchase/vendor-returns/${doc.id}/print`} className="font-semibold text-primary hover:underline">
+                Print DC
+              </Link>
+            ) : null}
+          </div>
+          <ReturnDcDetail
+            docId={doc.id}
+            status={doc.status}
+            lines={lines}
+            items={items}
+            canEdit={canEdit}
+            canDelete={canDelete}
+            fromGrn={!!doc.grn_id}
+          />
+        </div>
+      </DcDrawer>
+    );
+  }
 
   // RECEIVE — back from a processor, or stock arriving at this unit.
   if (sp.receive) {
+    // A returnable General DC comes back on its own screen, Delivery Return (0797).
+    if (sp.type === "general") redirect(`/purchase/delivery-returns?dc=${sp.receive}`);
     if (sp.type === "production") {
       const [dc, setup] = await Promise.all([getProductionDc(sp.receive), getProductionDcSetup()]);
       if (!dc) notFound();
@@ -78,7 +131,7 @@ async function drawer(sp: Search, type: string | null, rows: Awaited<ReturnType<
   }
 
   // EDIT A DRAFT, or NEW.
-  const formType = sp.edit ? (sp.type === "production" ? "production" : "process") : newType;
+  const formType = sp.edit ? (sp.type === "production" ? "production" : sp.type === "general" ? "general" : "process") : newType;
   if (!formType) return null;
 
   if (formType === "process") {
@@ -99,6 +152,34 @@ async function drawer(sp: Search, type: string | null, rows: Awaited<ReturnType<
             existing={dc && dc.status === "draft" ? dc : null}
             initialOrderId={sp.order ?? null}
             home={`/purchase/dc?type=process`}
+          />
+        ) : (
+          <p className="text-sm text-muted-foreground">Pick your working unit in the top bar first.</p>
+        )}
+      </DcDrawer>
+    );
+  }
+
+  // GENERAL DC (0796): out to a party — repair, sample, loan, gift; returnable or not.
+  if (formType === "general") {
+    const [setup, options, dc] = await Promise.all([
+      getProductionDcSetup(),
+      getGeneralDcOptions(),
+      sp.edit ? getGeneralDc(sp.edit) : Promise.resolve(null),
+    ]);
+    if (sp.edit && !dc) notFound();
+    return (
+      <DcDrawer title={dc ? `General DC ${dc.code ?? ""}` : "New Delivery Challan"} type={type} chooser={sp.edit ? null : "general"}>
+        {setup.unit ? (
+          <GeneralDcSendForm
+            unit={setup.unit}
+            stores={setup.stores}
+            bins={setup.bins}
+            stock={setup.stock}
+            vendors={options.vendors}
+            uoms={options.uoms}
+            existing={dc && dc.status === "draft" ? dc : null}
+            home={`/purchase/dc?type=general`}
           />
         ) : (
           <p className="text-sm text-muted-foreground">Pick your working unit in the top bar first.</p>

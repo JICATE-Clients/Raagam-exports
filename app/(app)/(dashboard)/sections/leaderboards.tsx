@@ -1,6 +1,7 @@
 import { getLeaderboards } from "@/lib/dashboard/service";
 import type { DashboardCaps, DashboardFilters } from "@/lib/dashboard/types";
-import { LeaderboardCard } from "@/components/dashboard/cards";
+import { LeaderboardList } from "@/components/dashboard/cards";
+import { TabbedCard } from "@/components/dashboard/tabbed-card";
 
 /**
  * Section 05b — top customers, colour/size combinations and suppliers.
@@ -26,13 +27,14 @@ export async function LeaderboardSection({
   );
   if (boards.length === 0) return null;
 
-  // Cards only, no wrapper: they share the page's grid with Recent activity
-  // (2026-10-29), so neither ends up alone in a full-width row.
+  // ONE CARD, A TAB PER BOARD (approved plan v2, 2026-11-02) — the three cards sat side by
+  // side and repeated one shape three times.
   return (
-    <>
-      {boards.map((b) => (
-        <LeaderboardCard key={b.key} title={b.title} note={b.note} rows={b.rows} />
-      ))}
-    </>
+    <TabbedCard
+      label="Top lists"
+      icon="trophy"
+      tone="warning"
+      tabs={boards.map((b) => ({ key: b.key, label: b.title, subtitle: b.note, body: <LeaderboardList rows={b.rows} /> }))}
+    />
   );
 }

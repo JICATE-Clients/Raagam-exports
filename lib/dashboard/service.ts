@@ -1146,6 +1146,9 @@ export async function getAlerts(caps: DashboardCaps): Promise<AlertItem[]> {
     out.push({
       key: "work-flow",
       title: `${late.length}${late.length >= 200 ? "+" : ""} pre-production milestone(s) overdue`,
+      count: late.length,
+      countPlus: late.length >= 200,
+      label: "Pre-production overdue",
       body: `${firsts.join(" · ")}${late.length > 3 ? " …" : ""} — open the order's T&A ▸ Work Flow.`,
       href: "/orders/garment-orders",
       tone: "danger",
@@ -1160,6 +1163,8 @@ export async function getAlerts(caps: DashboardCaps): Promise<AlertItem[]> {
     out.push({
       key: "orders-at-risk",
       title: `${risky.length} order(s) may miss delivery`,
+      count: risky.length,
+      label: "Orders at risk",
       body: `${late ? `${late} already late. ` : ""}${names.join(" · ")}${risky.length > 3 ? " …" : ""} — open Order Progress.`,
       href: "/orders/progress?risk=all",
       tone: late ? "danger" : "warning",
@@ -1171,6 +1176,8 @@ export async function getAlerts(caps: DashboardCaps): Promise<AlertItem[]> {
     out.push({
       key: "milestones",
       title: `${coreData.overdueCount} overdue milestone(s)`,
+      count: coreData.overdueCount,
+      label: "T&A milestones overdue",
       body: "T&A milestones past their planned date and not marked done.",
       href: "/orders",
       tone: "danger",
@@ -1189,6 +1196,9 @@ export async function getAlerts(caps: DashboardCaps): Promise<AlertItem[]> {
     out.push({
       key: "po-late",
       title: `${many(v.length)} supplier deliver${v.length === 1 ? "y" : "ies"} late`,
+      count: v.length,
+      countPlus: v.length >= GROUP_LIMIT,
+      label: "Deliveries late",
       body: firstFew(v.map((r) => `${s(r.code)}${poVendor(r) ? ` (${poVendor(r)})` : ""} due ${fmtDate(s(r.expected_date))}`)),
       href: "/purchase/orders",
       tone: "warning",
@@ -1201,6 +1211,9 @@ export async function getAlerts(caps: DashboardCaps): Promise<AlertItem[]> {
     out.push({
       key: "qc-failed",
       title: `${many(v.length)} received line${v.length === 1 ? "" : "s"} failed QC`,
+      count: v.length,
+      countPlus: v.length >= GROUP_LIMIT,
+      label: "Failed QC",
       body: firstFew(v.map((r) => `${s(embed(r, "grns")?.code)} ${s(r.description)} (${fmtCompactNumber(n(r.rejected_qty))} rejected)`)),
       href: "/purchase/grn",
       tone: "danger",
@@ -1213,6 +1226,9 @@ export async function getAlerts(caps: DashboardCaps): Promise<AlertItem[]> {
     out.push({
       key: "ship-late",
       title: `${many(v.length)} shipment${v.length === 1 ? "" : "s"} past ETD`,
+      count: v.length,
+      countPlus: v.length >= GROUP_LIMIT,
+      label: "Shipments past ETD",
       body: firstFew(v.map((r) => `${s(r.code)}${s(embed(r, "buyers")?.name) ? ` (${s(embed(r, "buyers")?.name)})` : ""} ETD ${fmtDate(s(r.etd))}`)),
       href: "/logistics",
       tone: "warning",
@@ -1226,6 +1242,9 @@ export async function getAlerts(caps: DashboardCaps): Promise<AlertItem[]> {
     out.push({
       key: "ar-overdue",
       title: `${many(v.length)} payment${v.length === 1 ? "" : "s"} overdue · ${fmtCompactInr(total)}`,
+      count: v.length,
+      countPlus: v.length >= GROUP_LIMIT,
+      label: `Payments overdue · ${fmtCompactInr(total)}`,
       body: firstFew(v.map((r) => `${s(r.invoice_no) || s(r.code)}${s(embed(r, "buyers")?.name) ? ` (${s(embed(r, "buyers")?.name)})` : ""}`)),
       href: "/finance/receivables",
       tone: "danger",
