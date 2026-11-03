@@ -1013,6 +1013,10 @@ export function SampleCostingScreen({
   };
 
 
+  /** Editing a costing that is already with the buyer (Under Progress): a saved change becomes
+   *  the next Rev, never an overwrite of the quote they hold. */
+  const counterOffer = !revisingFrom && !!editId && meta.status === "submitted" && !meta.isDraft;
+
   function submit(asDraft: boolean) {
     if (asDraft) {
       const structural = costingProblems(draft, { draft: true });
@@ -1024,6 +1028,14 @@ export function SampleCostingScreen({
       revealFirstProblem();
       return;
     }
+    // AN UNDER PROGRESS COSTING'S CHANGE IS THE NEXT REV (user 2026-11-03: "costing rev is not
+    // updating"; the server does the same in `saveSampleCosting`). With nothing changed there is
+    // no counter-offer, so no Rev is made — the editor just closes.
+    if (counterOffer && !dirty) {
+      success(`No changes — still ${revisionShort(meta.version)}`);
+      closeEditor();
+      return;
+    }
     start(async () => {
       const res = await saveSampleCosting(revisingFrom ? null : editId, draft, { isDraft: asDraft, parentId: revisingFrom });
       if (!res.ok) {
@@ -1033,7 +1045,7 @@ export function SampleCostingScreen({
       success(
         asDraft
           ? `Draft saved — ${res.code ?? ""}`
-          : revisingFrom
+          : revisingFrom || (counterOffer && res.version !== meta.version)
             ? `${revisionShort(res.version)} saved — ${res.code ?? ""}`
             : editId
               ? "Costing updated"
@@ -1605,7 +1617,11 @@ export function SampleCostingScreen({
               {revisingFrom ? "Revise Sample Costing" : !editable ? "View Sample Costing" : editId ? "Edit Sample Costing" : "New Sample Costing"}
             </span>
             <span className="text-sm font-semibold text-foreground">{meta.code ?? preview ?? "—"}</span>
-            <span className="text-xs text-muted-foreground">{revisionShort(meta.version)}</span>
+            <span className="text-xs text-muted-foreground">
+              {revisionShort(meta.version)}
+              {/* Said while it is true, so Save's new Rev is no surprise. */}
+              {counterOffer && dirty ? ` → saves as ${revisionShort(meta.version + 1)}` : null}
+            </span>
             {/* No "New revision" pill (client spec 2026-10-12 §7: no extra
                 status labels or revision flags) — the label above already
                 says "Revise Sample Costing" and the Rev number. */}

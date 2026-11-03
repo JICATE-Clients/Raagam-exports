@@ -68,8 +68,26 @@ export async function saveSampleCosting(
     }
   }
 
-  const payload = toCostingPayload(parsed.data, { isDraft: opts.isDraft, parentId: id ? null : (opts.parentId ?? null) });
   const supabase = await createClient();
+
+  /* AN UNDER PROGRESS COSTING IS NEVER SAVED OVER — A CHANGE IS THE NEXT REV (user 2026-11-03:
+     "costing rev is not updating"). Under Progress means the quote is WITH THE BUYER, so an
+     edit to it is a counter-offer: spec v8 §8.1, "each counter-offer = Revise → Rev N+1". The
+     pencil used to save over the open Rev (audit: CST/26-27/0010 and 0012 Rev 2 "updated" on
+     2026-11-03), so the Rev never moved and the quote the buyer actually holds was lost. Here,
+     not in the screen, so no editor can save over a sent quote. A Draft still saves in place
+     (the buyer has not seen it), and so does "Save as draft" — that is not a quote. */
+  if (id && !opts.isDraft) {
+    const { data: cur, error: curError } = await supabase.from("cost_sheets").select("status, is_draft").eq("id", id).maybeSingle();
+    if (curError) return { ok: false, error: curError.message };
+    const stored = cur as { status: string; is_draft: boolean | null } | null;
+    if (stored?.status === "submitted" && !stored.is_draft) {
+      opts = { ...opts, parentId: id };
+      id = null;
+    }
+  }
+
+  const payload = toCostingPayload(parsed.data, { isDraft: opts.isDraft, parentId: id ? null : (opts.parentId ?? null) });
   const { data, error } = await supabase.rpc("save_sample_costing", { p_id: id, p: payload });
   if (error) return { ok: false, error: error.message };
   const out = data as { id: string; code: string | null; version: number } | null;
