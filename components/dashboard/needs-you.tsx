@@ -1,147 +1,99 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
-import { CheckCheck, FileText } from "lucide-react";
+import { CheckCheck } from "lucide-react";
 import { Card } from "@/components/ui/card";
-import { ToggleGroup } from "@/components/ui/segmented";
-import { Truncated } from "@/components/ui/truncated";
+import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { fmtMoney } from "@/lib/format";
-import type { AlertItem, ApprovalRow } from "@/lib/dashboard/types";
+import type { AlertItem } from "@/lib/dashboard/types";
 import { Icon } from "./icon";
 import { toneSoft } from "./tone";
 import { GLASS } from "./glass";
-
-/** Rows the card lists per tab before handing over to the full page. */
-const SHOWN = 5;
+import { CardTitle } from "./card-title";
 
 /**
- * NEEDS YOU (user 2026-10-29, plan https://claude.ai/artifact/HR3L5D6gDKbcvLS3Cj1S9v):
- * Pending approvals and Alerts were two panels, one of them a seven-column
- * table carrying a single purchase order. Both answer "what is waiting on me",
- * so they are one card with two tabs, each tab saying its count.
+ * NEEDS YOU — COUNTS AS TILES, NOT SENTENCES (user 2026-11-02, plan
+ * https://claude.ai/artifact/31p9opsvkqVgRLg3c5zrwy: "visual rather than text").
  *
- * Alerts opens first when any alert is red; otherwise Approvals does, if there
- * are any. The full approvals table lives on /approvals, one link away.
+ * Each alert was a sentence ("41 pre-production milestone(s) overdue") over a line of RE
+ * numbers cut off by "…", so the figure to act on was buried in text. Now each alert is a
+ * tile: the number large, a two-word label, the same icon and tone; the RE / PO numbers
+ * that used to be clipped show in full on hover. Click opens the list it counts.
+ *
+ * No approvals here (user 2026-11-02, screenshot 144354: "remove it") — the strip that
+ * held them was taken out and the section no longer loads them; the queue is My Approvals.
  */
 export function NeedsYouCard({
-  approvals,
-  approvalsTotal,
-  canApprovals,
   alerts,
 }: {
-  approvals: ApprovalRow[];
-  approvalsTotal: number;
-  /** False when the viewer can see no approval queue at all: the tab is then not offered. */
-  canApprovals: boolean;
   alerts: AlertItem[];
 }) {
-  const red = alerts.some((a) => a.tone === "danger");
-  const [tab, setTab] = useState<"approvals" | "alerts">(
-    !canApprovals || red || approvalsTotal === 0 ? "alerts" : "approvals",
-  );
-  const waiting = (canApprovals ? approvalsTotal : 0) + alerts.length;
+  // The badge counts what the card SHOWS — the alert tiles (approvals left the card).
+  const waiting = alerts.length;
 
   return (
-    <Card className={cn(GLASS, "flex min-w-0 flex-col overflow-hidden")}>
-      <div className="flex items-center justify-between gap-2 px-4 pb-2 pt-3">
-        <h3 className="text-sm font-semibold">Needs you</h3>
+    <Card className={cn(GLASS, "flex min-w-0 flex-col gap-2.5 overflow-hidden px-4 pb-4 pt-3")}>
+      <div className="flex items-center justify-between gap-2">
+        <CardTitle title="Needs you" subtitle="Click a count to open its list" icon="bell" tone="danger" />
         {waiting > 0 && (
           <span className="rounded-full bg-danger-soft px-2 text-[11px] font-bold tabular-nums text-danger">{waiting}</span>
         )}
       </div>
 
-      {canApprovals && (
-        <ToggleGroup
-          role="tablist"
-          label="Needs you"
-          value={tab}
-          onChange={setTab}
-          className="mx-4 flex"
-          options={[
-            { value: "approvals", label: "Approvals", count: approvalsTotal },
-            { value: "alerts", label: "Alerts", count: alerts.length },
-          ]}
-        />
+      {alerts.length === 0 ? (
+        <AllClear title="Nothing needs attention" />
+      ) : (
+        <ul className="grid grid-cols-2 gap-2">
+          {alerts.map((a) => (
+            <AlertTile key={a.key} a={a} />
+          ))}
+        </ul>
       )}
 
-      <div className="px-2 pb-2 pt-1.5" role={canApprovals ? "tabpanel" : undefined}>
-        {tab === "approvals" ? <ApprovalRows rows={approvals} total={approvalsTotal} /> : <AlertRows items={alerts} />}
-      </div>
     </Card>
   );
 }
 
-function ApprovalRows({ rows, total }: { rows: ApprovalRow[]; total: number }) {
-  if (rows.length === 0) return <AllClear title="Nothing waiting for approval" />;
-  return (
+/** One alert: the number, a short label, the tone's icon; the detail on hover. */
+function AlertTile({ a }: { a: AlertItem }) {
+  // An alert built before `count` existed still renders: its title is the label then.
+  const num = a.count != null ? `${a.count}${a.countPlus ? "+" : ""}` : null;
+  const inner = (
     <>
-      <ul>
-        {rows.slice(0, SHOWN).map((r) => (
-          <li key={r.key} className="border-b border-[var(--glass-edge)] last:border-0">
-            <Link href={r.href} className="grid grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-lg px-2 py-2 transition-colors hover:bg-surface-muted">
-              <span className="grid size-7 place-items-center rounded-lg bg-primary-soft text-primary">
-                <FileText className="size-[15px]" />
-              </span>
-              <span className="min-w-0">
-                <Truncated text={r.ref} className="block font-mono text-[12.5px] font-semibold" />
-                <Truncated
-                  text={[r.type, r.party, `waiting ${r.ageDays} day${r.ageDays === 1 ? "" : "s"}`].filter(Boolean).join(" · ")}
-                  className="block text-[11.5px] text-muted-foreground"
-                />
-              </span>
-              <span className="text-right text-xs font-semibold tabular-nums">
-                {r.value != null ? fmtMoney(r.value, r.currency) : "—"}
-                <span className="block text-[11px] font-medium text-primary">Review →</span>
-              </span>
-            </Link>
-          </li>
-        ))}
-      </ul>
-      {total > SHOWN && (
-        <Link href="/approvals" className="block px-2 pt-1.5 text-xs font-semibold text-primary hover:underline">
-          All {total} approvals →
-        </Link>
-      )}
+      <span className={cn("row-span-2 grid size-8 place-items-center rounded-lg", toneSoft[a.tone])} aria-hidden>
+        <Icon name={a.icon} className="size-4" />
+      </span>
+      {num ? <span className="text-[22px] font-extrabold leading-none tabular-nums">{num}</span> : null}
+      <span className="text-[11.5px] leading-tight text-muted-foreground">{a.label ?? a.title}</span>
     </>
   );
-}
-
-function AlertRows({ items }: { items: AlertItem[] }) {
-  if (items.length === 0) return <AllClear title="Nothing needs attention" />;
+  const cls =
+    "grid h-full grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2.5 gap-y-0.5 rounded-xl border border-[var(--glass-edge)] px-2.5 py-2 text-left";
   return (
-    <ul>
-      {items.map((a) => {
-        const inner = (
-          <>
-            <span className={cn("grid size-7 place-items-center rounded-lg", toneSoft[a.tone])}>
-              <Icon name={a.icon} className="size-[15px]" />
-            </span>
-            <span className="min-w-0">
-              <Truncated text={a.title} className="block text-[13px] font-semibold" />
-              <Truncated text={a.body} className="block text-[11.5px] text-muted-foreground" />
-            </span>
-          </>
-        );
-        const cls = "grid grid-cols-[28px_minmax(0,1fr)] items-center gap-2.5 rounded-lg px-2 py-2";
-        return (
-          <li key={a.key} className="border-b border-[var(--glass-edge)] last:border-0">
-            {a.href ? (
-              <Link href={a.href} className={cn(cls, "transition-colors hover:bg-surface-muted")}>{inner}</Link>
-            ) : (
-              <div className={cls}>{inner}</div>
-            )}
-          </li>
-        );
-      })}
-    </ul>
+    <li className="min-w-0">
+      {/* THE DETAIL IS ON HOVER — the RE / PO numbers the old row clipped with "…". */}
+      <Tooltip label={a.body} touch className="flex h-full w-full">
+        {a.href ? (
+          <Link
+            href={a.href}
+            aria-label={`${a.title}. ${a.body}`}
+            className={cn(cls, "w-full transition-colors hover:border-primary hover:bg-surface-muted")}
+          >
+            {inner}
+          </Link>
+        ) : (
+          <div aria-label={`${a.title}. ${a.body}`} className={cn(cls, "w-full")}>
+            {inner}
+          </div>
+        )}
+      </Tooltip>
+    </li>
   );
 }
 
 function AllClear({ title }: { title: string }) {
   return (
-    <p className="flex items-center gap-2.5 px-2 py-3 text-[13px] text-muted-foreground">
+    <p className="flex items-center gap-2.5 py-1 text-[13px] text-muted-foreground">
       <span className="grid size-7 place-items-center rounded-lg bg-success-soft text-success">
         <CheckCheck className="size-4" />
       </span>

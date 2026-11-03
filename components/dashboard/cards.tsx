@@ -263,6 +263,15 @@ export function LeaderboardCard({
         <span className="shrink-0 text-[11px] text-muted-foreground">{note}</span>
       </div>
       <div className="flex-1 px-4 py-2">
+        <LeaderboardList rows={rows} />
+      </div>
+    </Card>
+  );
+}
+
+/** A board's ranked rows alone — the body of a Top tab (plan v2) or of a LeaderboardCard. */
+export function LeaderboardList({ rows }: { rows: Cell<LeaderRow[]> }) {
+  return (
         <CellView cell={rows}>
           {(list) =>
             list.length === 0 ? (
@@ -306,8 +315,6 @@ export function LeaderboardCard({
             )
           }
         </CellView>
-      </div>
-    </Card>
   );
 }
 
@@ -326,18 +333,20 @@ export interface QuickAction {
  */
 export function QuickActionList({ actions }: { actions: QuickAction[] }) {
   return (
-    <div className="grid grid-cols-2 gap-1.5 p-3">
+    // AN ICON GRID (approved plan v2, 2026-11-02): four across, the icon over a short label,
+    // about a third of the two-column list's height. The hint stays the tooltip.
+    <div className="grid grid-cols-4 gap-2 p-3">
       {actions.map((a) => (
         <Link
           key={a.href + a.label}
           href={a.href}
           title={a.hint}
-          className="flex min-w-0 items-center gap-2 rounded-lg border border-[var(--glass-edge)] bg-[var(--glass-row)] px-2.5 py-2 text-[12.5px] font-medium transition-colors hover:border-primary hover:bg-primary-soft"
+          className="flex min-w-0 flex-col items-center gap-1.5 rounded-xl border border-[var(--glass-edge)] px-1 py-2.5 text-center text-[11px] font-medium leading-tight text-muted-foreground transition-colors hover:border-primary hover:bg-primary-soft hover:text-primary"
         >
-          <span className={cn("grid size-6 shrink-0 place-items-center rounded-md", toneSoft[a.tone])}>
-            <Icon name={a.icon} className="size-[13px]" />
+          <span className={cn("grid size-8 shrink-0 place-items-center rounded-[9px]", toneSoft[a.tone])}>
+            <Icon name={a.icon} className="size-4" />
           </span>
-          <Truncated text={a.label} className="min-w-0" />
+          <span className="min-w-0 break-words">{a.label}</span>
         </Link>
       ))}
     </div>

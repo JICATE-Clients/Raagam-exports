@@ -5,14 +5,14 @@ import {
   AreaChart,
   BarChartMini,
   ChartEmpty,
-  ChartFrame,
   ChartLegend,
   DonutChart,
   ProgressBar,
 } from "@/components/dashboard/charts";
 import { CellView } from "@/components/dashboard/cards";
 import { StatusPill } from "@/components/ui/status-pill";
-import { cn } from "@/lib/utils";
+import { Truncated } from "@/components/ui/truncated";
+import { TabbedCard, type CardTab } from "@/components/dashboard/tabbed-card";
 
 /**
  * Section 02 — the trend charts.
@@ -34,148 +34,106 @@ export async function AnalyticsSection({
   const yoy = t.revenue.yoy;
 
   const has = (bars: { a: number; b?: number }[]) => bars.some((x) => x.a > 0 || (x.b ?? 0) > 0);
-  const later = [
-    t.revenue.invoiced.some((v) => v > 0) && (
-      <ChartFrame key="rev"
-        title="Revenue"
-        subtitle="Invoiced vs received · 12 mo"
-        aside={
-          yoy != null ? (
-            <StatusPill tone={yoy >= 0 ? "success" : "danger"} className="shrink-0">
-              {yoy >= 0 ? "+" : ""}
-              {yoy.toFixed(1)}% · 6 mo
-            </StatusPill>
-          ) : undefined
-        }
-      >
-        {t.revenue.invoiced.length > 1 ? (
-          <AreaChart
-            labels={t.revenue.labels}
-            primary={t.revenue.invoiced}
-            secondary={t.revenue.received}
-          />
+
+  // ONE CARD, ONE TAB PER CHART (approved plan v2, 2026-11-02): the seven cards became
+  // tabs. A chart with nothing to draw is left out, exactly as its card was (user
+  // 2026-10-30: no "No data" boxes), so the tab row only offers what has data.
+  const tabs: (CardTab | false)[] = [
+    has(t.monthlySales) && {
+      key: "intake",
+      label: "Order intake",
+      subtitle: "Units vs orders · 12 months",
+      aside: <ChartLegend items={[{ label: "Units", tone: "primary" }, { label: "Orders", tone: "accent" }]} />,
+      body: (
+        <BarChartMini
+          bars={t.monthlySales}
+          format={(b) => `${b.label} · ${fmtCompactNumber(b.a)} pcs · ${fmtCompactNumber(b.b)} orders`}
+        />
+      ),
+    },
+    t.orderStatus.total > 0 && {
+      key: "status",
+      label: "Order status",
+      subtitle:
+        t.orderStatus.pendingAmendments > 0
+          ? `${t.orderStatus.total} open · ${t.orderStatus.pendingAmendments} revising`
+          : `${t.orderStatus.total} open, by stage`,
+      body: <DonutChart slices={t.orderStatus.slices} total={t.orderStatus.total} unit="orders" />,
+    },
+    t.revenue.invoiced.some((v) => v > 0) && {
+      key: "revenue",
+      label: "Revenue",
+      subtitle: "Invoiced vs received · 12 months",
+      aside:
+        yoy != null ? (
+          <StatusPill tone={yoy >= 0 ? "success" : "danger"} className="shrink-0">
+            {yoy >= 0 ? "+" : ""}
+            {yoy.toFixed(1)}% · 6 mo
+          </StatusPill>
+        ) : undefined,
+      body:
+        t.revenue.invoiced.length > 1 ? (
+          <AreaChart labels={t.revenue.labels} primary={t.revenue.invoiced} secondary={t.revenue.received} />
         ) : (
           <ChartEmpty>No invoices in this period.</ChartEmpty>
-        )}
-      </ChartFrame>
-    ),
-    t.lineOutput.ok && t.lineOutput.value.length > 0 && (
-      <ChartFrame key="line"
-        title="Line output"
-        subtitle="Today"
-      >
-        <CellView cell={t.lineOutput}>
-          {(lines) =>
-            lines.length === 0 ? (
-              <ChartEmpty>No confirmed output today.</ChartEmpty>
-            ) : (
-              <ul className="flex flex-col gap-3.5">
-                {lines.map((l) => (
-                  <li key={l.name}>
-                    <div className="mb-1.5 flex items-center justify-between gap-2">
-                      <span className="truncate text-xs">{l.name}</span>
-                      <span className="shrink-0 text-xs font-semibold tabular-nums text-muted-foreground">
-                        {fmtCompactNumber(l.qty)}
-                      </span>
-                    </div>
-                    <ProgressBar pct={l.pct} tone={l.pct < 40 ? "warning" : "primary"} />
-                  </li>
-                ))}
-              </ul>
-            )
-          }
-        </CellView>
-      </ChartFrame>
-    ),
-    has(t.productionOutput) && (
-      <ChartFrame key="prod" title="Production output" subtitle="Good vs reject · 12 mo">
+        ),
+    },
+    has(t.productionOutput) && {
+      key: "production",
+      label: "Production",
+      subtitle: "Good vs reject pieces · 12 months",
+      aside: <ChartLegend items={[{ label: "Good", tone: "primary" }, { label: "Reject", tone: "danger" }]} />,
+      body: (
         <BarChartMini
           bars={t.productionOutput}
           tones={["primary", "danger"]}
-          height="sm"
-          format={(b) =>
-            `${b.label} · ${fmtCompactNumber(b.a)} good · ${fmtCompactNumber(b.b)} reject`
-          }
+          format={(b) => `${b.label} · ${fmtCompactNumber(b.a)} good · ${fmtCompactNumber(b.b)} reject`}
         />
-      </ChartFrame>
-    ),
-    has(t.inventory) && (
-      <ChartFrame key="inv" title="Inventory movement" subtitle="In vs out · 12 mo">
-        <BarChartMini
-          bars={t.inventory}
-          height="sm"
-          format={(b) =>
-            `${b.label} · in ${fmtCompactNumber(b.a)} · out ${fmtCompactNumber(b.b)}`
-          }
-        />
-      </ChartFrame>
-    ),
-    has(t.purchase) && (
-      <ChartFrame key="pur"
-        title="Purchase trend"
-        // purchase_orders.total_amount is stored in each PO's own currency, so
-        // this total mixes them. The existing /analytics page carries the same
-        // caveat; better to state it than to imply rupees.
-        subtitle="Mixed currency · 12 mo"
-      >
-        <BarChartMini
-          bars={t.purchase}
-          tones={["accent", "primary"]}
-          height="sm"
-          format={(b) => `${b.label} · ${fmtCompactInr(b.a)} · ${b.b} POs`}
-        />
-      </ChartFrame>
-    ),
-  ].filter(Boolean);
-
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-        <ChartFrame
-          title="Order intake"
-          subtitle="Units vs orders · 12 mo"
-          aside={
-            <ChartLegend
-              items={[
-                { label: "Units", tone: "primary" },
-                { label: "Orders", tone: "accent" },
-              ]}
-            />
-          }
-        >
-          <BarChartMini
-            bars={t.monthlySales}
-            format={(b) =>
-              `${b.label} · ${fmtCompactNumber(b.a)} pcs · ${fmtCompactNumber(b.b)} orders`
-            }
-          />
-        </ChartFrame>
-
-        <ChartFrame
-          title="Order status"
-          subtitle={
-            t.orderStatus.pendingAmendments > 0
-              ? `${t.orderStatus.total} open · ${t.orderStatus.pendingAmendments} revising`
-              : `${t.orderStatus.total} open`
-          }
-        >
-          <DonutChart
-            slices={t.orderStatus.slices}
-            total={t.orderStatus.total}
-            unit="orders"
-          />
-        </ChartFrame>
-      </div>
-
-      {/* A CHART WITH NOTHING TO DRAW IS LEFT OUT (user 2026-10-30, screenshot
-          3859: "No data for this period" boxes read as a broken page). Same
-          rule as the headline tiles: absent, never an empty frame. The cards
-          that remain share one grid, so a missing one leaves no hole. */}
-      {later.length > 0 && (
-        <div className={cn("grid grid-cols-1 gap-4 md:grid-cols-2", later.length >= 3 && "xl:grid-cols-3")}>
-          {later}
-        </div>
-      )}
-    </div>
-  );
+      ),
+    },
+    t.lineOutput.ok && t.lineOutput.value.length > 0 && {
+      key: "lines",
+      label: "Lines today",
+      subtitle: "Confirmed output per line, today",
+      body: (
+        <CellView cell={t.lineOutput}>
+          {(lines) => (
+            <ul className="grid gap-3.5 sm:grid-cols-2">
+              {lines.map((l) => (
+                <li key={l.name}>
+                  <div className="mb-1.5 flex items-center justify-between gap-2">
+                    <Truncated text={l.name} className="min-w-0 text-xs" />
+                    <span className="shrink-0 text-xs font-semibold tabular-nums text-muted-foreground">{fmtCompactNumber(l.qty)}</span>
+                  </div>
+                  <ProgressBar pct={l.pct} tone={l.pct < 40 ? "warning" : "primary"} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </CellView>
+      ),
+    },
+    has(t.inventory) && {
+      key: "inventory",
+      label: "Inventory",
+      subtitle: "Stock in vs out · 12 months",
+      aside: <ChartLegend items={[{ label: "In", tone: "primary" }, { label: "Out", tone: "accent" }]} />,
+      body: (
+        <BarChartMini bars={t.inventory} format={(b) => `${b.label} · in ${fmtCompactNumber(b.a)} · out ${fmtCompactNumber(b.b)}`} />
+      ),
+    },
+    has(t.purchase) && {
+      key: "purchase",
+      label: "Purchase",
+      // purchase_orders.total_amount is stored in each PO's own currency, so this total
+      // mixes them — the /analytics page carries the same caveat.
+      subtitle: "PO value, mixed currency · 12 months",
+      body: (
+        <BarChartMini bars={t.purchase} tones={["accent", "primary"]} format={(b) => `${b.label} · ${fmtCompactInr(b.a)} · ${b.b} POs`} />
+      ),
+    },
+  ];
+  const shown = tabs.filter((x): x is CardTab => !!x);
+  if (shown.length === 0) return null;
+  return <TabbedCard tabs={shown} label="Trend" icon="trending-up" />;
 }

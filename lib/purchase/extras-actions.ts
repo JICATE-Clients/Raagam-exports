@@ -108,46 +108,104 @@ export async function acknowledgeIndent(id: string): Promise<R> {
   await guard("edit");
   return setIndentStatus(id, "open", "acknowledged", "Acknowledged");
 }
-export async function convertIndent(id: string): Promise<R> {
+/**
+ * Acknowledged indent → a DRAFT purchase order the purchase manager completes
+ * (rates, terms) on /purchase/orders/<id>.
+ *
+ * This failed on every call until 2026-11-02, three ways at once: it selected
+ * `purchase_indents.garment_ppm_id` and inserted `purchase_orders.purchase_indent_id`
+ * (neither column exists), and it stamped an all-zeros `vendor_id` that no
+ * vendor row holds. `purchase_orders_one_vendor` requires exactly one of
+ * `vendor_id` / `master_vendor_id`, so the vendor is asked for at conversion —
+ * the Master Data vendor (`master_vendors`, as Raise PO uses since 0737).
+ *
+ * There is no PO → indent column, and none is added: the indent's code goes in
+ * the PO's `reference` and `notes`, which is where the PO screens print it.
+ * Lines are copied with no rate; a line the approver rejected is left behind
+ * and an approved quantity wins over the requested one.
+ */
+export async function convertIndent(
+  id: string,
+  masterVendorId: string,
+): Promise<{ ok: true; poId: string; poCode: string | null } | Err> {
   await guard("edit");
+  if (!masterVendorId) return bad("Pick the vendor to raise the PO on");
   const s = await createClient();
 
-  // Verify indent is acknowledged
-  const { data: indent } = await s
+  const { data: indent, error: indentErr } = await s
     .from("purchase_indents")
-    .select("id, status, department, sales_order_id, garment_ppm_id")
+    .select("id, code, status, department, sales_order_id, required_date")
     .eq("id", id)
     .maybeSingle();
+  if (indentErr) return bad(indentErr.message);
   if (!indent || indent.status !== "acknowledged")
     return bad("Indent is not in acknowledged status");
 
-  // Create a draft PO linked to this indent
+  const { data: lineRows, error: linesErr } = await s
+    .from("purchase_indent_lines")
+    .select("item_id, description, quantity, uom_id, sort_order, approval_status, approved_qty")
+    .eq("purchase_indent_id", id)
+    .order("sort_order");
+  if (linesErr) return bad(linesErr.message);
+  const lines = ((lineRows ?? []) as {
+    item_id: string | null;
+    description: string;
+    quantity: number;
+    uom_id: string | null;
+    sort_order: number;
+    approval_status: string | null;
+    approved_qty: number | null;
+  }[]).filter((l) => l.approval_status !== "rejected");
+  if (lines.length === 0) return bad("The indent has no lines to order");
+
   const user = await getAppUser();
+  const ref = indent.code ?? "indent";
   const { data: po, error: poErr } = await s
     .from("purchase_orders")
     .insert({
-      purchase_indent_id: id,
-      vendor_id: "00000000-0000-0000-0000-000000000000", // placeholder — user must set vendor
+      master_vendor_id: masterVendorId,
       status: "draft",
       order_date: new Date().toISOString().slice(0, 10),
-      notes: `Created from indent ${indent.id}`,
+      expected_date: indent.required_date ?? null,
+      reference: ref,
+      notes: `Created from indent ${ref} (${indent.department})`,
+      total_amount: 0,
       created_by: user?.id ?? null,
     })
-    .select("id")
-    .maybeSingle();
-
+    .select("id, code")
+    .single();
   if (poErr || !po) return bad(poErr?.message ?? "Failed to create PO");
 
-  // Mark indent as converted
+  const { error: lineErr } = await s.from("po_line_items").insert(
+    lines.map((l, i) => ({
+      purchase_order_id: po.id,
+      item_id: l.item_id,
+      description: l.description,
+      quantity: l.approved_qty ?? l.quantity ?? 0,
+      uom_id: l.uom_id,
+      unit_price: 0,
+      amount: 0,
+      received_qty: 0,
+      sort_order: l.sort_order ?? i,
+      sales_order_id: indent.sales_order_id ?? null,
+    })),
+  );
+  if (lineErr) {
+    // Leave no empty PO behind: the indent stays acknowledged and can be retried.
+    await s.from("purchase_orders").delete().eq("id", po.id);
+    return bad(lineErr.message);
+  }
+
   const { error } = await s
     .from("purchase_indents")
     .update({ status: "converted" })
     .eq("id", id);
   if (error) return bad(error.message);
 
+  await writeAudit({ action: "indent.converted", entityType: "purchase_indent", entityId: id });
   revalidateIndents(id);
   revalidatePath("/purchase/orders");
-  return { ok: true };
+  return { ok: true, poId: po.id as string, poCode: (po.code as string | null) ?? null };
 }
 export async function cancelIndent(id: string): Promise<R> {
   await guard("edit");

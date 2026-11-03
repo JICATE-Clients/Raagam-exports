@@ -18,7 +18,7 @@ import { getCurrentLocation } from "@/lib/auth/location";
  * RLS decides what a reader sees (a Production DC is visible to both of its units).
  */
 
-export type DcKind = "process" | "production" | "rejection" | "replacement";
+export type DcKind = "process" | "production" | "general" | "rejection" | "replacement";
 
 export type DcRegisterRow = {
   key: string;
@@ -37,7 +37,7 @@ export type DcRegisterRow = {
   href: string;
   print: string | null;
   /** The action this unit can take on the row now, from the hub (user 2026-10-31). */
-  action: "receive-back" | "receive-stock" | null;
+  action: "receive-back" | "receive-stock" | "dispatch" | null;
   created_at: string;
   created_by: string | null;
 };
@@ -51,7 +51,7 @@ export async function listDcRegister(): Promise<DcRegisterRow[]> {
   const [dcRes, vrRes] = await Promise.all([
     s
       .from("delivery_challans")
-      .select("id, code, dc_kind, dc_date, status, vendor_id, location_id, to_location_id, purpose, process_order_id, created_at, created_by"),
+      .select("id, code, dc_kind, dc_date, status, vendor_id, location_id, to_location_id, purpose, process_order_id, is_returnable, party_name, created_at, created_by"),
     s
       .from("vendor_returns")
       .select("id, code, dc_kind, return_date, status, master_vendor_id, vendor_id, grn_id, reason, created_at, created_by"),
@@ -61,7 +61,9 @@ export async function listDcRegister(): Promise<DcRegisterRow[]> {
   const dcs = (dcRes.data ?? []) as {
     id: string;
     code: string | null;
-    dc_kind: "process" | "production";
+    dc_kind: "process" | "production" | "general";
+    is_returnable: boolean | null;
+    party_name: string | null;
     dc_date: string | null;
     status: string;
     vendor_id: string | null;
@@ -125,6 +127,34 @@ export async function listDcRegister(): Promise<DcRegisterRow[]> {
   const rows: DcRegisterRow[] = [
     ...dcs.map((d): DcRegisterRow => {
       const a = dcAgg.get(d.id) ?? { qty: 0, out: 0 };
+      // GENERAL DC (0796): out to a party for repair / sample / loan / gift. A draft reopens
+      // its form; a returnable one still out is received back on Delivery Return (0797); a
+      // non-returnable one reads "Sent" once dispatched (it is closed, not returned).
+      if (d.dc_kind === "general") {
+        const out = d.status === "issued" || d.status === "partially_returned";
+        return {
+          key: `dc-${d.id}`,
+          id: d.id,
+          kind: "general",
+          code: d.code,
+          date: d.dc_date,
+          party: d.vendor_id ? (vendor.get(d.vendor_id) ?? "—") : (d.party_name ?? "—"),
+          against: `${d.is_returnable === false ? "Non-returnable" : "Returnable"}${d.purpose ? ` · ${d.purpose}` : ""}`,
+          status: d.is_returnable === false && d.status === "closed" ? "sent" : d.status,
+          qty: a.qty,
+          outstanding: d.is_returnable === false || d.status === "draft" ? 0 : a.out,
+          href:
+            d.status === "draft"
+              ? `/purchase/dc?edit=${d.id}&type=general`
+              : out
+                ? `/purchase/delivery-returns?dc=${d.id}`
+                : `/purchase/general-delivery/${d.id}/print`,
+          print: d.status === "draft" ? null : `/purchase/general-delivery/${d.id}/print`,
+          action: out && d.is_returnable !== false ? "receive-back" : null,
+          created_at: d.created_at,
+          created_by: d.created_by,
+        };
+      }
       if (d.dc_kind === "production") {
         return {
           key: `dc-${d.id}`,
@@ -193,9 +223,12 @@ export async function listDcRegister(): Promise<DcRegisterRow[]> {
         status: v.status,
         qty: a.qty,
         outstanding: kind === "replacement" && v.status !== "cancelled" ? a.out : 0,
-        href: `/purchase/vendor-returns/${v.id}`,
-        print: v.status === "cancelled" ? null : `/purchase/vendor-returns/${v.id}/print`,
-        action: null,
+        // TWO SCREENS, NOT THREE (user 2026-11-02): a Rejection / Replacement DC is opened,
+        // dispatched and printed in this hub — never on a separate Vendor Returns page.
+        href: `/purchase/dc?view=${v.id}&type=${kind}`,
+        // The return slip prints once the DC has gone out, not while it is a draft.
+        print: v.status === "draft" || v.status === "cancelled" ? null : `/purchase/vendor-returns/${v.id}/print`,
+        action: v.status === "draft" ? "dispatch" : null,
         created_at: v.created_at,
         created_by: v.created_by,
       };

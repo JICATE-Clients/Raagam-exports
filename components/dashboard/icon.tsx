@@ -1,8 +1,13 @@
 import { createElement } from "react";
 import {
+  Activity,
   ArrowDownRight,
   ArrowUpRight,
   BadgeAlert,
+  Bell,
+  CalendarDays,
+  ChartColumn,
+  Hourglass,
   CircleAlert,
   CircleDashed,
   CircleDot,
@@ -19,13 +24,16 @@ import {
   PackageX,
   Scissors,
   Ship,
+  ShoppingCart,
   Sparkles,
   TrendingUp,
+  Trophy,
   TriangleAlert,
   Truck,
   UserPlus,
   Users,
   Warehouse,
+  Zap,
   type LucideIcon,
 } from "lucide-react";
 
@@ -42,6 +50,14 @@ import {
  * a mistyped icon name should not blank a dashboard section.
  */
 const ICONS: Record<string, LucideIcon> = {
+  activity: Activity,
+  bell: Bell,
+  calendar: CalendarDays,
+  "chart-column": ChartColumn,
+  hourglass: Hourglass,
+  "shopping-cart": ShoppingCart,
+  trophy: Trophy,
+  zap: Zap,
   "arrow-down-right": ArrowDownRight,
   "arrow-up-right": ArrowUpRight,
   "badge-alert": BadgeAlert,

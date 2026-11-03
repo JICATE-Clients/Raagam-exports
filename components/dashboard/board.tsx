@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { Card } from "@/components/ui/card";
 import { Truncated } from "@/components/ui/truncated";
 import { cn } from "@/lib/utils";
@@ -17,8 +17,6 @@ import { toneText, toneVar } from "./tone";
  * sentence (user: "reduce wording, more visual clarity").
  */
 
-type Vars = CSSProperties & Record<`--${string}`, string | number>;
-
 const SYMBOL: Record<string, string> = { USD: "$", EUR: "€", GBP: "£" };
 
 /** $2.05M / $413K / ₹25.40 L — the currency's own short form. */
@@ -31,96 +29,47 @@ export function fmtMoneyShort(value: number, currency: string | null): string {
   return `${sym}${Math.round(value)}`;
 }
 
-/** The headline tile: a ring that is a real share of a real whole, the figure, one short line. */
-export function RingTile({
-  label,
-  value,
-  sub,
-  pct,
-  center,
-  tone,
-  href,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  /** 0–100; the ring's fill. */
-  pct: number;
-  /** What sits inside the ring — the share by default. */
-  center?: string;
-  tone: DashboardTone;
-  href?: string;
-}) {
-  const p = Math.max(0, Math.min(100, Math.round(pct)));
-  const body = (
-    <>
-      <span
-        aria-hidden
-        className="grid size-[58px] shrink-0 place-items-center rounded-full bg-[conic-gradient(var(--tone)_0_calc(var(--pct)*1%),var(--glass-track)_calc(var(--pct)*1%)_100%)]"
-        style={{ "--pct": p, "--tone": toneVar(tone) } as Vars}
-      >
-        <span className="grid size-[44px] place-items-center rounded-full bg-surface text-[11px] font-bold tabular-nums">
-          {center ?? `${p}%`}
-        </span>
-      </span>
-      <span className="min-w-0">
-        <span className="block text-[10.5px] font-semibold uppercase tracking-[0.07em] text-muted-foreground">{label}</span>
-        <span className="block text-xl font-bold leading-tight tabular-nums text-heading">{value}</span>
-        {sub && <span className="block text-[11px] text-muted-foreground">{sub}</span>}
-      </span>
-    </>
-  );
-  const cls = cn(GLASS, "flex min-w-0 items-center gap-3 border p-3.5");
-  return href ? (
-    <Link href={href} className={cn(cls, "transition-colors hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring")}>
-      {body}
-    </Link>
-  ) : (
-    <Card className={cls}>{body}</Card>
-  );
-}
-
-/** A tile whose read failed — said, never drawn as 0. */
-export function RingTileError({ label }: { label: string }) {
-  return (
-    <Card className={cn(GLASS, "flex min-w-0 items-center gap-3 p-3.5")}>
-      <span className="text-[10.5px] font-semibold uppercase tracking-[0.07em] text-muted-foreground">{label}</span>
-      <span className="ml-auto text-xs text-danger">Couldn&apos;t load</span>
-    </Card>
-  );
-}
-
 /** "When is work due?" — open order value per delivery month; past months red, this month amber. */
 export function DueByMonth({
   months,
   currency,
   thisMonth,
+  summary,
 }: {
   months: { month: string; orders: number; value: number }[];
   currency: string | null;
   thisMonth: string;
+  /** The book's split, drawn left of the columns (plan v2: the page's main chart). */
+  summary?: ReactNode;
 }) {
   // A mixed-currency book cannot be summed, so the columns count orders instead.
   const byValue = currency !== null;
   const metric = (m: { orders: number; value: number }) => (byValue ? m.value : m.orders);
   const max = Math.max(1, ...months.map(metric));
   return (
-    <ChartFrame title="When is work due?" aside={<Legend items={[["danger", "Past"], ["warning", "This month"], ["primary", "Ahead"]]} />}>
+    <ChartFrame
+      title="When is work due?"
+      subtitle={byValue ? "Open order value by delivery month" : "Open orders by delivery month"}
+      icon="chart-column"
+      aside={<Legend items={[["danger", "Past"], ["warning", "This month"], ["primary", "Ahead"]]} />}
+    >
+      <div className={cn(summary && "grid gap-5 md:grid-cols-[13rem_minmax(0,1fr)]")}>
+      {summary}
       {months.length === 0 ? (
         <ChartEmpty>No open orders carry a delivery date.</ChartEmpty>
       ) : (
-        <div>
-          <div className="flex h-40 items-end gap-1.5 border-b border-border pt-5">
+        <div className="min-w-0">
+          <div className="flex h-48 items-end gap-2 border-b border-border pt-5">
             {months.map((m) => {
               const tone: DashboardTone = m.month < thisMonth ? "danger" : m.month === thisMonth ? "warning" : "primary";
               const v = metric(m);
               return (
                 <div key={m.month} className="group relative flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1">
-                  <span className="text-[10px] tabular-nums text-muted-foreground">
+                  <span className="text-[10.5px] font-bold tabular-nums text-heading">
                     {byValue ? fmtMoneyShort(v, currency) : v}
                   </span>
                   <span
-                    className="block w-full max-w-8 rounded-t-[5px]"
+                    className="block w-full max-w-12 rounded-t-[6px]"
                     style={{ height: `${Math.max(2, (v / max) * 100)}%`, background: toneVar(tone) }}
                     title={`${monthLabel(`${m.month}-01`)} · ${m.orders} orders`}
                   />
@@ -137,7 +86,44 @@ export function DueByMonth({
           </div>
         </div>
       )}
+      </div>
     </ChartFrame>
+  );
+}
+
+/** Left of the main chart: the book's total, then each part with a share bar. */
+export function BookSummary({
+  total,
+  note,
+  rows,
+}: {
+  total: string;
+  note: string;
+  rows: { label: string; value: string; n: number; tone: DashboardTone }[];
+}) {
+  const whole = Math.max(1, rows.slice(0, 2).reduce((a, r) => a + r.n, 0));
+  return (
+    <div className="min-w-0">
+      <span className="text-[10.5px] font-semibold uppercase tracking-[0.07em] text-muted-foreground">Total open</span>
+      <p className="mt-1 text-[32px] font-extrabold leading-none tracking-tight tabular-nums text-heading">{total}</p>
+      <p className="mt-1 text-xs text-muted-foreground">{note}</p>
+      <ul className="mt-4 grid gap-2.5">
+        {rows.map((r) => (
+          <li key={r.label} className="grid gap-1 text-xs">
+            <span className="flex items-center justify-between gap-2">
+              <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+                <span className="size-2 rounded-[2px]" style={{ background: toneVar(r.tone) }} />
+                {r.label}
+              </span>
+              <b className="tabular-nums">{r.value}</b>
+            </span>
+            <span className="h-1.5 overflow-hidden rounded-full bg-[var(--glass-track)]">
+              <span className="block h-full rounded-full" style={{ width: `${Math.min(100, (r.n / whole) * 100)}%`, background: toneVar(r.tone) }} />
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -158,6 +144,9 @@ export function LateAgeing({
   return (
     <ChartFrame
       title="How late?"
+      subtitle="Late orders by days past delivery"
+      icon="hourglass"
+      tone="danger"
       aside={<Link href={href} className="text-xs font-semibold text-primary hover:underline">{late} late</Link>}
     >
       {late === 0 ? (
@@ -189,11 +178,14 @@ export function LateAgeing({
 }
 
 /** "What are we buying?" — PO value by item class. */
-export function BuyingBars({ rows, href }: { rows: { label: string; amount: number }[]; href: string }) {
+export function BuyingBars({ rows, href, subtitle }: { rows: { label: string; amount: number }[]; href: string; subtitle?: string }) {
   const max = Math.max(1, ...rows.map((r) => r.amount));
   return (
     <ChartFrame
       title="What are we buying?"
+      subtitle={subtitle}
+      icon="shopping-cart"
+      tone="info"
       aside={<Link href={href} className="text-xs font-semibold text-primary hover:underline">POs</Link>}
     >
       {rows.length === 0 ? (
@@ -237,6 +229,39 @@ export interface Insight {
 }
 
 /** The bottom strip: up to five facts worth a glance, each one a link to its list. */
+/**
+ * THE SAME FACTS, ONE LINE, IN THE PERIOD BAR (user 2026-11-02, screenshots 144758 / 144841:
+ * "move this into the top … compact it"). It used to be a card band of its own under the
+ * activity lists; now it rides the right of Today · Week · Month · Custom. Label above, bold
+ * value and its coloured note beside each other, parted by hairlines; wraps on a narrow pane.
+ * One or two facts are fine here — the band's "fewer than three is not worth a row" rule was
+ * about a stretched lone tile, which a line in a bar is not.
+ */
+export function InsightInline({ items }: { items: Insight[] }) {
+  if (items.length === 0) return null;
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-y-1.5">
+      {items.map((it, i) => {
+        const inner: ReactNode = (
+          <>
+            <span className="block text-[10px] font-semibold uppercase tracking-[0.07em] text-muted-foreground">{it.label}</span>
+            <span className="flex items-baseline gap-1.5 whitespace-nowrap">
+              <span className="text-[13px] font-bold tabular-nums text-heading">{it.value}</span>
+              <span className={cn("text-[11px] font-medium", toneText[it.tone])}>{it.sub}</span>
+            </span>
+          </>
+        );
+        const cls = cn("min-w-0 px-3 leading-tight", i > 0 && "border-l border-border");
+        return it.href ? (
+          <Link key={it.label} href={it.href} className={cn(cls, "rounded-control hover:bg-[var(--glass-row)]")}>{inner}</Link>
+        ) : (
+          <div key={it.label} className={cls}>{inner}</div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function InsightStrip({ items }: { items: Insight[] }) {
   // Fewer than three facts is a lone tile stretched across the page
   // (screenshot 3859: one "Coming up 0 orders" card) — not worth a row.

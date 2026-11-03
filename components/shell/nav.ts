@@ -335,10 +335,10 @@ export const SECTION_ACTIONS: Record<string, string[]> = {
   "/purchase/grn": ["New GRN"],
   "/purchase/dc": ["New Delivery Challan"],
 
-  "/stores/opening-stock": ["New Opening Stock", "Import"],
-  "/stores/requisitions": ["New MRS"],
+  "/purchase/opening-stock": ["New Opening Stock", "Import"],
+  "/purchase/requisitions": ["New MRS"],
   "/purchase/vendor-returns": ["New Return"],
-  "/stores/csp-receipts": ["New CSP Receipt"],
+  "/purchase/csp-receipts": ["New CSP Receipt"],
 
   "/hr/workers": ["New Worker", "Bulk Import"],
   "/hr/staff": ["New Staff"],

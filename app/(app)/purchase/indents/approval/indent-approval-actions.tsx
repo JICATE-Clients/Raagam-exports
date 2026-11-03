@@ -1,7 +1,8 @@
 "use client";
 
 import { useTransition } from "react";
-import { acknowledgeIndent, convertIndent } from "@/lib/purchase/extras-actions";
+import { useRouter } from "next/navigation";
+import { acknowledgeIndent } from "@/lib/purchase/extras-actions";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 
@@ -14,6 +15,7 @@ export function IndentApprovalActions({
 }) {
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
+  const router = useRouter();
 
   function handleAcknowledge() {
     startTransition(async () => {
@@ -23,12 +25,10 @@ export function IndentApprovalActions({
     });
   }
 
+  // A PO needs its vendor (purchase_orders_one_vendor), which is picked on the
+  // indent's own page — so Convert goes there rather than converting blind.
   function handleConvert() {
-    startTransition(async () => {
-      const result = await convertIndent(indentId);
-      if (result.ok) success("Indent converted to PO.");
-      else toastError(result.error);
-    });
+    router.push(`/purchase/indents/${indentId}`);
   }
 
   return (

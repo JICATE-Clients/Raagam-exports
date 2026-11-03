@@ -14,23 +14,32 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { fmtDate } from "@/lib/format";
-import { createCspReceipt } from "@/lib/stores/extras-actions";
-import { CSP_STATUS_LABELS, type CspStatus } from "@/lib/stores/extras-types";
-import type { CspReceiptWithRefs, StoreOption, BuyerOption } from "@/lib/stores/extras-service";
+import { createRequisition } from "@/lib/stores/extras-actions";
+import { MRS_STATUS_LABELS, type MrsStatus } from "@/lib/stores/extras-types";
+import type { MrsWithRefs, StoreOption } from "@/lib/stores/extras-service";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { statusTone } from "@/lib/ui/status-tone";
 
-function tone(s: CspStatus): StatusTone {
-  return s === "draft" ? "neutral" : s === "posted" ? "success" : "danger";
+const TONE_OVERRIDES = {
+  // Submitted here is a hand-off that waits on no approver (was info before the shared table, kept).
+  submitted: "info",
+  // Approved is a step in this document's life, not its end — work still follows it (was warning before the shared table, kept).
+  approved: "warning",
+  // Issued is this document's completion — the goods or paper have gone (was success before the shared table, kept).
+  issued: "success",
+} as const;
+
+function tone(s: MrsStatus): StatusTone {
+  return statusTone(s, TONE_OVERRIDES);
 }
 
 interface Props {
-  rows: CspReceiptWithRefs[];
+  rows: MrsWithRefs[];
   stores: StoreOption[];
-  buyers: BuyerOption[];
   canCreate: boolean;
 }
 
-export function CspReceiptsClient({ rows, stores, buyers, canCreate }: Props) {
+export function RequisitionsClient({ rows, stores, canCreate }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -38,9 +47,8 @@ export function CspReceiptsClient({ rows, stores, buyers, canCreate }: Props) {
   useCreateIntent(() => setOpen(true));
 
   const [storeId, setStoreId] = useState("");
-  const [buyerId, setBuyerId] = useState("");
-  const [receiptDate, setReceiptDate] = useState("");
-  const [reference, setReference] = useState("");
+  const [department, setDepartment] = useState("");
+  const [requiredDate, setRequiredDate] = useState("");
   const [notes, setNotes] = useState("");
 
   function handleCreate(e: React.FormEvent) {
@@ -50,33 +58,32 @@ export function CspReceiptsClient({ rows, stores, buyers, canCreate }: Props) {
       return;
     }
     startTransition(async () => {
-      const r = await createCspReceipt({
+      const r = await createRequisition({
         store_id: storeId,
-        buyer_id: buyerId || null,
-        receipt_date: receiptDate || null,
-        reference: reference || null,
+        department,
+        required_date: requiredDate || null,
         notes: notes || null,
       });
       if (r.ok) {
-        success("CSP receipt created");
-        router.push(`/stores/csp-receipts/${r.id}`);
+        success("Requisition created");
+        router.push(`/purchase/requisitions/${r.id}`);
       } else toastError(r.error);
     });
   }
 
-  const columns: Column<CspReceiptWithRefs>[] = [
+  const columns: Column<MrsWithRefs>[] = [
     {
-      header: "Receipt #",
+      header: "MRS #",
       cell: (r) => (
-        <Link href={`/stores/csp-receipts/${r.id}`} className="font-mono text-xs font-medium text-primary hover:underline">
+        <Link href={`/purchase/requisitions/${r.id}`} className="font-mono text-xs font-medium text-primary hover:underline">
           {r.code ?? "—"}
         </Link>
       ),
     },
     { header: "Store", cell: (r) => <span className="text-sm">{r.store_code ?? "—"}</span> },
-    { header: "Customer", cell: (r) => <span className="text-sm">{r.buyer_name ?? "—"}</span> },
-    { header: "Date", cell: (r) => <span className="tabular-nums text-sm">{fmtDate(r.receipt_date)}</span> },
-    { header: "Status", cell: (r) => <StatusPill tone={tone(r.status)}>{CSP_STATUS_LABELS[r.status]}</StatusPill> },
+    { header: "Department", cell: (r) => <span className="text-sm">{r.department}</span> },
+    { header: "Required", cell: (r) => <span className="tabular-nums text-sm">{fmtDate(r.required_date)}</span> },
+    { header: "Status", cell: (r) => <StatusPill tone={tone(r.status)}>{MRS_STATUS_LABELS[r.status]}</StatusPill> },
   ];
 
   return (
@@ -85,37 +92,30 @@ export function CspReceiptsClient({ rows, stores, buyers, canCreate }: Props) {
         (open ? (
           <Card>
             <CardHeader>
-              <CardTitle>New CSP receipt</CardTitle>
+              <CardTitle>New requisition</CardTitle>
               <Button variant="outline" size="sm" onClick={() => setOpen(false)}>Cancel</Button>
             </CardHeader>
             <CardBody>
               <form onSubmit={handleCreate} className="space-y-4">
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   <div>
-                    <Label htmlFor="cs-store">Store</Label>
-                    <Select id="cs-store" value={storeId} onChange={(e) => setStoreId(e.target.value)}>
+                    <Label htmlFor="mr-store">Store</Label>
+                    <Select id="mr-store" value={storeId} onChange={(e) => setStoreId(e.target.value)}>
                       <option value=""></option>
                       {stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </Select>
                   </div>
                   <div>
-                    <Label htmlFor="cs-buyer">Customer</Label>
-                    <Select id="cs-buyer" value={buyerId} onChange={(e) => setBuyerId(e.target.value)}>
-                      <option value=""></option>
-                      {buyers.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-                    </Select>
+                    <Label htmlFor="mr-dept">Department</Label>
+                    <Input id="mr-dept" value={department} onChange={(e) => setDepartment(e.target.value)} required />
                   </div>
                   <div>
-                    <Label htmlFor="cs-date">Receipt date</Label>
-                    <Input id="cs-date" type="date" value={receiptDate} onChange={(e) => setReceiptDate(e.target.value)} />
+                    <Label htmlFor="mr-date">Required date</Label>
+                    <Input id="mr-date" type="date" value={requiredDate} onChange={(e) => setRequiredDate(e.target.value)} />
                   </div>
-                  <div>
-                    <Label htmlFor="cs-ref">Reference</Label>
-                    <Input id="cs-ref" value={reference} onChange={(e) => setReference(e.target.value)} />
-                  </div>
-                  <div className="sm:col-span-2">
-                    <Label htmlFor="cs-notes">Notes</Label>
-                    <Textarea id="cs-notes" rows={1} value={notes} onChange={(e) => setNotes(e.target.value)} />
+                  <div className="sm:col-span-2 lg:col-span-3">
+                    <Label htmlFor="mr-notes">Notes</Label>
+                    <Textarea id="mr-notes" rows={1} value={notes} onChange={(e) => setNotes(e.target.value)} />
                   </div>
                 </div>
                 <div className="flex justify-end gap-2 pt-1">
@@ -126,9 +126,9 @@ export function CspReceiptsClient({ rows, stores, buyers, canCreate }: Props) {
             </CardBody>
           </Card>
         ) : (
-          <div className="flex justify-end"><Button onClick={() => setOpen(true)}>New CSP receipt</Button></div>
+          <div className="flex justify-end"><Button onClick={() => setOpen(true)}>New requisition</Button></div>
         ))}
-      <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No CSP receipts yet." />
+      <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No requisitions yet." />
     </div>
   );
 }

@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Segmented } from "@/components/ui/segmented";
-import { Field, FieldError, FieldRow } from "@/components/ui/field";
+import { Field, FieldRow } from "@/components/ui/field";
 import { Truncated } from "@/components/ui/truncated";
 import { useToast } from "@/components/ui/toast";
 import { decideQc } from "@/lib/purchase/grn-actions";
@@ -18,7 +18,7 @@ import type { GrnBinOption, GrnStoreOption, PendingQcLine } from "@/lib/purchase
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { pickedBins, splitBinsProblem, withTailBin } from "@/lib/purchase/bin-split";
-import { BinPicker } from "@/components/masters/bin-picker";
+import { BinRowsEditor } from "@/components/purchase/store-bin-editor";
 
 const num = (s: string) => {
   const n = parseFloat(s);
@@ -145,7 +145,7 @@ function InspectSheet({
   const accepted = round3(Math.max(0, line.received_qty - f));
   const picked = pickedBins(splits);
   const split = picked.length > 1;
-  /** Re-shape the bin rows to the blank-end-row rule (the first bin holds the rest). */
+  /** Re-shape the bin rows (lib/purchase/bin-split.ts: untyped bins hold what is left). */
   const reshape = (rows: Split[], acc: number = accepted) => withTailBin(rows, () => newSplit(), acc);
   const failProblem =
     f < 0 ? "Cannot be negative" : f > line.received_qty + 1e-9 ? `More than received (${fmtNumber(line.received_qty)})` : null;
@@ -296,53 +296,25 @@ function InspectSheet({
                 ))}
               </Select>
             </Field>
-            <div>
-              <div className="mb-1 text-sm font-medium">Bin{split ? "s" : ""}</div>
-              <div className="space-y-1">
-                {/* A blank end row waits under the picked bins (no "+ Split bins"). */}
-                {splits.map((s, i) => {
-                  return (
-                    <div key={s.key} className="flex items-center gap-2">
-                      <BinPicker
-                        label={s.binId ? `Bin ${i + 1}` : "Another bin"}
-                        className="min-w-0 flex-1"
-                        compact={false}
-                        bins={allBins}
-                        value={s.binId}
-                        canCreate={canCreateBin}
-                        usedIds={picked.map((x) => x.binId)}
-                        onChange={(v) => {
-                          touch();
-                          setSplits((xs) => reshape(xs.map((x) => (x.key === s.key ? { ...x, binId: v } : x))));
-                        }}
-                        onCreated={(nb) => {
-                          touch();
-                          setAddedBins((xs) => [...xs, { id: nb.id, code: nb.code, description: null }]);
-                          setSplits((xs) => reshape(xs.map((x) => (x.key === s.key ? { ...x, binId: nb.id } : x))));
-                        }}
-                      />
-                      {split && s.binId ? (
-                          <Input
-                            type="number"
-                            min={0}
-                            inputMode="decimal"
-                            aria-label={`Bin ${i + 1} qty`}
-                            className="w-24 shrink-0 text-right tabular-nums"
-                            value={s.qty}
-                            onChange={(e) => {
-                              touch();
-                              setSplits((xs) => reshape(xs.map((x) => (x.key === s.key ? { ...x, qty: e.target.value, typed: true } : x))));
-                            }}
-                          />
-                      ) : split ? (
-                        <span className="w-24 shrink-0" aria-hidden />
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-              <FieldError id="qc-bins-error">{splitProblem}</FieldError>
-            </div>
+            {/* Bin 1 takes the whole passed qty; lower it to open another (bin-split.ts) —
+                the same rows as the GRN's Store · Bin pop-up. */}
+            <BinRowsEditor
+              description={line.description}
+              stores={stores}
+              storeId={storeId}
+              onStore={setStoreId}
+              showStore={false}
+              rows={splits}
+              onRow={(k, p) => {
+                touch();
+                setSplits((xs) => reshape(xs.map((x) => (x.key === k ? { ...x, ...p } : x))));
+              }}
+              accepted={accepted}
+              uom={line.uom_code}
+              bins={allBins}
+              canCreateBin={canCreateBin}
+              onBinCreated={(nb) => setAddedBins((xs) => [...xs, { id: nb.id, code: nb.code, description: null }])}
+            />
           </div>
         ) : null}
       </div>

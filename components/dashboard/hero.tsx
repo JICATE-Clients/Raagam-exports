@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { TriangleAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -146,9 +147,15 @@ export function DashboardHeader({
 export function DashboardToolbar({
   filters,
   carry,
+  aside,
+  label,
 }: {
   filters: DashboardFilters;
   carry: Carry;
+  /** The band's name, left of the period ("Business") — it names what the period filters. */
+  label?: string;
+  /** Right of the window label — the board's facts, compact (user 2026-11-02, screenshot 144841). */
+  aside?: ReactNode;
 }) {
   const custom = filters.range === "custom";
   const hidden = Object.entries(carry).filter(
@@ -157,10 +164,12 @@ export function DashboardToolbar({
 
   return (
     <Card className={cn(GLASS, "flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5")}>
+      {label && <span className="pr-1 text-xs font-bold uppercase tracking-[0.08em] text-heading">{label}</span>}
       <RangeTabs current={filters.range} carry={carry} />
       {custom && <CustomRangeForm from={filters.from} to={filters.to} hidden={hidden} />}
       <span className="text-sm font-medium tabular-nums text-foreground">{windowLabel(filters)}</span>
       <AutoRefresh />
+      {aside ? <div className="ml-auto min-w-0">{aside}</div> : null}
     </Card>
   );
 }

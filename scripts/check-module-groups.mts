@@ -574,6 +574,22 @@ const REDIRECTED: Record<string, string> = {
   // Vendors left the Purchase menu (user 2026-10-28): the vendor a PO names is
   // the Master Data vendor (0737), so the old screen answers as a redirect.
   "/purchase/vendors": "/masters/associates/vendor",
+  // PURCHASE CHILD ALIGNMENT (user 2026-11-02): ① Procurement ② Purchase Store
+  // ③ General Items Purchase, "everything we have we need to move here". The
+  // Stores screens on that list MOVED routes; the old addresses answer.
+  "/stores/opening-stock": "/purchase/opening-stock",
+  "/stores/adjustments": "/purchase/adjustments",
+  "/stores/transfers": "/purchase/transfers",
+  "/stores/csp-receipts": "/purchase/csp-receipts",
+  "/stores/interdept": "/purchase/interdept",
+  "/stores/requisitions": "/purchase/requisitions",
+  // Group hubs whose groups were dissolved into the three above.
+  "/purchase/receiving": "/purchase/store",
+  "/purchase/approvals": "/purchase/procurement",
+  "/stores/setup": "/purchase/store",
+  // Vendor Returns folded into the DC register's Rejection tab (user 2026-11-02, the return plan).
+  "/purchase/vendor-returns": "/purchase/dc?type=rejection",
+  "/stores/issues": "/purchase/general-items",
 };
 
 for (const [moduleHref, leaves] of Object.entries(OLD_NAV_LEAVES)) {

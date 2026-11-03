@@ -134,7 +134,7 @@ export function OpeningStockDetail({ docId, status, lines, items, canEdit, canDe
             <Button variant="outline" className="text-danger hover:border-danger" disabled={isPending}
               onClick={() => run(async () => {
                 const r = await deleteOpeningStock(docId);
-                if (r.ok) router.push("/stores/opening-stock");
+                if (r.ok) router.push("/purchase/opening-stock");
                 return r;
               }, "Deleted")}>Delete</Button>
           )}

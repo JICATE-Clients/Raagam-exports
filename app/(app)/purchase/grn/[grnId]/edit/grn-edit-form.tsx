@@ -7,7 +7,6 @@ import { useToast } from "@/components/ui/toast";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
 import { Field, FieldError, FieldRow, FIELD_WIDTH_CSS } from "@/components/ui/field";
 import { Truncated } from "@/components/ui/truncated";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
@@ -15,7 +14,7 @@ import type { GrnBinOption, GrnStoreOption } from "@/lib/purchase/grn-service";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { fmtNumber } from "@/lib/format";
 import { pickedBins, splitBinsProblem, withTailBin } from "@/lib/purchase/bin-split";
-import { BinPicker } from "@/components/masters/bin-picker";
+import { StoreBinCell } from "@/components/purchase/store-bin-editor";
 
 type Split = { key: string; binId: string; qty: string; typed?: boolean };
 type EditLine = {
@@ -100,7 +99,10 @@ export function GrnEditForm({
         storeId: l.store_id ?? "",
         // Opens with its blank end row already under the bins it holds.
         bins: withTailBin(
-          l.bin_split.length > 0 ? l.bin_split.map((b) => newSplit(b.bin_id, String(b.qty))) : [newSplit(l.bin_id ?? "")],
+          // A saved split keeps its saved qtys (typed); a single bin holds it all.
+          l.bin_split.length > 1
+            ? l.bin_split.map((b) => ({ ...newSplit(b.bin_id, String(b.qty)), typed: true }))
+            : [newSplit(l.bin_split[0]?.bin_id ?? l.bin_id ?? "")],
           () => newSplit(),
           l.qc_status === "pending" ? l.received_qty : round3(l.received_qty - l.rejected_qty),
         ),
@@ -125,7 +127,7 @@ export function GrnEditForm({
   function touch() {
     setDirty(true);
   }
-  /** Every change re-shapes the bins to the blank-end-row rule (the first bin holds the rest). */
+  /** Every change re-shapes the bins (lib/purchase/bin-split.ts: untyped bins hold what is left). */
   function patch(id: string, p: Partial<EditLine>) {
     touch();
     setLines((xs) =>
@@ -188,8 +190,8 @@ export function GrnEditForm({
 
   const locked = !!qtyLock;
   /*
-   * Item 176 · QC 112 · Received 112 · Lot No 112 · Store 112 · Bin 176 = 800 + 40 chrome
-   * (the `#`; no ✕) = 840 <= 1155 -> tableFrom="5xl".
+   * Item 176 · QC 112 · Received 112 · Lot No 112 · Store · Bin 176 = 688 + 40 chrome
+   * (the `#`; no ✕) = 728 <= 1155 -> tableFrom="5xl".
    */
   const grnEditColumns: ChildGridColumn<EditLine>[] = [
     {
@@ -245,78 +247,33 @@ export function GrnEditForm({
       ),
     },
     {
-      header: "Store",
-      width: FIELD_WIDTH_CSS.range,
-      cell: (l) =>
-        l.qc_status === "pending" ? (
-          <span className="text-[11px] text-muted-foreground">At QC</span>
-        ) : (
-          <div data-focus-optional>
-            <Select
-              aria-label={`Store, ${l.description}`}
-              className="h-8"
-              disabled={locked}
-              value={l.storeId}
-              onChange={(e) => patch(l.id, { storeId: e.target.value })}
-            >
-              <option value="">—</option>
-              {stores.map((st) => (
-                <option key={st.id} value={st.id}>
-                  {st.name}
-                </option>
-              ))}
-            </Select>
-          </div>
-        ),
-    },
-    {
-      header: "Bin",
+      // ONE LINE, EDITED IN A POP-UP (user 2026-11-02, screenshot 161807) — the same cell
+      // as GRN entry: Bin 1 takes it all; lower it to open another (bin-split.ts).
+      header: "Store · Bin",
       width: FIELD_WIDTH_CSS.term,
       cell: (l) => {
-        if (l.qc_status === "pending") return <span className="text-[11px] text-muted-foreground">Bin chosen at QC</span>;
-        const split = pickedBins(l.bins).length > 1;
+        if (l.qc_status === "pending") return <span className="text-[11px] text-muted-foreground">Store &amp; bin chosen at QC</span>;
+        if (locked) {
+          const picked = pickedBins(l.bins);
+          const store = stores.find((st) => st.id === l.storeId)?.name ?? "—";
+          const where = picked.map((b) => allBins.find((x) => x.id === b.binId)?.code ?? "—").join(", ");
+          return <Truncated className="text-xs" text={`${store}${where ? ` · ${where}` : ""}`} />;
+        }
         return (
-          <div className="space-y-1">
-            {/* A blank end row waits under the picked bins (no "+ Split bins"). */}
-            {l.bins.map((b, i) => {
-              return (
-                <div key={b.key} className="flex items-center gap-1">
-                  {locked ? (
-                    b.binId ? <span className="min-w-0 flex-1 text-xs">{allBins.find((x) => x.id === b.binId)?.code ?? "—"}</span> : null
-                  ) : (
-                    <BinPicker
-                      label={b.binId ? `Bin ${i + 1}, ${l.description}` : `Another bin, ${l.description}`}
-                      className="min-w-0 flex-1"
-                      bins={allBins}
-                      value={b.binId}
-                      canCreate={canCreateBin}
-                      usedIds={pickedBins(l.bins).map((x) => x.binId)}
-                      onChange={(v) => patch(l.id, { bins: l.bins.map((x) => (x.key === b.key ? { ...x, binId: v } : x)) })}
-                      onCreated={(nb) => {
-                        setAddedBins((xs) => [...xs, { id: nb.id, code: nb.code, description: null }]);
-                        patch(l.id, { bins: l.bins.map((x) => (x.key === b.key ? { ...x, binId: nb.id } : x)) });
-                      }}
-                    />
-                  )}
-                  {split && b.binId ? (
-                      <Input
-                        type="number"
-                        min={0}
-                        inputMode="decimal"
-                        aria-label={`Bin ${i + 1} qty, ${l.description}`}
-                        className="h-8 w-16 shrink-0 text-right tabular-nums"
-                        disabled={locked}
-                        value={b.qty}
-                        onChange={(e) => patch(l.id, { bins: l.bins.map((x) => (x.key === b.key ? { ...x, qty: e.target.value, typed: true } : x)) })}
-                      />
-                  ) : split ? (
-                    <span className="w-16 shrink-0" aria-hidden />
-                  ) : null}
-                </div>
-              );
-            })}
-            <FieldError id={`ge-bins-${l.id}`}>{locked ? null : splitProblem(l)}</FieldError>
-          </div>
+          <StoreBinCell
+            id={`ge-bins-${l.id}`}
+            description={l.description}
+            stores={stores}
+            storeId={l.storeId}
+            onStore={(v) => patch(l.id, { storeId: v })}
+            rows={l.bins}
+            onRow={(k, p) => patch(l.id, { bins: l.bins.map((x) => (x.key === k ? { ...x, ...p } : x)) })}
+            accepted={accepted(l)}
+            uom={null}
+            bins={allBins}
+            canCreateBin={canCreateBin}
+            onBinCreated={(nb) => setAddedBins((xs) => [...xs, { id: nb.id, code: nb.code, description: null }])}
+          />
         );
       },
     },
@@ -391,7 +348,8 @@ export function GrnEditForm({
               : "Changing a quantity, lot or bin re-posts the GRN: stock, PO balance and the draft bill are recalculated."}
           </span>
         </CardHeader>
-        <CardBody>
+        {/* The same tight sheet as GRN entry (user 2026-11-02, screenshot 210433). */}
+        <CardBody data-grid-style="sheet" data-grid-cells="flat">
           {/* default-row: exempt -- the rows are the posted GRN's own lines; nothing is added here */}
           <ChildGrid<EditLine>
             columns={grnEditColumns}

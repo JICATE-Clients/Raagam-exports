@@ -43,7 +43,7 @@ import { useUnsavedGuard } from "@/lib/reload-guard";
 import { today } from "@/lib/calendar";
 import { fmtNumber } from "@/lib/format";
 import { pickedBins, splitBinsProblem, withTailBin } from "@/lib/purchase/bin-split";
-import { BinPicker } from "@/components/masters/bin-picker";
+import { StoreBinCell } from "@/components/purchase/store-bin-editor";
 import { cn } from "@/lib/utils";
 import { lineKindOf } from "@/lib/purchase/re-po/types";
 
@@ -79,10 +79,11 @@ import { lineKindOf } from "@/lib/purchase/re-po/types";
  *    Today Recd: typing Bags fills the kg; typing the kg suggests the whole bags it needs
  *    (rounded UP — the last bag may be part-filled). The bag weight opens on the PO
  *    line's own (0758), else 50 kg. Same rule as Raise PO's bags pop-up.
- *  - BIN SPLIT, BY A BLANK END ROW (user 2026-11-02 — no "+ Split bin" button): pick a bin
- *    and a blank box waits under it; pick a second and the line is split, the first bin
- *    holding the rest of the accepted qty (lib/purchase/bin-split.ts). The split must add
- *    up to the accepted qty exactly (0782's `grn_line_bins`, re-checked by `grn_post`).
+ *  - STORE · BIN IN A POP-UP (user 2026-11-02, screenshot 161807): the cell is one line
+ *    (`StoreBinCell`); the store and bins are edited in a small sheet. Bin 1 takes the
+ *    whole accepted qty and locks out a second bin; lower it and a blank row opens for the
+ *    balance (lib/purchase/bin-split.ts). The bins must add up to the accepted qty exactly
+ *    (0782's `grn_line_bins`, re-checked by `grn_post`).
  *
  * TAB IS THE CONTRACT'S, NOT THIS FILE'S. Inside the grid `tabAlongRow` walks the row's
  * fields; QC and Close bal. sit under `data-focus-optional`, so Tab runs Today Recd → Bin
@@ -630,8 +631,8 @@ export function GrnNewForm({
 
   /*
    * BESIDE THE PO RAIL (user 2026-11-02, Raise PO's layout): Item 176 · PO Qty 112 ·
-   * Today Recd 112 (its Part / Full pill under the box) · QC 112 · Store · Bin 176 (the
-   * store above the bin — one put-away cell) · Lot No 112 · Close bal. 88 = 888, + 40
+   * Today Recd 112 (its Part / Full pill under the box) · QC 112 · Store · Bin 176 (one
+   * line; the store and bins open in a pop-up) · Lot No 112 · Close bal. 88 = 888, + 40
    * chrome (the `#`; no ✕) = 928 — inside the ~1,000px the rail leaves at the operator's
    * 125% zoom. Was 1,128 across nine columns with no rail. tableFrom="5xl".
    */
@@ -782,8 +783,8 @@ export function GrnNewForm({
         ),
     },
     {
-      // ONE BIN, OR SPLIT ACROSS SEVERAL (0782): a split row is bin + qty + ✕, and the
-      // split must hold exactly the accepted qty.
+      // ONE BIN, OR SPLIT ACROSS SEVERAL (0782): the split must hold exactly the
+      // accepted qty.
       header: "Store · Bin",
       width: FIELD_WIDTH_CSS.term,
       cell: (l) => {
@@ -799,64 +800,23 @@ export function GrnNewForm({
         if (l.qcStatus === "pending") {
           return <span className="text-[11px] text-muted-foreground">Store &amp; bin chosen at QC</span>;
         }
-        const pickedCount = pickedBins(l.bins).length;
-        const split = pickedCount > 1;
-        const problem = splitProblem(l);
+        // ONE LINE, EDITED IN A POP-UP (user 2026-11-02, screenshot 161807): the store
+        // and its bin(s) — Bin 1 takes it all; lower it to open another (bin-split.ts).
         return (
-          <div className="space-y-1">
-            {/* WHERE IT IS PUT (grn.md §2A): the unit's store above its bin(s) — opens on
-                the material store, or the Yarn store for yarn. Off the Tab path. */}
-            <div data-focus-optional>
-              <Select
-                aria-label={`Store, ${l.description}`}
-                className="h-8"
-                value={l.storeId}
-                onChange={(e) => updateLine(l.key, { storeId: e.target.value })}
-              >
-                {stores.length === 0 ? <option value="">No store in this unit</option> : null}
-                {stores.map((st) => (
-                  <option key={st.id} value={st.id}>
-                    {st.name}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            {/* THE BINS — a blank end row always waits under the picked ones (no "+ Split bin"):
-                pick a bin in it and the line splits. A picked bin is cleared with its ✕. */}
-            {l.bins.map((b, i) => {
-              return (
-                <div key={b.key} className="flex items-center gap-1">
-                  <BinPicker
-                    label={b.binId ? `Bin ${i + 1}, ${l.description}` : `Another bin, ${l.description}`}
-                    className="min-w-0 flex-1"
-                    bins={allBins}
-                    value={b.binId}
-                    canCreate={canCreateBin}
-                    usedIds={pickedBins(l.bins).map((x) => x.binId)}
-                    onChange={(v) => updateSplit(l.key, b.key, { binId: v })}
-                    onCreated={(nb) => {
-                      setAddedBins((xs) => [...xs, { id: nb.id, code: nb.code, description: null }]);
-                      updateSplit(l.key, b.key, { binId: nb.id });
-                    }}
-                  />
-                  {split && b.binId ? (
-                      <Input
-                        type="number"
-                        min={0}
-                        inputMode="decimal"
-                        aria-label={`Bin ${i + 1} qty, ${l.description}`}
-                        className="h-8 w-16 shrink-0 text-right tabular-nums"
-                        value={b.qty}
-                        onChange={(e) => updateSplit(l.key, b.key, { qty: e.target.value, typed: true })}
-                      />
-                  ) : split ? (
-                    <span className="w-16 shrink-0" aria-hidden />
-                  ) : null}
-                </div>
-              );
-            })}
-            <FieldError id={`grn-bins-${l.key}-error`}>{problem}</FieldError>
-          </div>
+          <StoreBinCell
+            id={`grn-bins-${l.key}`}
+            description={l.description}
+            stores={stores}
+            storeId={l.storeId}
+            onStore={(v) => updateLine(l.key, { storeId: v })}
+            rows={l.bins}
+            onRow={(k, p) => updateSplit(l.key, k, p)}
+            accepted={accepted(l)}
+            uom={l.uomCode}
+            bins={allBins}
+            canCreateBin={canCreateBin}
+            onBinCreated={(nb) => setAddedBins((xs) => [...xs, { id: nb.id, code: nb.code, description: null }])}
+          />
         );
       },
     },
@@ -937,7 +897,11 @@ export function GrnNewForm({
   const HINT = HINT_CHIP_TONES[hintKind];
 
   const grid = (
-    <div ref={gridRef} className={DENSE}>
+    /* A TIGHT SHEET, NOT BOXES IN CELLS (user 2026-11-02, screenshot 210433: "tight table
+       layout like the costing sheet"): the app's sheet grid with flat cells — a ruled line
+       between every cell and the field filling it (globals.css data-grid-cells="flat",
+       Sample Entry ▸ Quantities). */
+    <div ref={gridRef} className={DENSE} data-grid-style="sheet" data-grid-cells="flat">
       {/* default-row: exempt -- the rows are the picked POs' own lines, derived; nothing is added here */}
       <ChildGrid<DraftLine>
         columns={grnLineColumns}
@@ -1002,6 +966,86 @@ export function GrnNewForm({
               Receives what a Replacement DC is owed · no new bill — the vendor&apos;s original invoice stands
             </span>
           ) : null}
+        </div>
+
+        {/* THE PILL ROW FIRST (user 2026-11-02, screenshot 3985: "move the filters to top and
+            details as next"), then the vendor's paper. Raise PO's pills: Group Type → Buyer → Vendor* → Item Class → Order No →
+            PO No, each counted in POs and narrowed by the others. PO No only narrows the rail;
+            the tick in the rail is what puts a PO on the GRN. */}
+        <div className={DOC_PILL_ROW}>
+          {isRepl ? (
+            <>
+              <FilterPill id="grn-vendor" label="Vendor" family="vendor" icon={StoreIcon} required wide disabled options={vendorOptions} value={vendorId} onChange={() => {}} />
+              <span className={DOC_CHIP}>Replacement DC · {repl?.code ?? "—"}</span>
+            </>
+          ) : (
+            <>
+              <FilterPill
+                label="Group Type"
+                family="order"
+                icon={LayoutGrid}
+                anyLabel="All"
+                options={KIND_OPTIONS.map((k) => ({ value: k.value, label: k.label, count: kindCounts.get(k.value) ?? 0 }))}
+                value={kind}
+                onChange={(v) => setFacet("kind", v)}
+              />
+              <FilterPill
+                label="Buyer"
+                family="order"
+                icon={User}
+                wide
+                anyLabel="All"
+                options={buyerOptions}
+                value={buyer}
+                onChange={(v) => setFacet("buyer", v)}
+              />
+              <FilterPill
+                id="grn-vendor"
+                label="Vendor"
+                family="vendor"
+                icon={StoreIcon}
+                required
+                wide
+                placeholder="Choose vendor"
+                options={vendorOptions}
+                value={vendorId}
+                emptyText="No vendor has anything pending for these picks"
+                onChange={(v) => setFacet("vendor", v)}
+              />
+              <FilterPill
+                label="Item Class"
+                family="item"
+                icon={Layers}
+                anyLabel="All"
+                options={clsOptions}
+                value={cls}
+                onChange={(v) => setFacet("cls", v)}
+              />
+              <FilterPill
+                label="Order No"
+                family="order"
+                icon={FileText}
+                wide
+                anyLabel="All"
+                options={orderOptions}
+                value={order}
+                emptyText="No order has anything pending for these picks"
+                onChange={(v) => setFacet("order", v)}
+              />
+              <FilterPill
+                label="PO No"
+                family="vendor"
+                icon={Package}
+                wide
+                anyLabel="All"
+                multiple
+                options={poOptions}
+                value={poFilter}
+                emptyText="No PO has anything pending for these picks"
+                onChange={(v) => setPoFilter(v)}
+              />
+            </>
+          )}
         </div>
 
         {/* THE VENDOR'S PAPER, ONE ROW (user 2026-11-02, screenshot 3961: "make it in single
@@ -1096,85 +1140,6 @@ export function GrnNewForm({
                 </Field>
             ) : null}
           </FieldRow>
-        </div>
-
-        {/* THE PILL ROW (Raise PO's): Group Type → Buyer → Vendor* → Item Class → Order No →
-            PO No, each counted in POs and narrowed by the others. PO No only narrows the rail;
-            the tick in the rail is what puts a PO on the GRN. */}
-        <div className={DOC_PILL_ROW}>
-          {isRepl ? (
-            <>
-              <FilterPill id="grn-vendor" label="Vendor" family="vendor" icon={StoreIcon} required wide disabled options={vendorOptions} value={vendorId} onChange={() => {}} />
-              <span className={DOC_CHIP}>Replacement DC · {repl?.code ?? "—"}</span>
-            </>
-          ) : (
-            <>
-              <FilterPill
-                label="Group Type"
-                family="order"
-                icon={LayoutGrid}
-                anyLabel="All"
-                options={KIND_OPTIONS.map((k) => ({ value: k.value, label: k.label, count: kindCounts.get(k.value) ?? 0 }))}
-                value={kind}
-                onChange={(v) => setFacet("kind", v)}
-              />
-              <FilterPill
-                label="Buyer"
-                family="order"
-                icon={User}
-                wide
-                anyLabel="All"
-                options={buyerOptions}
-                value={buyer}
-                onChange={(v) => setFacet("buyer", v)}
-              />
-              <FilterPill
-                id="grn-vendor"
-                label="Vendor"
-                family="vendor"
-                icon={StoreIcon}
-                required
-                wide
-                placeholder="Choose vendor"
-                options={vendorOptions}
-                value={vendorId}
-                emptyText="No vendor has anything pending for these picks"
-                onChange={(v) => setFacet("vendor", v)}
-              />
-              <FilterPill
-                label="Item Class"
-                family="item"
-                icon={Layers}
-                anyLabel="All"
-                options={clsOptions}
-                value={cls}
-                onChange={(v) => setFacet("cls", v)}
-              />
-              <FilterPill
-                label="Order No"
-                family="order"
-                icon={FileText}
-                wide
-                anyLabel="All"
-                options={orderOptions}
-                value={order}
-                emptyText="No order has anything pending for these picks"
-                onChange={(v) => setFacet("order", v)}
-              />
-              <FilterPill
-                label="PO No"
-                family="vendor"
-                icon={Package}
-                wide
-                anyLabel="All"
-                multiple
-                options={poOptions}
-                value={poFilter}
-                emptyText="No PO has anything pending for these picks"
-                onChange={(v) => setPoFilter(v)}
-              />
-            </>
-          )}
         </div>
 
         {/* THE LINES: the PO rail beside the grid (Raise PO's Orders rail). */}

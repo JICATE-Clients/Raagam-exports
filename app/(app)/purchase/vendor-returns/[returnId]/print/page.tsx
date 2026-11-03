@@ -9,7 +9,8 @@ import { Card, CardBody } from "@/components/ui/card";
 /**
  * THE REJECTION DC PRINT — `/purchase/vendor-returns/<id>/print` (doc/purchase/grn.md §2B,
  * grn-plan.md Phase 4): the challan the goods go back on, with the Debit Note copy.
- * A cancelled DC does not print — those goods are not going anywhere.
+ * A cancelled DC does not print — those goods are not going anywhere — and neither does a
+ * draft: the slip prints after Dispatch (user 2026-11-02, two-screen return plan).
  */
 export default async function RejectionDcPrintPage({ params }: { params: Promise<{ returnId: string }> }) {
   await requirePermission("stores", "view");
@@ -17,16 +18,21 @@ export default async function RejectionDcPrintPage({ params }: { params: Promise
   const data = await getRejectionPrint(returnId);
   if (!data) notFound();
 
-  const back = { href: `/purchase/vendor-returns/${returnId}`, label: data.code ?? "Vendor return" };
+  const back = { href: `/purchase/vendor-returns/${returnId}`, label: data.code ?? "Return DC" };
 
-  if (data.status === "cancelled") {
+  if (data.status === "cancelled" || data.status === "draft") {
+    const draft = data.status === "draft";
     return (
       <div className="mx-auto max-w-xl">
         <PoPrintToolbar backHref={back.href} backLabel={back.label} printable={false} />
         <Card>
           <CardBody>
-            <h1 className="text-base font-bold">{data.code ?? "This challan"} is cancelled</h1>
-            <p className="mt-1 text-sm text-muted-foreground">A cancelled return is not sent, so it does not print.</p>
+            <h1 className="text-base font-bold">
+              {data.code ?? "This challan"} is {draft ? "not dispatched yet" : "cancelled"}
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {draft ? "Dispatch it on Delivery Challans first — the return slip prints once it has gone out." : "A cancelled return is not sent, so it does not print."}
+            </p>
             <Link href={back.href} className="mt-3 inline-block text-sm font-semibold text-[#037bb8] hover:underline">
               Open the return
             </Link>

@@ -1,23 +1,11 @@
-import { requirePermission, can } from "@/lib/auth/server";
-import { PageHeader } from "@/components/ui/page-header";
-import { listVendorReturns, getStoreOptions, getVendors } from "@/lib/stores/extras-service";
-import { VendorReturnsClient } from "./vendor-returns-client";
+import { redirect } from "next/navigation";
 
-export default async function VendorReturnsPage() {
-  await requirePermission("stores", "view");
-  const [rows, stores, vendors, canCreate] = await Promise.all([
-    listVendorReturns(),
-    getStoreOptions(),
-    getVendors(),
-    can("stores", "create"),
-  ]);
-  return (
-    <div className="space-y-4">
-      <PageHeader
-        title="Return to Vendor"
-        description="Return rejected/excess material to a vendor and record the replacement."
-      />
-      <VendorReturnsClient rows={rows} stores={stores} vendors={vendors} canCreate={canCreate} />
-    </div>
-  );
+/**
+ * TWO SCREENS, NOT THREE (user 2026-11-02, the return plan): a GRN raises the Rejection /
+ * Replacement DC, and Purchase ▸ Delivery Challans dispatches and prints it. This list, and
+ * its hand-typed "New Return" form, are gone — the address opens the DC register on its
+ * Rejection tab, so a saved link or the sidebar row still lands on the returns.
+ */
+export default function VendorReturnsMoved() {
+  redirect("/purchase/dc?type=rejection");
 }

@@ -1,22 +1,6 @@
-import { requirePermission, can } from "@/lib/auth/server";
-import { PageHeader } from "@/components/ui/page-header";
-import { listRequisitions, getStoreOptions } from "@/lib/stores/extras-service";
-import { RequisitionsClient } from "./requisitions-client";
+import { redirect } from "next/navigation";
 
-export default async function RequisitionsPage() {
-  await requirePermission("stores", "view");
-  const [rows, stores, canCreate] = await Promise.all([
-    listRequisitions(),
-    getStoreOptions(),
-    can("stores", "create"),
-  ]);
-  return (
-    <div className="space-y-4">
-      <PageHeader
-        title="Material Requisition Slips"
-        description="Department requests for material from a store; approve then issue (posts to the ledger)."
-      />
-      <RequisitionsClient rows={rows} stores={stores} canCreate={canCreate} />
-    </div>
-  );
+/** Moved to Purchase ▸ Purchase Store / General Items (user 2026-11-02, purchase child alignment). The old Stores address answers. */
+export default function Page() {
+  redirect("/purchase/requisitions");
 }

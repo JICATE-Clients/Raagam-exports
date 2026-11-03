@@ -184,6 +184,12 @@ export interface AlertItem {
   key: string;
   title: string;
   body: string;
+  /** THE NUMBER THE TILE LEADS WITH (user 2026-11-02, Needs you tiles) — was only inside `title`. */
+  count?: number;
+  /** True when `count` is a capped query ("200+"). */
+  countPlus?: boolean;
+  /** Two or three words under the number — "Deliveries late". */
+  label?: string;
   href: string | null;
   tone: DashboardTone;
   icon: string;

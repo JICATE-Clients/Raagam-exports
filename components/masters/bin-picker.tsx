@@ -43,6 +43,7 @@ export function BinPicker({
   compact = true,
   className,
   usedIds,
+  invalid = false,
 }: {
   label: string;
   bins: BinRow[];
@@ -55,6 +56,8 @@ export function BinPicker({
   /** PICK ONCE: the bins already on this line (this row's own included) — a bin is not
    *  offered twice in one split (user 2026-11-02, screenshot 3973). */
   usedIds?: string[];
+  /** Red border + aria-invalid — holds Enter on the box (DataPicker's `invalid`). */
+  invalid?: boolean;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -131,6 +134,7 @@ export function BinPicker({
         value={value || null}
         onChange={(v) => onChange(v ?? "")}
         clearable
+        invalid={invalid}
         compact={compact}
         manage={manage}
         onAddOverride={canCreate ? openAdd : undefined}

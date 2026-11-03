@@ -1,18 +1,20 @@
 import type { ReactNode } from "react";
 import { getBoard, type Board } from "@/lib/dashboard/board";
 import { monthLabel, today } from "@/lib/dashboard/range";
-import type { DashboardCaps } from "@/lib/dashboard/types";
+import type { DashboardCaps, DashboardTone } from "@/lib/dashboard/types";
+import { fmtDate } from "@/lib/format";
 import { fmtCompactInr, fmtCompactNumber } from "@/lib/dashboard/format";
 import {
   BuyingBars,
   DueByMonth,
+  InsightInline,
   InsightStrip,
   LateAgeing,
-  RingTile,
-  RingTileError,
+  BookSummary,
   fmtMoneyShort,
   type Insight,
 } from "@/components/dashboard/board";
+import { BlockGrid, KpiCard, KpiCardError, MiniColumns, SplitBar } from "@/components/dashboard/kpi";
 import { cn } from "@/lib/utils";
 
 const LATE_HREF = "/orders/progress";
@@ -22,71 +24,112 @@ const AR_HREF = "/finance/receivables";
 
 const pct = (part: number, whole: number) => (whole > 0 ? (part / whole) * 100 : 0);
 
-/** Wide-screen columns by tile count, so a short row fills the width (same rule as the old headline). */
-const RING_COLS: Record<number, string> = {
-  1: "xl:grid-cols-1", 2: "xl:grid-cols-2", 3: "xl:grid-cols-3",
-  4: "xl:grid-cols-4", 5: "xl:grid-cols-5", 6: "xl:grid-cols-6",
-};
+const AGE_TONE: DashboardTone[] = ["warning", "warning", "danger", "danger"];
 
 /**
- * The ring row — six real shares, each left out when the viewer may not see
- * its module (`null`), and said rather than zeroed when its read failed.
+ * THE KPI ROW (approved plan v2, 2026-11-02) — five cards, each a figure with the small
+ * chart that explains it. Purchase orders left the row: its counts are now the subtitle of
+ * "What are we buying?", where they have context. A card the viewer may not see is left
+ * out (`null`); a failed read is said, never zeroed.
  */
-export async function BoardRings({ caps }: { caps: DashboardCaps }) {
+export async function BoardKpis({ caps }: { caps: DashboardCaps }) {
   const b = await getBoard(caps);
   const tiles: ReactNode[] = [];
   const o = b.orders;
 
-  if (o === "error") tiles.push(<RingTileError key="orders" label="Orders" />);
+  if (o === "error") tiles.push(<KpiCardError key="orders" label="Orders" />);
   else if (o) {
+    const by = new Date(Date.parse(today()) + 30 * 86_400_000).toISOString().slice(0, 10);
     tiles.push(
-      <RingTile key="late" label="Late orders" value={fmtCompactNumber(o.late)} sub={`of ${o.dated} open`}
-        pct={pct(o.late, o.dated)} tone={o.late > 0 ? "danger" : "success"} href={LATE_HREF} />,
-      <RingTile key="book" label="Order book" value={o.value != null ? fmtMoneyShort(o.value, o.currency) : fmtCompactNumber(o.open)}
-        sub={`${fmtCompactNumber(o.qty)} pcs · in production`} pct={pct(o.inProduction, o.open)} tone="primary" href={ORDERS_HREF} />,
-      <RingTile key="due" label="Due in 30 days" value={fmtCompactNumber(o.due30)} sub="orders"
-        pct={pct(o.due30, o.dated)} center={String(o.due30)} tone="warning" href={LATE_HREF} />,
+      <KpiCard key="book" label="Order book" href={ORDERS_HREF}
+        pill={`${o.open} open`}
+        value={o.value != null ? fmtMoneyShort(o.value, o.currency) : `${fmtCompactNumber(o.open)} orders`}
+        sub={`${fmtCompactNumber(o.qty)} pcs · ${Math.round(pct(o.inProduction, o.open))}% in production`}>
+        <SplitBar title="In production · not started"
+          parts={[{ value: o.inProduction, tone: "primary" }, { value: o.open - o.inProduction, tone: "info" }]} />
+      </KpiCard>,
+      <KpiCard key="late" label="Late orders" href={LATE_HREF}
+        pill={`${Math.round(pct(o.late, o.dated))}%`} pillTone={o.late > 0 ? "danger" : "success"}
+        value={fmtCompactNumber(o.late)} valueTone={o.late > 0 ? "danger" : undefined}
+        sub={`of ${o.dated} dated, past delivery`}>
+        <MiniColumns bars={o.ageing.map((a, i) => ({ value: a.orders, tone: AGE_TONE[i], label: `${a.label} days` }))} />
+      </KpiCard>,
+      <KpiCard key="due" label="Due in 30 days" href={LATE_HREF}
+        pill={`${Math.round(pct(o.due30, o.dated))}%`} pillTone="warning"
+        value={fmtCompactNumber(o.due30)} sub={`orders to ship by ${fmtDate(by)}`}>
+        <SplitBar title="Due in 30 days · later" parts={[{ value: o.due30, tone: "warning" }, { value: o.dated - o.due30, tone: "track" }]} />
+      </KpiCard>,
     );
   }
 
   const m = b.milestones;
-  if (m === "error") tiles.push(<RingTileError key="ms" label="Milestones" />);
+  if (m === "error") tiles.push(<KpiCardError key="ms" label="Milestones" />);
   else if (m && m.total > 0)
-    tiles.push(<RingTile key="ms" label="Milestones" value={`${m.done}/${m.total}`} sub="done" pct={pct(m.done, m.total)} tone="success" href={LATE_HREF} />);
-
-  const p = b.purchase;
-  if (p === "error") tiles.push(<RingTileError key="po" label="Purchase orders" />);
-  else if (p && p.total > 0)
     tiles.push(
-      <RingTile key="po" label="Purchase orders" value={String(p.total)} sub={`${p.approved} approved · ${p.pending} pending`}
-        pct={pct(p.approved, p.total)} tone="info" href={PO_HREF} />,
+      <KpiCard key="ms" label="Milestones" href={LATE_HREF}
+        pill={`${Math.round(pct(m.done, m.total))}%`} pillTone="success"
+        value={`${m.done} / ${m.total}`} sub="T&A steps done">
+        <BlockGrid done={m.done} total={m.total} tone="success" />
+      </KpiCard>,
     );
 
   const r = b.receivables;
-  if (r === "error") tiles.push(<RingTileError key="ar" label="Receivables" />);
+  if (r === "error") tiles.push(<KpiCardError key="ar" label="Receivables" />);
   else if (r && r.open > 0)
-    tiles.push(<RingTile key="ar" label="Receivables" value={fmtCompactInr(r.open)} sub="collected" pct={pct(r.collected, r.open)} tone="success" href={AR_HREF} />);
+    tiles.push(
+      <KpiCard key="ar" label="Receivables" href={AR_HREF}
+        pill={`${Math.round(pct(r.collected, r.open))}% in`} pillTone="accent"
+        value={fmtCompactInr(r.open)} sub={`${fmtCompactInr(r.collected)} collected`}>
+        <SplitBar title="Collected · open" parts={[{ value: r.collected, tone: "accent" }, { value: r.open - r.collected, tone: "track" }]} />
+      </KpiCard>,
+    );
 
   if (tiles.length === 0) return null;
-  return <div className={cn("grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3", RING_COLS[tiles.length])}>{tiles}</div>;
+  return <div className={cn("grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3", KPI_COLS[tiles.length])}>{tiles}</div>;
 }
 
-/** The order charts and the buying bars, in one row. */
-export async function BoardCharts({ caps }: { caps: DashboardCaps }) {
-  const b = await getBoard(caps);
-  const o = b.orders !== "error" ? b.orders : null;
-  const p = b.purchase !== "error" ? b.purchase : null;
-  const thisMonth = today().slice(0, 7);
-  const cards = [
-    o && <DueByMonth key="due" months={o.byMonth} currency={o.currency} thisMonth={thisMonth} />,
-    o && <LateAgeing key="late" buckets={o.ageing} currency={o.currency} href={LATE_HREF} />,
-    p && p.byClass.length > 0 && <BuyingBars key="buy" rows={p.byClass} href={PO_HREF} />,
-  ].filter(Boolean);
-  if (cards.length === 0) return null;
+/** Wide-screen columns by card count, so a short row still fills the width. */
+const KPI_COLS: Record<number, string> = {
+  1: "xl:grid-cols-1", 2: "xl:grid-cols-2", 3: "xl:grid-cols-3", 4: "xl:grid-cols-4", 5: "xl:grid-cols-5",
+};
+
+/** "When is work due?" with the book's split beside it — the page's main chart. */
+export async function BoardDue({ caps }: { caps: DashboardCaps }) {
+  const o = (await getBoard(caps)).orders;
+  if (!o || o === "error") return null;
+  const late = o.ageing.reduce((n, a) => n + a.value, 0);
+  const lateOrders = o.ageing.reduce((n, a) => n + a.orders, 0);
   return (
-    <div className={cn("grid grid-cols-1 gap-4", cards.length === 3 ? "lg:grid-cols-[1.3fr_1fr_1fr]" : cards.length === 2 ? "lg:grid-cols-2" : "")}>
-      {cards}
-    </div>
+    <DueByMonth
+      months={o.byMonth}
+      currency={o.currency}
+      thisMonth={today().slice(0, 7)}
+      summary={
+        <BookSummary
+          total={o.value != null ? fmtMoneyShort(o.value, o.currency) : `${o.open} orders`}
+          note={`${o.open} open orders · ${fmtCompactNumber(o.qty)} pcs`}
+          rows={[
+            { label: "In production", value: `${o.inProduction} orders`, n: o.inProduction, tone: "primary" },
+            { label: "Not started", value: `${o.open - o.inProduction} orders`, n: o.open - o.inProduction, tone: "info" },
+            { label: "Late", value: o.currency ? fmtMoneyShort(late, o.currency) : `${lateOrders} orders`, n: lateOrders, tone: "danger" },
+          ]}
+        />
+      }
+    />
+  );
+}
+
+export async function BoardAgeing({ caps }: { caps: DashboardCaps }) {
+  const o = (await getBoard(caps)).orders;
+  if (!o || o === "error") return null;
+  return <LateAgeing buckets={o.ageing} currency={o.currency} href={LATE_HREF} />;
+}
+
+export async function BoardBuying({ caps }: { caps: DashboardCaps }) {
+  const p = (await getBoard(caps)).purchase;
+  if (!p || p === "error" || p.byClass.length === 0) return null;
+  return (
+    <BuyingBars rows={p.byClass} href={PO_HREF} subtitle={`${p.total} POs · ${p.approved} approved · ${p.pending} pending`} />
   );
 }
 
@@ -122,4 +165,9 @@ function insights(b: Board): Insight[] {
 
 export async function BoardStrip({ caps }: { caps: DashboardCaps }) {
   return <InsightStrip items={insights(await getBoard(caps))} />;
+}
+
+/** The facts as one line in the period bar (2026-11-02) — what the page renders now. */
+export async function BoardStripInline({ caps }: { caps: DashboardCaps }) {
+  return <InsightInline items={insights(await getBoard(caps))} />;
 }

@@ -1,11 +1,11 @@
 import Link from "next/link";
-import { getActivity, getAlerts, getApprovals } from "@/lib/dashboard/service";
+import { getActivity, getAlerts } from "@/lib/dashboard/service";
 import type { DashboardCaps } from "@/lib/dashboard/types";
 import { ActivityGroups, PanelCard } from "@/components/dashboard/lists";
 import { NeedsYouCard } from "@/components/dashboard/needs-you";
 
 /**
- * Recent activity, and the "Needs you" card (approvals + alerts).
+ * Recent activity, and the "Needs you" card (alerts).
  *
  * 2026-10-29: Alerts joined Pending approvals in one tabbed card at the top of
  * the right column, and activity moved beside the Top lists, so no panel sits
@@ -26,6 +26,9 @@ export async function ActivitySection({ caps }: { caps: DashboardCaps }) {
   return (
     <PanelCard
       title="Recent activity"
+      subtitle="Across the modules you can open"
+      icon="activity"
+      tone="muted"
       aside={
         caps.systemAdmin ? (
           <Link href="/admin/audit" className="text-xs text-primary hover:underline">
@@ -40,18 +43,11 @@ export async function ActivitySection({ caps }: { caps: DashboardCaps }) {
 }
 
 /**
- * Pending approvals and Alerts as one "Needs you" card (2026-10-29). Loaded
- * together, so the card decides its opening tab from both counts at once.
+ * The "Needs you" card: the alerts as count tiles (2026-11-02). Approvals left the card
+ * the same day ("remove it"), so they are no longer loaded here — the queue is My
+ * Approvals.
  */
 export async function NeedsYouSection({ caps }: { caps: DashboardCaps }) {
-  const [approvals, alerts] = await Promise.all([getApprovals(caps), getAlerts(caps)]);
-  const canApprovals = caps.materials || caps.orders || caps.stores || caps.finance;
-  return (
-    <NeedsYouCard
-      approvals={approvals.rows}
-      approvalsTotal={approvals.total}
-      canApprovals={canApprovals}
-      alerts={alerts}
-    />
-  );
+  const alerts = await getAlerts(caps);
+  return <NeedsYouCard alerts={alerts} />;
 }

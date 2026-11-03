@@ -158,18 +158,27 @@ export const HUB_COUNT_TABLES: Record<string, string | null> = {
   "/purchase/indents/approval": null,
 
   // ---------------------------------------------------------------- stores
-  "/stores/opening-stock": "opening_stocks",
-  "/stores/requisitions": "material_requisitions",
-  "/stores/interdept": "interdept_deliveries",
+  "/purchase/opening-stock": "opening_stocks",
+  "/purchase/requisitions": "material_requisitions",
+  "/purchase/department-returns": "department_returns",
+  // A work queue over `material_requisitions` (the approved slips waiting to be
+  // handed over), which the Requisition card beside it already counts.
+  "/purchase/general-items-delivery": null,
+  "/purchase/interdept": "interdept_deliveries",
+  // A General DC is a `delivery_challans` row (dc_kind 'general', 0796), which the
+  // Delivery Challan card already counts; a whole-table count here would print every
+  // kind's total on the General card — a confident wrong number.
+  "/purchase/general-delivery": null,
+  "/purchase/delivery-returns": "dc_returns",
   "/stores/process-orders": "process_orders",
-  "/stores/csp-receipts": "csp_receipts",
+  "/purchase/csp-receipts": "csp_receipts",
   "/purchase/vendor-returns": "vendor_returns",
   // Adjustments and Transfers write `stock_ledger` entries rather than a
   // document of their own, so the only available count is "every stock
   // movement ever recorded, of any kind" — a large number that is not the
   // number on the card, over the biggest table in the schema.
-  "/stores/adjustments": null,
-  "/stores/transfers": null,
+  "/purchase/adjustments": null,
+  "/purchase/transfers": null,
 
   // ------------------------------------------------------------ production
   "/production/job-orders": "production_job_orders",

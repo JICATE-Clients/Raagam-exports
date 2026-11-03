@@ -17,7 +17,7 @@ import { ToggleGroup } from "@/components/ui/segmented";
  * Cancel / Dispatch go back to the register on the same type tab. The name is kept so the
  * page's call sites read as before.
  */
-export type NewType = "process" | "production" | "rejection" | "replacement";
+export type NewType = "process" | "production" | "general" | "rejection" | "replacement";
 
 export function DcDrawer({
   title,
@@ -51,6 +51,7 @@ export function DcDrawer({
               options={[
                 { value: "process", label: "Process DC" },
                 { value: "production", label: "Production DC" },
+                { value: "general", label: "General DC" },
                 { value: "rejection", label: "Rejection DC" },
                 { value: "replacement", label: "Replacement DC" },
               ]}

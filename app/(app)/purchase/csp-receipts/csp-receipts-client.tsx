@@ -14,22 +14,23 @@ import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { fmtDate } from "@/lib/format";
-import { createOpeningStock } from "@/lib/stores/extras-actions";
-import { OPENING_STOCK_STATUS_LABELS, type OpeningStockStatus } from "@/lib/stores/extras-types";
-import type { OpeningStockWithRefs, StoreOption } from "@/lib/stores/extras-service";
+import { createCspReceipt } from "@/lib/stores/extras-actions";
+import { CSP_STATUS_LABELS, type CspStatus } from "@/lib/stores/extras-types";
+import type { CspReceiptWithRefs, StoreOption, BuyerOption } from "@/lib/stores/extras-service";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 
-function tone(s: OpeningStockStatus): StatusTone {
+function tone(s: CspStatus): StatusTone {
   return s === "draft" ? "neutral" : s === "posted" ? "success" : "danger";
 }
 
 interface Props {
-  rows: OpeningStockWithRefs[];
+  rows: CspReceiptWithRefs[];
   stores: StoreOption[];
+  buyers: BuyerOption[];
   canCreate: boolean;
 }
 
-export function OpeningStockClient({ rows, stores, canCreate }: Props) {
+export function CspReceiptsClient({ rows, stores, buyers, canCreate }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -37,7 +38,9 @@ export function OpeningStockClient({ rows, stores, canCreate }: Props) {
   useCreateIntent(() => setOpen(true));
 
   const [storeId, setStoreId] = useState("");
-  const [openingDate, setOpeningDate] = useState("");
+  const [buyerId, setBuyerId] = useState("");
+  const [receiptDate, setReceiptDate] = useState("");
+  const [reference, setReference] = useState("");
   const [notes, setNotes] = useState("");
 
   function handleCreate(e: React.FormEvent) {
@@ -47,30 +50,33 @@ export function OpeningStockClient({ rows, stores, canCreate }: Props) {
       return;
     }
     startTransition(async () => {
-      const r = await createOpeningStock({
+      const r = await createCspReceipt({
         store_id: storeId,
-        opening_date: openingDate || null,
+        buyer_id: buyerId || null,
+        receipt_date: receiptDate || null,
+        reference: reference || null,
         notes: notes || null,
       });
       if (r.ok) {
-        success("Opening stock created");
-        router.push(`/stores/opening-stock/${r.id}`);
+        success("CSP receipt created");
+        router.push(`/purchase/csp-receipts/${r.id}`);
       } else toastError(r.error);
     });
   }
 
-  const columns: Column<OpeningStockWithRefs>[] = [
+  const columns: Column<CspReceiptWithRefs>[] = [
     {
-      header: "Doc #",
+      header: "Receipt #",
       cell: (r) => (
-        <Link href={`/stores/opening-stock/${r.id}`} className="font-mono text-xs font-medium text-primary hover:underline">
+        <Link href={`/purchase/csp-receipts/${r.id}`} className="font-mono text-xs font-medium text-primary hover:underline">
           {r.code ?? "—"}
         </Link>
       ),
     },
     { header: "Store", cell: (r) => <span className="text-sm">{r.store_code ?? "—"}</span> },
-    { header: "Opening date", cell: (r) => <span className="tabular-nums text-sm">{fmtDate(r.opening_date)}</span> },
-    { header: "Status", cell: (r) => <StatusPill tone={tone(r.status)}>{OPENING_STOCK_STATUS_LABELS[r.status]}</StatusPill> },
+    { header: "Customer", cell: (r) => <span className="text-sm">{r.buyer_name ?? "—"}</span> },
+    { header: "Date", cell: (r) => <span className="tabular-nums text-sm">{fmtDate(r.receipt_date)}</span> },
+    { header: "Status", cell: (r) => <StatusPill tone={tone(r.status)}>{CSP_STATUS_LABELS[r.status]}</StatusPill> },
   ];
 
   return (
@@ -79,26 +85,37 @@ export function OpeningStockClient({ rows, stores, canCreate }: Props) {
         (open ? (
           <Card>
             <CardHeader>
-              <CardTitle>New opening stock</CardTitle>
+              <CardTitle>New CSP receipt</CardTitle>
               <Button variant="outline" size="sm" onClick={() => setOpen(false)}>Cancel</Button>
             </CardHeader>
             <CardBody>
               <form onSubmit={handleCreate} className="space-y-4">
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   <div>
-                    <Label htmlFor="os-store">Store</Label>
-                    <Select id="os-store" value={storeId} onChange={(e) => setStoreId(e.target.value)}>
+                    <Label htmlFor="cs-store">Store</Label>
+                    <Select id="cs-store" value={storeId} onChange={(e) => setStoreId(e.target.value)}>
                       <option value=""></option>
                       {stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </Select>
                   </div>
                   <div>
-                    <Label htmlFor="os-date">Opening date</Label>
-                    <Input id="os-date" type="date" value={openingDate} onChange={(e) => setOpeningDate(e.target.value)} />
+                    <Label htmlFor="cs-buyer">Customer</Label>
+                    <Select id="cs-buyer" value={buyerId} onChange={(e) => setBuyerId(e.target.value)}>
+                      <option value=""></option>
+                      {buyers.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                    </Select>
                   </div>
-                  <div className="sm:col-span-2 lg:col-span-1">
-                    <Label htmlFor="os-notes">Notes</Label>
-                    <Textarea id="os-notes" rows={1} value={notes} onChange={(e) => setNotes(e.target.value)} />
+                  <div>
+                    <Label htmlFor="cs-date">Receipt date</Label>
+                    <Input id="cs-date" type="date" value={receiptDate} onChange={(e) => setReceiptDate(e.target.value)} />
+                  </div>
+                  <div>
+                    <Label htmlFor="cs-ref">Reference</Label>
+                    <Input id="cs-ref" value={reference} onChange={(e) => setReference(e.target.value)} />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <Label htmlFor="cs-notes">Notes</Label>
+                    <Textarea id="cs-notes" rows={1} value={notes} onChange={(e) => setNotes(e.target.value)} />
                   </div>
                 </div>
                 <div className="flex justify-end gap-2 pt-1">
@@ -109,9 +126,9 @@ export function OpeningStockClient({ rows, stores, canCreate }: Props) {
             </CardBody>
           </Card>
         ) : (
-          <div className="flex justify-end"><Button onClick={() => setOpen(true)}>New opening stock</Button></div>
+          <div className="flex justify-end"><Button onClick={() => setOpen(true)}>New CSP receipt</Button></div>
         ))}
-      <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No opening-stock documents yet." />
+      <DataTable columns={withCreatedColumns(columns, rows)} rows={rows} getKey={(r) => r.id} empty="No CSP receipts yet." />
     </div>
   );
 }
