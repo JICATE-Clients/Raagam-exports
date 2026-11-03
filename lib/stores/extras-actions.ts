@@ -5,8 +5,6 @@ import { createClient } from "@/lib/supabase/server";
 import { can, getAppUser } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
 import {
-  openingStockInput,
-  openingStockLineInput,
   mrsInput,
   mrsLineInput,
   vendorReturnInput,
@@ -15,8 +13,6 @@ import {
   cspLineInput,
 } from "./extras-types";
 import type {
-  OpeningStockInput,
-  OpeningStockLineInput,
   MrsInput,
   MrsLineInput,
   VendorReturnInput,
@@ -74,99 +70,6 @@ async function postLedger(rows: LedgerRow[]): Promise<Err | null> {
     .insert(payload.map((r) => ({ ...r, created_by: userId })));
   if (error) return bad(friendlyStock(error.message));
   return null;
-}
-
-// ============================================================================
-// Opening Stock
-// ============================================================================
-function revalidateOpening(id?: string): void {
-  if (id) revalidatePath(`/purchase/opening-stock/${id}`);
-  revalidatePath("/purchase/opening-stock");
-  revalidatePath("/stores");
-}
-
-export async function createOpeningStock(
-  payload: OpeningStockInput,
-): Promise<{ ok: true; id: string } | Err> {
-  await guard("create");
-  const p = openingStockInput.safeParse(payload);
-  if (!p.success) return bad(p.error.issues[0]?.message ?? "Invalid input");
-  const s = await createClient();
-  const { data, error } = await s
-    .from("opening_stocks")
-    .insert({ ...p.data, status: "draft", created_by: await uid() })
-    .select("id")
-    .single();
-  if (error || !data) return bad(error?.message ?? "Failed to create");
-  revalidateOpening(data.id);
-  return { ok: true, id: data.id };
-}
-
-export async function addOpeningLine(docId: string, payload: OpeningStockLineInput): Promise<R> {
-  await guard("edit");
-  const p = openingStockLineInput.safeParse(payload);
-  if (!p.success) return bad(p.error.issues[0]?.message ?? "Invalid input");
-  const s = await createClient();
-  const { error } = await s.from("opening_stock_lines").insert({ ...p.data, opening_stock_id: docId });
-  if (error) return bad(error.message);
-  revalidateOpening(docId);
-  return { ok: true };
-}
-
-export async function deleteOpeningLine(id: string, docId: string): Promise<R> {
-  await guard("edit");
-  const s = await createClient();
-  const { error } = await s.from("opening_stock_lines").delete().eq("id", id);
-  if (error) return bad(error.message);
-  revalidateOpening(docId);
-  return { ok: true };
-}
-
-export async function postOpeningStock(docId: string): Promise<R> {
-  await guard("edit");
-  const s = await createClient();
-  const { data: doc } = await s.from("opening_stocks").select("status, store_id, opening_date").eq("id", docId).maybeSingle();
-  if (!doc || doc.status !== "draft") return bad("Only a draft opening stock can be posted");
-  const { data: lines } = await s.from("opening_stock_lines").select("item_id, quantity").eq("opening_stock_id", docId);
-  const rows = ((lines ?? []) as { item_id: string; quantity: number }[]).map((l) => ({
-    store_id: doc.store_id as string,
-    item_id: l.item_id,
-    movement_type: "adjust_in" as const,
-    quantity: l.quantity ?? 0,
-    reference_type: "opening_stock",
-    reference_id: docId,
-    txn_date: (doc.opening_date as string | null) ?? null,
-  }));
-  const err = await postLedger(rows);
-  if (err) return err;
-  const { error } = await s.from("opening_stocks").update({ status: "posted" }).eq("id", docId);
-  if (error) return bad(error.message);
-  await writeAudit({ action: "opening_stock.posted", entityType: "opening_stock", entityId: docId });
-  revalidateOpening(docId);
-  return { ok: true };
-}
-
-export async function cancelOpeningStock(docId: string): Promise<R> {
-  await guard("edit");
-  const s = await createClient();
-  const { data: doc } = await s.from("opening_stocks").select("status").eq("id", docId).maybeSingle();
-  if (!doc || doc.status !== "draft") return bad("Only a draft opening stock can be cancelled");
-  const { error } = await s.from("opening_stocks").update({ status: "cancelled" }).eq("id", docId);
-  if (error) return bad(error.message);
-  revalidateOpening(docId);
-  return { ok: true };
-}
-
-export async function deleteOpeningStock(docId: string): Promise<R> {
-  await guard("delete");
-  const s = await createClient();
-  const { data: doc } = await s.from("opening_stocks").select("status").eq("id", docId).maybeSingle();
-  if (!doc || !["draft", "cancelled"].includes(doc.status))
-    return bad("Only draft or cancelled documents can be deleted");
-  const { error } = await s.from("opening_stocks").delete().eq("id", docId);
-  if (error) return bad(error.message);
-  revalidateOpening();
-  return { ok: true };
 }
 
 // ============================================================================

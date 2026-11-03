@@ -1,8 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import type {
-  OpeningStock,
-  OpeningStockLine,
   MaterialRequisition,
   MaterialRequisitionLine,
   VendorReturn,
@@ -49,39 +47,6 @@ export async function getBuyers(): Promise<BuyerOption[]> {
   const s = await createClient();
   const { data } = await s.from("buyers").select("id, name, is_active").order("name");
   return (data ?? []) as BuyerOption[];
-}
-
-// ============================================================================
-// Opening Stock
-// ============================================================================
-export interface OpeningStockWithRefs extends OpeningStock {
-  store_code: string | null;
-}
-export async function listOpeningStocks(): Promise<OpeningStockWithRefs[]> {
-  const s = await createClient();
-  const { data } = await s
-    .from("opening_stocks")
-    .select("*, stores(code)")
-    // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22: "in every module the listing … I need like 1,2,3 order wise"). Newest-first was the default before; queues, pickers, logs and "latest" lookups keep their own order.
-    .order("created_at", { ascending: true });
-  return withCreators(((data ?? []) as Record<string, unknown>[]).map((r) => ({
-    ...(r as unknown as OpeningStock),
-    store_code: joined(r, "stores", "code"),
-  })));
-}
-export async function getOpeningStock(id: string): Promise<OpeningStock | null> {
-  const s = await createClient();
-  const { data } = await s.from("opening_stocks").select("*").eq("id", id).maybeSingle();
-  return (data ?? null) as OpeningStock | null;
-}
-export async function getOpeningStockLines(docId: string): Promise<OpeningStockLine[]> {
-  const s = await createClient();
-  const { data } = await s
-    .from("opening_stock_lines")
-    .select("*")
-    .eq("opening_stock_id", docId)
-    .order("sort_order");
-  return (data ?? []) as OpeningStockLine[];
 }
 
 // ============================================================================

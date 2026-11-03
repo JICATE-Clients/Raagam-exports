@@ -1,49 +1,6 @@
 import { z } from "zod";
 
 // ============================================================================
-// Opening Stock (0200)
-// ============================================================================
-export const OPENING_STOCK_STATUSES = ["draft", "posted", "cancelled"] as const;
-export type OpeningStockStatus = (typeof OPENING_STOCK_STATUSES)[number];
-export const OPENING_STOCK_STATUS_LABELS: Record<OpeningStockStatus, string> = {
-  draft: "Draft",
-  posted: "Posted",
-  cancelled: "Cancelled",
-};
-export interface OpeningStock {
-  id: string;
-  code: string | null;
-  store_id: string;
-  opening_date: string | null;
-  status: OpeningStockStatus;
-  notes: string | null;
-  created_by: string | null;
-  created_at: string;
-  updated_at: string;
-}
-export interface OpeningStockLine {
-  id: string;
-  opening_stock_id: string;
-  item_id: string;
-  quantity: number;
-  note: string | null;
-  sort_order: number;
-}
-export const openingStockInput = z.object({
-  store_id: z.string().uuid(),
-  opening_date: z.string().optional().nullable(),
-  notes: z.string().optional().nullable(),
-});
-export type OpeningStockInput = z.infer<typeof openingStockInput>;
-export const openingStockLineInput = z.object({
-  item_id: z.string().uuid(),
-  quantity: z.coerce.number().nonnegative().default(0),
-  note: z.string().optional().nullable(),
-  sort_order: z.coerce.number().int().optional(),
-});
-export type OpeningStockLineInput = z.input<typeof openingStockLineInput>;
-
-// ============================================================================
 // Material Requisition Slip (0201)
 // ============================================================================
 export const MRS_STATUSES = ["draft", "submitted", "approved", "issued", "rejected", "cancelled"] as const;

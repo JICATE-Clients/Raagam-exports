@@ -5,6 +5,7 @@ import { poLineOpenBalance } from "./types";
 import type { Item, Uom } from "@/lib/masters/types";
 import { withCreators } from "@/lib/created-by";
 import { getCurrentLocation } from "@/lib/auth/location";
+import { isInactive } from "@/lib/masters/inactive";
 
 // ---------- enriched types ----------
 
@@ -237,7 +238,10 @@ export async function getOpenPoLines(vendorId?: string): Promise<OpenPoLine[]> {
 /** Where a received line can be put: the working unit's stores and bins (grn.md §2A). */
 export type GrnStoreOption = { id: string; code: string; name: string; store_type: string };
 /** `inactive`: a switched-off bin — hidden by the picker unless a record already holds it. */
-export type GrnBinOption = { id: string; code: string; description: string | null; inactive?: boolean };
+/** `store_id` (0800): the Bin list follows the chosen Store. */
+export type GrnBinOption = { id: string; code: string; description: string | null; inactive?: boolean; store_id: string | null };
+/** A vendor Master Data marks Is Processor — Received Store ▸ Vendor lists these (user 2026-11-03). */
+export type GrnProcessorOption = { id: string; name: string };
 /** An open Process Order a supplier may deliver straight to (Place of Delivery = direct, 0792). */
 export type GrnProcessOrderOption = {
   id: string;
@@ -263,11 +267,12 @@ export async function getGrnStoresAndBins(): Promise<{
   bins: GrnBinOption[];
   defaultStoreId: string | null;
   processOrders: GrnProcessOrderOption[];
+  processors: GrnProcessorOption[];
 }> {
   const supabase = await createClient();
   const { location } = await getCurrentLocation();
-  if (!location) return { stores: [], bins: [], defaultStoreId: null, processOrders: [] };
-  const [storesRes, binsRes, poRes] = await Promise.all([
+  if (!location) return { stores: [], bins: [], defaultStoreId: null, processOrders: [], processors: [] };
+  const [storesRes, binsRes, poRes, procRes] = await Promise.all([
     supabase
       .from("stores")
       .select("id, code, name, store_type")
@@ -277,7 +282,7 @@ export async function getGrnStoresAndBins(): Promise<{
       .order("code"),
     supabase
       .from("bins")
-      .select("id, bin_code, description, location_id, inactive")
+      .select("id, bin_code, description, location_id, inactive, store_id")
       .or(`location_id.eq.${location.id},location_id.is.null`)
       .order("bin_code"),
     // DIRECT TO PROCESSOR (0792): the unit's open Process Orders and their input items.
@@ -287,8 +292,15 @@ export async function getGrnStoresAndBins(): Promise<{
       .in("status", ["issued", "in_process", "partially_received"])
       .or(`location_id.eq.${location.id},location_id.is.null`)
       .order("created_at"),
+    // RECEIVED STORE ▸ VENDOR (user 2026-11-03): the vendors Master Data marks Is Processor —
+    // a delivery place outside our stores. Switched-off vendors are not offered.
+    supabase.from("master_vendors").select("id, name, inactive").eq("is_processor", true).order("name"),
   ]);
   if (poRes.error) throw new Error(`Process orders: ${poRes.error.message}`);
+  if (procRes.error) throw new Error(`Processors: ${procRes.error.message}`);
+  const processors = ((procRes.data ?? []) as { id: string; name: string | null; inactive: boolean | null }[])
+    .filter((v) => !isInactive(v))
+    .map((v) => ({ id: v.id, name: v.name ?? "—" }));
   const processOrders = (
     (poRes.data ?? []) as unknown as {
       id: string;
@@ -309,13 +321,13 @@ export async function getGrnStoresAndBins(): Promise<{
   if (storesRes.error) throw new Error(`Stores: ${storesRes.error.message}`);
   if (binsRes.error) throw new Error(`Bins: ${binsRes.error.message}`);
   const stores = (storesRes.data ?? []) as GrnStoreOption[];
-  const bins = ((binsRes.data ?? []) as { id: string; bin_code: string; description: string | null; inactive: boolean | null }[])
+  const bins = ((binsRes.data ?? []) as { id: string; bin_code: string; description: string | null; inactive: boolean | null; store_id: string | null }[])
     // Kept, flagged: the picker hides a switched-off bin but still shows the one a GRN holds.
-    .map((b) => ({ id: b.id, code: b.bin_code, description: b.description, inactive: !!b.inactive }));
+    .map((b) => ({ id: b.id, code: b.bin_code, description: b.description, inactive: !!b.inactive, store_id: b.store_id }));
   // Accepted goods land in the MATERIAL store when nothing else is picked — what postGrn
   // has always done — so that is the default the line opens with.
   const defaultStoreId = stores.find((st) => st.store_type === "material")?.id ?? stores[0]?.id ?? null;
-  return { stores, bins, defaultStoreId, processOrders };
+  return { stores, bins, defaultStoreId, processOrders, processors };
 }
 
 // ---------- DC ----------

@@ -139,7 +139,7 @@ const CHROME_NO_REMOVE = 40;
 const THRESHOLD_MARGIN = 64;
 
 /** `tableFrom` thresholds, from `child-grid.tsx`'s own TABLE_FROM. */
-const THRESHOLD = { "5xl": 1024, "6xl": 1152, "7xl": 1280 };
+const THRESHOLD = { "4xl": 896, "5xl": 1024, "6xl": 1152, "7xl": 1280 };
 
 const files = [];
 (function walk(dir) {
@@ -212,7 +212,7 @@ function grids(src) {
     }
     const text = props.join("\n");
     const cols = text.match(/columns=\{(\w+)/);
-    const tf = text.match(/tableFrom="(5xl|6xl|7xl)"/);
+    const tf = text.match(/tableFrom="(4xl|5xl|6xl|7xl)"/);
     /* A PROP THIS SCRIPT CANNOT READ. A spread (`{...x}`) or an expression
        `tableFrom={…}` can carry a threshold that is never seen — the Budget
        screen passed `tableFrom` through `{...(opts.tableFrom ? … : …)}`, and

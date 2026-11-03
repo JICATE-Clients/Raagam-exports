@@ -166,6 +166,10 @@ export function buildScreenCatalog(): CatalogModule[] {
  * grouped in MODULE_GROUPS, under an "Off the menu" sub-module of their own.
  */
 const OFF_MENU_SCREENS: Readonly<Record<string, readonly { href: string; label: string }[]>> = {
+  // Off the Procurement menu since 2026-11-03, but a PO's own page and its print
+  // (/purchase/orders/<id>) still open from PO Approval, Raise PO and Indents. Kept a
+  // screen so they keep this screen's grant, and saved screen rows are not orphaned.
+  "/purchase": [{ href: "/purchase/orders", label: "Purchase Orders" }],
   "/sales": [
     { href: "/sales/opportunities-costing", label: "Opportunities & Costing" },
     { href: "/sales/sq-details", label: "SQ Details" },

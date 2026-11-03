@@ -86,6 +86,14 @@ function lineFor(total: number, open: number, late: number, highFived: boolean, 
   return { pose: "point", segs: [{ t: `${done} done, ${open} to go.`, b: true }, { t: done * 2 >= total ? " Nearly there!" : " Keep it up!" }] };
 }
 
+/** "3 approvals waiting on you, 1 overdue." — Nool's line when a setup note takes the chip. */
+function waitingLine(w: NoolWaiting): string {
+  if (!w) return "I couldn't read your approvals just now.";
+  if (w.count === 0) return "No approvals waiting on you.";
+  const head = `${w.count} approval${w.count === 1 ? "" : "s"} waiting on you`;
+  return w.overdue > 0 ? `${head}, ${w.overdue} overdue.` : `${head}.`;
+}
+
 const segLength = (segs: Seg[]) => segs.reduce((n, s) => n + s.t.length, 0);
 
 /** The approvals waiting on this person (`approval_my_queue`); null when it could not be read. */
@@ -99,6 +107,7 @@ export function NoolGreeter({
   note,
   calendarHref,
   waiting,
+  compact = false,
 }: {
   name: string;
   dateLabel: string;
@@ -108,13 +117,20 @@ export function NoolGreeter({
   note?: string;
   calendarHref: string;
   waiting: NoolWaiting;
+  /** THE ONE-SCREEN DASHBOARD'S TOP ROW (2026-11-03): greeting and Nool only. The three day
+   *  tiles and the to-do list step aside, because the Needs-you and This-week cards beside it
+   *  answer the same questions as pictures. Nool keeps every animation. */
+  compact?: boolean;
 }) {
   const open = tasks.filter((t) => !t.done).sort((a, b) => b.daysLate - a.daysLate);
   const done = tasks.filter((t) => t.done);
   const late = open.filter((t) => t.daysLate > 0).length;
 
   const [highFived, setHighFived] = useState(false);
-  const line = lineFor(tasks.length, open.length, late, highFived, note);
+  // NOOL SAYS WHAT MATTERS TO YOU (fix 3, 2026-11-03): in the top row, a setup note ("link your
+  // staff record") is a small chip, and the sentence is the approvals waiting on you.
+  const spoken = compact && note ? waitingLine(waiting) : note;
+  const line = lineFor(tasks.length, open.length, late, highFived, spoken);
   const [pose, setPose] = useState<Pose>(line.pose);
   const [entering, setEntering] = useState(false);
   const [bubble, setBubble] = useState(true);
@@ -237,7 +253,7 @@ export function NoolGreeter({
     } catch {}
     const start = window.setTimeout(() => {
       if (fived) setHighFived(true);
-      greet(!walked, lineFor(tasks.length, open.length, late, fived, note));
+      greet(!walked, lineFor(tasks.length, open.length, late, fived, spoken));
     }, 0);
     return () => {
       window.clearTimeout(start);
@@ -292,12 +308,14 @@ export function NoolGreeter({
   });
 
   return (
-    <section ref={cardRef} aria-label="Your day" className="relative isolate overflow-hidden rounded-2xl border border-border bg-surface p-4 pt-3 shadow-[0_12px_32px_-22px_rgba(4,147,219,0.45)]">
+    <section ref={cardRef} aria-label="Your day" className={cn("relative isolate overflow-hidden rounded-2xl border border-border bg-surface px-4 py-2 shadow-[0_12px_32px_-22px_rgba(4,147,219,0.45)]", compact && "flex items-center px-3 py-1.5")}>
       <style href="nool-greeter" precedence="medium">{NOOL_CSS}</style>
       <canvas ref={sparkRef} aria-hidden className="pointer-events-none absolute inset-0 z-[2] size-full" />
 
-      <div className="flex flex-wrap items-end gap-3.5 lg:flex-nowrap">
-        <div className="relative h-[86px] w-[72px] flex-none sm:h-[108px] sm:w-[90px]">
+      {/* COMPACT (user 2026-11-03, screenshot 114001: "compact this section"): a smaller Nool, the
+          date beside the greeting instead of a line of its own, one-line tiles. */}
+      <div className="flex flex-wrap items-end gap-3 lg:flex-nowrap">
+        <div className={cn("relative h-[68px] w-[56px] flex-none sm:h-[80px] sm:w-[66px]", compact && "sm:h-[64px] sm:w-[52px]")}>
           <button
             ref={walkerRef}
             type="button"
@@ -312,27 +330,36 @@ export function NoolGreeter({
 
         <div
           className={cn(
-            "relative mt-2 min-w-0 max-w-[32rem] flex-1 self-start rounded-2xl border border-border bg-surface px-4 pb-2.5 pt-2 shadow-[0_10px_24px_-16px_rgba(4,147,219,0.55)]",
-            "before:absolute before:-left-[7px] before:top-6 before:size-3 before:rotate-45 before:border-b before:border-l before:border-border before:bg-surface before:content-['']",
+            "relative mt-1 min-w-0 max-w-[36rem] flex-1 self-start rounded-2xl border border-border bg-surface px-3.5 pb-2 pt-1.5 shadow-[0_10px_24px_-16px_rgba(4,147,219,0.55)]",
+            "before:absolute before:-left-[7px] before:top-4 before:size-3 before:rotate-45 before:border-b before:border-l before:border-border before:bg-surface before:content-['']",
             bubble ? "ng-pop" : "invisible",
           )}
         >
           {/* Baloo 2, self-hosted (`.font-baloo`, app/fonts.css). */}
-          <h2 className="font-baloo text-[1.6rem] font-semibold leading-[1.15] tracking-[-0.01em] text-heading">
-            Vanakkam, <span className="font-bold text-brand-blue">{name}</span>
-          </h2>
-          <p className="mt-1 min-h-[1.5em] text-[14.5px] leading-relaxed text-foreground/80" aria-live="polite">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+            <h2 className="font-baloo text-[1.3rem] font-semibold leading-[1.15] tracking-[-0.01em] text-heading">
+              Vanakkam, <span className="font-bold text-brand-blue">{name}</span>
+            </h2>
+            {/* Compact: the period bar below already dates the page. */}
+            <p className={cn("text-[10.5px] font-medium uppercase tracking-[0.08em] text-muted-foreground", compact && "hidden")}>{dateLabel}</p>
+          </div>
+          <p className="mt-0.5 min-h-[1.4em] text-[13.5px] leading-snug text-foreground/80" aria-live="polite">
             {said}
             {Number.isFinite(typed) && <span className="ng-caret" aria-hidden />}
           </p>
-          <p className="mt-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">{dateLabel}</p>
+          {compact && note && (
+            <p className="mt-1 inline-flex w-fit items-center gap-1 rounded-full bg-warning-soft px-2 py-0.5 text-[11px] font-semibold text-warning">
+              <span aria-hidden>⚠</span>
+              {note}
+            </p>
+          )}
         </div>
 
         {/* "What needs me today?" (user 2026-10-30: the space beside the bubble
             should be useful). Approvals come from the person's own queue, so this
             tile works even without a staff link; the two task tiles read the same
             rows as the list below and say "—" when there is no list to count. */}
-        <div className="grid w-full grid-cols-3 gap-2 self-center lg:ml-auto lg:w-[19rem] lg:flex-none">
+        <div className={cn("grid w-full grid-cols-3 gap-2 self-center lg:ml-auto lg:w-[22rem] lg:flex-none", compact && "hidden")}>
           <DayTile
             href="/approvals"
             label="Waiting on you"
@@ -358,7 +385,7 @@ export function NoolGreeter({
 
       </div>
 
-      {tasks.length > 0 && (
+      {tasks.length > 0 && !compact && (
         <div className="mt-3 grid gap-1.5">
           <div className="flex items-baseline justify-between gap-2.5 px-2">
             <h3 className="flex items-center gap-2 text-[13px] font-semibold">
@@ -755,12 +782,12 @@ function DayTile({
     <Link
       href={href}
       className={cn(
-        "grid gap-0.5 rounded-xl border px-3 py-2 transition-colors hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "grid gap-0.5 rounded-xl border px-2.5 py-1.5 transition-colors hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         TILE_TONE[tone],
       )}
     >
-      <span className="font-baloo n text-[1.5rem] font-bold leading-none tabular-nums">{value ?? "—"}</span>
-      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className="font-baloo n text-[1.25rem] font-bold leading-none tabular-nums">{value ?? "—"}</span>
+      <span className="whitespace-nowrap text-xs text-muted-foreground">{label}</span>
       {sub && <span className="text-[11px] font-semibold text-muted-foreground">{sub}</span>}
     </Link>
   );

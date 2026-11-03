@@ -86,12 +86,15 @@ export function PanelCard({
   aside,
   children,
   className,
+  footer,
 }: {
   title: string;
   subtitle?: string;
   icon?: string;
   tone?: DashboardTone;
   aside?: React.ReactNode;
+  /** The card's footer — `CardFooter` (fix 6, 2026-11-03). */
+  footer?: React.ReactNode;
   children: React.ReactNode;
   className?: string;
 }) {
@@ -101,7 +104,9 @@ export function PanelCard({
         <CardTitle title={title} subtitle={subtitle} icon={icon} tone={tone} />
         {aside}
       </div>
-      <div className="flex-1">{children}</div>
+      {/* min-h-0: inside a fixed-height dashboard row the body may shrink and clip, not overflow. */}
+      <div className="min-h-0 flex-1">{children}</div>
+      {footer && <div className="px-4 pb-2.5">{footer}</div>}
     </Card>
   );
 }

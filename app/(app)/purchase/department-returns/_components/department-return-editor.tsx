@@ -249,12 +249,12 @@ export function DepartmentReturnEditor({
           <StoreBinPickCell
             description={r.item_name}
             parent="Return"
-            stores={mrs?.store_name ? [{ id: "header", name: mrs.store_name }] : undefined}
-            storeId="header"
+            stores={mrs ? [{ id: mrs.store_id, name: mrs.store_name ?? "Store" }] : undefined}
+            storeId={mrs?.store_id ?? ""}
             bins={bins}
             binId={entries[r.mrs_line_id]?.bin ?? ""}
             onBin={(v) => setEntry(r.mrs_line_id, { bin: v })}
-            onBinCreated={(b) => setBins((list) => [...list, { id: b.id, code: b.code, description: null }])}
+            onBinCreated={(b) => setBins((list) => [...list, { id: b.id, code: b.code, description: null, store_id: b.store_id }])}
           />
         ),
     },

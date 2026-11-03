@@ -57,15 +57,33 @@ export async function CalendarSection({
   const thisWeek = days.includes(t);
 
   return (
-    <Card className={cn(GLASS, "flex min-w-0 flex-col gap-2.5 p-4 pt-3")}>
+    <Card className={cn(GLASS, "flex min-w-0 flex-col gap-2 overflow-hidden px-4 pb-3 pt-2.5")}>
+      {/* ONE HEADER LINE (user 2026-11-03, screenshot 141715: "This week / 2 Nov – 8 Nov, fix
+          this section"). The title and its dates each wrapped onto two lines because the
+          Mine/Team switch and both arrows shared the row. Now the arrows sit either side of
+          the dates UNDER the title — they move the dates, so that is where they belong — and
+          only the switch stays on the right. */}
       <div className="flex items-center justify-between gap-2">
         <CardTitle
-          title={thisWeek ? "This week" : `${dayMonth(days[0])} – ${dayMonth(days[6])}`}
-          subtitle={thisWeek ? `${dayMonth(days[0])} – ${dayMonth(days[6])}` : undefined}
+          className="min-w-0"
+          title={thisWeek ? "This week" : "Week"}
+          subtitle={
+            <span className="inline-flex items-center gap-0.5 whitespace-nowrap">
+              <Link href={dayHref(addDays(cursor, -7))} aria-label="Previous week" className="-ml-1 grid size-5 place-items-center rounded hover:bg-surface-muted hover:text-foreground">
+                <ChevronLeft className="size-3.5" />
+              </Link>
+              <span className="tabular-nums">
+                {dayMonth(days[0])} – {dayMonth(days[6])}
+              </span>
+              <Link href={dayHref(addDays(cursor, 7))} aria-label="Next week" className="grid size-5 place-items-center rounded hover:bg-surface-muted hover:text-foreground">
+                <ChevronRight className="size-3.5" />
+              </Link>
+            </span>
+          }
           icon="calendar"
           tone="info"
         />
-        <div className="flex items-center gap-1.5">
+        <div className="flex shrink-0 items-center gap-1.5">
           {data.canTeam && (
             <div role="group" aria-label="Whose calendar" data-segmented="" className={SEG_TRACK}>
               {(["mine", "team"] as const).map((k) => (
@@ -80,24 +98,18 @@ export async function CalendarSection({
               ))}
             </div>
           )}
-          {/* The "login not linked" sentence is now this ⓘ (2026-11-02) — it took a whole line. */}
+          {/* The "login not linked" sentence is this ⓘ (2026-11-02) — it took a whole line. */}
           {data.autoTeam && (
-            <Tooltip label="Your login is not linked to a staff record, so the team's calendar is shown." touch>
+            <Tooltip label="Login not linked to a staff record — showing the team's calendar." touch>
               <span
                 tabIndex={0}
-                aria-label="Your login is not linked to a staff record, so the team's calendar is shown."
+                aria-label="Login not linked to a staff record — showing the team's calendar."
                 className="grid size-5 place-items-center rounded-full border border-border text-muted-foreground"
               >
                 <Info className="size-3" aria-hidden />
               </span>
             </Tooltip>
           )}
-          <Link href={dayHref(addDays(cursor, -7))} aria-label="Previous week" className="grid size-8 place-items-center rounded-control hover:bg-surface-muted">
-            <ChevronLeft className="size-4" />
-          </Link>
-          <Link href={dayHref(addDays(cursor, 7))} aria-label="Next week" className="grid size-8 place-items-center rounded-control hover:bg-surface-muted">
-            <ChevronRight className="size-4" />
-          </Link>
         </div>
       </div>
 

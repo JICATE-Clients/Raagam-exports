@@ -22,11 +22,34 @@ function rev(): void {
   revalidatePath("/masters/materials/bins");
 }
 
+/**
+ * THE NEXT CODE FROM THE STORE'S PREFIX (0800, user 2026-11-03). YARN- with YARN-001 and
+ * YARN-007 already there gives YARN-008: one past the highest number after the prefix,
+ * three digits. Null when the store has no prefix.
+ */
+async function nextBinCode(s: Awaited<ReturnType<typeof createClient>>, storeId: string): Promise<string | null> {
+  const { data: store } = await s.from("stores").select("bin_prefix").eq("id", storeId).maybeSingle();
+  const prefix = ((store as { bin_prefix: string | null } | null)?.bin_prefix ?? "").trim().toUpperCase();
+  if (!prefix) return null;
+  const { data: rows } = await s.from("bins").select("bin_code").ilike("bin_code", `${prefix}%`);
+  let top = 0;
+  for (const r of (rows ?? []) as { bin_code: string | null }[]) {
+    const tail = (r.bin_code ?? "").toUpperCase().slice(prefix.length);
+    if (/^\d+$/.test(tail)) top = Math.max(top, Number(tail));
+  }
+  return `${prefix}${String(top + 1).padStart(3, "0")}`;
+}
+
 export async function createBin(data: BinInput): Promise<CreateResult> {
   if (!(await can("masters", "create"))) return fail("Forbidden");
   const p = binInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
   const s = await createClient();
+  if (!p.data.bin_code.trim()) {
+    const next = await nextBinCode(s, p.data.store_id);
+    if (!next) return fail("Enter a bin code, or give this store a Bin Prefix on the Stores master");
+    p.data.bin_code = next;
+  }
   const dup = await checkDuplicateName(s, "bins", p.data.bin_code, { nameColumn: "bin_code" });
   if (!dup.ok) return fail(dup.error);
   const { data: row, error } = await s.from("bins").insert(p.data).select("id").single();
@@ -39,6 +62,7 @@ export async function updateBin(id: string, data: BinInput): Promise<Result> {
   if (!(await can("masters", "edit"))) return fail("Forbidden");
   const p = binInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
+  if (!p.data.bin_code.trim()) return fail("Bin code is required");
   const s = await createClient();
   const dup = await checkDuplicateName(s, "bins", p.data.bin_code, { nameColumn: "bin_code", excludeId: id });
   if (!dup.ok) return fail(dup.error);
@@ -62,12 +86,18 @@ export async function deleteBin(id: string): Promise<DeleteResult> {
  * "+ Add" (GRN / QC / Edit GRN) creates the bin in the unit the keeper is working in — a bin at Raagam HO belongs to HO —
  * through `createBin`'s own rules (permission, schema, duplicate guard).
  */
-export async function createBinInCurrentUnit(binCode: string, description: string | null = null): Promise<CreateResult> {
+export async function createBinInCurrentUnit(
+  binCode: string,
+  description: string | null = null,
+  /** The store the bin box is picking into (0800): the new bin belongs to it. */
+  storeId: string | null = null,
+): Promise<CreateResult> {
   const { location } = await getCurrentLocation();
   if (!location) return fail("Pick your working unit in the top bar first");
+  if (!storeId) return fail("Pick the store first — a bin is a rack in a store");
   return createBin({
     bin_code: binCode.trim().toUpperCase(),
-    location_id: location.id,
+    store_id: storeId,
     description: description?.trim().toUpperCase() || null,
     inactive: false,
   });

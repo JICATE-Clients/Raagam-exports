@@ -432,3 +432,29 @@ export function poBudgetImpact<L extends { id: string; unit_price: number | stri
     overPct: budgetedSpend > 0 ? (profitHit / budgetedSpend) * 100 : 0,
   };
 }
+
+/**
+ * A SHORT-CLOSED REQUIREMENT BALANCE (0799, user 2026-11-03): the part of a line the
+ * Purchase Manager decided not to buy, with the reason. `po_requirement_lines` already
+ * subtracts it from the balance; this is who closed how much, and why.
+ */
+export type RequirementClosure = {
+  source_id: string;
+  req_key: string;
+  closed_qty: number;
+  reason: string;
+  closed_by_name: string | null;
+  closed_at: string;
+};
+
+/** One line in the Close balances sheet: the requirement sheet's own figures. */
+export type CloseBalanceLine = {
+  req_key: string;
+  item: string;
+  /** "WHITE · L" / "DIA 30": the slice and colour, blank on a plain item. */
+  detail: string;
+  uom: string | null;
+  required: number;
+  ordered: number;
+  balance: number;
+};

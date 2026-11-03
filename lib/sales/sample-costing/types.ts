@@ -216,6 +216,14 @@ export type RevisionRow = {
   /** The quoted (set) price that revision carried — the ribbon's price line. */
   target_fob: number | null;
   currency_code: string | null;
+  /* The rest of `RevisionSource` (revision-history.ts): the editor's Revisions tab
+     draws the same history table the Reports page does, so it needs the same row.
+     Without these the editor built its sheet with NO history and the tab always
+     read "This is the first revision" (2026-11-03). */
+  is_draft: boolean | null;
+  costing_date: string | null;
+  computed_fob: number | null;
+  profit_loss_pct: number | null;
 };
 
 /** A row of the list. */

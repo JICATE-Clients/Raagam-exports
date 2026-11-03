@@ -41,24 +41,35 @@ export async function BoardKpis({ caps }: { caps: DashboardCaps }) {
   else if (o) {
     const by = new Date(Date.parse(today()) + 30 * 86_400_000).toISOString().slice(0, 10);
     tiles.push(
-      <KpiCard key="book" label="Order book" href={ORDERS_HREF}
+      // THE CURRENCY IS NAMED (fix 2): the book is in the orders' currency, Buying in ₹.
+      <KpiCard key="book" label={o.currency ? `Order book · ${o.currency}` : "Order book"} href={ORDERS_HREF}
         pill={`${o.open} open`}
         value={o.value != null ? fmtMoneyShort(o.value, o.currency) : `${fmtCompactNumber(o.open)} orders`}
         sub={`${fmtCompactNumber(o.qty)} pcs · ${Math.round(pct(o.inProduction, o.open))}% in production`}>
         <SplitBar title="In production · not started"
           parts={[{ value: o.inProduction, tone: "primary" }, { value: o.open - o.inProduction, tone: "info" }]} />
       </KpiCard>,
-      <KpiCard key="late" label="Late orders" href={LATE_HREF}
-        pill={`${Math.round(pct(o.late, o.dated))}%`} pillTone={o.late > 0 ? "danger" : "success"}
-        value={fmtCompactNumber(o.late)} valueTone={o.late > 0 ? "danger" : undefined}
-        sub={`of ${o.dated} dated, past delivery`}>
-        <MiniColumns bars={o.ageing.map((a, i) => ({ value: a.orders, tone: AGE_TONE[i], label: `${a.label} days` }))} />
-      </KpiCard>,
-      <KpiCard key="due" label="Due in 30 days" href={LATE_HREF}
-        pill={`${Math.round(pct(o.due30, o.dated))}%`} pillTone="warning"
-        value={fmtCompactNumber(o.due30)} sub={`orders to ship by ${fmtDate(by)}`}>
-        <SplitBar title="Due in 30 days · later" parts={[{ value: o.due30, tone: "warning" }, { value: o.dated - o.due30, tone: "track" }]} />
-      </KpiCard>,
+      // GOOD NEWS TAKES LESS ROOM (fix 1, 2026-11-03): with nothing late and nothing due in
+      // 30 days, two tiles of 0 become one green "All on time". Either figure above 0 and both
+      // tiles come back, each with its own picture.
+      ...(o.late === 0 && o.due30 === 0 && o.dated > 0
+        ? [
+            <KpiCard key="delivery" label="Delivery" href={LATE_HREF} pill="On track" pillTone="success"
+              value={`All ${o.dated} on time ✓`} valueTone="success" sub="0 late · 0 due in the next 30 days" />,
+          ]
+        : [
+          <KpiCard key="late" label="Late orders" href={LATE_HREF}
+            pill={`${Math.round(pct(o.late, o.dated))}%`} pillTone={o.late > 0 ? "danger" : "success"}
+            value={fmtCompactNumber(o.late)} valueTone={o.late > 0 ? "danger" : undefined}
+            sub={`of ${o.dated} dated, past delivery`}>
+            <MiniColumns bars={o.ageing.map((a, i) => ({ value: a.orders, tone: AGE_TONE[i], label: `${a.label} days` }))} />
+          </KpiCard>,
+          <KpiCard key="due" label="Due in 30 days" href={LATE_HREF}
+            pill={`${Math.round(pct(o.due30, o.dated))}%`} pillTone="warning"
+            value={fmtCompactNumber(o.due30)} sub={`orders to ship by ${fmtDate(by)}`}>
+            <SplitBar title="Due in 30 days · later" parts={[{ value: o.due30, tone: "warning" }, { value: o.dated - o.due30, tone: "track" }]} />
+          </KpiCard>,
+          ]),
     );
   }
 
@@ -129,7 +140,7 @@ export async function BoardBuying({ caps }: { caps: DashboardCaps }) {
   const p = (await getBoard(caps)).purchase;
   if (!p || p === "error" || p.byClass.length === 0) return null;
   return (
-    <BuyingBars rows={p.byClass} href={PO_HREF} subtitle={`${p.total} POs · ${p.approved} approved · ${p.pending} pending`} />
+    <BuyingBars rows={p.byClass} href={PO_HREF} subtitle={`${p.total} POs · ${p.approved} approved · ${p.pending} pending · in ₹`} />
   );
 }
 

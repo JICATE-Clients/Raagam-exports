@@ -21,7 +21,14 @@
  * the accepted qty EXACTLY (`splitBinsProblem`, and `grn_post` re-checks).
  */
 /** `typed`: the operator typed this qty — it is theirs, never re-filled. */
-export type SplitRow = { key: string; binId: string; qty: string; typed?: boolean };
+export type SplitRow = {
+  key: string;
+  binId: string;
+  qty: string;
+  typed?: boolean;
+  /** `fill = false` only: Enter was pressed on this bin's Qty — open the next bin row. */
+  more?: boolean;
+};
 
 export const round3 = (n: number) => Math.round(n * 1000) / 1000;
 const num = (s: string) => {
@@ -48,10 +55,32 @@ export function binBalance(rows: readonly SplitRow[], accepted: number): number 
  * Re-shape after any change: untyped bins refilled with what is left, then one blank end row
  * ONLY while there is a balance. `blank` makes a fresh empty row.
  */
-export function withTailBin<T extends SplitRow>(rows: readonly T[], blank: () => T, accepted: number): T[] {
+export function withTailBin<T extends SplitRow>(
+  rows: readonly T[],
+  blank: () => T,
+  accepted: number,
+  /**
+   * `false` = NOTHING IS AUTO-FILLED (user 2026-11-03, GRN entry: "no need the first bin
+   * auto-consume … allow it as user entry, just list bin near qty field"). Every bin's qty is
+   * what the operator types; the blank end row still waits while the bins hold less than the
+   * accepted qty. Edit GRN and Pending QC keep the default (`true`).
+   */
+  fill = true,
+): T[] {
   const picked = pickedBins(rows);
   const spare = rows.find((r) => !r.binId);
   if (picked.length === 0) return [spare ?? blank()];
+  if (!fill) {
+    /* THE NEXT BIN OPENS ON ENTER, NOT ON ITS OWN (user 2026-11-03, screenshot 4028: "why
+       automatically opening the second bin — after I fill the qty and give Enter, only that
+       time should it add the next"). Picking a bin leaves its Qty to type; the blank row
+       appears only once the LAST bin's qty is in and Enter was pressed on it (`more`), and
+       only while the bins still hold less than the accepted qty. */
+    const last = picked[picked.length - 1];
+    const asked = !!last.more && num(last.qty) > 0;
+    if (!asked || binBalance(picked, accepted) <= 0) return picked;
+    return [...picked, { ...(spare ?? blank()), qty: "", typed: false, more: false }];
+  }
   let left = round3(accepted - picked.filter((r) => r.typed).reduce((a, r) => a + num(r.qty), 0));
   const out = picked.map((r) => {
     if (r.typed) return r;

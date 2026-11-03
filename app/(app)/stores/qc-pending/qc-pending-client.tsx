@@ -313,7 +313,7 @@ function InspectSheet({
               uom={line.uom_code}
               bins={allBins}
               canCreateBin={canCreateBin}
-              onBinCreated={(nb) => setAddedBins((xs) => [...xs, { id: nb.id, code: nb.code, description: null }])}
+              onBinCreated={(nb) => setAddedBins((xs) => [...xs, { id: nb.id, code: nb.code, description: null, store_id: nb.store_id }])}
             />
           </div>
         ) : null}

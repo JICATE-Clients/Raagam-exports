@@ -1,7 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { letterheadLogoOf, registeredAddressOf } from "@/lib/orders/fabric-bom/letterhead";
-import { getRequirementLines } from "./service";
+import { getRequirementClosures, getRequirementLines } from "./service";
 import { lineKeyOf, SOURCE_KIND_LABEL, type SourceKind } from "./types";
 
 /**
@@ -38,6 +38,10 @@ export type PurchaseStatusLine = {
   required: number;
   ordered: number;
   balance: number;
+  /** The line's requirement key, for Reopen. */
+  reqKey: string;
+  /** SHORT-CLOSED (0799): what was decided not to be bought, and why. */
+  closed: { qty: number; reason: string; by: string | null; at: string } | null;
   pos: PurchaseStatusPo[];
 };
 
@@ -57,7 +61,7 @@ const num = (v: unknown) => (v == null ? 0 : Number(v));
 
 export async function getRePurchaseStatus(sourceId: string): Promise<PurchaseStatus | null> {
   const s = await createClient();
-  const [reqLines, poLinesRes, coRes] = await Promise.all([
+  const [reqLines, poLinesRes, coRes, closures] = await Promise.all([
     getRequirementLines([sourceId]),
     s
       .from("po_line_items")
@@ -65,7 +69,9 @@ export async function getRePurchaseStatus(sourceId: string): Promise<PurchaseSta
       .or(`garment_order_id.eq.${sourceId},iwo_id.eq.${sourceId}`)
       .not("req_key", "is", null),
     s.from("company_profile").select("*").limit(1).maybeSingle(),
+    getRequirementClosures([sourceId]),
   ]);
+  const closedOf = new Map(closures.map((c) => [c.req_key, c]));
   if (reqLines.length === 0) return null;
   if (poLinesRes.error) throw new Error(`Could not read the PO lines: ${poLinesRes.error.message}`);
 
@@ -127,6 +133,11 @@ export async function getRePurchaseStatus(sourceId: string): Promise<PurchaseSta
         required: l.required_qty,
         ordered: l.ordered_qty,
         balance: l.balance_qty,
+        reqKey: l.req_key,
+        closed: (() => {
+          const c = closedOf.get(l.req_key);
+          return c ? { qty: c.closed_qty, reason: c.reason, by: c.closed_by_name, at: c.closed_at } : null;
+        })(),
         pos: posByKey.get(lineKeyOf(l)) ?? [],
       }))
       .sort((a, b) => (a.itemClass ?? "").localeCompare(b.itemClass ?? "") || a.item.localeCompare(b.item) || a.slice.localeCompare(b.slice)),

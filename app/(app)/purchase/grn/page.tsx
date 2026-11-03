@@ -48,6 +48,7 @@ export default async function GrnListPage() {
         bins={place.bins}
         defaultStoreId={place.defaultStoreId}
         processOrders={place.processOrders}
+        processors={place.processors}
         canCreateBin={canCreateBin}
       />
     </div>

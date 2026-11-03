@@ -30,6 +30,7 @@ export default async function GrnNewPage() {
         defaultStoreId={place.defaultStoreId}
         replacements={replacements}
         processOrders={place.processOrders}
+        processors={place.processors}
         canCreateBin={canCreateBin}
       />
     </div>

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { requirePermission } from "@/lib/auth/server";
+import { can, requirePermission } from "@/lib/auth/server";
+import { ReopenBalanceButton } from "./reopen-balance-button";
 import { getRePurchaseStatus } from "@/lib/purchase/re-po/purchase-status";
 import { PoPrintToolbar } from "@/components/purchase/po-print-toolbar";
 import { DocumentPrintStyles } from "@/components/orders/document-print-styles";
@@ -22,6 +23,9 @@ export default async function RePurchaseStatusPage({ params }: { params: Promise
   if (!data) notFound();
 
   const toBuy = data.lines.filter((l) => l.balance > 0).length;
+  // SHORT-CLOSED LINES (0799): shown with their reason; Reopen for whoever may edit.
+  const anyClosed = data.lines.some((l) => l.closed);
+  const canReopen = anyClosed && (await can("materials_purchase", "edit"));
 
   return (
     <div>
@@ -56,7 +60,7 @@ export default async function RePurchaseStatusPage({ params }: { params: Promise
           <div>
             <SheetLabel>Still to buy</SheetLabel>
             <dd className={`font-semibold tabular-nums ${toBuy ? "text-[#b42318]" : "text-[#067647]"}`}>
-              {toBuy ? `${toBuy} item${toBuy === 1 ? "" : "s"}` : "Nothing — fully ordered"}
+              {toBuy ? `${toBuy} item${toBuy === 1 ? "" : "s"}` : anyClosed ? "Nothing — ordered or closed" : "Nothing — fully ordered"}
             </dd>
           </div>
         </dl>
@@ -76,6 +80,7 @@ export default async function RePurchaseStatusPage({ params }: { params: Promise
                   <Th right>Rate</Th>
                   <Th>PO Status</Th>
                   <Th right>Balance</Th>
+                  {anyClosed ? <Th>Closed</Th> : null}
                 </tr>
               </thead>
               <tbody>
@@ -120,6 +125,22 @@ export default async function RePurchaseStatusPage({ params }: { params: Promise
                           ""
                         )}
                       </Td>
+                      {anyClosed ? (
+                        <Td>
+                          {j === 0 && l.closed ? (
+                            <div className="max-w-[16rem]">
+                              <div className="font-semibold tabular-nums text-[#5b6472]">{`${fmtNumber(l.closed.qty)}${uom}`}</div>
+                              <div className="text-[11px] text-[#5b6472]">{l.closed.reason}</div>
+                              <div className="text-[10.5px] text-[#7b8594]">
+                                {[l.closed.by, fmtDate(l.closed.at)].filter(Boolean).join(" · ")}
+                              </div>
+                              {canReopen ? <ReopenBalanceButton sourceId={data.sourceId} reqKey={l.reqKey} /> : null}
+                            </div>
+                          ) : (
+                            ""
+                          )}
+                        </Td>
+                      ) : null}
                     </tr>
                   ));
                 })}

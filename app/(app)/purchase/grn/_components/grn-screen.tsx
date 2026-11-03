@@ -14,6 +14,7 @@ import type {
   GrnBinOption,
   GrnGroupKind,
   GrnProcessOrderOption,
+  GrnProcessorOption,
   GrnStoreOption,
   GrnWithVendor,
   OpenPoLine,
@@ -122,6 +123,7 @@ export function GrnScreen({
   bins,
   defaultStoreId,
   processOrders,
+  processors = [],
   canCreateBin = false,
 }: {
   openPoLines: OpenPoLine[];
@@ -134,6 +136,7 @@ export function GrnScreen({
   bins: GrnBinOption[];
   defaultStoreId: string | null;
   processOrders: GrnProcessOrderOption[];
+  processors?: GrnProcessorOption[];
   canCreateBin?: boolean;
 }) {
   const router = useRouter();
@@ -250,6 +253,7 @@ export function GrnScreen({
         replacement={replacing}
         replacements={replacements}
         processOrders={processOrders}
+        processors={processors}
         canCreateBin={canCreateBin}
         onCancel={() => setEditing(null)}
       />

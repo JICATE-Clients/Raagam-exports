@@ -55,6 +55,7 @@ export function ChartFrame({
   className,
   icon,
   tone,
+  footer,
 }: {
   title: string;
   subtitle?: string;
@@ -64,6 +65,8 @@ export function ChartFrame({
   /** The header's icon well (`CardTitle`) — every dashboard card opens the same way. */
   icon?: string;
   tone?: DashboardTone;
+  /** The card's footer — `CardFooter`: its figures and "Open … ›" (fix 6, 2026-11-03). */
+  footer?: ReactNode;
 }) {
   return (
     <Card className={cn(GLASS, "flex min-w-0 flex-col", className)}>
@@ -71,7 +74,8 @@ export function ChartFrame({
         <CardTitle title={title} subtitle={subtitle} icon={icon} tone={tone} />
         {aside}
       </CardHeader>
-      <CardBody className="flex-1">{children}</CardBody>
+      <CardBody className="min-h-0 flex-1 overflow-hidden">{children}</CardBody>
+      {footer && <div className="px-4 pb-2.5">{footer}</div>}
     </Card>
   );
 }
@@ -419,15 +423,27 @@ export function AreaChart({
     vals.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
 
   const line = path(primary);
+  // THE LATEST POINT PULSES (one-screen dashboard, 2026-11-03; the Feedly-style "you are here"
+  // endpoint): an HTML dot over the SVG, because the SVG stretches (preserveAspectRatio="none")
+  // and a circle drawn inside it would turn into an ellipse.
+  const lastTop = (y(primary[primary.length - 1]) / H) * 100;
+  const fillId = `area-fill-${primaryTone}`;
 
   return (
-    <div className="min-w-0">
+    <div className="flex h-full min-h-0 min-w-0 flex-col">
+      <div className="relative min-h-[110px] flex-1">
       <svg
         viewBox={`0 0 ${W} ${H}`}
         preserveAspectRatio="none"
-        className="h-[220px] w-full"
+        className="absolute inset-0 h-full w-full"
         aria-hidden="true"
       >
+        <defs>
+          <linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" style={{ stopColor: toneVar(primaryTone), stopOpacity: 0.32 }} />
+            <stop offset="1" style={{ stopColor: toneVar(primaryTone), stopOpacity: 0 }} />
+          </linearGradient>
+        </defs>
         {[0.1, 0.37, 0.64, 0.91].map((f) => (
           <line
             key={f}
@@ -440,11 +456,7 @@ export function AreaChart({
             vectorEffect="non-scaling-stroke"
           />
         ))}
-        <polygon
-          points={`${line} ${W},${H} 0,${H}`}
-          fill={toneVar(primaryTone)}
-          opacity={0.14}
-        />
+        <polygon points={`${line} ${W},${H} 0,${H}`} fill={`url(#${fillId})`} />
         <polyline
           points={line}
           pathLength={1}
@@ -468,6 +480,12 @@ export function AreaChart({
           />
         )}
       </svg>
+      <span
+        aria-hidden
+        className="dash-pulse absolute size-2.5 -translate-y-1/2 rounded-full border-2 border-surface"
+        style={{ left: "calc(100% - 6px)", top: `${lastTop}%`, background: toneVar(primaryTone), color: toneVar(primaryTone) }}
+      />
+      </div>
       <div className="mt-2 grid auto-cols-fr grid-flow-col">
         {labels.map((l, i) => (
           <span

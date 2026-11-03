@@ -121,6 +121,13 @@ const AMBIGUOUS = {
     designations: ["offer_designation_id", "approved_designation_id"],
     staff: ["referred_by_staff_id", "hired_staff_id"],
   },
+  // 0803's stock transfer names a From and a To of each: store, RE and IWO / SWO. Born
+  // ambiguous on all three; the service names `!from_store_id` / `!to_store_id`.
+  stock_transfers: {
+    stores: ["from_store_id", "to_store_id"],
+    garment_order_amendments: ["from_garment_order_id", "to_garment_order_id"],
+    internal_work_orders: ["from_iwo_id", "to_iwo_id"],
+  },
 };
 
 /* KNOWN GAP, MEASURED 2026-09-11 AND DELIBERATELY NOT CLOSED HERE.

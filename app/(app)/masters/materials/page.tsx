@@ -11,6 +11,7 @@ import { listComponents } from "@/lib/masters/component-service";
 import { listCmtProcesses } from "@/lib/masters/cmt-process-service";
 import { listOutDocumentTerms } from "@/lib/masters/out-document-term-service";
 import { listBins } from "@/lib/masters/bin-service";
+import { listStoresForMaster } from "@/lib/masters/store-master-service";
 import { listGarmentRejectionRules } from "@/lib/masters/garment-rejection-rule-service";
 import { listDefectGroupsSimple } from "@/lib/masters/simple-master-service";
 import { listDefectDetails } from "@/lib/masters/defect-detail-service";
@@ -27,7 +28,7 @@ import { hubMark } from "@/components/masters/hub-icons";
 
 export default async function MaterialsMastersPage() {
   await requirePermission("masters", "view");
-  const [lookups, attributes, levies, materialAttributes, categories, compositions, stockUnits, materials, processes, components, outDocTerms, bins] =
+  const [lookups, attributes, levies, materialAttributes, categories, compositions, stockUnits, materials, processes, components, outDocTerms, bins, stores] =
     await Promise.all([
       listConfigLookups(),
       listAttributes(),
@@ -41,6 +42,8 @@ export default async function MaterialsMastersPage() {
       listComponents(),
       listOutDocumentTerms(),
       listBins(),
+      // The unit's stores (0800). Read under the Stores grant: a user without it counts 0.
+      listStoresForMaster().catch(() => []),
     ]);
   const [rejectionRules, defectGroups, defectDetails, sizeGroups, cmtProcesses] = await Promise.all([
     listGarmentRejectionRules(),
@@ -90,6 +93,7 @@ export default async function MaterialsMastersPage() {
     gauges: counts.get("gauge") ?? 0,
     knitting_dias: counts.get("knitting_dia") ?? 0,
     out_document_terms: outDocTermCount,
+    stores: stores.length,
     bins: binCount,
     garment_rejection_rules: rejectionRules.length,
     defect_groups: defectGroups.length,

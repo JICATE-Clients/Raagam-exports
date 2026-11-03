@@ -29,7 +29,7 @@ function dateLabel(): string {
  * to Team because the login has no staff record, the card does NOT show the
  * team's work as if it were the person's: Nool says why instead.
  */
-export async function WelcomeSection({ user }: { user: AppUser }) {
+export async function WelcomeSection({ user, compact = false }: { user: AppUser; compact?: boolean }) {
   const t = today();
   // Both reads in one round trip. A failed queue read is a dash on the tile,
   // never a 0 — "nothing waiting" is a real answer and must not be faked.
@@ -59,13 +59,14 @@ export async function WelcomeSection({ user }: { user: AppUser }) {
   const note = !data.available
     ? (data.reason ?? undefined)
     : data.autoTeam
-      ? "Your login isn't linked to a staff record yet, so I can't see your own tasks."
+      ? "Link your login to a staff record to see your tasks." // compact (user 2026-11-03)
       : tasks.length === 0 && data.errors.length > 0
         ? "I couldn't load your tasks just now. My Calendar has the full list."
         : undefined;
 
   return (
     <NoolGreeter
+      compact={compact}
       name={user.fullName?.split(" ")[0] ?? "there"}
       dateLabel={dateLabel()}
       today={t}

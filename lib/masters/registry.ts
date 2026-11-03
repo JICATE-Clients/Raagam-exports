@@ -40,7 +40,7 @@ export type CustomChild = {
   label: string;
   singular: string;
   description: string;
-  custom: "item_class" | "attributes" | "levies" | "material_attributes" | "categories" | "stock_units" | "counts" | "yarn_purities" | "compositions" | "materials" | "processes" | "cmt_processes" | "components" | "gauges" | "knitting_dias" | "out_document_terms" | "bins" | "garment_rejection_rules" | "defect_groups" | "defect_details" | "size_groups";
+  custom: "item_class" | "attributes" | "levies" | "material_attributes" | "categories" | "stock_units" | "counts" | "yarn_purities" | "compositions" | "materials" | "processes" | "cmt_processes" | "components" | "gauges" | "knitting_dias" | "out_document_terms" | "stores" | "bins" | "garment_rejection_rules" | "defect_groups" | "defect_details" | "size_groups";
 };
 export type MaterialChild = LookupChild | LinkChild | CustomChild;
 
@@ -71,7 +71,9 @@ export const MATERIALS_CHILDREN: MaterialChild[] = [
   { slug: "gauges", label: "Gauges", singular: "Gauge", description: "Knitting machine gauges", custom: "gauges" },
   { slug: "knitting-dias", label: "Knitting Dias", singular: "Knitting Dia", description: "Knitting diameters", custom: "knitting_dias" },
   { slug: "out-document-terms", label: "Out Document Terms", singular: "Out Document Term", description: "Sub-contract issue terms", custom: "out_document_terms" },
-  { slug: "bins", label: "Bins", singular: "Bin", description: "Storage bin locations", custom: "bins" },
+  // STORES, then the BINS inside them (0800, user 2026-11-03).
+  { slug: "stores", label: "Stores", singular: "Store", description: "Store rooms of your unit, and the prefix their bins number from", custom: "stores" },
+  { slug: "bins", label: "Bins", singular: "Bin", description: "Racks and shelves, each in a store", custom: "bins" },
   { slug: "garment-rejection-rules", label: "Garment Rejection Rules", singular: "Garment Rejection Rule", description: "QC rejection acceptance rules", custom: "garment_rejection_rules" },
   // --- Phase 1: Simple masters (from VB.NET source of truth audit) ---
   { slug: "defect-groups", label: "Defect Groups", singular: "Defect Group", description: "QC defect category groups", custom: "defect_groups" },

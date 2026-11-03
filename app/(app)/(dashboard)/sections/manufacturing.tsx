@@ -1,7 +1,9 @@
 import { getManufacturing } from "@/lib/dashboard/service";
 import type { DashboardCaps, DashboardFilters } from "@/lib/dashboard/types";
-import { StageTile } from "@/components/dashboard/cards";
+import { ProductionFlow } from "@/components/dashboard/production-flow";
+import { CardFooter } from "@/components/dashboard/card-footer";
 import { PanelCard } from "@/components/dashboard/lists";
+import { PeriodSwitch, dashHref, periodWords, type Carry } from "@/components/dashboard/hero";
 
 /**
  * Section 03 — the production stage grid.
@@ -18,8 +20,11 @@ export async function ManufacturingSection({
   filters,
   caps,
   lines,
+  carry,
 }: {
   filters: DashboardFilters;
+  /** The page's query, so the period switch changes only the period. */
+  carry: Carry;
   caps: DashboardCaps;
   /** Lines that entered output today, for the card's header. */
   lines: { reporting: number; active: number } | null;
@@ -27,25 +32,33 @@ export async function ManufacturingSection({
   const stages = (await getManufacturing(filters, caps)).filter((s) => s.data.ok || s.data.reason !== "denied");
   if (stages.length === 0) return null;
 
+  // Nothing recorded? Offer the next wider period, so the empty card has a way forward.
+  const wider =
+    filters.range === "today"
+      ? { href: dashHref({ ...carry, from: undefined, to: undefined }, { range: "week" }), label: "Show this week" }
+      : filters.range === "week"
+        ? { href: dashHref({ ...carry, from: undefined, to: undefined }, { range: "month" }), label: "Show this month" }
+        : null;
+
   return (
     <PanelCard
-      title="Manufacturing"
-      subtitle="Stages recorded today"
+      title="Where is production right now?"
+      // The garment route (plan option A + C, 2026-11-03). The line count moved to the footer:
+      // the subtitle beside the period dropdown is one short phrase.
+      subtitle={`The garment route · ${periodWords(filters)}`}
       icon="factory"
       tone="success"
-      aside={
-        lines ? (
-          <span className="text-[11px] tabular-nums text-muted-foreground">
-            {lines.reporting} of {lines.active} lines today
-          </span>
-        ) : undefined
+      aside={<PeriodSwitch filters={filters} carry={carry} />}
+      footer={
+        <CardFooter
+          facts={lines ? [{ label: "Lines reporting today", value: `${lines.reporting} of ${lines.active}`, tone: "primary" }] : []}
+          href="/production"
+          cta="Production board"
+        />
       }
     >
-      <div className="grid grid-cols-2 gap-1.5 p-3">
-        {stages.map((s) => (
-          <StageTile key={s.key} stage={s} />
-        ))}
-      </div>
+      {/* The route, not eight tiles or piles + a word list: one journey, one picture. */}
+      <ProductionFlow stages={stages} period={periodWords(filters)} widerHref={wider} />
     </PanelCard>
   );
 }

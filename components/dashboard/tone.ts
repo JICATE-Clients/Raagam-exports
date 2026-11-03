@@ -60,6 +60,20 @@ export function toneVar(tone: DashboardTone): string {
   return tone === "muted" ? "var(--muted-foreground)" : `var(--${tone})`;
 }
 
+/**
+ * GRADIENT MARKS (user 2026-11-03, dashboard plan option A: "better coloring, gradient
+ * colors"). Every bar, ring, block and icon well paints its tone as a light → tone → deep
+ * gradient. Mixed from the tone's own token, so it follows every colour preset and dark
+ * mode with no second palette to keep in step. `angle` 180 = top-down (columns, wells),
+ * 90 = left-right (horizontal bars). Colour stays on the MARKS — card grounds stay glass,
+ * as the client has chosen five times.
+ */
+export function toneGrad(tone: DashboardTone | "track", angle = 180): string {
+  if (tone === "track") return "var(--glass-track)";
+  const c = toneVar(tone);
+  return `linear-gradient(${angle}deg, color-mix(in srgb, ${c} 60%, white) 0%, ${c} 55%, color-mix(in srgb, ${c} 78%, black) 100%)`;
+}
+
 /** StatusPill has a narrower vocabulary; fold the extra tones into it. */
 export function toStatusTone(tone: DashboardTone): StatusTone {
   switch (tone) {

@@ -1,7 +1,5 @@
 "use client";
 
-import type { CSSProperties } from "react";
-import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useEditorOpen } from "@/lib/editor-presence";
 import { useAppUser } from "@/lib/auth/permission-context";
@@ -14,7 +12,7 @@ import {
 } from "@/components/navigation/navigation-config";
 import type { PreviewableRole } from "@/lib/auth/role-simulation";
 import { useMenuCollapsed } from "@/components/navigation/menu-collapse";
-import { DOCK_HEIGHT, SidebarDock } from "./sidebar-dock";
+import { SidebarDock } from "./sidebar-dock";
 import type { StoreNavLink } from "./sidebar-types";
 
 export type { StoreNavLink };
@@ -65,50 +63,25 @@ export function Sidebar({
   const withMenu = hasMenu && !menuCollapsed;
 
   return (
-    <div
-      className="hidden h-full shrink-0 flex-col md:flex"
-      // The dock's height, read by the rail (`GlobalSidebar`), whose fixed
-      // panel must end above it — see `SidebarDock`'s DOCK_HEIGHT.
-      style={{ "--dock-h": `${withMenu ? DOCK_HEIGHT.full : DOCK_HEIGHT.compact}px` } as CSSProperties}
-    >
-      {/* THE BRAND ROW SPANS THE WHOLE SIDEBAR (user 2026-10-01: "raagam logo
-          looks squeezed"). The wordmark sat in the module menu's own 48px
-          header at 36px tall, and before that in the 56px rail at 40px wide;
-          across rail + menu (236px) it gets the room to read. Where there is
-          no module menu (Dashboard) the sidebar is only the rail, so the row
-          shows the round mark instead. `h-14` is what the rail's `top-14`
-          flyout opens beneath — change both together. */}
-      {/* CENTRED (user 2026-10-01, screenshot 3181), in both states — the
-          rail's open panel draws a centred twin at the same width. */}
-      <div className="flex h-14 shrink-0 items-center justify-center">
-        {withMenu ? (
-          <Image
-            src="/brand/raagam-wordmark.png"
-            alt="Raagam Exports"
-            width={431}
-            height={184}
-            priority
-            className="h-11 w-auto"
-          />
-        ) : (
-          <Image
-            src="/brand/raagam-mark.png"
-            alt="Raagam Exports"
-            width={1024}
-            height={1024}
-            priority
-            className="h-9 w-9"
-          />
-        )}
-      </div>
-      <div className="flex min-h-0 flex-1">
-        <GlobalSidebar wide={withMenu} menuFolded={hasMenu && menuCollapsed} />
-        {withMenu && <ContextSidebar stores={stores} />}
-      </div>
-      {/* THE DOCK (user 2026-10-01): unit, role preview and account, spanning
-          rail + menu the way the brand row spans the top. Rail-only pages
-          (Dashboard) get the badge alone. */}
-      <SidebarDock previewableRoles={previewableRoles} photoUrl={photoUrl} compact={!withMenu} />
+    /* DIRECTION B (user 2026-11-03, "okay apply the B"): the dark labelled rail
+       runs the full height with the round mark at its head, the module menu
+       stands beside it, and the account dock sits under the MENU. The brand row
+       that spanned rail + menu (2026-10-01) went with the rail's hover panel,
+       whose `top-14` it existed to line up with. A page with no module menu
+       (Dashboard) carries the compact dock at the foot of the rail instead. */
+    <div className="hidden h-full shrink-0 md:flex">
+      <GlobalSidebar
+        menuFolded={hasMenu && menuCollapsed}
+        footer={withMenu ? null : <SidebarDock previewableRoles={previewableRoles} photoUrl={photoUrl} compact />}
+      />
+      {withMenu && (
+        <div className="flex h-full flex-col">
+          <div className="flex min-h-0 flex-1">
+            <ContextSidebar stores={stores} />
+          </div>
+          <SidebarDock previewableRoles={previewableRoles} photoUrl={photoUrl} compact={false} />
+        </div>
+      )}
     </div>
   );
 }

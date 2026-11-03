@@ -27,20 +27,28 @@ export const GLASS_TILE =
  * (a bloom past the right edge scrolls the pane sideways), and a bloom centred
  * on a corner was cut by that clip into a hard-edged blue rectangle behind
  * the greeting (2026-10-29, screenshot 3835).
+ *
+ * THE BLOOMS ARE STILL (2026-11-03, screenshots 4008 · 4010 · 4012). They used to drift,
+ * and every glass card blurs what is behind it — so each frame of drift re-rasterised the
+ * blur under EVERY card. Once the one-screen layout put all the cards in view at once,
+ * Chrome fell behind and left everything below Nool unpainted (the bloom layer showing
+ * through) until a scroll forced it to catch up. A still bloom is blurred once. It was also
+ * motion that meant nothing, which the dashboard's motion rule no longer allows: only live
+ * states keep moving (`dash-*` in globals.css).
  */
 export function GlassBackdrop() {
   return (
     <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
       <span
-        className="absolute left-[12%] top-16 size-[26rem] rounded-full blur-[90px] motion-safe:animate-[glass-drift_16s_ease-in-out_infinite]"
+        className="absolute left-[12%] top-16 size-[26rem] rounded-full blur-[90px]"
         style={{ background: "var(--glass-blob-a)" }}
       />
       <span
-        className="absolute right-[6%] top-[26rem] size-[24rem] rounded-full blur-[90px] motion-safe:animate-[glass-drift_18s_ease-in-out_-6s_infinite]"
+        className="absolute right-[6%] top-[26rem] size-[24rem] rounded-full blur-[90px]"
         style={{ background: "var(--glass-blob-b)" }}
       />
       <span
-        className="absolute bottom-24 left-1/4 h-[22rem] w-[32rem] rounded-full blur-[90px] motion-safe:animate-[glass-drift_20s_ease-in-out_-10s_infinite]"
+        className="absolute bottom-24 left-1/4 h-[22rem] w-[32rem] rounded-full blur-[90px]"
         style={{ background: "var(--glass-blob-c)" }}
       />
     </div>

@@ -4,7 +4,9 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can, getAppUser } from "@/lib/auth/server";
 import { refuseReopenedBudget, refuseUnsettledMaterials } from "@/lib/purchase/bom-ceiling-service";
-import { getRequirementLines, getVendorsForClass, withApprovedBudgets } from "./service";
+import { getRequirementClosures, getRequirementLines, getVendorsForClass, withApprovedBudgets } from "./service";
+import { writeAudit } from "@/lib/audit";
+import type { CloseBalanceLine, RequirementClosure } from "./types";
 import { notifyPoAboveBudget } from "@/lib/purchase/po-escalation";
 import { startApproval } from "@/lib/approvals/actions";
 import { WORKFLOWS } from "@/lib/approvals/workflows";
@@ -486,4 +488,81 @@ export async function savePoFromRequirement(raw: RePoInput, mode: "draft" | "sub
   revalidatePath("/purchase/orders");
   revalidatePath("/purchase/requirement-po");
   return { ok: true, poId: poRow.id, code: poRow.code, status, aboveCount, unbudgetedCount: unbudgeted };
+}
+
+
+/* ---------------------------------------------------------------------------
+ * CLOSE A REQUIREMENT BALANCE (0799, user 2026-11-03). An RE needs 5,261 kg, a
+ * 5,000 kg PO is raised, and the 261 kg left would sit "to order" for ever. The
+ * Purchase Manager closes it with a reason; po_requirement_lines then counts it
+ * like ordered qty, and the cap trigger refuses a PO for it until it is reopened.
+ * MANUAL ONLY: no automatic close at 98% (same day). The database functions do
+ * the permission check and the visibility filter; these add the audit row and
+ * refresh the two screens that show a balance.
+ * ------------------------------------------------------------------------- */
+
+type CloseBalancesResult =
+  | { ok: true; lines: CloseBalanceLine[]; closed: RequirementClosure[] }
+  | { ok: false; error: string };
+
+/** What the Close balances sheet lists for one RE / SWO / IWO. */
+export async function loadCloseBalances(sourceId: string): Promise<CloseBalancesResult> {
+  if (!(await can("materials_purchase", "view"))) return { ok: false, error: "You do not have access to Raise PO" };
+  try {
+    const [lines, closed] = await Promise.all([getRequirementLines([sourceId]), getRequirementClosures([sourceId])]);
+    return {
+      ok: true,
+      lines: lines.map((l) => ({
+        req_key: l.req_key,
+        item: l.item_name,
+        detail: [l.slice_label, l.colour].filter((v) => !!v && v !== l.item_name).join(" · "),
+        uom: l.uom_code,
+        required: l.required_qty,
+        ordered: l.ordered_qty,
+        balance: l.balance_qty,
+      })),
+      closed,
+    };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Could not load the balances" };
+  }
+}
+
+function refreshBalances(sourceId: string) {
+  revalidatePath("/purchase/requirement-po");
+  revalidatePath(`/purchase/requirement-po/${sourceId}/report`);
+}
+
+/** Close the whole remaining balance of one line, with a mandatory reason. */
+export async function closeRequirementBalance(
+  sourceId: string,
+  reqKey: string,
+  reason: string,
+): Promise<{ ok: true; closed: number } | { ok: false; error: string }> {
+  if (!(await can("materials_purchase", "edit"))) return { ok: false, error: "You do not have permission to close a balance" };
+  const why = reason.trim();
+  if (!why) return { ok: false, error: "Enter the reason for closing" };
+  const s = await createClient();
+  const { data, error } = await s.rpc("po_requirement_close", { p_source_id: sourceId, p_req_key: reqKey, p_reason: why });
+  if (error) return { ok: false, error: error.message };
+  const closed = Number(data ?? 0);
+  await writeAudit({
+    action: "po_requirement.balance_closed",
+    entityType: "po_requirement",
+    entityId: sourceId,
+    metadata: { req_key: reqKey, closed_qty: closed, reason: why },
+  });
+  refreshBalances(sourceId);
+  return { ok: true, closed };
+}
+
+/** Undo a close: the balance is to-order again. */
+export async function reopenRequirementBalance(sourceId: string, reqKey: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!(await can("materials_purchase", "edit"))) return { ok: false, error: "You do not have permission to reopen a balance" };
+  const s = await createClient();
+  const { error } = await s.rpc("po_requirement_reopen", { p_source_id: sourceId, p_req_key: reqKey });
+  if (error) return { ok: false, error: error.message };
+  await writeAudit({ action: "po_requirement.balance_reopened", entityType: "po_requirement", entityId: sourceId, metadata: { req_key: reqKey } });
+  refreshBalances(sourceId);
+  return { ok: true };
 }

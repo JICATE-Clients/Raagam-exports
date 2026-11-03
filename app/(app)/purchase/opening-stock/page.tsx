@@ -1,22 +1,34 @@
+import Link from "next/link";
+import { Plus } from "lucide-react";
 import { requirePermission, can } from "@/lib/auth/server";
 import { PageHeader } from "@/components/ui/page-header";
-import { listOpeningStocks, getStoreOptions } from "@/lib/stores/extras-service";
-import { OpeningStockClient } from "./opening-stock-client";
+import { buttonClasses } from "@/components/ui/button";
+import { listOpeningStocks } from "@/lib/stores/opening-stock/service";
+import { OpeningStockList } from "./_components/opening-stock-list";
 
 export default async function OpeningStockPage() {
   await requirePermission("stores", "view");
-  const [rows, stores, canCreate] = await Promise.all([
+  const [rows, canCreate, canEdit, canDelete] = await Promise.all([
     listOpeningStocks(),
-    getStoreOptions(),
     can("stores", "create"),
+    can("stores", "edit"),
+    can("stores", "delete"),
   ]);
   return (
     <div className="space-y-4">
       <PageHeader
         title="Opening Stock"
-        description="Set a store's initial on-hand balances; posting writes adjust-in entries to the ledger."
+        description="Stock already on hand at go-live, counted into a store with its bin, lot and rate."
+        actions={
+          canCreate ? (
+            <Link href="/purchase/opening-stock/new" className={buttonClasses({ size: "md" })}>
+              <Plus className="h-4 w-4" aria-hidden />
+              Add Opening Stock
+            </Link>
+          ) : null
+        }
       />
-      <OpeningStockClient rows={rows} stores={stores} canCreate={canCreate} />
+      <OpeningStockList rows={rows} canEdit={canEdit} canDelete={canDelete} />
     </div>
   );
 }

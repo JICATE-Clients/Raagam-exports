@@ -6,7 +6,7 @@ import { Boxes, Building2 } from "lucide-react";
 import { ReportView } from "@/components/reports/report-view";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { useFacetFilter, type FacetGroup } from "@/components/ui/filter-drawer";
-import { Stat } from "@/components/ui/stat";
+import { StatStrip, type StripGroup } from "@/components/reports/stat-strip";
 import { Button } from "@/components/ui/button";
 import { DATE_MAX, Input } from "@/components/ui/input";
 import { fmtDate, fmtMoney, fmtNumber } from "@/lib/format";
@@ -53,6 +53,10 @@ function facetGroups(): FacetGroup<Row>[] {
           match: (r, v) => r.group_kind === v,
         },
         { key: "customer", label: "Customer / Buyer", value: (r) => (r.customer === "—" ? null : r.customer) },
+        // ORDER NO (user 2026-11-03: "the order no filter is missing, add it in report filter").
+        // Options are the orders whose stock is on this statement; stock held for no order
+        // (general / opening stock, "—") is not an option.
+        { key: "orderNo", label: "Order No", value: (r) => (r.order_no === "—" ? null : r.order_no) },
         { key: "vendor", label: "Vendor", value: (r) => (r.vendor === "—" ? null : r.vendor) },
       ],
     },
@@ -155,72 +159,75 @@ export function StockStatementView({
       : undefined,
   };
 
+  /* THE FIGURES IN ONE STRIP (user 2026-11-03, screenshot 4031: eight tall cards in two
+     rows): the status (or value) group and the age group side by side in one short card. */
+  const statusGroup: StripGroup = withValue
+    ? {
+        title: "Value",
+        cells: [
+          { label: "Yarn Stock Value", value: fmtMoney(sum((r) => isAsset(r) && isClass(r, "YARN"))), hint: "In stores and at processors" },
+          { label: "Fabric / Processing", value: fmtMoney(sum((r) => isAsset(r) && isClass(r, "FABRIC"))), hint: "In hand or out at processors" },
+          { label: "Total Inventory", value: fmtMoney(sum(isAsset)), hint: `${fmtNumber(count(isAsset))} lots` },
+          {
+            label: "Rejected / Replacement",
+            value: fmtMoney(sum((r) => !isAsset(r))),
+            hint: "Owed by vendors — not in the total",
+            tone: count((r) => !isAsset(r)) ? "warning" : "neutral",
+          },
+        ],
+      }
+    : {
+        title: "Lots by status",
+        cells: [
+          { label: "Accepted", value: fmtNumber(count((r) => r.status === "accepted")), tone: "success" },
+          { label: "Rejected", value: fmtNumber(count((r) => r.status === "rejected")), tone: "danger" },
+          { label: "Replacement", value: fmtNumber(count((r) => r.status === "replacement")), tone: "warning" },
+          { label: "At Processor / In Transit", value: fmtNumber(count((r) => r.status === "processing" || r.status === "transit")) },
+        ],
+      };
+  const ageGroup: StripGroup = {
+    title: "Lots by age",
+    cells: AGE_BANDS.map((b) => {
+      const n = count((r) => r.band === b);
+      return {
+        label: `${b} days`,
+        value: fmtNumber(n),
+        hint: withValue ? fmtMoney(sum((r) => r.band === b && isAsset(r))) : undefined,
+        tone: b === "90+" && n ? "danger" : b === "61-90" && n ? "warning" : "neutral",
+      };
+    }),
+  };
+
   return (
-    <div className="space-y-4">
-      {/* As-on date: a plain GET, so the URL is the report and a past date is shareable. */}
-      <form method="get" className="flex flex-wrap items-end gap-2">
-        <label className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">Stock as on</span>
-          <Input type="date" name="asOf" max={DATE_MAX} defaultValue={asOf} className="w-40" />
-        </label>
-        <Button type="submit" variant="outline">
-          Show
-        </Button>
-      </form>
+    <div className="space-y-3">
+      <StatStrip groups={[statusGroup, ageGroup]} />
 
-      {withValue ? (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Stat label="Yarn Stock Value" value={fmtMoney(sum((r) => isAsset(r) && isClass(r, "YARN")))} hint="In stores and at processors" />
-          <Stat
-            label="Fabric / Processing Value"
-            value={fmtMoney(sum((r) => isAsset(r) && isClass(r, "FABRIC")))}
-            hint="In hand or out at processors"
+      {/* ONE CONTROL ROW (user 2026-11-03): the as-on date, the search and Filters on the
+          left of Download / Print — three bands above the table were one too many. */}
+      <ReportView
+        config={config}
+        getKey={(r) => r.key}
+        empty="No stock on hand for this unit on this date."
+        controls={
+          <FilterBar
+            search={search}
+            onSearch={setSearch}
+            searchPlaceholder="Search Order No, PO No, GRN, item or lot…"
+            activeCount={facets.activeCount}
+            onReset={facets.activeCount ? facets.reset : undefined}
+            panel={facets.panel}
+            leading={
+              /* As-on date: a plain GET, so the URL is the report and a past date is shareable. */
+              <form method="get" className="flex items-center gap-2">
+                <Input type="date" name="asOf" aria-label="Stock as on" title="Stock as on" max={DATE_MAX} defaultValue={asOf} className="w-40" />
+                <Button type="submit" variant="outline">
+                  Show
+                </Button>
+              </form>
+            }
           />
-          <Stat label="Total Inventory Value" value={fmtMoney(sum(isAsset))} hint={`${fmtNumber(count(isAsset))} lots`} />
-          <Stat
-            label="Rejected / Replacement"
-            value={fmtMoney(sum((r) => !isAsset(r)))}
-            hint="Owed by vendors — not in the total"
-            tone={count((r) => !isAsset(r)) ? "warning" : "neutral"}
-          />
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <Stat label="Accepted" value={`${fmtNumber(count((r) => r.status === "accepted"))} lots`} tone="success" />
-          <Stat label="Rejected" value={`${fmtNumber(count((r) => r.status === "rejected"))} lots`} tone="danger" />
-          <Stat label="Replacement" value={`${fmtNumber(count((r) => r.status === "replacement"))} lots`} tone="warning" />
-          <Stat
-            label="At Processor / In Transit"
-            value={`${fmtNumber(count((r) => r.status === "processing" || r.status === "transit"))} lots`}
-          />
-        </div>
-      )}
-
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {AGE_BANDS.map((b) => {
-          const n = count((r) => r.band === b);
-          return (
-            <Stat
-              key={b}
-              label={`${b} days`}
-              value={`${fmtNumber(n)} lots`}
-              hint={withValue ? fmtMoney(sum((r) => r.band === b && isAsset(r))) : undefined}
-              tone={b === "90+" && n ? "danger" : b === "61-90" && n ? "warning" : "neutral"}
-            />
-          );
-        })}
-      </div>
-
-      <FilterBar
-        search={search}
-        onSearch={setSearch}
-        searchPlaceholder="Search Order No, PO No, GRN, item or lot…"
-        activeCount={facets.activeCount}
-        onReset={facets.activeCount ? facets.reset : undefined}
-        panel={facets.panel}
+        }
       />
-
-      <ReportView config={config} getKey={(r) => r.key} empty="No stock on hand for this unit on this date." />
 
       <ul className="space-y-0.5 text-xs text-muted-foreground">
         <li>

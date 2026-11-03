@@ -218,6 +218,11 @@ export function RequirementPoForm({
     seed?.orderIds?.length ? seed.orderIds : initialOrderId ? [initialOrderId] : [],
   );
   const [filters, setFilters] = useState<FilterState>(() => ({ ...NO_FILTERS, ...seed?.filters }));
+  /* OPENED FROM ONE RE NUMBER, THE RAIL SHOWS THAT RE (user 2026-11-03, screenshot 4013: clicking
+     HO/RE/26-27/0013 still listed HO/RE/26-27/0015 under "More orders"). The other orders stay one
+     click away ("+ Add another order") — one PO may still carry several REs. Opened from the Raise PO
+     button, where the operator is choosing orders, the whole list shows as before. */
+  const [showMoreOrders, setShowMoreOrders] = useState(!initialOrderId);
   const [vendorPick, setVendorPick] = useState("");
   const [poType, setPoType] = useState<"local" | "import">("local");
   const [currency, setCurrency] = useState<string>("USD");
@@ -2058,7 +2063,8 @@ export function RequirementPoForm({
   const leadNote = vendor
     ? `Ship date − ${vendor.lead_days ?? 0} d lead (${vendor.name}) − ${INSPECTION_DAYS} d inspection`
     : `Ship date − slowest vendor's ${leadDays} d lead − ${INSPECTION_DAYS} d inspection`;
-  const shown = visible.ticked.length + visible.rest.length;
+  // The rail's count is what it SHOWS — "More orders" folded away is not counted.
+  const shown = visible.ticked.length + (showMoreOrders || !visible.ticked.length ? visible.rest.length : 0);
 
   const sectionLabel = (text: ReactNode) => (
     <div className="flex h-6 items-center border-b border-[#dde4eb] bg-[#f5f7f9] px-2.5 text-[10.5px] font-semibold tracking-wide text-muted-foreground uppercase">
@@ -2453,10 +2459,20 @@ export function RequirementPoForm({
                                   ) : null}
                                 </button>
                               ) : null}
-                              {visible.rest.length ? sectionLabel("More orders") : null}
+                              {visible.rest.length && showMoreOrders ? sectionLabel("More orders") : null}
                             </>
                           ) : null}
-                          {visible.rest.map(orderRow)}
+                          {showMoreOrders || !visible.ticked.length ? (
+                            visible.rest.map(orderRow)
+                          ) : visible.rest.length ? (
+                            <button
+                              type="button"
+                              onClick={() => setShowMoreOrders(true)}
+                              className="flex h-8 w-full items-center px-2.5 text-left text-xs font-semibold text-[#037bb8] hover:bg-[#eef4f9] hover:underline"
+                            >
+                              + Add another order
+                            </button>
+                          ) : null}
                           {shown === 0 ? (
                             <div className="px-3 py-4 text-sm text-muted-foreground">
                               {facts.length === 0 ? (

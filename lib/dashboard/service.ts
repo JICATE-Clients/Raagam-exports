@@ -677,6 +677,7 @@ export async function getManufacturing(
           state: totalQty > 0 ? fmtPct(yieldPct, 0) : "No output",
           tone: totalQty === 0 ? "muted" : yieldPct >= 97 ? "success" : yieldPct >= 92 ? "warning" : "danger",
           pct: totalQty > 0 ? Math.round(yieldPct) : 0,
+          pieces: { good: v.good, reject: v.reject },
         },
       },
     };
