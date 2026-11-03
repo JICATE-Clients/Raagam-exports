@@ -142,7 +142,6 @@ export const HUB_COUNT_TABLES: Record<string, string | null> = {
   "/planning/budgets": null, // status:"unavailable" — table dropped by 0332, screen cannot count
 
   // -------------------------------------------------------------- purchase
-  "/purchase/orders": "purchase_orders",
   "/purchase/rfq": "rfqs",
   "/purchase/indents": "purchase_indents",
   "/purchase/grn": "grns",

@@ -25,7 +25,7 @@ import {
   type CostingStatus,
   type RevisionRow,
 } from "./types";
-import { getQuoteExchangeRate, getSampleCostingRecord } from "./service";
+import { getCostingRevisionSources, getQuoteExchangeRate, getSampleCostingRecord } from "./service";
 import { revisionForCosting } from "@/lib/sales/sample-revisions/service";
 
 type SaveResult = { ok: true; id: string; code: string | null; version: number } | { ok: false; error: string };
@@ -112,22 +112,25 @@ export async function loadSampleCosting(
   try {
     const record = await getSampleCostingRecord(id);
     if (!record) return { ok: false, error: "This costing no longer exists." };
-    let revisions: RevisionRow[] = [
-      { id: record.id, version: record.version, status: record.status, target_fob: null, currency_code: record.draft.header.currency_code },
-    ];
-    if (record.code) {
-      const s = await createClient();
-      const { data, error } = await s
-        .from("cost_sheets")
-        .select("id, version, status, target_fob, currency_code")
-        .eq("code", record.code)
-        .order("version", { ascending: true });
-      if (error) return { ok: false, error: error.message };
-      revisions = ((data ?? []) as (Omit<RevisionRow, "target_fob"> & { target_fob: number | string | null })[]).map((r) => ({
-        ...r,
-        target_fob: r.target_fob == null ? null : Number(r.target_fob),
-      }));
-    }
+    /* The SAME loader the Reports page reads its history from, so the editor's
+       Revisions tab and the report cannot disagree. It throws on a failed read
+       (caught below) rather than answering "never revised". */
+    const sources: RevisionRow[] = record.code ? await getCostingRevisionSources(record.code) : [];
+    const revisions: RevisionRow[] = sources.length
+      ? sources
+      : [
+          {
+            id: record.id,
+            version: record.version,
+            status: record.status,
+            target_fob: null,
+            currency_code: record.draft.header.currency_code,
+            is_draft: record.is_draft,
+            costing_date: null,
+            computed_fob: null,
+            profit_loss_pct: null,
+          },
+        ];
     return { ok: true, record, revisions };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Could not load the costing." };

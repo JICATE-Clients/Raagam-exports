@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Sheet, type SheetOrigin } from "@/components/ui/sheet";
 import { SubSheetFooter } from "@/components/orders/sub-sheet-footer";
 import { Select } from "@/components/ui/select";
@@ -28,7 +28,18 @@ import { binBalance, pickedBins, splitBinsProblem, type SplitRow } from "@/lib/p
  */
 
 export type StoreOption = { id: string; name: string };
-type BinOption = { id: string; code: string; description?: string | null; inactive?: boolean };
+type BinOption = { id: string; code: string; description?: string | null; inactive?: boolean; store_id?: string | null };
+
+/**
+ * THE BIN LIST FOLLOWS THE STORE (0800, user 2026-11-03: "the Bin dropdown displays only
+ * the bins mapped to that selected Store"). Every bin now belongs to a store, so stock can
+ * never be put in a rack of a different store room. A bin the line ALREADY holds stays
+ * offered even if it sits elsewhere, so an old record's value is never blanked (the same
+ * rule as a disabled master row, AGENTS.md "Disabled rows").
+ */
+function binsOfStore(bins: BinOption[], storeId: string, keep: string[]): BinOption[] {
+  return bins.filter((b) => b.store_id === storeId || keep.includes(b.id));
+}
 
 export type BinRowsProps<T extends SplitRow> = {
   /** Names the line in every label ("Bin 1, 24'S BCI COTTON"). */
@@ -43,7 +54,7 @@ export type BinRowsProps<T extends SplitRow> = {
   bins: BinOption[];
   canCreateBin?: boolean;
   /** A bin made from the picker's "+ Add" — the caller adds it to its list. */
-  onBinCreated?: (bin: { id: string; code: string }) => void;
+  onBinCreated?: (bin: { id: string; code: string; store_id: string | null }) => void;
   /** False where the screen draws its own Store field (Pending QC's is mandatory). */
   showStore?: boolean;
 };
@@ -66,6 +77,7 @@ export function BinRowsEditor<T extends SplitRow>({
   const problem = splitBinsProblem(rows, accepted);
   const picked = pickedBins(rows);
   const u = uom ? ` ${uom}` : "";
+  const storeBins = binsOfStore(bins, storeId, picked.map((x) => x.binId));
   return (
     <div className="space-y-2">
       {showStore ? (
@@ -94,7 +106,8 @@ export function BinRowsEditor<T extends SplitRow>({
               <BinPicker
                 label={`Bin ${i + 1}, ${description}`}
                 className="min-w-0"
-                bins={bins}
+                bins={storeBins}
+                storeId={storeId || null}
                 value={b.binId}
                 canCreate={canCreateBin}
                 usedIds={picked.map((x) => x.binId)}
@@ -158,17 +171,183 @@ function summary<T extends SplitRow>(p: BinRowsProps<T>): string {
  * (`data-field-trigger`: Tab stops here, ↓ opens) whose value is what it opens
  * (`data-enter-opens`: Enter opens rather than stepping past — file-attachments.tsx).
  */
-export function StoreBinCell<T extends SplitRow>(props: BinRowsProps<T> & { id?: string; parent?: string }) {
+export function StoreBinCell<T extends SplitRow>(
+  props: BinRowsProps<T> & {
+    id?: string;
+    parent?: string;
+    /**
+     * STORE AND BIN RIGHT IN THE ROW (user 2026-11-03, via the GRN session): the Store
+     * select over the Bin picker, the Bin list only that store's bins, instead of one
+     * pop-up button that truncated to "Material Store · n…". Stacked, not side by side:
+     * the column stays 144px so the GRN grid keeps its 896px switch (two boxes side by
+     * side need ~210). A "Split bins…" link opens the same pop-up; a line already split
+     * across several bins shows the pop-up button as before.
+     */
+    inline?: boolean;
+  },
+) {
+  const problem = splitBinsProblem(props.rows, props.accepted);
+  const picked = pickedBins(props.rows);
+  const first = props.rows[0];
+  const inline = !!props.inline && picked.length <= 1 && !!first;
   return (
     <StoreBinTrigger
       id={props.id}
       text={summary(props)}
-      problem={splitBinsProblem(props.rows, props.accepted)}
+      problem={problem}
       description={props.description}
       parent={props.parent ?? "GRN"}
+      opener={
+        inline
+          ? (openSheet) => (
+              <div className="grid gap-1">
+                <Select
+                  id={props.id}
+                  aria-label={`Store, ${props.description}`}
+                  className="h-8"
+                  value={props.storeId}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    props.onStore(next);
+                    // The bin held must be in the new store, or it goes (0800).
+                    const held = first.binId ? props.bins.find((b) => b.id === first.binId) : null;
+                    if (held && held.store_id !== next) props.onRow(first.key, { binId: "" });
+                  }}
+                >
+                  {props.stores.length === 0 ? <option value="">No store in this unit</option> : null}
+                  {props.stores.map((st) => (
+                    <option key={st.id} value={st.id}>
+                      {st.name}
+                    </option>
+                  ))}
+                </Select>
+                <BinPicker
+                  label={`Bin, ${props.description}`}
+                  className="min-w-0"
+                  bins={binsOfStore(props.bins, props.storeId, first.binId ? [first.binId] : [])}
+                  storeId={props.storeId || null}
+                  value={first.binId}
+                  canCreate={props.canCreateBin}
+                  onChange={(v) => props.onRow(first.key, { binId: v })}
+                  onCreated={(nb) => {
+                    props.onBinCreated?.(nb);
+                    props.onRow(first.key, { binId: nb.id });
+                  }}
+                />
+                {/* button-shape: exempt -- an inline text link opening the bin-split pop-up */}
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  className="justify-self-start text-[11px] text-primary hover:underline"
+                  onClick={(e) => openSheet(e.currentTarget.getBoundingClientRect())}
+                >
+                  Split bins…
+                </button>
+              </div>
+            )
+          : undefined
+      }
     >
       <BinRowsEditor {...props} />
     </StoreBinTrigger>
+  );
+}
+
+/**
+ * BIN · QTY, RIGHT IN THE ROW — NO STORE (user 2026-11-03, GRN entry: "Store · Bin rename the
+ * field as Bin, no need to ask store details again, just list the bin and qty field inside …
+ * no need the first bin auto-consume, allow it as user entry, just list bin near qty field").
+ * The store is the GRN's Received Store (the header), so the line asks only WHERE in it: one
+ * row per bin, the Bin picker (that store's bins, 0800) with its Qty box beside it. Nothing is
+ * pre-filled — the operator types each bin's qty — and a blank bin row waits under the picked
+ * ones while they hold less than the accepted qty (`withTailBin(…, false)`). The bins must
+ * still hold the accepted qty exactly (`splitBinsProblem`, re-checked by grn_post).
+ */
+export function BinQtyCell<T extends SplitRow>({
+  description,
+  storeId,
+  rows,
+  onRow,
+  accepted,
+  uom,
+  bins,
+  canCreateBin = false,
+  onBinCreated,
+}: Omit<BinRowsProps<T>, "stores" | "onStore" | "showStore">) {
+  const balance = binBalance(rows, accepted);
+  const problem = splitBinsProblem(rows, accepted);
+  const picked = pickedBins(rows);
+  const u = uom ? ` ${uom}` : "";
+  const storeBins = binsOfStore(bins, storeId, picked.map((x) => x.binId));
+  const rootRef = useRef<HTMLDivElement>(null);
+  /** Enter on the LAST bin's Qty with qty still left: ask for the next bin row (bin-split.ts
+   *  `more`) and land in its Bin box. Otherwise Enter does what it always does — moves on. */
+  const askMore = (e: KeyboardEvent<HTMLInputElement>, key: string, isLast: boolean) => {
+    if (e.key !== "Enter" || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (!isLast || balance <= 0 || !(Number(e.currentTarget.value) > 0)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    onRow(key, { more: true });
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        const tail = rootRef.current?.querySelector<HTMLElement>("[data-bin-tail] input, [data-bin-tail] [role='combobox']");
+        tail?.focus();
+      }),
+    );
+  };
+  return (
+    <div ref={rootRef} className="grid gap-1">
+      {rows.map((b, i) => {
+        const isTail = !b.binId && picked.length > 0;
+        const isLastPicked = !!b.binId && b.key === picked[picked.length - 1]?.key;
+        return (
+          <div
+            key={b.key}
+            data-bin-tail={isTail || undefined}
+            className="grid grid-cols-[minmax(0,1fr)_4.5rem] items-center gap-1"
+          >
+            <BinPicker
+              label={`Bin ${i + 1}, ${description}`}
+              className="min-w-0"
+              bins={storeBins}
+              storeId={storeId || null}
+              value={b.binId}
+              canCreate={canCreateBin}
+              usedIds={picked.map((x) => x.binId)}
+              invalid={isTail && balance > 0}
+              onChange={(v) => onRow(b.key, { binId: v })}
+              onCreated={(nb) => {
+                onBinCreated?.(nb);
+                onRow(b.key, { binId: nb.id });
+              }}
+            />
+            {b.binId ? (
+              <Input
+                type="number"
+                min={0}
+                inputMode="decimal"
+                aria-label={`Bin ${i + 1} qty, ${description}`}
+                placeholder="Qty"
+                className="h-8 text-right tabular-nums"
+                aria-invalid={problem ? true : undefined}
+                value={b.qty}
+                onChange={(e) => onRow(b.key, { qty: e.target.value, typed: true })}
+                onKeyDown={(e) => askMore(e, b.key, isLastPicked)}
+              />
+            ) : (
+              <span className="text-right text-[11px] tabular-nums text-muted-foreground">
+                {isTail && balance > 0 ? `${fmtNumber(balance)}${u} left` : ""}
+              </span>
+            )}
+          </div>
+        );
+      })}
+      {problem && picked.some((r) => r.typed) ? (
+        <p className="text-[11px] text-danger" role="alert">
+          {problem}
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -211,7 +390,7 @@ export function StoreBinPickCell({
   binId: string;
   onBin: (id: string) => void;
   canCreateBin?: boolean;
-  onBinCreated?: (bin: { id: string; code: string }) => void;
+  onBinCreated?: (bin: { id: string; code: string; store_id: string | null }) => void;
   note?: ReactNode;
 }) {
   const store = stores ? (stores.find((s) => s.id === storeId)?.name ?? "No store") : null;
@@ -237,7 +416,8 @@ export function StoreBinPickCell({
           <span className="text-xs font-medium text-muted-foreground">Bin</span>
           <BinPicker
             label={`Bin, ${description}`}
-            bins={bins}
+            bins={binsOfStore(bins, storeId, binId ? [binId] : [])}
+            storeId={storeId || null}
             value={binId}
             canCreate={canCreateBin}
             onChange={onBin}
@@ -265,6 +445,7 @@ function StoreBinTrigger({
   parent,
   note,
   children,
+  opener,
 }: {
   id?: string;
   text: string;
@@ -273,11 +454,19 @@ function StoreBinTrigger({
   parent: string;
   note?: ReactNode;
   children: ReactNode;
+  /** Replaces the one-line button with the caller's own controls; it is handed the
+   *  function that opens the same sheet (the GRN's inline Store / Bin + "Split bins…"). */
+  opener?: (openSheet: (rect: DOMRect) => void) => ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const [origin, setOrigin] = useState<SheetOrigin | null>(null);
+  const openSheet = (rect: DOMRect) => {
+    setOrigin(rect);
+    setOpen(true);
+  };
   return (
     <div className="grid gap-0.5">
+      {opener ? opener(openSheet) : (
       <button
         type="button"
         id={id}
@@ -301,6 +490,7 @@ function StoreBinTrigger({
       >
         <Truncated text={text} className="min-w-0" />
       </button>
+      )}
       {problem ? <span className="text-[11px] text-danger">{problem}</span> : null}
       {note ? <span className="text-[11px] tabular-nums text-muted-foreground">{note}</span> : null}
       <Sheet

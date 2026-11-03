@@ -160,6 +160,7 @@ import {
 import { offeredSizes } from "@/lib/sales/sample-costing/style-sizes";
 import { newWeightRows, releaseCalculatedQuotes, weightsForFabrics } from "@/lib/sales/sample-costing/revision-draft";
 import { buildCostSheetModel } from "@/lib/sales/sample-costing/cost-sheet";
+import { buildRevisionHistory } from "@/lib/sales/sample-costing/revision-history";
 import { CostSheetDocument } from "@/components/sales/cost-sheet-document";
 import type { EditOptions } from "@/components/sales/cost-sheet-editors";
 
@@ -1412,6 +1413,10 @@ export function SampleCostingScreen({
     },
     { enquiries: data.enquiries, styles: data.styles, components: data.components, trims: data.trims, quoteRates: data.quoteRates },
     letterhead,
+    /* The Revisions tab (2026-11-03): built from the same rows and the same
+       `buildRevisionHistory` as the Reports page. Omitting it is what made the
+       editor's tab read "This is the first revision" on a Rev 4 costing. */
+    buildRevisionHistory(revisions, editId ?? ""),
   );
   /** The masters the tables' row pickers list: live rows only (AGENTS.md "Disabled rows"). */
   const liveOpts = <T extends { id: string; name: string } & Deactivatable>(xs: readonly T[]) =>

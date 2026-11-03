@@ -2,8 +2,9 @@
 
 import { useMemo, useState, type ComponentProps } from "react";
 import { useRouter } from "next/navigation";
-import { FileText, Layers, LayoutGrid, Tag, User } from "lucide-react";
+import { FileText, Layers, LayoutGrid, Lock, Tag, User } from "lucide-react";
 import { MasterListShell } from "@/components/masters/master-list-shell";
+import { CloseBalanceSheet } from "./close-balance-sheet";
 import { StatusSegment, type QuickCounts, type QuickWord } from "@/components/orders/bom-queue";
 import type { Column } from "@/components/ui/data-table";
 import { FilterPill, type FilterPillOption } from "@/components/ui/filter-pill";
@@ -119,6 +120,9 @@ export function RaisePoScreen({ raised, form }: { raised: RaisedPo[]; form: Form
   const [lf, setLf] = useState<ListFilters>(NO_LIST_FILTERS);
   /** What the editor opens with — set by the pencil or the Raise PO button. */
   const [seed, setSeed] = useState<ComponentProps<typeof RequirementPoForm>["seed"]>(undefined);
+  /** CLOSE BALANCES (0799): the pending row whose sheet is open. Above the editor's early
+   *  return, with every other hook (AGENTS.md "Hooks above every early return"). */
+  const [closingSource, setClosingSource] = useState<{ id: string; no: string } | null>(null);
   /** The lines the filter row leaves — Pending is built from these. */
   const shownLines = useMemo(() => lines.filter((l) => linePasses(l, lf)), [lines, lf]);
 
@@ -354,6 +358,13 @@ export function RaisePoScreen({ raised, form }: { raised: RaisedPo[]; form: Form
       ];
 
   return (
+    <>
+    <CloseBalanceSheet
+      key={closingSource?.id ?? "closed"}
+      source={closingSource}
+      onClose={() => setClosingSource(null)}
+      onChanged={() => router.refresh()}
+    />
     <MasterListShell<Row>
       rows={shown}
       filterPanel={isPendingView ? filterPanel : undefined}
@@ -394,6 +405,12 @@ export function RaisePoScreen({ raised, form }: { raised: RaisedPo[]; form: Form
                   icon: FileText,
                   onClick: () => router.push(`/purchase/requirement-po/${r.id}/report`),
                 },
+                {
+                  // CLOSE A BALANCE NOT TO BE BOUGHT (0799, user 2026-11-03), with a reason.
+                  label: "Close balances",
+                  icon: Lock,
+                  onClick: () => setClosingSource({ id: r.id, no: r.no }),
+                },
               ]
             : [
                 {
@@ -424,5 +441,6 @@ export function RaisePoScreen({ raised, form }: { raised: RaisedPo[]; form: Form
         onEdit: open,
       }}
     />
+    </>
   );
 }

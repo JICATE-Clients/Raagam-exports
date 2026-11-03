@@ -6,7 +6,15 @@ export const STORE_TYPES = [
   "material",
   "rejection",
   "surplus",
+  // In Transit (0784) was missing here though the database had it since then.
+  "transit",
+  // STORAGE (0800, user 2026-11-03): Yarn Store, Fabric Store … a store the system never
+  // routes stock into by itself. The six above are one per unit (database index).
+  "storage",
 ] as const;
+
+/** The types the system looks up as "the unit's <type> store" — one each per unit. */
+export const SYSTEM_STORE_TYPES: readonly StoreType[] = ["purchase", "processing", "material", "rejection", "surplus", "transit"];
 export type StoreType = (typeof STORE_TYPES)[number];
 
 export const STORE_TYPE_LABELS: Record<StoreType, string> = {
@@ -15,6 +23,8 @@ export const STORE_TYPE_LABELS: Record<StoreType, string> = {
   material: "Material Store",
   rejection: "Rejection Store",
   surplus: "Surplus Store",
+  transit: "In Transit",
+  storage: "Storage",
 };
 
 export const MOVEMENT_TYPES = [

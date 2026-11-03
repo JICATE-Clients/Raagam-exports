@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { TriangleAlert } from "lucide-react";
+import { ChevronDown, TriangleAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { SEG_IDLE, SEG_ITEM, SEG_LIT, SEG_TRACK } from "@/components/ui/segmented";
@@ -40,7 +40,7 @@ export function dashHref(carry: Carry, set: Carry = {}): string {
  * "Custom" opens on this month to date — the dates the operator most often
  * narrows from — and the toolbar's date form takes it from there.
  */
-export function RangeTabs({ current, carry }: { current: DashboardRange; carry: Carry }) {
+export function RangeTabs({ current, carry, compact = false }: { current: DashboardRange; carry: Carry; compact?: boolean }) {
   const t = today();
   const href = (range: DashboardRange) =>
     range === "custom"
@@ -50,7 +50,7 @@ export function RangeTabs({ current, carry }: { current: DashboardRange; carry: 
   return (
     /* The one-shape rule (user 2026-10-06): the words are `<Link>`s, so the
        SEG_* strings rather than `ToggleGroup`. */
-    <div role="group" aria-label="Reporting period" data-segmented="" className={SEG_TRACK}>
+    <div role="group" aria-label="Reporting period" data-segmented="" className={cn(SEG_TRACK, compact && "h-8 text-[11px]")}>
       {DASHBOARD_RANGES.map((r) => {
         const active = r === current;
         return (
@@ -58,7 +58,7 @@ export function RangeTabs({ current, carry }: { current: DashboardRange; carry: 
             key={r}
             href={href(r)}
             aria-current={active ? "true" : undefined}
-            className={cn(SEG_ITEM, active ? SEG_LIT : SEG_IDLE)}
+            className={cn(SEG_ITEM, compact && "px-2", active ? SEG_LIT : SEG_IDLE)}
           >
             {RANGE_LABELS[r]}
           </Link>
@@ -171,5 +171,67 @@ export function DashboardToolbar({
       <AutoRefresh />
       {aside ? <div className="ml-auto min-w-0">{aside}</div> : null}
     </Card>
+  );
+}
+
+/** "today" / "this week" / "this month" / the custom dates — for a subtitle that follows the period. */
+export function periodWords(f: DashboardFilters): string {
+  if (f.range === "today") return "today";
+  if (f.range === "week") return "this week";
+  if (f.range === "month") return "this month";
+  return windowLabel(f);
+}
+
+/**
+ * THE PERIOD, ON THE CARDS IT CHANGES (user 2026-11-03, dashboard plan "The period bar",
+ * option A). It changes only the Production card and the Top buyers tab, so each carries it.
+ * Both are links on the same `range` query: picking on one changes the other.
+ *
+ * ONE DROPDOWN, NOT FOUR BUTTONS (same day, production card option A: "This week ▾"): four
+ * segmented words beside a long subtitle crowded the header. A native `<details>` opens the
+ * list with no client code; `key` on the period remounts it, so it closes once a choice
+ * navigates. Custom shows its dates as the label and the From / To form inside the list.
+ */
+export function PeriodSwitch({ filters, carry }: { filters: DashboardFilters; carry: Carry }) {
+  const custom = filters.range === "custom";
+  const hidden = Object.entries(carry).filter(
+    (e): e is [string, string] => !!e[1] && e[0] !== "from" && e[0] !== "to" && e[0] !== "range",
+  );
+  const t = today();
+  const href = (range: DashboardRange) =>
+    range === "custom"
+      ? dashHref(carry, { range, from: carry.from ?? startOfMonth(t), to: carry.to ?? t })
+      : dashHref({ ...carry, from: undefined, to: undefined }, { range });
+  const word = (r: DashboardRange) => (r === "today" ? "Today" : r === "week" ? "This week" : r === "month" ? "This month" : "Custom dates");
+  return (
+    <details key={`${filters.range}-${filters.from ?? ""}-${filters.to ?? ""}`} className="group/period relative shrink-0">
+      <summary
+        aria-label="Reporting period"
+        className="flex h-8 cursor-pointer list-none items-center gap-1 whitespace-nowrap rounded-control border border-border bg-surface px-2.5 text-[11.5px] font-semibold tabular-nums text-primary hover:bg-surface-muted [&::-webkit-details-marker]:hidden"
+      >
+        {custom ? windowLabel(filters) : word(filters.range)}
+        <ChevronDown className="size-3.5 transition-transform group-open/period:rotate-180" aria-hidden />
+      </summary>
+      <div className="absolute right-0 top-full z-30 mt-1 grid min-w-[10rem] gap-0.5 rounded-xl border border-border bg-surface p-1 shadow-elev">
+        {DASHBOARD_RANGES.map((r) => (
+          <Link
+            key={r}
+            href={href(r)}
+            aria-current={r === filters.range ? "true" : undefined}
+            className={cn(
+              "rounded-lg px-2.5 py-1.5 text-xs",
+              r === filters.range ? "bg-primary-soft font-semibold text-primary" : "text-foreground hover:bg-surface-muted",
+            )}
+          >
+            {word(r)}
+          </Link>
+        ))}
+        {custom && (
+          <div className="mt-1 border-t border-border px-1 pt-2">
+            <CustomRangeForm from={filters.from} to={filters.to} hidden={hidden} />
+          </div>
+        )}
+      </div>
+    </details>
   );
 }

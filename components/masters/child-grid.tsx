@@ -1390,9 +1390,14 @@ export type ChildGridTotal<T> =
  * like a broken grid, and gives no clue that a width comparison is what failed.
  * The built-ins are always generated and each has a number a reader can check.
  */
-export type TableFrom = "5xl" | "6xl" | "7xl";
+export type TableFrom = "4xl" | "5xl" | "6xl" | "7xl";
 
 const TABLE_FROM: Record<TableFrom, { px: number; show: string; hide: string; hug: string }> = {
+  /* 4xl (user 2026-11-03, screenshot 4022, GRN "width issue … again again"): for a grid that
+     shares its pane with a side rail. GRN's lines sit beside the 11.5rem PO rail and get ~990px
+     at the operator's 125% zoom — under 5xl's 1024, so the table fell to stacked cards. A grid
+     using it must sum to ≤ 896 including chrome; say the arithmetic at the call site. */
+  "4xl": { px: 896, show: "@4xl:block", hide: "@4xl:hidden", hug: "@4xl:w-fit" },
   "5xl": { px: 1024, show: "@5xl:block", hide: "@5xl:hidden", hug: "@5xl:w-fit" },
   "6xl": { px: 1152, show: "@6xl:block", hide: "@6xl:hidden", hug: "@6xl:w-fit" },
   "7xl": { px: 1280, show: "@7xl:block", hide: "@7xl:hidden", hug: "@7xl:w-fit" },

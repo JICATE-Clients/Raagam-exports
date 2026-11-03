@@ -330,7 +330,6 @@ export const SECTION_ACTIONS: Record<string, string[]> = {
   "/orders/ta-plan": ["New TA Plan"],
   "/orders/ta-completion": ["New TA Completion"],
 
-  "/purchase/orders": ["New PO", "Import"],
   "/purchase/rfq": ["New RFQ"],
   "/purchase/grn": ["New GRN"],
   "/purchase/dc": ["New Delivery Challan"],

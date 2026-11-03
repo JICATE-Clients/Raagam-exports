@@ -139,7 +139,7 @@ export default async function GrnDetailPage({
           { label: "Vendor", value: grn.vendors?.name ?? "—" },
           // PLACE OF DELIVERY + VEHICLE (0792).
           {
-            label: "Place of Delivery",
+            label: "Received Store",
             value: (grn as { delivery_kind?: string | null }).delivery_kind === "direct" ? "Direct to processor" : "Our store",
           },
           (grn as { vehicle_ref?: string | null }).vehicle_ref

@@ -4,7 +4,7 @@ import { withCreators } from "@/lib/created-by";
 import { isInactive, type Deactivatable } from "@/lib/masters/inactive";
 import { creatorName } from "@/components/ui/created-columns";
 import type { DraftHold } from "./filters";
-import { lineKeyOf, type ClassVendor, type RaisedPo, type RequirementLine } from "./types";
+import { lineKeyOf, type ClassVendor, type RaisedPo, type RequirementClosure, type RequirementLine } from "./types";
 
 /*
  * Reads for the PO-from-requirement screen. Both go through the SECURITY DEFINER
@@ -259,4 +259,22 @@ export async function getVendorsByClass(classIds: readonly string[]): Promise<Re
   const unique = [...new Set(classIds)];
   const lists = await Promise.all(unique.map((id) => getVendorsForClass(id)));
   return Object.fromEntries(unique.map((id, i) => [id, lists[i]]));
+}
+
+/** The short-closed balances on the given REs / SWOs / IWOs (0799), only on lines the
+ *  caller can see: the RPC filters through po_requirement_lines. */
+export async function getRequirementClosures(sourceIds?: readonly string[]): Promise<RequirementClosure[]> {
+  const s = await createClient();
+  const { data, error } = await s.rpc("po_requirement_closures_for", {
+    p_source_ids: sourceIds && sourceIds.length ? [...sourceIds] : null,
+  });
+  if (error) throw new Error(`Could not read the closed balances: ${error.message}`);
+  return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+    source_id: String(r.source_id),
+    req_key: String(r.req_key),
+    closed_qty: Number(r.closed_qty ?? 0),
+    reason: String(r.reason ?? ""),
+    closed_by_name: (r.closed_by_name as string | null) ?? null,
+    closed_at: String(r.closed_at),
+  }));
 }

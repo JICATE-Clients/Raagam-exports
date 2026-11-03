@@ -1177,7 +1177,10 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           // doc/purchase/puchase.md (2026-10-23): RE numbers in, requirement lines out, the manager types the rate.
           // First in the group (user 2026-10-26): a PO starts from the requirement, then is worked on Purchase Orders.
           { href: "/purchase/requirement-po", label: "Raise PO", description: "Pick RE numbers; what they still need lists itself; type the rate", newUntil: "2026-11-30" },
-          { href: "/purchase/orders", label: "Purchase Orders", description: "Create from budget, submit and approve" },
+          // "Purchase Orders" came off the menu (user 2026-11-03: "purchase order remove it",
+          // the row under Raise PO). /purchase/orders redirects to Raise PO; a PO's own page
+          // (/purchase/orders/<id>) stays, opened from PO Approval, Raise PO and Indents, and
+          // keeps its permission through OFF_MENU_SCREENS in lib/permissions/screen-catalog.ts.
           // The approver's queue of POs raised on Raise PO — Orders ▸ Approval's shape (user 2026-10-28).
           // More than Budget Approval is part of it since 2026-11-03 (user: "merge these two in one single screen") — the "Over budget" switch; /purchase/over-budget redirects here.
           { href: "/purchase/po-approval", label: "PO Approval", description: "Approve every PO raised on Raise PO — within or over budget", newUntil: "2026-11-30" },
@@ -1205,7 +1208,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           { href: "/purchase/delivery-returns", label: "Delivery Return", description: "Receive back goods sent on a returnable General DC" },
           { href: "/purchase/department-returns", label: "Department Return", description: "Unused or excess material a department gives back, against an issued MRS" },
           { href: "/purchase/opening-stock", label: "Opening Stock", description: "Set a store's initial balances" },
-          { href: "/purchase/adjustments", label: "Stock Adjustment", description: "Adjust stock in or out with a reason" },
+          { href: "/purchase/adjustments", label: "Stock Adjustment", description: "Increase or decrease a lot to match the scale — moisture, recount, damage" },
           { href: "/purchase/transfers", label: "Stock Transfer", description: "Move stock between stores" },
           { href: "/purchase/csp-receipts", label: "CSP Receipt", description: "Customer-supplied and consignment material" },
         ],

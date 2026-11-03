@@ -37,7 +37,7 @@ export default async function ScorecardsPage({ searchParams }: { searchParams: P
   if (tab === "buyers" && sc.emptySources.receipts) notes.push("Payment days fill in once buyer receipts are recorded — none in this period yet.");
   if (tab === "suppliers" && sc.emptySources.purchaseOrders) notes.push("No purchase orders were due in this period, so there is nothing to score yet.");
   if (tab === "merchandisers" && !sc.isManager && !sc.myStaffId)
-    notes.push("This login is not linked to a staff record, so your own score cannot be shown.");
+    notes.push("Link your login to a staff record to see your own score.");
 
   // Worst first (design 2026-10-01): the row to talk to tops the list. A row
   // with nothing due yet has no score to rank, so it goes last.

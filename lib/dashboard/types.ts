@@ -138,6 +138,9 @@ export interface StageData {
   state: string;
   tone: DashboardTone;
   pct: number;
+  /** A PIECE stage's good and rejected counts as numbers — the production flow draws its
+   *  piles to scale and finds the stuck stage from them. Absent on non-piece stages. */
+  pieces?: { good: number; reject: number };
 }
 
 export interface StageRow {

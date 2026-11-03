@@ -53,6 +53,10 @@ function facetGroups(): FacetGroup<Row>[] {
           match: (r, v) => r.group_kind === v,
         },
         { key: "customer", label: "Customer / Buyer", value: (r) => (r.customer === "—" ? null : r.customer) },
+        // ORDER NO (user 2026-11-03: "the order no filter is missing, add it in report filter").
+        // Options are the orders whose stock is on this statement; stock held for no order
+        // (general / opening stock, "—") is not an option.
+        { key: "orderNo", label: "Order No", value: (r) => (r.order_no === "—" ? null : r.order_no) },
         { key: "vendor", label: "Vendor", value: (r) => (r.vendor === "—" ? null : r.vendor) },
       ],
     },

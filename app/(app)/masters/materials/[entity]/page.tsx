@@ -32,13 +32,14 @@ import { KnittingDiaMasterScreen } from "@/components/masters/knitting-dia-maste
 import { OutDocumentTermMasterScreen } from "@/components/masters/out-document-term-master-screen";
 import { listOutDocumentTerms } from "@/lib/masters/out-document-term-service";
 import { BinMasterScreen } from "@/components/masters/bin-master-screen";
+import { StoreMasterScreen } from "@/components/masters/store-master-screen";
+import { listStoresForMaster } from "@/lib/masters/store-master-service";
 import { listBins } from "@/lib/masters/bin-service";
 // Size Groups lost its own master screen with the 2026-08-01 withdrawal, but
 // `listSizeGroups` STAYS: Categories (a survivor) renders a size-group field,
 // so the service and its types outlive the screen. Same for the table — see
 // the note at the head of 0382.
 import { listSizeGroups } from "@/lib/masters/size-group-service";
-import { listEmployeeLocations } from "@/lib/masters/employee-service";
 import { GarmentRejectionRuleMasterScreen } from "@/components/masters/garment-rejection-rule-master-screen";
 import { listGarmentRejectionRules } from "@/lib/masters/garment-rejection-rule-service";
 import { CountMasterScreen } from "@/components/masters/count-master-screen";
@@ -250,9 +251,22 @@ export default async function MaterialEntityPage({
           perms={perms}
         />
       );
+    } else if (child.custom === "stores") {
+      // Stores are kept under the STORES grant (their table's policies), not Masters:
+      // the buttons follow the permission the database will actually check.
+      const [rows, sCreate, sEdit, sDelete] = await Promise.all([
+        listStoresForMaster(),
+        can("stores", "create"),
+        can("stores", "edit"),
+        can("stores", "delete"),
+      ]);
+      screen = (
+        <StoreMasterScreen rows={rows} perms={{ ...perms, canCreate: sCreate, canEdit: sEdit, canDelete: sDelete }} />
+      );
     } else if (child.custom === "bins") {
-      const [rows, locations] = await Promise.all([listBins(), listEmployeeLocations()]);
-      screen = <BinMasterScreen rows={rows} locations={locations} perms={perms} />;
+      // A bin's store: the current unit's stores (their read policy narrows to it).
+      const [rows, stores] = await Promise.all([listBins(), listStoresForMaster()]);
+      screen = <BinMasterScreen rows={rows} stores={stores} perms={perms} />;
     } else if (child.custom === "garment_rejection_rules") {
       const rows = await listGarmentRejectionRules();
       screen = <GarmentRejectionRuleMasterScreen rows={rows} perms={perms} />;

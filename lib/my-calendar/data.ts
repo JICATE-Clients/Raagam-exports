@@ -85,7 +85,7 @@ export async function getCalendar(
     return {
       ...base,
       available: false,
-      reason: "This login is not linked to a staff record, so no tasks can be matched to you.",
+      reason: "Link your login to a staff record to see your tasks.",
     };
 
   const meId = me?.id ?? null;

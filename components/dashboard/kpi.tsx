@@ -5,7 +5,7 @@ import { Truncated } from "@/components/ui/truncated";
 import { cn } from "@/lib/utils";
 import type { DashboardTone } from "@/lib/dashboard/types";
 import { GLASS } from "./glass";
-import { toneSoft, toneText, toneVar } from "./tone";
+import { toneGrad, toneSoft, toneText } from "./tone";
 
 /**
  * THE KPI CARD (approved plan v2, 2026-11-02): label + share pill, ONE large figure, one
@@ -43,14 +43,23 @@ export function KpiCard({
           <span className={cn("shrink-0 rounded-full px-2 py-px text-[10.5px] font-bold tabular-nums", toneSoft[pillTone])}>{pill}</span>
         )}
       </span>
-      <span className={cn("block text-[26px] font-extrabold leading-none tracking-tight tabular-nums", valueTone ? toneText[valueTone] : "text-heading")}>
-        {value}
+      <span className={cn("block text-[22px] font-extrabold leading-none tracking-tight tabular-nums", valueTone ? toneText[valueTone] : "text-heading")}>
+        {/^\d{1,6}$/.test(value) ? (
+          // COUNT-UP (one-screen dashboard): a whole number arrives from 0, once, pulling the
+          // eye to the figures first. CSS only; screen readers get the plain number.
+          <>
+            <span className="sr-only">{value}</span>
+            <span aria-hidden className="dash-count" style={{ ["--to" as string]: Number(value) }} />
+          </>
+        ) : (
+          value
+        )}
       </span>
       {sub && <Truncated text={sub} className="block text-[11.5px] text-muted-foreground" />}
-      {children && <span className="mt-auto block pt-1.5">{children}</span>}
+      {children && <span className="mt-auto block pt-1">{children}</span>}
     </>
   );
-  const cls = cn(GLASS, "flex min-w-0 flex-col gap-1.5 border px-4 pb-3.5 pt-3");
+  const cls = cn(GLASS, "flex min-w-0 flex-col gap-1 border px-3.5 py-2.5");
   return href ? (
     <Link href={href} className={cn(cls, "transition-colors hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring")}>
       {body}
@@ -82,7 +91,7 @@ export function SplitBar({ parts, title }: { parts: { value: number; tone: Dashb
             <span
               key={i}
               className="block h-full first:rounded-l-full last:rounded-r-full"
-              style={{ flexGrow: p.value, background: p.tone === "track" ? "var(--glass-track)" : toneVar(p.tone) }}
+              style={{ flexGrow: p.value, background: toneGrad(p.tone, 90) }}
             />
           ))}
     </span>
@@ -101,7 +110,7 @@ export function MiniColumns({ bars }: { bars: { value: number; tone: DashboardTo
           className="block flex-1 rounded-[3px]"
           style={{
             height: b.value > 0 ? `${Math.max(12, (b.value / max) * 100)}%` : "3px",
-            background: b.value > 0 ? toneVar(b.tone) : "var(--glass-track)",
+            background: b.value > 0 ? toneGrad(b.tone) : "var(--glass-track)",
           }}
         />
       ))}
@@ -119,7 +128,7 @@ export function BlockGrid({ done, total, tone, cap = 42 }: { done: number; total
   return (
     <span className="grid gap-[2px]" style={{ gridTemplateColumns: `repeat(${Math.min(n, 21)}, minmax(0, 1fr))` }} title={`${done} of ${total}`} aria-hidden>
       {Array.from({ length: n }, (_, i) => (
-        <span key={i} className="block h-[6px] rounded-[2px]" style={{ background: i < lit ? toneVar(tone) : "var(--glass-track)" }} />
+        <span key={i} className="block h-[6px] rounded-[2px]" style={{ background: i < lit ? toneGrad(tone) : "var(--glass-track)" }} />
       ))}
     </span>
   );

@@ -44,12 +44,14 @@ export function BinPicker({
   className,
   usedIds,
   invalid = false,
+  storeId = null,
 }: {
   label: string;
   bins: BinRow[];
   value: string;
   onChange: (id: string) => void;
-  onCreated?: (bin: { id: string; code: string }) => void;
+  /** `store_id` comes back too, so a list filtered by store (0800) shows the new bin at once. */
+  onCreated?: (bin: { id: string; code: string; store_id: string | null }) => void;
   canCreate?: boolean;
   compact?: boolean;
   className?: string;
@@ -58,6 +60,8 @@ export function BinPicker({
   usedIds?: string[];
   /** Red border + aria-invalid — holds Enter on the box (DataPicker's `invalid`). */
   invalid?: boolean;
+  /** The store this box picks into (0800): "+ Add" makes the bin in it. */
+  storeId?: string | null;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -96,9 +100,9 @@ export function BinPicker({
     const c = code.trim().toUpperCase();
     if (!c || dupError) return;
     start(async () => {
-      const res = await createBinInCurrentUnit(c, description.trim() || null);
+      const res = await createBinInCurrentUnit(c, description.trim() || null, storeId);
       if (!res.ok) return toastError(res.error);
-      onCreated?.({ id: res.id, code: c });
+      onCreated?.({ id: res.id, code: c, store_id: storeId });
       commitRef.current?.(res.id);
       success(`Bin ${c} added.`);
       setFormOpen(false);

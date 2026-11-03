@@ -2502,6 +2502,52 @@ html[data-type-scale="compact"] [data-sheet-row="head"] > :is(.text-foreground, 
   .viz-line { animation: none; }
 }
 
+/* MOTION THAT TELLS YOU SOMETHING (one-screen dashboard, user 2026-11-03, plan
+   https://claude.ai/artifact/3vUk4Cth5KjKYAELNGgEiU "Motion"). Every movement answers
+   "where should I look?": things ARRIVE once, in reading order — a column per month, so
+   time reads left to right (the caller staggers `animation-delay`); a ring sweeps to its
+   share; a horizontal bar grows from its label. Only a LIVE state keeps moving:
+   `dash-breathe` on an overdue arc, `dash-travel` for work flowing between production
+   stages. The resting frame is the real chart, and reduced motion goes straight to it.
+   CSS only — the dashboard ships no chart JavaScript, and this keeps it that way.
+   Elements keep their keys across the minute refresh, so nothing replays every minute. */
+@keyframes dash-rise { from { transform: scaleY(0); } }
+@keyframes dash-grow { from { transform: scaleX(0); } }
+@keyframes dash-sweep { from { stroke-dasharray: 0 100; } }
+@keyframes dash-breathe { 50% { opacity: 0.45; } }
+@keyframes dash-travel {
+  from { left: 0; opacity: 0; }
+  15%, 85% { opacity: 1; }
+  to { left: calc(100% - 8px); opacity: 0; }
+}
+@keyframes dash-ripple {
+  from { transform: scale(0.6); opacity: 0.8; }
+  to { transform: scale(1.5); opacity: 0; }
+}
+.dash-rise { transform-origin: bottom; animation: dash-rise 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.dash-grow { transform-origin: left center; animation: dash-grow 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.dash-sweep { animation: dash-sweep 1s cubic-bezier(0.3, 0.7, 0.2, 1) both; }
+.dash-breathe { animation: dash-sweep 1s cubic-bezier(0.3, 0.7, 0.2, 1) both, dash-breathe 1.8s 1.2s ease-in-out infinite; }
+.dash-travel { animation: dash-travel var(--dash-speed, 2s) linear infinite; }
+.dash-ripple { animation: dash-ripple 2s 1s ease-out infinite; }
+/* The "now" point on a trend line: a ring widens off it every two seconds (a live state:
+   the latest month is still being written). `color` on the dot sets the ring's colour. */
+@keyframes dash-pulse {
+  from { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 55%, transparent); }
+  to { box-shadow: 0 0 0 9px color-mix(in srgb, currentColor 0%, transparent); }
+}
+.dash-pulse { animation: dash-pulse 2s ease-out infinite; }
+/* A whole number counting up from 0 on arrival (`--to` on the element). */
+@property --dash-n { syntax: "<integer>"; inherits: false; initial-value: 0; }
+@keyframes dash-count { from { --dash-n: 0; } to { --dash-n: var(--to); } }
+.dash-count { animation: dash-count 1.1s cubic-bezier(0.2, 0.7, 0.2, 1) both; counter-reset: dash-n var(--dash-n); }
+.dash-count::after { content: counter(dash-n); }
+@media (prefers-reduced-motion: reduce) {
+  .dash-rise, .dash-grow, .dash-sweep, .dash-breathe, .dash-ripple, .dash-pulse { animation: none; }
+  .dash-count { animation: none; --dash-n: var(--to); }
+  .dash-travel { display: none; }
+}
+
 /* ===========================================================================
  * SPREADSHEET GRID — `data-grid-style="sheet"` (client 2026-10-03, Order Entry
  * ▸ Styles ▸ Components: "convert the entire table into a clean, compact,

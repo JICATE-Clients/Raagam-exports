@@ -29,8 +29,14 @@ export async function AnalyticsSection({
   filters: DashboardFilters;
   caps: DashboardCaps;
 }) {
-  const t = await getTrends(filters, caps);
+  const shown = trendTabs(await getTrends(filters, caps));
+  if (shown.length === 0) return null;
+  return <TabbedCard tabs={shown} label="Trend" icon="trending-up" />;
+}
 
+/** The trend charts as tabs — shared by this card and the order book card, which shows
+ *  Revenue and Production as its own tabs (one-screen dashboard, 2026-11-03). */
+export function trendTabs(t: Awaited<ReturnType<typeof getTrends>>): CardTab[] {
   const yoy = t.revenue.yoy;
 
   const has = (bars: { a: number; b?: number }[]) => bars.some((x) => x.a > 0 || (x.b ?? 0) > 0);
@@ -133,7 +139,5 @@ export async function AnalyticsSection({
       ),
     },
   ];
-  const shown = tabs.filter((x): x is CardTab => !!x);
-  if (shown.length === 0) return null;
-  return <TabbedCard tabs={shown} label="Trend" icon="trending-up" />;
+  return tabs.filter((x): x is CardTab => !!x);
 }

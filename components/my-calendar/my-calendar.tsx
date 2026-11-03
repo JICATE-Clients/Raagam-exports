@@ -106,7 +106,7 @@ export function MyCalendar({ data, view, cursor }: { data: CalendarData; view: C
       </div>
 
       {data.autoTeam && (
-        <p className="text-sm text-muted-foreground">Your login is not linked to a staff record, so the team&apos;s calendar is shown.</p>
+        <p className="text-sm text-muted-foreground">Login not linked to a staff record — showing the team&apos;s calendar.</p>
       )}
       {data.errors.length > 0 && <p className="text-sm text-danger">Could not load: {data.errors.join(" · ")}</p>}
 

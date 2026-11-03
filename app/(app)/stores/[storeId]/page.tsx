@@ -29,6 +29,8 @@ function storeTypeTone(type: StoreType): StatusTone {
     case "rejection":
       return "danger";
     case "surplus":
+    case "transit":
+    case "storage":
       return "neutral";
   }
 }

@@ -17,7 +17,7 @@ export interface DepartmentReturnRow extends DepartmentReturn {
 }
 
 /** A bin a returned line can be put in: the working unit's own plus the shared ones. */
-export type ReturnBinOption = { id: string; code: string; description: string | null; inactive?: boolean };
+export type ReturnBinOption = { id: string; code: string; description: string | null; inactive?: boolean; store_id: string | null };
 
 type ListRaw = DepartmentReturn & {
   stores: { name: string | null } | null;
@@ -152,11 +152,11 @@ export async function getReturnBins(): Promise<ReturnBinOption[]> {
   if (!location) return [];
   const { data, error } = await s
     .from("bins")
-    .select("id, bin_code, description, inactive")
+    .select("id, bin_code, description, inactive, store_id")
     .or(`location_id.eq.${location.id},location_id.is.null`)
     .order("bin_code");
   if (error) throw new Error(`Bins: ${error.message}`);
-  return ((data ?? []) as { id: string; bin_code: string; description: string | null; inactive: boolean | null }[]).map(
-    (b) => ({ id: b.id, code: b.bin_code, description: b.description, inactive: !!b.inactive }),
+  return ((data ?? []) as { id: string; bin_code: string; description: string | null; inactive: boolean | null; store_id: string | null }[]).map(
+    (b) => ({ id: b.id, code: b.bin_code, description: b.description, inactive: !!b.inactive, store_id: b.store_id }),
   );
 }

@@ -12,11 +12,15 @@ export interface CardTab {
   key: string;
   /** The word on the tab, and the card's title while it is open. */
   label: string;
+  /** The card's heading while this tab is open — the question it answers. Defaults to `label`. */
+  title?: string;
   subtitle?: string;
   /** Right of the title while this tab is open (a legend, a YoY pill). */
   aside?: ReactNode;
   /** Rendered on the server and handed in — this component only chooses which one shows. */
   body: ReactNode;
+  /** This tab's footer — `CardFooter` (fix 6, 2026-11-03). */
+  footer?: ReactNode;
 }
 
 /**
@@ -45,8 +49,8 @@ export function TabbedCard({
   if (!cur) return null;
   return (
     <Card className={cn(GLASS, "flex min-w-0 flex-col", className)}>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-[var(--glass-edge)] px-4 py-3">
-        <CardTitle title={cur.label} subtitle={cur.subtitle} icon={icon} tone={tone} className="mr-auto" />
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-[var(--glass-edge)] px-4 py-2">
+        <CardTitle title={cur.title ?? cur.label} subtitle={cur.subtitle} icon={icon} tone={tone} className="mr-auto" />
         {cur.aside}
         {tabs.length > 1 && (
           <ToggleGroup
@@ -58,9 +62,10 @@ export function TabbedCard({
           />
         )}
       </div>
-      <div role="tabpanel" className="flex-1 px-4 py-3">
+      <div role="tabpanel" className="min-h-0 flex-1 overflow-hidden px-4 py-2.5">
         {cur.body}
       </div>
+      {cur.footer && <div className="px-4 pb-2.5">{cur.footer}</div>}
     </Card>
   );
 }

@@ -61,7 +61,8 @@ export type ProductionDc = ProductionDcRow & {
 
 export type UnitOption = { id: string; code: string; name: string };
 export type StoreOption = { id: string; code: string; name: string; store_type: string };
-export type BinOption = { id: string; code: string };
+/** `store_id` (0800): the Bin list follows the chosen Store. */
+export type BinOption = { id: string; code: string; store_id: string | null };
 /** What a store of THIS unit holds — the Send grid's item list and its qty cap. */
 export type StockOption = { store_id: string; item_id: string; item_name: string; uom: string | null; qty: number };
 
@@ -224,7 +225,7 @@ export async function getProductionDcSetup(): Promise<{
       // In Transit is where goods WAIT, never a store to send from or receive into.
       .neq("store_type", "transit")
       .order("code"),
-    supabase.from("bins").select("id, bin_code, inactive").eq("location_id", unitId).order("bin_code"),
+    supabase.from("bins").select("id, bin_code, inactive, store_id").eq("location_id", unitId).order("bin_code"),
   ]);
   const stores = (storeRes.data ?? []) as StoreOption[];
   const storeIds = stores.map((s) => s.id);
@@ -255,9 +256,9 @@ export async function getProductionDcSetup(): Promise<{
     unit: units.get(unitId) ?? null,
     toUnits: Array.from(units.values()).filter((u) => u.id !== unitId),
     stores,
-    bins: ((binRes.data ?? []) as { id: string; bin_code: string; inactive: boolean | null }[])
+    bins: ((binRes.data ?? []) as { id: string; bin_code: string; inactive: boolean | null; store_id: string | null }[])
       .filter((b) => !b.inactive)
-      .map((b) => ({ id: b.id, code: b.bin_code })),
+      .map((b) => ({ id: b.id, code: b.bin_code, store_id: b.store_id })),
     stock,
   };
 }

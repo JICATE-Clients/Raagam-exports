@@ -4,25 +4,23 @@ import { getCaps, getLinesReporting } from "@/lib/dashboard/service";
 import { parseCustom, parseRange } from "@/lib/dashboard/range";
 import type { DashboardFilters } from "@/lib/dashboard/types";
 import { isCalendarDate, today } from "@/lib/calendar";
-import { DashboardToolbar, DeniedBanner, type Carry } from "@/components/dashboard/hero";
+import { DeniedBanner, type Carry } from "@/components/dashboard/hero";
+import { AutoRefresh } from "@/components/dashboard/auto-refresh";
 import { GlassBackdrop } from "@/components/dashboard/glass";
 import {
-  ActivitySkeleton,
   ApprovalsSkeleton,
   CalendarSkeleton,
   ChartRowSkeleton,
   KpiRowSkeleton,
-  LeaderboardSkeleton,
   StageGridSkeleton,
 } from "@/components/dashboard/skeletons";
-import { BoardAgeing, BoardBuying, BoardDue, BoardKpis, BoardStripInline } from "./sections/board";
+import { cn } from "@/lib/utils";
+import { BoardAgeing, BoardBuying, BoardKpis } from "./sections/board";
 import { WelcomeSection, WelcomeSkeleton } from "./sections/welcome";
-import { AnalyticsSection } from "./sections/analytics";
+import { OrderBookSection } from "./sections/order-book";
 import { ManufacturingSection } from "./sections/manufacturing";
-import { ActivitySection, NeedsYouSection } from "./sections/activity-alerts";
+import { NeedsYouSection } from "./sections/activity-alerts";
 import { CalendarSection } from "./sections/calendar";
-import { LeaderboardSection } from "./sections/leaderboards";
-import { QuickActionsSection } from "./sections/quick-actions";
 
 /**
  * Raagam ERP — executive dashboard. Serves "/" (the (dashboard) route group
@@ -53,11 +51,19 @@ import { QuickActionsSection } from "./sections/quick-actions";
  * dedupe inside the service.
  */
 /** A band's row: stacked on a narrow pane, side by side from xl. */
-const ROW = "flex flex-col gap-4 xl:flex-row xl:items-stretch";
+const ROW = "flex flex-col gap-3 xl:flex-row xl:items-stretch";
+/** A picture row SHARES what the window has left, from xl. Not a fixed height: at 125% Windows
+ *  scaling a "320px" row is 400 screen pixels and the pane is ~680 CSS px, so a fixed row
+ *  scrolled (screenshot 4009). The page root fills `<main>` (a flex column, app/(app)/layout.tsx)
+ *  with a 600px floor, and the two picture rows split the rest. A card fills its cell and
+ *  clips; it never grows the row. */
+const FIXED_ROW = "xl:min-h-0 xl:flex-1";
 /** Two-thirds / one-third of a row; a wrapper whose section rendered nothing is dropped. */
-const WIDE = "min-w-0 empty:hidden xl:flex-[2] [&>*]:h-full";
-const NARROW = "min-w-0 empty:hidden xl:flex-1 [&>*]:h-full";
-const THIRD = "min-w-0 empty:hidden xl:flex-1 [&>*]:h-full";
+const WIDE = "min-w-0 empty:hidden xl:flex-[2] [&>*]:h-full xl:[&>*]:overflow-hidden";
+const NARROW = "min-w-0 empty:hidden xl:flex-1 [&>*]:h-full xl:[&>*]:overflow-hidden";
+/** A narrow cell that shrinks when its card reports good news (`data-all-clear`, fix 1), so the
+ *  card beside it takes the width. */
+const NARROW_SHRINKS = `${NARROW} xl:has-[[data-all-clear]]:flex-[0.6]`;
 
 export default async function DashboardPage({
   searchParams,
@@ -111,53 +117,51 @@ export default async function DashboardPage({
   return (
     // `isolate` so the backdrop's -z-10 stays inside this page, behind the
     // cards, instead of slipping under the shell's own panel.
-    <div className="relative isolate mx-auto max-w-[1440px] space-y-4">
+    <div className="relative isolate mx-auto flex max-w-[1440px] flex-col gap-3 xl:min-h-[600px] xl:flex-1">
       <GlassBackdrop />
       <h1 className="sr-only">Operations Dashboard</h1>
 
       {sp.denied && <DeniedBanner module={sp.denied} />}
 
-      {/* PLAN v2 (user 2026-11-02, https://claude.ai/artifact/Cx7akee4ctg36heq8ySfhG,
-          "okay do"): three bands read top to bottom — your day (Nool + Needs you), the
-          business (period bar, KPI cards, the main chart beside the week), then trends,
-          production, the order detail cards, activity and shortcuts. Every card opens with
-          the same header (`CardTitle`). Rows are flex, not grid: a section that renders
-          nothing leaves an EMPTY wrapper, `empty:hidden` drops it, and its neighbour takes
-          the width instead of sitting beside a hole. */}
+      {/* ONE SCREEN (user 2026-11-03, plan https://claude.ai/artifact/3vUk4Cth5KjKYAELNGgEiU,
+          option A "Glass", all four decisions approved). Seven stacked bands became three rows
+          that fit the content pane at 1920×1080: your day + the KPI tiles, then two rows of
+          picture cards at a FIXED height, so a card fills its cell and never grows it. Below
+          xl (1280px) the rows stack and the page scrolls — one screen is a desktop promise.
+          Rows stay flex with `empty:hidden`: a section a role cannot see leaves an empty
+          wrapper, and its neighbour takes the width instead of sitting beside a hole.
+          Removed: Recent activity (the bell and Audit log hold it), Quick actions (the
+          sidebar and Ctrl+K), the insight strip (it repeated the book chart in words), and
+          the Trend / Top lists cards (their Revenue, Output and Top buyers are tabs of the
+          order book card; the rest stay on Reports). */}
 
-      {/* YOUR DAY — Nool keeps the whole welcome card and every animation (user: "maintain
-          that Nool animation"). */}
       <div className={ROW}>
-        <div className={WIDE}>
+        <div className="min-w-0 empty:hidden xl:w-[24rem] xl:flex-none [&>*]:h-full">
           <Suspense fallback={<WelcomeSkeleton name={firstName} />}>
-            <WelcomeSection user={user} />
+            <WelcomeSection user={user} compact />
+          </Suspense>
+        </div>
+        <div className="min-w-0 flex-1 empty:hidden">
+          <Suspense fallback={<KpiRowSkeleton />}>
+            <BoardKpis caps={caps} />
+          </Suspense>
+        </div>
+      </div>
+
+      {/* NO PERIOD BAND (plan option A, 2026-11-03): the period changes only Production and
+          the Top buyers tab, so the switch lives in those two cards' headers. The minute
+          refresh the band carried is mounted here on its own — it renders nothing. */}
+      <AutoRefresh />
+
+      <div className={cn(ROW, FIXED_ROW)}>
+        <div className={WIDE}>
+          <Suspense fallback={<ChartRowSkeleton />}>
+            <OrderBookSection filters={filters} caps={caps} carry={carry} />
           </Suspense>
         </div>
         <div className={NARROW}>
           <Suspense fallback={<ApprovalsSkeleton />}>
             <NeedsYouSection caps={caps} />
-          </Suspense>
-        </div>
-      </div>
-
-      {/* BUSINESS — the period bar names the band; the board's facts ride its right. */}
-      <DashboardToolbar
-        label="Business"
-        filters={filters}
-        carry={carry}
-        aside={
-          <Suspense fallback={null}>
-            <BoardStripInline caps={caps} />
-          </Suspense>
-        }
-      />
-      <Suspense fallback={<KpiRowSkeleton />}>
-        <BoardKpis caps={caps} />
-      </Suspense>
-      <div className={ROW}>
-        <div className={WIDE}>
-          <Suspense fallback={<ChartRowSkeleton />}>
-            <BoardDue caps={caps} />
           </Suspense>
         </div>
         <div className={NARROW}>
@@ -167,53 +171,23 @@ export default async function DashboardPage({
         </div>
       </div>
 
-      {/* TRENDS & PRODUCTION — the trend charts are hidden entirely without reports:view
-          (the RPCs self-gate in SQL, so they would render empty and read as broken). */}
-      <div className={ROW}>
-        {caps.reports && (
-          <div className={WIDE}>
-            <Suspense fallback={<ChartRowSkeleton />}>
-              <AnalyticsSection filters={filters} caps={caps} />
-            </Suspense>
-          </div>
-        )}
+      <div className={cn(ROW, FIXED_ROW)}>
         {caps.production && (
-          <div className={NARROW}>
+          <div className={WIDE}>
             <Suspense fallback={<StageGridSkeleton />}>
-              <ManufacturingSection filters={filters} caps={caps} lines={lines} />
+              <ManufacturingSection filters={filters} caps={caps} lines={lines} carry={carry} />
             </Suspense>
           </div>
         )}
-      </div>
-
-      <div className={ROW}>
-        <div className={THIRD}>
+        <div className={NARROW_SHRINKS}>
           <Suspense fallback={<ChartRowSkeleton />}>
             <BoardAgeing caps={caps} />
           </Suspense>
         </div>
-        <div className={THIRD}>
+        <div className={NARROW}>
           <Suspense fallback={<ChartRowSkeleton />}>
             <BoardBuying caps={caps} />
           </Suspense>
-        </div>
-        {caps.reports && (
-          <div className={THIRD}>
-            <Suspense fallback={<LeaderboardSkeleton />}>
-              <LeaderboardSection filters={filters} caps={caps} />
-            </Suspense>
-          </div>
-        )}
-      </div>
-
-      <div className={ROW}>
-        <div className={WIDE}>
-          <Suspense fallback={<ActivitySkeleton />}>
-            <ActivitySection caps={caps} />
-          </Suspense>
-        </div>
-        <div className={NARROW}>
-          <QuickActionsSection />
         </div>
       </div>
     </div>

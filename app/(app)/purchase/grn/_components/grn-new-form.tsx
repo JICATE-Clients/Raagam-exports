@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
+import { ToggleGroup } from "@/components/ui/segmented";
 import { Field, FieldError, FieldRow, FIELD_WIDTH_CSS } from "@/components/ui/field";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
@@ -32,6 +33,7 @@ import type {
   GrnBinOption,
   GrnGroupKind,
   GrnProcessOrderOption,
+  GrnProcessorOption,
   GrnStoreOption,
   OpenPoLine,
   ReplacementDue,
@@ -43,7 +45,7 @@ import { useUnsavedGuard } from "@/lib/reload-guard";
 import { today } from "@/lib/calendar";
 import { fmtNumber } from "@/lib/format";
 import { pickedBins, splitBinsProblem, withTailBin } from "@/lib/purchase/bin-split";
-import { StoreBinCell } from "@/components/purchase/store-bin-editor";
+import { BinQtyCell } from "@/components/purchase/store-bin-editor";
 import { cn } from "@/lib/utils";
 import { lineKindOf } from "@/lib/purchase/re-po/types";
 
@@ -305,6 +307,8 @@ interface Props {
   replacement?: ReplacementDue | null;
   /** Open Process Orders a supplier may deliver straight to (0792). */
   processOrders?: GrnProcessOrderOption[];
+  /** Vendors marked Is Processor in Master Data — Received Store ▸ Vendor. */
+  processors?: GrnProcessorOption[];
   /** May "+ Add" a bin from a bin box (masters:create) — made in the working unit. */
   canCreateBin?: boolean;
 }
@@ -322,14 +326,22 @@ export function GrnNewForm({
   onCancel,
   replacement = null,
   processOrders = [],
+  processors = [],
   canCreateBin = false,
 }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
   const owed = owedByLine(replacements);
+  /* RECEIVED STORE ▸ OWN (user 2026-11-03): the store picked in the header. "" = not picked
+     yet, so each line keeps its own default below (yarn → the Yarn store). Picked, it is
+     every line's store: set on the lines on screen at pick time, and the default for the
+     lines of a PO ticked after it. */
+  const [receivedStoreId, setReceivedStoreId] = useState("");
   /* A store of the unit named "Yarn …" takes yarn lines; none yet → the Material store. */
-  const storeDefaults: StoreDefaults = {
+  const storeDefaults: StoreDefaults = receivedStoreId
+    ? { general: receivedStoreId, yarn: receivedStoreId }
+    : {
     general: defaultStoreId,
     yarn: stores.find((st) => /yarn/i.test(`${st.name} ${st.code}`))?.id ?? null,
   };
@@ -354,7 +366,6 @@ export function GrnNewForm({
   /* PLACE OF DELIVERY (0792): our store, or straight to a processor on its Process Order. */
   const [deliveryKind, setDeliveryKind] = useState<"store" | "direct">("store");
   const [deliveryVendorId, setDeliveryVendorId] = useState("");
-  const [processOrderId, setProcessOrderId] = useState("");
   const [vehicleRef, setVehicleRef] = useState("");
   /* A Replacement GRN opens fixed to its DC (from its Pending row) — the vendor with it. */
   const repl = replacement;
@@ -489,16 +500,16 @@ export function GrnNewForm({
     if (first && vendor !== vendorId) setVendorId(vendor);
     setPoIds(kept);
     setLines((prev) => linesOfPos(openPoLines, kept, storeDefaults, owed, prev));
-    setSelKey((cur) => (cur !== "all" && kept.includes(cur) ? cur : kept.length === 1 ? kept[0] : "all"));
+    setSelKey((cur) => (cur !== "all" && kept.includes(cur) ? cur : "all"));
   }
   /** The rail's tick: on → onto the GRN (and shown); off → off the GRN. */
   function togglePo(id: string) {
     touch();
     if (poIds.includes(id)) loadPos(poIds.filter((x) => x !== id));
-    else {
-      loadPos([...poIds, id]);
-      setSelKey(id);
-    }
+    // A ticked PO JOINS the lines shown — every ticked PO's lines together, each line naming
+    // its PO (user 2026-11-03: the "All lines together" row is removed, so that view is the
+    // default rather than a row to go back to).
+    else loadPos([...poIds, id]);
   }
 
   function changeDocType(next: DocType) {
@@ -508,7 +519,8 @@ export function GrnNewForm({
 
   /** The bin rows re-shaped to the blank-end-row rule — after ANY change, since the first
    *  bin's share follows Today Recd and the failed qty too. */
-  const reshape = (l: DraftLine): DraftLine => ({ ...l, bins: withTailBin(l.bins, () => newSplit(), accepted(l)) });
+  // `false`: nothing auto-filled — each bin's qty is typed (user 2026-11-03).
+  const reshape = (l: DraftLine): DraftLine => ({ ...l, bins: withTailBin(l.bins, () => newSplit(), accepted(l), false) });
   function updateLine(key: string, patch: Partial<Omit<DraftLine, "key">>) {
     touch();
     setLines((prev) => prev.map((l) => (l.key === key ? reshape({ ...l, ...patch }) : l)));
@@ -534,23 +546,43 @@ export function GrnNewForm({
   const receiving = shownLines.filter((l) => num(l.todayRecd) > 0);
   const location = locations.find((l) => l.id === locationId);
   const isDirect = !isRepl && deliveryKind === "direct";
-  const procOrder = isDirect ? (processOrders.find((o) => o.id === processOrderId) ?? null) : null;
+  /* THE PROCESS ORDER IS NOT ASKED (user 2026-11-03, screenshot 4026: "Process Order — this
+     field no need, remove it"). grn_post (0792) still needs one — it raises the issued Process
+     DC against it — so it is WORKED OUT: the picked processor's open order whose input items
+     cover the most of the lines on this GRN (the oldest on a tie). A line it does not cover is
+     marked "Not on …" in its row; no open order at all is said on the Save bar. */
+  const procOrder = (() => {
+    if (!isDirect || !deliveryVendorId) return null;
+    const theirs = processOrders.filter((o) => o.vendor_id === deliveryVendorId);
+    const basis = receiving.length ? receiving : shownLines;
+    const itemIds = basis.map((l) => lineById.get(l.key)?.item_id).filter((x): x is string => !!x);
+    let best: GrnProcessOrderOption | null = null;
+    let bestHits = -1;
+    for (const o of theirs) {
+      const hits = itemIds.filter((id) => o.item_ids.includes(id)).length;
+      if (hits > bestHits) {
+        best = o;
+        bestHits = hits;
+      }
+    }
+    return best;
+  })();
+  const processOrderId = procOrder?.id ?? "";
   /** A direct line must be an input item of the chosen Process Order (grn_post refuses the rest). */
   const notOnOrder = (l: DraftLine): string | null => {
     if (!procOrder) return null;
     const itemId = lineById.get(l.key)?.item_id;
     return itemId && procOrder.item_ids.includes(itemId) ? null : `Not on ${procOrder.code ?? "the Process Order"}`;
   };
-  /** Place of Delivery: our store first, then every processor with an open Process Order. */
-  const placeOptions: ComboboxOption[] = [
-    { value: "store", label: location?.name ? `${location.name} store` : "Our store", sublabel: "Our store" },
-    ...Array.from(new Map(processOrders.map((o) => [o.vendor_id, o.vendor_name])).entries())
-      .sort((a, b) => a[1].localeCompare(b[1]))
-      .map(([vid, name]) => ({ value: `v:${vid}`, label: name, sublabel: "Direct to processor" })),
-  ];
-  const orderOptions2: ComboboxOption[] = processOrders
-    .filter((o) => !deliveryVendorId || o.vendor_id === deliveryVendorId)
-    .map((o) => ({ value: o.id, label: o.code ?? "(no number)", sublabel: o.process_type ?? undefined, search: o.vendor_name }));
+  /** Received Store ▸ Own: the unit's stores, from the Store master. */
+  const storePlaceOptions: ComboboxOption[] = stores.map((st) => ({ value: st.id, label: st.name }));
+  /** Received Store ▸ Vendor: every vendor Master Data marks Is Processor; the sublabel says
+   *  whether it has an open Process Order — a direct GRN cannot post without one (0792). */
+  const openOrdersOf = (vid: string) => processOrders.filter((o) => o.vendor_id === vid).length;
+  const vendorPlaceOptions: ComboboxOption[] = processors.map((v) => {
+    const n = openOrdersOf(v.id);
+    return { value: v.id, label: v.name, sublabel: n ? `${n} open Process Order${n === 1 ? "" : "s"}` : "No open Process Order" };
+  });
   const lineProblems = receiving.some(
     (l) => excessProblem(l) || (!isDirect && (failProblem(l) || splitProblem(l))) || (isDirect && notOnOrder(l)),
   );
@@ -632,45 +664,58 @@ export function GrnNewForm({
   }
 
   /*
-   * BESIDE THE PO RAIL (user 2026-11-02, Raise PO's layout): Item 176 · PO Qty 112 ·
-   * Today Recd 112 (its Part / Full pill under the box) · QC 112 · Store · Bin 176 (one
-   * line; the store and bins open in a pop-up) · Lot No 112 · Close bal. 88 = 888, + 40
-   * chrome (the `#`; no ✕) = 928 — inside the ~1,000px the rail leaves at the operator's
-   * 125% zoom. Was 1,128 across nine columns with no rail. tableFrom="5xl".
+   * BESIDE THE PO RAIL (user 2026-11-02, Raise PO's layout), COMPACTED TO RAISE PO'S WIDTHS
+   * (user 2026-11-03): Item 144, capped · PO Qty 88 · Today Recd 88 (yarn's bags × kg boxes 36 each;
+   * its Part / Full pill under the box) · QC 112 · Bin 176 (Bin picker with its Qty box beside
+   * it — no Store, the header's Received Store is the line's) · Lot No 88 · Close bal. 72 =
+   * 768, + 40 chrome (the `#`; no ✕) = 808 — under tableFrom="4xl" (896). `autoFit`: each
+   * width is a floor, so a longer value widens only its own column.
+   *
+   * WHY 4xl, NOT 5xl (user 2026-11-03, screenshot 4022: "width issue … again again its
+   * happening"): the rail leaves the lines ~990px at the operator's 125% zoom, and 5xl's
+   * switch is 1024 — so the table fell to stacked cards, one field per line, whenever the pane
+   * was a little narrower. `check:grid-budget` measures against the whole 1155px pane and
+   * cannot see the rail, so it passed. 872 under a 896 switch leaves ~90px either side.
    */
   const grnLineColumns: ChildGridColumn<DraftLine>[] = [
     {
       header: "Item Description",
-      width: FIELD_WIDTH_CSS.term,
+      width: FIELD_WIDTH_CSS.code,
+      /* CAPPED AT 144 (user 2026-11-03: "Item Description — compact it"). Under `autoFit` a
+         width is only a floor and a long name would widen the column, so the cell's root
+         carries the cap (child-grid.tsx's own advice); the name cuts with its reveal. */
       cell: (l) =>
         poIds.length > 1 ? (
-          <div className="min-w-0 leading-tight">
-            <Truncated className="text-sm">{l.description}</Truncated>
+          <div className="w-36 min-w-0 leading-tight">
+            <Truncated className="block text-sm">{l.description}</Truncated>
             <div className="font-mono text-[11px] text-muted-foreground">{l.poCode ?? ""}</div>
           </div>
         ) : (
-          <Truncated className="text-sm">{l.description}</Truncated>
+          <Truncated className="block w-36 text-sm">{l.description}</Truncated>
         ),
     },
     {
       // PO QTY AND ITS UNIT, and what is still pending for this GRN — one cell, two lines.
       header: isRepl ? "Owed" : "PO Qty",
-      width: FIELD_WIDTH_CSS.range,
+      width: FIELD_WIDTH_CSS.hug,
       align: "right",
       cell: (l) => (
-        <div className="text-right leading-tight">
-          <div className="tabular-nums text-sm">
-            {fmtNumber(isRepl ? l.pending : l.ordered)} <span className="text-xs text-muted-foreground">{l.uomCode ?? ""}</span>
+        /* ONE LINE EACH, RIGHT-ALIGNED (user 2026-11-03: "100 CONE / pending 50 — align this
+           field"). At 88px the qty and its unit wrapped apart; `whitespace-nowrap` keeps each
+           line whole, and `autoFit` widens this column instead of breaking it. The pending
+           line reads number-last so both figures sit on the same right edge. */
+        <div className="whitespace-nowrap text-right leading-tight tabular-nums">
+          <div className="text-sm">
+            {fmtNumber(isRepl ? l.pending : l.ordered)}
+            {l.uomCode ? <span className="ml-1 text-xs text-muted-foreground">{l.uomCode}</span> : null}
           </div>
-          {isRepl ? null : (
-            <div className="text-[11px] tabular-nums text-muted-foreground">pending {fmtNumber(l.pending)}</div>
-          )}
+          {isRepl ? null : <div className="text-[11px] text-muted-foreground">Pending {fmtNumber(l.pending)}</div>}
         </div>
       ),
     },
     {
       header: "Today Recd",
-      width: FIELD_WIDTH_CSS.range,
+      width: FIELD_WIDTH_CSS.hug,
       cell: (l) => {
         const problem = excessProblem(l);
         return (
@@ -689,7 +734,7 @@ export function GrnNewForm({
                   aria-label={`No. of bags, ${l.description}`}
                   title="No. of bags"
                   placeholder="bags"
-                  className="h-7 w-12 px-1 text-right text-xs tabular-nums"
+                  className="h-7 w-9 px-1 text-right text-xs tabular-nums"
                   value={l.bags}
                   onChange={(e) => updateLine(l.key, bagsPatch(l, { bags: e.target.value }))}
                 />
@@ -701,7 +746,7 @@ export function GrnNewForm({
                     inputMode="decimal"
                     aria-label={`Avg bag weight in kg, ${l.description}`}
                     title="Avg bag weight (kg)"
-                    className="h-7 w-12 px-1 text-right text-xs tabular-nums"
+                    className="h-7 w-9 px-1 text-right text-xs tabular-nums"
                     value={l.bagWt}
                     onChange={(e) => updateLine(l.key, bagsPatch(l, { bagWt: e.target.value }))}
                   />
@@ -737,7 +782,7 @@ export function GrnNewForm({
     },
     {
       header: "QC",
-      width: FIELD_WIDTH_CSS.range,
+      width: FIELD_WIDTH_CSS.range, // 112: "Pending" + the select chevron (user 2026-11-03: "a little extra space")
       // Off the typing path: the arrows and the mouse reach it, Tab steps over.
       cell: (l) =>
         isDirect ? (
@@ -787,7 +832,7 @@ export function GrnNewForm({
     {
       // ONE BIN, OR SPLIT ACROSS SEVERAL (0782): the split must hold exactly the
       // accepted qty.
-      header: "Store · Bin",
+      header: "Bin",
       width: FIELD_WIDTH_CSS.term,
       cell: (l) => {
         // PENDING QC (0791): held out of stock — the inspector puts it away.
@@ -802,29 +847,26 @@ export function GrnNewForm({
         if (l.qcStatus === "pending") {
           return <span className="text-[11px] text-muted-foreground">Store &amp; bin chosen at QC</span>;
         }
-        // ONE LINE, EDITED IN A POP-UP (user 2026-11-02, screenshot 161807): the store
-        // and its bin(s) — Bin 1 takes it all; lower it to open another (bin-split.ts).
+        // BIN · QTY, NO STORE (user 2026-11-03): the store is the header's Received Store;
+        // the row lists the bins with a Qty box beside each, nothing pre-filled.
         return (
-          <StoreBinCell
-            id={`grn-bins-${l.key}`}
+          <BinQtyCell
             description={l.description}
-            stores={stores}
             storeId={l.storeId}
-            onStore={(v) => updateLine(l.key, { storeId: v })}
             rows={l.bins}
             onRow={(k, p) => updateSplit(l.key, k, p)}
             accepted={accepted(l)}
             uom={l.uomCode}
             bins={allBins}
             canCreateBin={canCreateBin}
-            onBinCreated={(nb) => setAddedBins((xs) => [...xs, { id: nb.id, code: nb.code, description: null }])}
+            onBinCreated={(nb) => setAddedBins((xs) => [...xs, { id: nb.id, code: nb.code, description: null, store_id: nb.store_id }])}
           />
         );
       },
     },
     {
       header: "Lot No",
-      width: FIELD_WIDTH_CSS.range,
+      width: FIELD_WIDTH_CSS.hug,
       cell: (l) => (
         <Input
           aria-label={`Lot No, ${l.description}`}
@@ -837,7 +879,7 @@ export function GrnNewForm({
     {
       // VENDOR WILL NOT SEND THE REST (0782): only offered while short of the balance.
       header: "Close bal.",
-      width: FIELD_WIDTH_CSS.hug,
+      width: FIELD_WIDTH_CSS.num,
       cell: (l) => {
         const t = num(l.todayRecd);
         if (isRepl || t <= 0 || t >= l.pending - 1e-9) return null;
@@ -888,8 +930,10 @@ export function GrnNewForm({
         ? "Tick a PO on the left"
         : !docNo.trim() || !docDate
           ? `Enter the ${docType === "invoice" ? "Invoice" : "DC"} No and Date`
-        : isDirect && (!deliveryVendorId || !processOrderId)
-          ? "Pick the processor and its Process Order"
+        : isDirect && !deliveryVendorId
+          ? "Pick the processor"
+        : isDirect && !processOrderId
+          ? "This processor has no open Process Order — raise one first"
           : receiving.length === 0
             ? "Enter Today Recd on at least one line"
             : lineProblems
@@ -905,12 +949,18 @@ export function GrnNewForm({
        layout like the costing sheet"): the app's sheet grid with flat cells — a ruled line
        between every cell and the field filling it (globals.css data-grid-cells="flat",
        Sample Entry ▸ Quantities). */
-    <div ref={gridRef} className={DENSE} data-grid-style="sheet" data-grid-cells="flat">
+    /* RAISE PO'S TABLE (user 2026-11-03: "compact the fields width and the title need some UI
+       fix, check existing Raise PO table UI"): the plain dense grid, `autoFit` so each column
+       hugs its content, and the row number on the fields' line — exactly Raise PO's Items
+       grid. Replaces the ruled "sheet" cells of 2026-11-02. */
+    <div ref={gridRef} className={DENSE}>
       {/* default-row: exempt -- the rows are the picked POs' own lines, derived; nothing is added here */}
       <ChildGrid<DraftLine>
         columns={grnLineColumns}
         rows={gridLines}
-        tableFrom="5xl"
+        bodyClassName="[&>tr>td:first-child]:leading-8"
+        autoFit
+        tableFrom="4xl"
         flatRows
         hideAdd
         hideRemove
@@ -1102,50 +1152,61 @@ export function GrnNewForm({
               />
             </Field>
             {isRepl ? null : (
-              /* PLACE OF DELIVERY IS TYPED TO SEARCH (user 2026-11-02): our unit's store, or a
-                 processor with an open Process Order — picking one IS "direct to processor",
-                 so there is no separate Processor box. Only real places: a typed name that is
-                 neither is not a place stock can be booked to. */
-              <Field label="Place of Delivery" required w="party" htmlFor="grn-delivery">
-                <Combobox
-                  id="grn-delivery"
-                  options={placeOptions}
-                  value={isDirect && deliveryVendorId ? `v:${deliveryVendorId}` : "store"}
-                  openOnFocus={false}
-                  onChange={(v) => {
-                    touch();
-                    if (!v || v === "store") {
-                      setDeliveryKind("store");
+              /* RECEIVED STORE — OWN / VENDOR (user 2026-11-03, screenshot 4024: "place of
+                 delivery rename received store … fetch from store master … in front add
+                 own/vendor toggle; own is master data store data, vendor will list in master
+                 data mentioned delivery place vendor"). Own = the unit's stores from the Store
+                 master; Vendor = the vendors Master Data marks Is Processor — picking one IS
+                 "direct to processor" (0792); its Process Order is worked out, not asked.
+                 Typed to search; only real rows, never a typed name. */
+              <Field label="Received Store" required htmlFor="grn-delivery">
+                <div className="flex items-center gap-2">
+                  <ToggleGroup<"store" | "direct">
+                    label="Received at"
+                    value={deliveryKind}
+                    onChange={(k) => {
+                      touch();
+                      setDeliveryKind(k);
                       setDeliveryVendorId("");
-                      setProcessOrderId("");
-                      return;
-                    }
-                    const vid = v.slice(2);
-                    setDeliveryKind("direct");
-                    setDeliveryVendorId(vid);
-                    // One open order for that processor → it is the one.
-                    const theirs = processOrders.filter((o) => o.vendor_id === vid);
-                    setProcessOrderId(theirs.length === 1 ? theirs[0].id : "");
-                  }}
-                />
+                    }}
+                    options={[
+                      { value: "store", label: "Own" },
+                      { value: "direct", label: "Vendor" },
+                    ]}
+                  />
+                  <div style={{ width: FIELD_WIDTH_CSS.party }}>
+                    {isDirect ? (
+                      <Combobox
+                        id="grn-delivery"
+                        options={vendorPlaceOptions}
+                        value={deliveryVendorId}
+                        placeholder="Processor…"
+                        openOnFocus={false}
+                        onChange={(vid) => {
+                          touch();
+                          setDeliveryVendorId(vid);
+                        }}
+                      />
+                    ) : (
+                      <Combobox
+                        id="grn-delivery"
+                        options={storePlaceOptions}
+                        value={receivedStoreId || defaultStoreId || ""}
+                        placeholder="Store…"
+                        openOnFocus={false}
+                        onChange={(sid) => {
+                          touch();
+                          setReceivedStoreId(sid);
+                          // Every line on screen moves to it; its bin is cleared, because the Bin
+                          // list follows the Store (0800) and the old bin belongs to another store.
+                          if (sid) setLines((prev) => prev.map((l) => (l.storeId === sid ? l : { ...l, storeId: sid, bins: [newSplit()] })));
+                        }}
+                      />
+                    )}
+                  </div>
+                </div>
               </Field>
             )}
-            {isDirect ? (
-                <Field label="Process Order" required w="code" htmlFor="grn-process-order">
-                  <Combobox
-                    id="grn-process-order"
-                    options={orderOptions2}
-                    value={processOrderId}
-                    openOnFocus={false}
-                    onChange={(v) => {
-                      touch();
-                      setProcessOrderId(v);
-                      const o = processOrders.find((x) => x.id === v);
-                      if (o) setDeliveryVendorId(o.vendor_id);
-                    }}
-                  />
-                </Field>
-            ) : null}
           </FieldRow>
         </div>
 
@@ -1180,23 +1241,10 @@ export function GrnNewForm({
                       title={`${p.code ?? ""} · ${p.vendorName}`}
                       badge={poBadge(p.id)}
                       onTick={() => togglePo(p.id)}
-                      onOpen={() => setSelKey(p.id)}
+                      // Click a PO: only its lines. Click it again: every PO's lines together.
+                      onOpen={() => setSelKey((cur) => (cur === p.id ? "all" : p.id))}
                     />
                   ))}
-                  {ticked.length > 1 ? (
-                    // button-shape: exempt -- a rail row, Raise PO's "All items together"
-                    <button
-                      type="button"
-                      aria-current={selKey === "all" || undefined}
-                      onClick={() => setSelKey("all")}
-                      className={cn(
-                        "flex h-8 w-full items-center gap-1.5 border-b border-[#dde4eb] px-2.5 text-left text-xs font-bold hover:bg-[#eef4f9]",
-                        selKey === "all" && "bg-[#eef6fc] shadow-[inset_3px_0_0_#037bb8]",
-                      )}
-                    >
-                      All lines together
-                    </button>
-                  ) : null}
                   {more.length ? <RailSectionLabel>More POs</RailSectionLabel> : null}
                 </>
               ) : null}
@@ -1242,13 +1290,10 @@ export function GrnNewForm({
             button (lib/focus.ts submitTargetOf), so Save sits after Cancel. */}
         <div className={DOC_BOTTOM_BAR} data-focus-region="footer">
           <dl className="flex items-center gap-3 text-[12.5px] whitespace-nowrap tabular-nums">
-            <div className="flex items-baseline gap-1.5">
-              <dt className="text-muted-foreground">Lines</dt>
-              <dd className="font-semibold">{receiving.length}</dd>
-            </div>
-            {[...byUom.entries()].map(([uom, qty]) => (
+            {/* NO "Lines n" (user 2026-11-03: "remove it") — the bar opens on what was received. */}
+            {[...byUom.entries()].map(([uom, qty], i) => (
               <div key={uom || "-"} className="flex items-center gap-3">
-                <span aria-hidden className="h-4 w-px bg-[#dde4eb]" />
+                {i > 0 ? <span aria-hidden className="h-4 w-px bg-[#dde4eb]" /> : null}
                 <div className="flex items-baseline gap-1.5">
                   <dt className="text-muted-foreground">Recd</dt>
                   <dd className="font-semibold">
@@ -1259,7 +1304,7 @@ export function GrnNewForm({
             ))}
             {pendingQc > 0 ? (
               <>
-                <span aria-hidden className="h-4 w-px bg-[#dde4eb]" />
+                {byUom.size > 0 ? <span aria-hidden className="h-4 w-px bg-[#dde4eb]" /> : null}
                 <div className="flex items-baseline gap-1.5">
                   <dt className="text-muted-foreground">Pending QC</dt>
                   <dd className="font-semibold">{pendingQc}</dd>
