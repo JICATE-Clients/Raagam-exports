@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { ReportToolbar, type ReportView as ViewMode } from "./report-toolbar";
 import { ReportChart } from "./report-chart";
@@ -16,10 +16,14 @@ export function ReportView<T>({
   config,
   getKey,
   empty = "No data for this report.",
+  controls,
 }: {
   config: ReportConfig<T>;
   getKey: (row: T, index: number) => string;
   empty?: string;
+  /** The report's own controls (as-on date, search, Filters), drawn on the SAME row as
+   *  Download / Print instead of a band of their own above it (user 2026-11-03). */
+  controls?: ReactNode;
 }) {
   const [view, setView] = useState<ViewMode>("table");
   const showChart = view === "chart" && !!config.chart;
@@ -45,6 +49,7 @@ export function ReportView<T>({
         view={view}
         onViewChange={setView}
         hasChart={!!config.chart}
+        leading={controls}
       />
 
       <div className="report-print-area space-y-3">
@@ -54,7 +59,9 @@ export function ReportView<T>({
         {showChart ? (
           <ReportChart config={config} />
         ) : (
-          <DataTable paginate={false} columns={columns} rows={config.rows} getKey={getKey} empty={empty} />
+          // `dense="spacing"`: the app's tighter cell padding, type unchanged — a report is
+          // read across many columns, so they fit before the table runs past the pane.
+          <DataTable paginate={false} dense="spacing" columns={columns} rows={config.rows} getKey={getKey} empty={empty} />
         )}
       </div>
     </div>

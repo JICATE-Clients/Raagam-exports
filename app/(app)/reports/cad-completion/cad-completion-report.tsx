@@ -20,7 +20,7 @@ import { ReportView } from "@/components/reports/report-view";
 import { Field, FieldRow } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { Stat } from "@/components/ui/stat";
+import { StatStrip } from "@/components/reports/stat-strip";
 import { fmtDate } from "@/lib/format";
 import type { ReportConfig } from "@/lib/reports/types";
 import {
@@ -139,18 +139,26 @@ export function CadCompletionReport({ rows }: { rows: CadStyleRow[] }) {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-        <Stat label="Styles" value={shown.length} tone="neutral" />
-        <Stat label="Approved" value={approved.length} tone="success" />
-        <Stat label="Pending" value={shown.length - approved.length} tone={shown.length - approved.length > 0 ? "warning" : "neutral"} />
-        <Stat
-          label="Avg lead time"
-          value={avgLead != null ? `${avgLead} d` : "—"}
-          hint="Approved styles only"
-          tone="neutral"
-        />
-        <Stat label="Avg versions" value={avgVersions ?? "—"} tone="neutral" />
-      </div>
+      {/* One short strip, as Stock Statement (user 2026-11-03: the reports "look unaligned"). */}
+      <StatStrip
+        groups={[
+          {
+            title: "Styles",
+            cells: [
+              { label: "Styles", value: shown.length },
+              { label: "Approved", value: approved.length, tone: "success" },
+              { label: "Pending", value: shown.length - approved.length, tone: shown.length - approved.length > 0 ? "warning" : "neutral" },
+            ],
+          },
+          {
+            title: "Turnaround",
+            cells: [
+              { label: "Avg lead time", value: avgLead != null ? `${avgLead} d` : "—", hint: "Approved styles only" },
+              { label: "Avg versions", value: avgVersions ?? "—" },
+            ],
+          },
+        ]}
+      />
 
       <FieldRow>
         <Field label="Customer" w="party" htmlFor="cc-customer">

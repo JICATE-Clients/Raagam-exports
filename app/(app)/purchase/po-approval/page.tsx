@@ -35,7 +35,7 @@ export default async function PoApprovalPage({
       cards={cards}
       canApprove={canApprove}
       initialOpenId={open && rows.some((r) => r.id === open) ? open : null}
-      initialBudget={budget === "over" ? "over" : "any"}
+      initialBudget={budget === "over" ? "over" : "within"}
     />
   );
 }

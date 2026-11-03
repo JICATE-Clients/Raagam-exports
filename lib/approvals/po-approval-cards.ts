@@ -28,6 +28,8 @@ export type PoApprovalCard = {
   /** "₹ 1,23,456.00" / "USD 4,500.00" — the PO's own currency. */
   total: string;
   lineCount: number;
+  /** The lines' item names, in line order, each once — the listing's Item column. */
+  items: string[];
   /** null: the reader may not see budget figures (not a `materials_purchase:approve` holder). */
   overCount: number | null;
   unbudgetedCount: number | null;
@@ -148,6 +150,7 @@ export async function loadPoApprovalCards(poIds: readonly string[]): Promise<Rec
       vendor: one(h.master_vendor)?.name ?? one(h.vendors)?.name ?? null,
       total: `${cur} ${fmtFixed(Number(h.total_amount ?? 0), 2)}`,
       lineCount: mine.length,
+      items: [...new Set(mine.map((l) => l.description?.trim()).filter((d): d is string => !!d))],
       overCount: impact ? impact.over.length : null,
       unbudgetedCount: impact ? impact.unbudgeted.length : null,
       profitHit: impact ? impact.profitHit : null,
