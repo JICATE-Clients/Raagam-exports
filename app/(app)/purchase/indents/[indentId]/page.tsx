@@ -1,10 +1,8 @@
 import Link from "next/link";
+import { DocBackLink, DocFacts, DocPrintIcon } from "@/components/purchase/doc-facts";
 import { notFound } from "next/navigation";
-import { Printer } from "lucide-react";
-import { buttonClasses } from "@/components/ui/button";
 import { requirePermission, can } from "@/lib/auth/server";
 import { PageHeader } from "@/components/ui/page-header";
-import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { fmtDate } from "@/lib/format";
 import {
@@ -52,57 +50,33 @@ export default async function IndentDetailPage({
       <PageHeader
         title={indent.code ?? "Indent"}
         description={`${indent.department} department indent`}
-        actions={
-          <div className="flex items-center gap-2">
+      />
+      {/* ONE STRIP, NOT A TITLED CARD (user 2026-11-03, screenshot 4000) — components/purchase/doc-facts.tsx. */}
+      <DocFacts
+        trailing={
+          <>
             <StatusPill tone={tone(indent.status)}>{INDENT_STATUS_LABELS[indent.status]}</StatusPill>
             {/* The printed indent (compact document shape, 2026-10-31). */}
-            <Link href={`/purchase/indents/${indentId}/print`} className={buttonClasses({ variant: "outline", size: "md" })}>
-              <Printer aria-hidden className="size-4" />
-              Print
-            </Link>
-            <Link href="/purchase/indents" className="text-sm text-muted-foreground hover:text-foreground">
-              Back to list
-            </Link>
-          </div>
+            <DocPrintIcon href={`/purchase/indents/${indentId}/print`} label="Print indent" />
+            <DocBackLink href="/purchase/indents" />
+          </>
         }
-      />
-      <Card>
-        <CardHeader>
-          <CardTitle>Details</CardTitle>
-        </CardHeader>
-        <CardBody>
-          <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
-            <div>
-              <dt className="text-xs text-muted-foreground">Department</dt>
-              <dd className="mt-0.5 font-medium">{indent.department}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Required date</dt>
-              <dd className="mt-0.5 tabular-nums">{fmtDate(indent.required_date)}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Status</dt>
-              <dd className="mt-0.5">{INDENT_STATUS_LABELS[indent.status]}</dd>
-            </div>
-            {indent.garment_ppm_id && (
-              <div>
-                <dt className="text-xs text-muted-foreground">Source PPM</dt>
-                <dd className="mt-0.5">
-                  <Link href={`/planning/garment-ppm/${indent.garment_ppm_id}`} className="font-mono text-xs text-primary hover:underline">
+        facts={[
+          { label: "Department", value: indent.department },
+          { label: "Required date", value: fmtDate(indent.required_date), mono: true },
+          indent.garment_ppm_id
+            ? {
+                label: "Source PPM",
+                value: (
+                  <Link href={`/planning/garment-ppm/${indent.garment_ppm_id}`} className="text-primary hover:underline">
                     View PPM
                   </Link>
-                </dd>
-              </div>
-            )}
-            {indent.notes && (
-              <div className="col-span-2 sm:col-span-3">
-                <dt className="text-xs text-muted-foreground">Notes</dt>
-                <dd className="mt-0.5 text-muted-foreground">{indent.notes}</dd>
-              </div>
-            )}
-          </dl>
-        </CardBody>
-      </Card>
+                ),
+              }
+            : null,
+          indent.notes ? { label: "Notes", value: <span className="font-normal text-muted-foreground">{indent.notes}</span> } : null,
+        ]}
+      />
       <IndentDetail
         indentId={indentId}
         status={indent.status}

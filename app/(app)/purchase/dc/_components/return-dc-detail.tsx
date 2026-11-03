@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
@@ -33,13 +32,15 @@ interface Props {
    * would book the stock with no PO line, no tolerance and no debit-note settlement.
    */
   fromGrn?: boolean;
+  /** A Replacement DC — the only kind where "Replacement qty" means anything. */
+  replacement?: boolean;
   lines: VendorReturnLine[];
   items: ItemOption[];
   canEdit: boolean;
   canDelete: boolean;
 }
 
-export function ReturnDcDetail({ docId, status, lines, items, canEdit, canDelete, fromGrn = false }: Props) {
+export function ReturnDcDetail({ docId, status, lines, items, canEdit, canDelete, fromGrn = false, replacement = false }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -83,7 +84,11 @@ export function ReturnDcDetail({ docId, status, lines, items, canEdit, canDelete
   const columns: Column<VendorReturnLine>[] = [
     { header: "Item", cell: (r) => <span className="text-sm">{items.find((i) => i.id === r.item_id)?.name ?? r.item_id.slice(0, 8)}</span> },
     { header: "Return qty", align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtNumber(r.return_qty)}</span> },
-    { header: "Replacement qty", align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtNumber(r.replacement_qty)}</span> },
+    // A Rejection DC is never resent, so its column was a row of 0s (screenshot 3997).
+    // A hand-raised draft keeps it: the add form above still types a replacement.
+    ...(replacement || editable
+      ? [{ header: "Replacement qty", align: "right" as const, cell: (r: VendorReturnLine) => <span className="tabular-nums text-sm">{fmtNumber(r.replacement_qty)}</span> }]
+      : []),
     ...(canEdit && editable
       ? [
           rowActionsColumn<VendorReturnLine>((r) => (
@@ -99,11 +104,9 @@ export function ReturnDcDetail({ docId, status, lines, items, canEdit, canDelete
 
   return (
     <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <CardTitle>Lines ({lines.length})</CardTitle>
-        </CardHeader>
-        <CardBody className="space-y-4">
+      {/* NO "Lines" CARD (user 2026-11-03): the table sits on the page at full width — the card
+          only added a second frame and a width that made the table scroll sideways. */}
+      <div className="space-y-4">
           {canEdit && editable && (
             <form onSubmit={handleAdd} className="flex flex-wrap items-end gap-3">
               <div className="w-52">
@@ -125,8 +128,7 @@ export function ReturnDcDetail({ docId, status, lines, items, canEdit, canDelete
             </form>
           )}
           <DataTable paginate={false} columns={columns} rows={lines} getKey={(r) => r.id} empty="No lines yet." />
-        </CardBody>
-      </Card>
+      </div>
 
       {canEdit && (
         <div className="flex flex-wrap gap-3">
@@ -140,11 +142,7 @@ export function ReturnDcDetail({ docId, status, lines, items, canEdit, canDelete
           )}
           {status === "returned" && (
             <>
-              {fromGrn ? (
-                <span className="text-sm text-muted-foreground">
-                  The replacement is received on Purchase ▸ Purchase Store ▸ Purchase Receipts (GRN) — it is listed there under Pending.
-                </span>
-              ) : (
+              {fromGrn ? null : (
                 <Button disabled={isPending} onClick={() => run(() => recordReplacement(docId), "Replacement received")}>Record replacement</Button>
               )}
               {/* NO CLOSE BUTTON (user 2026-10-31, screenshot 3951). Posting already

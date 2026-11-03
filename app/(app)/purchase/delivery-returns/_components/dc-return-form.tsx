@@ -7,8 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldError, FieldRow, FIELD_WIDTH_CSS } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
 import { Truncated } from "@/components/ui/truncated";
+import { StoreBinPickCell } from "@/components/purchase/store-bin-editor";
 import { useToast } from "@/components/ui/toast";
 import { postDcReturn } from "@/lib/purchase/general-dc-actions";
 import { partyOf, type GeneralDc } from "@/lib/purchase/general-dc-service";
@@ -138,7 +138,8 @@ export function DcReturnForm({
 
   /*
    * Description 200 · Sent 88 · Back 88 · Returning 88 · Close bal. 72 · Reason 176 ·
-   * Store 112 · Bin 88 · Lot No 112 = 1024, + 72 chrome = 1096 <= 1155 -> tableFrom="5xl".
+   * Store · Bin 176 (one button, 2026-11-03) · Lot No 112 = 1000, + 72 chrome = 1072 <= 1155
+   * -> tableFrom="5xl".
    */
   const dcReturnColumns: ChildGridColumn<Row>[] = [
     {
@@ -215,38 +216,26 @@ export function DcReturnForm({
       ),
     },
     {
-      header: "Store",
-      width: FIELD_WIDTH_CSS.range,
-      // pick-once: exempt -- several lines go back into the same store
+      // ONE BUTTON, STORE AND BIN IN A POP-UP — GRN's cell (user 2026-11-03, screenshot 095545).
+      header: "Store · Bin",
+      width: FIELD_WIDTH_CSS.term,
+      // pick-once: exempt -- several lines go back into the same store and bin
       cell: (r) =>
         r.itemId ? (
-          <Select aria-label="Store" className="h-8" value={r.storeId} onChange={(e) => update(r.key, { storeId: e.target.value })}>
-            <option value="">—</option>
-            {backStores.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </Select>
+          <StoreBinPickCell
+            description={r.description}
+            parent="Return"
+            stores={backStores}
+            storeId={r.storeId}
+            onStore={(v) => update(r.key, { storeId: v })}
+            allowNoStore
+            bins={bins}
+            binId={r.binId}
+            onBin={(v) => update(r.key, { binId: v })}
+          />
         ) : (
           <span className="text-xs text-muted-foreground">No stock</span>
         ),
-    },
-    {
-      header: "Bin",
-      width: FIELD_WIDTH_CSS.hug,
-      // pick-once: exempt -- several lines may share a bin
-      cell: (r) =>
-        r.itemId ? (
-          <Select aria-label="Bin" className="h-8" value={r.binId} onChange={(e) => update(r.key, { binId: e.target.value })}>
-            <option value="">—</option>
-            {bins.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.code}
-              </option>
-            ))}
-          </Select>
-        ) : null,
     },
     {
       header: "Lot No",

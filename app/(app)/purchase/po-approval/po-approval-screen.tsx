@@ -1,54 +1,58 @@
 "use client";
 
 /**
- * Purchase ▸ Procurement ▸ PO Approval (user 2026-10-28) — ORDERS ▸ APPROVAL'S SHAPE,
- * as near as a PO allows (`orders/budget-approval/budget-approval-screen.tsx`):
+ * Purchase ▸ Procurement ▸ PO Approval — ONE SCREEN FOR EVERY PO, OVER BUDGET OR NOT
+ * (user 2026-11-03: "merge PO Approval and More than Budget Approval in one single
+ * screen … better UI, uncomplicated, clean"; plan artifact "PO Approval and More than
+ * Budget Plan", recommendations accepted: remark required to approve over budget, bulk
+ * approve only within / no budget, the detail beside the list).
  *
- *   the Pending · Under Progress · Approved · Draft box → search → Filters → a dense
- *   table, two lines a cell → the decision icons → a FULL-SCREEN view with the
- *   decision in its header and the approval trail beside the document.
+ *   status box + Any budget / Over budget + search + Filters
+ *   ┌ the list ───────────┐ ┌ the selected PO ─────────────────────────────┐
+ *   │ ☐ PO No · pill      │ │ facts · budget banner · reason · lines        │
+ *   │   vendor · RE · ₹   │ │ remark · Reject · Request Rework · Approve    │
+ *   └─────────────────────┘ └ approval trail ──────────────────────────────┘
  *
- * THE APPROVER READS, THEY DO NOT EDIT. The PO is shown in Orders ▸ Approval's own page
- * layout (`po-approval-overview.tsx`): profile card · tiles, the glass ring, the lines ·
- * the approval trail and summary, one page.
+ * More than Budget Approval (`/purchase/over-budget`) is this screen with "Over budget"
+ * selected — its route redirects here and its sidebar row is gone. An over-budget PO is
+ * the same detail with a budget block, never a different screen.
  *
- * THREE DECISIONS, NOT TWO (user 2026-10-28, asked): Orders ▸ Approval has Approve ·
- * Request Rework; a PO also has Reject — closed for good, the requirement back on Raise
- * PO. Request Rework is `rejectPo` (back to draft with the note), Reject is `declinePo`.
- * Both go through the PO's approval run (0764) when it has one, so the trail and My
- * Approvals stay right; both need a remark, asked before the action is taken.
+ * THREE DECISIONS (2026-10-28): Approve · Request Rework (`rejectPo`, back to draft with
+ * the note) · Reject (`declinePo`, closed, the requirement back on Raise PO). All go
+ * through the PO's approval run (0764) when it has one, so the trail and My Approvals
+ * stay right, and the run decides WHO may act (the MD on an above-budget PO).
  *
- * APPROVE IS ONE CLICK, AND SEVERAL AT ONCE (user 2026-10-31, screenshot 3950: "approve
- * also one click, no need to show that … no need to ask there also, and allow choose
- * multiple PO and approve"). The row's ✓ approves outright — it used to open the full
- * view first, where Approve was asked again. Pending rows carry a tick box; ticking some
- * shows a bar with "Approve N". Each PO still goes through `approvePo` on its own, so
- * every gate holds per PO (TBA, reopened budget, the approver's signature, the run's
- * item-class step) and one refusal never stops the rest — the toast names which failed
- * and why. The PO No still opens the full view for reading; Rework and Reject keep their
- * remark, which they cannot do without.
+ * BULK APPROVE (2026-10-31) is kept for within-budget and no-budget POs only: an
+ * over-budget row has no tick box, because its excess has to be read — and a remark
+ * written — before it is approved. Each PO still goes through `approvePo` on its own, so
+ * every gate holds per PO and one refusal never stops the rest.
+ *
+ * PHONE: the list, then a tapped PO full width with "← PO list" back. Desktop: both,
+ * the first PO selected on arrival.
  */
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Ban, CalendarRange, Check, FileText, Layers, RotateCcw, Users } from "lucide-react";
+import Link from "next/link";
+import { ArrowLeft, Ban, CalendarRange, Check, CircleMinus, FileText, Layers, RotateCcw, TriangleAlert, Users } from "lucide-react";
+import { Tooltip } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { createdGroup, useFacetFilter, type FacetGroup } from "@/components/ui/filter-drawer";
 import { Field } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/textarea";
 import { PageHeader } from "@/components/ui/page-header";
-import { DataTable, type Column } from "@/components/ui/data-table";
-import { Sheet } from "@/components/ui/sheet";
+import { ToggleGroup } from "@/components/ui/segmented";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
-import { Tooltip } from "@/components/ui/tooltip";
+import { PaginationBar } from "@/components/ui/pagination";
+import { creatorName, HUG, withCreatedColumns } from "@/components/ui/created-columns";
+import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowIconAction } from "@/components/ui/row-actions";
-import { rowActionsColumn } from "@/components/ui/row-actions-column";
-import { HUG, creatorName, hugCreated, withCreatedColumns } from "@/components/ui/created-columns";
 import { QUICK_WORDS_4, useQuickStatus, type QuickWord } from "@/components/orders/bom-queue";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
+import { usePagination } from "@/lib/use-pagination";
 import { statusTone } from "@/lib/ui/status-tone";
 import { cn } from "@/lib/utils";
 import { fmtDate, fmtFixed } from "@/lib/format";
@@ -57,7 +61,7 @@ import type { RaisedPo } from "@/lib/purchase/re-po/types";
 import type { PoApprovalCard } from "@/lib/approvals/po-approval-cards";
 import { approvePo, declinePo, rejectPo } from "@/lib/purchase/po-actions";
 import { loadPoApprovalSheet } from "@/lib/purchase/po-approval-sheet-actions";
-import { PoApprovalOverview } from "./po-approval-overview";
+import { PoApprovalDetail } from "./po-approval-detail";
 
 const PO_STATUS_TONE_OVERRIDES = {
   // Approved is a step in this document's life, not its end — work still follows it (as on Purchase Orders).
@@ -68,8 +72,8 @@ const poStatusText = (s: string) => PO_STATUS_LABELS[s as PoStatus] ?? s;
 
 /**
  * WHICH WORD A PO COUNTS AS — a map, as on Orders ▸ Approval, so a state belongs to one
- * word. A draft that came back from the approver is still a draft: it is with the
- * Purchase Manager either way. Cancelled (Rejected) is under no word — shown under "All".
+ * word. A draft that came back from the approver is still a draft. Cancelled (Rejected)
+ * is under no word — shown under "All".
  */
 const APPROVAL_WORD: Partial<Record<PoStatus, QuickWord>> = {
   pending_approval: "pending",
@@ -81,11 +85,27 @@ const APPROVAL_WORD: Partial<Record<PoStatus, QuickWord>> = {
 };
 const approvalWord = (r: RaisedPo): QuickWord | null => APPROVAL_WORD[r.status as PoStatus] ?? null;
 
-type BudgetState = "within" | "above" | "none" | "unknown";
-const budgetStateOf = (c: PoApprovalCard | undefined): BudgetState =>
-  !c || c.overCount == null ? "unknown" : c.overCount > 0 ? "above" : (c.unbudgetedCount ?? 0) > 0 ? "none" : "within";
+/**
+ * A PO's budget state. `over` also covers a reader who may not see figures (a Purchase
+ * Manager): the save refuses an above-budget send without a reason, so a reason on the
+ * PO means it was sent above budget. `unknown` = no figures and no reason.
+ */
+type BudgetState = "over" | "within" | "none" | "unknown";
+function budgetStateOf(c: PoApprovalCard | undefined): BudgetState {
+  if (!c) return "unknown";
+  if (c.overCount == null) return c.reason ? "over" : "unknown";
+  if (c.overCount > 0) return "over";
+  return c.unbudgetedCount && c.unbudgetedCount >= c.lineCount ? "none" : "within";
+}
+const BUDGET_PILL: Record<Exclude<BudgetState, "unknown">, { tone: StatusTone; text: string }> = {
+  over: { tone: "danger", text: "Over budget" },
+  within: { tone: "success", text: "Within" },
+  none: { tone: "neutral", text: "No budget" },
+};
 
-function approvalFacets(rows: RaisedPo[], cards: Record<string, PoApprovalCard>): FacetGroup<RaisedPo>[] {
+type BudgetView = "any" | "over";
+
+function approvalFacets(rows: RaisedPo[]): FacetGroup<RaisedPo>[] {
   const vendors = [...new Set(rows.map((r) => r.vendor).filter((v): v is string => !!v))].sort();
   return [
     {
@@ -116,17 +136,6 @@ function approvalFacets(rows: RaisedPo[], cards: Record<string, PoApprovalCard>)
           options: vendors.map((v) => ({ value: v, label: v })),
           match: (r, v) => r.vendor === v,
         },
-        {
-          key: "budget",
-          label: "Budget",
-          all: "Any",
-          options: [
-            { value: "within", label: "Within budget" },
-            { value: "above", label: "Above budget" },
-            { value: "none", label: "No budget" },
-          ],
-          match: (r, v) => budgetStateOf(cards[r.id]) === v,
-        },
       ],
     },
     ...createdGroup(rows, <Users />),
@@ -140,72 +149,101 @@ export function PoApprovalScreen({
   cards = {},
   canApprove,
   initialOpenId = null,
+  initialBudget = "any",
 }: {
   rows: RaisedPo[];
   /** Each PO's My Approvals card — value, lines, budget figures (null for a non-approver). */
   cards?: Record<string, PoApprovalCard>;
   /** `materials_purchase:approve`. */
   canApprove: boolean;
-  /** The PO a notice link asked for (`?open=`), opened on arrival. */
+  /** The PO a notice link asked for (`?open=`), selected on arrival. */
   initialOpenId?: string | null;
+  /** `?budget=over` — More than Budget Approval's old address lands here. */
+  initialBudget?: BudgetView;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, start] = useTransition();
 
-  // ONE WAY IN, AND IT IS THE FULL VIEW — the PO No, the decision icons and `?open=`.
+  /** The PO the operator picked. null on a phone = the list; on a desktop the first row shows. */
   const [openId, setOpenId] = useState<string | null>(initialOpenId);
-  /** Rework / Reject asked for, waiting on its remark. */
-  const [ask, setAsk] = useState<"rework" | "reject" | null>(null);
   const [remark, setRemark] = useState("");
   useUnsavedGuard(!!remark.trim() || isPending);
 
-  // Loaded on open; keyed to its PO so a slow answer never paints under another PO.
-  const [loaded, setLoaded] = useState<Loaded | null>(null);
-  useEffect(() => {
-    if (!openId) return;
-    void loadPoApprovalSheet(openId).then((d) => setLoaded({ forId: openId, ...d }));
-  }, [openId]);
-  const sheet = loaded && loaded.forId === openId ? loaded : null;
-
-  const groups = useMemo(() => approvalFacets(rows, cards), [rows, cards]);
+  const [budget, setBudget] = useState<BudgetView>(initialBudget);
+  const groups = useMemo(() => approvalFacets(rows), [rows]);
   const facets = useFacetFilter(rows, groups);
   const facetMatch = facets.matches;
   const setFacet = facets.set;
   const [search, setSearch] = useState("");
-  /** The ticked POs — only ever pending ones this user may approve (pruned below). */
+  /** The ticked POs — only ever pending, within / no budget, approvable (pruned below). */
   const [picked, setPicked] = useState<Set<string>>(() => new Set());
+
+  const stateOf = (r: RaisedPo) => budgetStateOf(cards[r.id]);
   const base = useMemo(() => {
     const q = search.trim().toLowerCase();
     return rows.filter((r) => {
       if (!facetMatch(r)) return false;
+      if (budget === "over" && budgetStateOf(cards[r.id]) !== "over") return false;
       if (!q) return true;
       return [r.code, r.vendor, ...r.source_nos, ...r.customers].filter(Boolean).some((v) => (v as string).toLowerCase().includes(q));
     });
-  }, [rows, facetMatch, search]);
+  }, [rows, cards, facetMatch, search, budget]);
   const quick = useQuickStatus(approvalWord, {
     words: QUICK_WORDS_4,
     standDown: !!facets.values.status,
-    onPick: () => setFacet("status", ""),
+    // A word picked while a PO is open goes back to that word's list (the table views
+    // show an opened PO in place of the table).
+    onPick: () => {
+      setFacet("status", "");
+      setOpenId(null);
+    },
     countRows: base,
   });
   const quickMatches = quick.matches;
   const filtered = useMemo(() => base.filter(quickMatches), [base, quickMatches]);
+  const pg = usePagination(filtered);
+  const overCount = rows.filter((r) => budgetStateOf(cards[r.id]) === "over" && quickMatches(r)).length;
+
   const decidable = (r: RaisedPo) => canApprove && r.status === "pending_approval";
-  // A tick survives only while its row is on screen and still approvable.
-  const pickable = filtered.filter(decidable).map((r) => r.id);
+  // Bulk only where the excess needs no reading: never an over-budget PO.
+  const tickable = (r: RaisedPo) => decidable(r) && stateOf(r) !== "over";
+  const pickable = filtered.filter(tickable).map((r) => r.id);
   const selected = new Set(pickable.filter((id) => picked.has(id)));
 
-  function open(r: RaisedPo, intent: "rework" | null = null) {
-    setRemark("");
-    setAsk(intent);
-    setOpenId(r.id);
+  // The PO in the detail: the one picked, else (desktop) the first on the page.
+  /* APPROVED IS A TABLE (user 2026-11-03, screenshot 4005: "for approved screen can use our
+     table layout is enough"). Nothing is decided there, so the card list + detail pane — built
+     for reading a PO before approving it — is only a long way to see a register. The other
+     words keep the split view, where the decisions are. */
+  // NOT under "Over budget" (user 2026-11-03: "update approved only … restore the over budget
+  // screen") — the over-budget view keeps the list + detail, where the excess is read.
+  // PENDING AND UNDER PROGRESS TOO (user 2026-11-03: "the pending and under progress also as
+  // table … same compact, fit screen without scrolling"). A Pending row's PO No opens its detail
+  // IN PLACE of the table — remark, Reject, Request Rework, Approve — with "← PO list" back.
+  const asTable = budget !== "over" && (quick.value === "approved" || quick.value === "pending" || quick.value === "progress");
+  const isApprovedView = quick.value === "approved";
+  const openValid = !!openId && rows.some((r) => r.id === openId);
+  const detailId = asTable ? (openValid ? openId : null) : openValid ? openId : (pg.paged[0]?.id ?? null);
+  const [loaded, setLoaded] = useState<Loaded | null>(null);
+  useEffect(() => {
+    if (!detailId) return;
+    void loadPoApprovalSheet(detailId).then((d) => setLoaded({ forId: detailId, ...d }));
+  }, [detailId]);
+  const sheet = loaded && loaded.forId === detailId ? loaded : null;
+
+  function pick(id: string) {
+    if (id !== detailId) setRemark("");
+    setOpenId(id);
   }
-  function close() {
-    setOpenId(null);
-    setAsk(null);
+  /** After a decision, move to the next PO in the list — the approver works down it. */
+  function advance(fromId: string) {
+    const i = filtered.findIndex((r) => r.id === fromId);
+    const next = filtered[i + 1] ?? filtered[i - 1] ?? null;
     setRemark("");
+    setOpenId(next?.id ?? null);
   }
+
   /** Approve each PO in turn through `approvePo` — its gates per PO; refusals reported, never fatal. */
   function approveMany(ids: string[]) {
     if (!ids.length) return;
@@ -229,169 +267,173 @@ export function PoApprovalScreen({
     });
   }
 
-  function run(act: () => Promise<{ ok: true } | { ok: false; error: string }>, done: string) {
+  function decide(id: string, act: () => Promise<{ ok: true } | { ok: false; error: string }>, done: string) {
     start(async () => {
       const res = await act();
       if (!res.ok) return toastError(res.error);
       success(done);
-      close();
+      advance(id);
       router.refresh();
     });
   }
 
-  const cardOf = (r: RaisedPo) => cards[r.id];
-  const columns: Column<RaisedPo>[] = [
-    {
-      header: "PO No",
-      className: HUG,
-      cell: (r) => (
-        <button type="button" className="text-left" onClick={() => open(r)}>
-          <span className="block font-mono text-xs font-semibold text-primary hover:underline">{r.code ?? "Draft PO"}</span>
-          <span className="block text-[11px] text-muted-foreground">{r.order_date ? fmtDate(r.order_date) : "—"}</span>
-        </button>
-      ),
-    },
-    {
-      // VENDOR OVER ORDERS, one column — the Customer / Style pattern.
-      header: "Vendor / Orders",
-      cell: (r) => (
-        <span className="block max-w-[14rem]">
-          <Truncated className="block">{r.vendor ?? "—"}</Truncated>
-          <Truncated className="block font-mono text-[11px] text-muted-foreground">{r.source_nos.join(", ") || "—"}</Truncated>
-        </span>
-      ),
-    },
-    {
-      header: "Value",
-      align: "right",
-      className: HUG,
-      cell: (r) => {
-        const c = cardOf(r);
-        return (
-          <span className="block whitespace-nowrap text-right tabular-nums">
-            <span className="block font-semibold">{c?.total ?? `₹ ${fmtFixed(r.total_amount, 2)}`}</span>
-            <span className="block text-[11px] text-muted-foreground">
-              {c ? `${c.lineCount} line${c.lineCount === 1 ? "" : "s"} · incl. GST` : "incl. GST"}
-            </span>
-          </span>
-        );
-      },
-    },
-    {
-      // THE ABOVE-BUDGET FIGURE, the margin column's place — the word, and below it what it costs.
-      header: "Budget",
-      className: HUG,
-      cell: (r) => {
-        const c = cardOf(r);
-        const st = budgetStateOf(c);
-        if (st === "unknown") return <span className="text-muted-foreground">—</span>;
-        if (st === "within") return <span className="text-xs font-semibold text-success">Within</span>;
-        if (st === "none")
-          return <span className="whitespace-nowrap text-xs font-semibold text-warning">{c!.unbudgetedCount} no budget</span>;
-        return (
-          <span className="block whitespace-nowrap">
-            <span className="block text-xs font-semibold text-danger">▲ {c!.overCount} above</span>
-            <span className="block text-[11px] tabular-nums text-muted-foreground">
-              −₹ {fmtFixed(c!.profitHit ?? 0, 2)} ({fmtFixed(c!.overPct ?? 0, 1)}%)
-            </span>
-          </span>
-        );
-      },
-    },
-    {
-      header: "Status",
-      className: HUG,
-      cell: (r) => <StatusPill tone={poStatusTone(r.status)}>{poStatusText(r.status)}</StatusPill>,
-    },
-    /* THE DECISIONS, as on Orders ▸ Approval: the report first (the eye's slot), then
-       Request Rework (opens the full view for its remark) and Approve — ONE CLICK, no
-       second ask (2026-10-31). Drawn on every row so the column never jitters; one that
-       cannot apply is greyed and says why. */
-    rowActionsColumn<RaisedPo>(
-      (r) => {
-        const canDecide = decidable(r);
-        const why = !canApprove ? "Needs the Purchase ▸ Approve permission" : "Only a PO pending approval";
-        const printable = !["draft", "pending_approval", "cancelled"].includes(r.status);
-        return (
-          <div className="flex items-center justify-end gap-1">
-            <RowIconAction
-              label="PO print"
-              name={r.code}
-              icon={FileText}
-              className="text-primary"
-              onClick={printable ? () => router.push(`/purchase/orders/${r.id}/print`) : undefined}
-              disabledReason={printable ? null : "Print opens once the PO is approved"}
-            />
-            <Tooltip label={canDecide ? "Request Rework" : `Request Rework — ${why}`}>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label={`Request Rework ${r.code ?? ""}`}
-                className="text-warning"
-                disabled={!canDecide || isPending}
-                onClick={() => open(r, "rework")}
-              >
-                <RotateCcw aria-hidden className="size-4" />
-              </Button>
-            </Tooltip>
-            <Tooltip label={canDecide ? "Approve" : `Approve — ${why}`}>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label={`Approve ${r.code ?? ""}`}
-                className="text-success"
-                disabled={!canDecide || isPending}
-                onClick={() => approveMany([r.id])}
-              >
-                <Check aria-hidden className="size-4" />
-              </Button>
-            </Tooltip>
-          </div>
-        );
-      },
-      "w-28",
-    ),
-  ];
-
-  const openRow = rows.find((r) => r.id === openId) ?? null;
+  const detailRow = rows.find((r) => r.id === detailId) ?? null;
   const po = sheet?.po ?? null;
   const verdict = sheet?.panel.verdict ?? null;
-  // Through the run when there is one (who may act at THIS step, by item class); a PO
-  // sent before 0764 has no run, and the permission decides.
+  // Through the run when there is one (who may act at THIS step); a PO sent before 0764
+  // has no run, and the permission decides.
   const mayDecide = !!po && po.status === "pending_approval" && (sheet?.panel.run ? !!verdict?.can_act : canApprove);
-  const names: Record<string, string> = sheet?.panel.names ?? {};
+  const detailOver = detailRow ? stateOf(detailRow) === "over" : false;
+  const note = remark.trim();
 
-  return (
-    <>
-      <div className="space-y-4">
-        <PageHeader title="PO Approval" description="Approve, send back or reject a PO raised on Raise PO." />
+  const decision =
+    po && mayDecide ? (
+      <div className="space-y-2 rounded-lg border border-border bg-surface-muted/50 p-3">
+        <Field
+          label={detailOver ? "Remark — needed to approve over budget, and to send back or reject" : "Remark — needed to send back or reject"}
+          htmlFor="po-approval-remark"
+        >
+          <Textarea id="po-approval-remark" rows={2} value={remark} onChange={(e) => setRemark(e.target.value)} />
+        </Field>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            className="text-danger"
+            disabled={isPending || !note}
+            title={note ? "The PO closes for good; its requirement goes back to Raise PO" : "Write the remark first"}
+            onClick={() => decide(po.id, () => declinePo(po.id, note), "Purchase order rejected")}
+          >
+            <Ban aria-hidden className="size-4" />
+            Reject
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="text-warning"
+            disabled={isPending || !note}
+            title={note ? "Back to the Purchase Manager with the remark" : "Write the remark first"}
+            onClick={() => decide(po.id, () => rejectPo(po.id, note), "Sent back for rework")}
+          >
+            <RotateCcw aria-hidden className="size-4" />
+            Request Rework
+          </Button>
+          <Button
+            type="button"
+            disabled={isPending || (detailOver && !note)}
+            title={detailOver && !note ? "Write why the excess is accepted first" : undefined}
+            onClick={() => decide(po.id, () => approvePo(po.id, note || undefined), "Purchase order approved")}
+          >
+            <Check aria-hidden className="size-4" />
+            {detailOver ? "Approve over budget" : "Approve"}
+          </Button>
+        </div>
+      </div>
+    ) : null;
 
-        {!canApprove && (
-          // SAID, NOT HIDDEN — a queue with no buttons and no reason reads as broken.
-          <p className="rounded-md border border-border bg-surface-muted px-3 py-2 text-xs text-muted-foreground">
-            You can see POs here but not decide on them — that needs the approve permission for Purchase, granted on the
-            Roles screen.
-          </p>
-        )}
+  const togglePick = (id: string) =>
+    setPicked((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const showTicks = !isApprovedView && filtered.some(decidable);
 
-        <FilterBar
-          search={search}
-          onSearch={setSearch}
-          searchPlaceholder="Search PO No, vendor, RE No or customer…"
-          leading={quick.segment}
-          activeCount={facets.activeCount}
-          onReset={facets.activeCount ? facets.reset : undefined}
-          panel={facets.panel}
-          right={`${filtered.length} of ${rows.length}`}
-        />
-
-        <div className="space-y-2">
-          {/* THE BULK BAR — only while something is ticked. */}
-          {selected.size > 0 ? (
-            <div className="flex flex-wrap items-center gap-3 rounded-md border border-primary/30 bg-primary/5 px-3 py-1.5 text-sm">
-              <span className="font-semibold">
-                {selected.size} PO{selected.size === 1 ? "" : "s"} selected
+  const tableColumns: Column<RaisedPo>[] = withCreatedColumns<RaisedPo>(
+    [
+      // Bulk approve — a plain column, not DataTable's `selectable`, because an over-budget row
+      // keeps its box GREYED (read the excess, approve with a remark) and `selectable` cannot.
+      ...(showTicks
+        ? [
+            {
+              header: "",
+              className: HUG,
+              cell: (r: RaisedPo) =>
+                decidable(r) ? (
+                  <input
+                    type="checkbox"
+                    className="size-4 accent-[var(--color-primary)] disabled:opacity-40"
+                    aria-label={`Select ${r.code ?? "PO"}`}
+                    title={tickable(r) ? undefined : "Over budget — open it, read the excess and approve with a remark"}
+                    disabled={!tickable(r) || isPending}
+                    checked={selected.has(r.id)}
+                    onChange={() => togglePick(r.id)}
+                  />
+                ) : null,
+            },
+          ]
+        : []),
+      {
+        header: "PO No",
+        className: HUG,
+        cell: (r) =>
+          isApprovedView ? (
+            <Link href={`/purchase/orders/${r.id}`} className="font-mono text-xs font-semibold text-primary hover:underline">
+              {r.code ?? "—"}
+            </Link>
+          ) : (
+            <button type="button" onClick={() => pick(r.id)} className="font-mono text-xs font-semibold text-primary hover:underline">
+              {r.code ?? "Draft PO"}
+            </button>
+          ),
+      },
+      { header: "PO Date", className: HUG, cell: (r) => (r.order_date ? fmtDate(r.order_date) : "—") },
+      // Vendor takes the spare width and WRAPS a long name — never pushes the row past the pane.
+      { header: "Vendor", className: "w-full", cell: (r) => r.vendor ?? "—" },
+      { header: "RE No", className: HUG, cell: (r) => r.source_nos.join(", ") || "—" },
+      { header: "Lines", align: "right", className: HUG, cell: (r) => <span className="tabular-nums">{cards[r.id]?.lineCount ?? "—"}</span> },
+      {
+        header: "Budget",
+        className: HUG,
+        align: "center",
+        // AN ICON, NOT THE WORD (user 2026-11-03): the word moves to the tooltip and the
+        // aria-label, so the column is one glyph wide.
+        cell: (r) => {
+          const st = stateOf(r);
+          if (st === "unknown") return "—";
+          const Icon = st === "over" ? TriangleAlert : st === "within" ? Check : CircleMinus;
+          const tint = st === "over" ? "text-danger" : st === "within" ? "text-success" : "text-muted-foreground";
+          return (
+            <Tooltip label={BUDGET_PILL[st].text}>
+              <span role="img" aria-label={BUDGET_PILL[st].text} className={`inline-flex ${tint}`}>
+                <Icon aria-hidden className="size-4" />
               </span>
+            </Tooltip>
+          );
+        },
+      },
+      {
+        header: "Value",
+        align: "right",
+        className: HUG,
+        cell: (r) => <span className="tabular-nums">{cards[r.id]?.total ?? `₹ ${fmtFixed(r.total_amount, 2)}`}</span>,
+      },
+      // FITS WITHOUT A SIDEWAYS SCROLL (user 2026-11-03, screenshot 4006): the box above already
+      // says Approved, so Status is a column only while a row has moved on from it (Partly
+      // received, Received, Closed — all counted as Approved there).
+      ...(isApprovedView && filtered.some((r) => r.status !== "approved")
+        ? [{ header: "Status", className: HUG, cell: (r: RaisedPo) => <StatusPill tone={poStatusTone(r.status)}>{poStatusText(r.status)}</StatusPill> }]
+        : []),
+      // The report icon (the PO list's shape): an approved PO prints; a pending one cannot yet.
+      ...(isApprovedView
+        ? [
+            {
+              header: "",
+              className: HUG,
+              cell: (r: RaisedPo) => <RowIconAction label="PO print" name={r.code} icon={FileText} onClick={() => router.push(`/purchase/orders/${r.id}/print`)} />,
+            },
+          ]
+        : []),
+    ],
+    filtered,
+  );
+
+  const bulkBar =
+    selected.size > 0 ? (
+
+            <div className="flex flex-wrap items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-1.5 text-sm">
+              <span className="font-semibold">{selected.size} selected</span>
               <Button
                 type="button"
                 variant="ghost"
@@ -412,119 +454,195 @@ export function PoApprovalScreen({
                 {isPending ? "Approving…" : `Approve ${selected.size}`}
               </Button>
             </div>
-          ) : null}
-          <DataTable
-            columns={hugCreated(withCreatedColumns(columns, filtered))}
-            rows={filtered}
-            getKey={(r) => r.id}
-            // Tick boxes only where Approve can act; the others ignore a tick.
-            selectable={canApprove && pickable.length > 0}
-            selectedKeys={selected}
-            onToggle={(id) =>
-              pickable.includes(id) &&
-              setPicked((cur) => {
-                const next = new Set(cur);
-                if (next.has(id)) next.delete(id);
-                else next.add(id);
-                return next;
-              })
-            }
-            onToggleAll={() => setPicked(selected.size === pickable.length ? new Set() : new Set(pickable))}
-            dense
-            empty={quick.value === "pending" && facets.activeCount === 0 ? "No PO is waiting for approval." : "No PO matches these filters."}
-          />
-        </div>
-      </div>
+    ) : null;
 
-      <Sheet
-        open={!!openId}
-        onClose={close}
-        title={
-          <span className="flex flex-col">
-            <span>PO Approval</span>
-            <span className="text-xs font-normal text-muted-foreground">
-              Purchase / PO Approval / <span className="font-mono text-foreground">{openRow?.code ?? po?.code ?? "PO"}</span>
-            </span>
-          </span>
-        }
-        headerActions={
-          mayDecide ? (
-            <div className="flex items-center gap-2">
-              <Button type="button" variant="outline" className="text-warning" disabled={isPending} onClick={() => setAsk("rework")}>
-                <RotateCcw aria-hidden className="size-4" />
-                Request Rework
-              </Button>
-              <Button type="button" variant="outline" className="text-danger" disabled={isPending} onClick={() => setAsk("reject")}>
-                <Ban aria-hidden className="size-4" />
-                Reject
-              </Button>
-              <Button type="button" disabled={isPending} onClick={() => run(() => approvePo(po!.id), "Purchase order approved")}>
-                <Check aria-hidden className="size-4" />
-                Approve
-              </Button>
-            </div>
-          ) : undefined
-        }
-        size="lg"
-        fullBleed
-      >
-        {!po ? (
-          <p className="p-4 text-sm text-muted-foreground">{openId && !sheet ? "Loading the PO…" : "This PO could not be read."}</p>
-        ) : (
-          <div className="space-y-3">
-            {/* THE REMARK, ASKED BEFORE THE DECISION — Rework and Reject both need one
-                (the engine refuses a reject without it; the requester must read why). */}
-            {mayDecide && ask ? (
-              <div
-                className={cn(
-                  "flex flex-wrap items-end gap-3 rounded-xl border px-4 py-3",
-                  ask === "reject" ? "border-[#f5b8b0] bg-[#fdecea]" : "border-[#f1d48a] bg-[#fff7e0]",
-                )}
-              >
-                <Field
-                  label={ask === "reject" ? "Why reject — the PO closes for good" : "What to change — the PO goes back to the Purchase Manager"}
-                  htmlFor="po-approval-remark"
-                  className="min-w-64 flex-1"
-                >
-                  <Textarea id="po-approval-remark" rows={2} autoFocus value={remark} onChange={(e) => setRemark(e.target.value)} />
-                </Field>
-                <Button type="button" variant="ghost" disabled={isPending} onClick={() => setAsk(null)}>
-                  Cancel
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={ask === "reject" ? "text-danger" : "text-warning"}
-                  disabled={isPending || !remark.trim()}
-                  title={remark.trim() ? undefined : "Write the remark first"}
-                  onClick={() =>
-                    ask === "reject"
-                      ? run(() => declinePo(po.id, remark.trim()), "Purchase order rejected")
-                      : run(() => rejectPo(po.id, remark.trim()), "Sent back for rework")
-                  }
-                >
-                  {ask === "reject" ? "Reject PO" : "Send back for rework"}
-                </Button>
-              </div>
-            ) : null}
-
-            {/* THE PO IN ORDERS ▸ APPROVAL'S PAGE (canvas "PO Approval — single page",
-                approved 2026-10-28) — profile card · tiles, glass ring, lines · trail,
-                summary. See `po-approval-overview.tsx`. */}
-            <PoApprovalOverview
+  const detailBody = (
+    !detailId ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">Pick a PO from the list.</p>
+          ) : !sheet ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">Loading the PO…</p>
+          ) : !po ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">This PO could not be read.</p>
+          ) : (
+            <PoApprovalDetail
               po={po}
-              uoms={sheet!.uoms}
-              sourceNos={sheet!.sourceNos}
-              variance={sheet!.variance}
+              uoms={sheet.uoms}
+              sourceNos={sheet.sourceNos}
+              variance={sheet.variance}
               statusPill={<StatusPill tone={poStatusTone(po.status)}>{poStatusText(po.status)}</StatusPill>}
-              timeline={sheet!.panel.run ? sheet!.panel.timeline : null}
-              names={names}
-              raisedBy={openRow ? creatorName(openRow) : null}
+              timeline={sheet.panel.run ? sheet.panel.timeline : null}
+              names={sheet.panel.names ?? {}}
+              raisedBy={detailRow ? creatorName(detailRow) : null}
               override={!!verdict?.can_act && !!verdict.is_override}
+              decision={decision}
+            />
+          )
+  );
+
+  return (
+    <div className="space-y-4">
+      <PageHeader title="PO Approval" description="Every PO waits here for approval before it can print. Over-budget POs go to the MD." />
+
+      {!canApprove && (
+        // SAID, NOT HIDDEN — a queue with no buttons and no reason reads as broken.
+        <p className="rounded-md border border-border bg-surface-muted px-3 py-2 text-xs text-muted-foreground">
+          You can see POs here but not decide on them — that needs the approve permission for Purchase, granted on the Roles screen.
+        </p>
+      )}
+
+      <FilterBar
+        search={search}
+        onSearch={setSearch}
+        searchPlaceholder="Search PO No, vendor, RE No or customer…"
+        leading={
+          <div className="flex flex-wrap items-center gap-2">
+            {quick.segment}
+            <ToggleGroup<BudgetView>
+              label="Budget"
+              value={budget}
+              onChange={setBudget}
+              options={[
+                { value: "any", label: "Any budget" },
+                { value: "over", label: `Over budget (${overCount})` },
+              ]}
             />
           </div>
-        )}
-      </Sheet>
-    </>
+        }
+        activeCount={facets.activeCount}
+        onReset={facets.activeCount ? facets.reset : undefined}
+        panel={facets.panel}
+      />
+
+      {asTable && detailId ? (
+        <div className="rounded-xl border border-border bg-surface p-4">
+          <button
+            type="button"
+            onClick={() => setOpenId(null)}
+            className="mb-3 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+          >
+            <ArrowLeft aria-hidden className="size-4" />
+            PO list
+          </button>
+          {detailBody}
+        </div>
+      ) : asTable ? (
+        <div className="space-y-2">
+          {bulkBar}
+          <DataTable
+            columns={tableColumns}
+            dense="spacing"
+            rows={filtered}
+            getKey={(r) => r.id}
+            empty={
+              quick.value === "pending" && facets.activeCount === 0 && !search.trim()
+                ? "No PO is waiting for approval."
+                : "No PO matches these filters."
+            }
+          />
+        </div>
+      ) : (
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,24rem)_minmax(0,1fr)]">
+        {/* ═══ THE LIST — for choosing; the decisions live in the detail ═══ */}
+        <div className={cn("space-y-2", openId ? "hidden lg:block" : "block")}>
+          {bulkBar}
+
+          <div className="overflow-hidden rounded-xl border border-border bg-surface">
+            {pg.paged.length === 0 ? (
+              <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+                {budget === "over"
+                  ? "No PO over budget here."
+                  : quick.value === "pending" && facets.activeCount === 0
+                    ? "No PO is waiting for approval."
+                    : "No PO matches these filters."}
+              </p>
+            ) : (
+              <ul className="divide-y divide-border">
+                {pg.paged.map((r) => {
+                  const c = cards[r.id];
+                  const st = stateOf(r);
+                  const on = r.id === detailId;
+                  const canTick = tickable(r);
+                  return (
+                    <li
+                      key={r.id}
+                      // The keyboard focus ring sits on the ROW, inset — drawn on the button it hugged
+                      // the text and cut its first letters (user 2026-11-03, screenshot 4004).
+                      className={cn(
+                        "flex items-start gap-2.5 px-3 py-2.5 has-[button:focus-visible]:ring-2 has-[button:focus-visible]:ring-inset has-[button:focus-visible]:ring-ring",
+                        on && "bg-primary/5 shadow-[inset_3px_0_0_var(--color-primary)]",
+                      )}
+                    >
+                      <span className="pt-0.5">
+                        {decidable(r) ? (
+                          <input
+                            type="checkbox"
+                            className="size-4 accent-[var(--color-primary)] disabled:opacity-40"
+                            aria-label={`Select ${r.code ?? "PO"}`}
+                            title={canTick ? undefined : "Over budget — open it, read the excess and approve with a remark"}
+                            disabled={!canTick || isPending}
+                            checked={selected.has(r.id)}
+                            onChange={() =>
+                              setPicked((cur) => {
+                                const next = new Set(cur);
+                                if (next.has(r.id)) next.delete(r.id);
+                                else next.add(r.id);
+                                return next;
+                              })
+                            }
+                          />
+                        ) : (
+                          <span className="block size-4" aria-hidden />
+                        )}
+                      </span>
+                      {/* NO `aria-current` HERE: globals.css boxes and bolds every `[aria-current="true"]`
+                          (Material BOM's side list), which drew a tight ring that cut this row's
+                          text (user 2026-11-03, screenshot 103233). The row's tint + left bar mark it. */}
+                      <button type="button" onClick={() => pick(r.id)} className="min-w-0 flex-1 text-left focus-visible:outline-none" data-selected={on || undefined}>
+                        <span className="flex flex-wrap items-center gap-1.5">
+                          <span className="font-mono text-xs font-semibold text-primary">{r.code ?? "Draft PO"}</span>
+                          {st !== "unknown" ? <StatusPill tone={BUDGET_PILL[st].tone}>{BUDGET_PILL[st].text}</StatusPill> : null}
+                          {/* The status box above already says Pending / Approved — only a state it
+                              does not name (a rejected PO under All) earns a pill (user 2026-11-03,
+                              screenshot 4004: "so much content"). */}
+                          {r.status === "cancelled" ? <StatusPill tone={poStatusTone(r.status)}>{poStatusText(r.status)}</StatusPill> : null}
+                        </span>
+                        <Truncated className="mt-0.5 block text-sm text-foreground">{r.vendor ?? "—"}</Truncated>
+                        <Truncated
+                          text={[r.source_nos.join(", "), r.order_date ? fmtDate(r.order_date) : null]
+                            .filter(Boolean)
+                            .join(" · ")}
+                          className="block text-[11px] text-muted-foreground"
+                        />
+                      </button>
+                      <span className="shrink-0 text-right tabular-nums">
+                        <span className="block text-sm font-semibold">{c?.total ?? `₹ ${fmtFixed(r.total_amount, 2)}`}</span>
+                        {/* No excess here: the selected PO's budget card says it (user 2026-11-03, screenshot 103518). */}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+          {pg.pageCount > 1 ? (
+            <PaginationBar page={pg.page} pageCount={pg.pageCount} total={pg.total} pageSize={pg.pageSize} onPageChange={pg.setPage} onPageSizeChange={pg.setPageSize} />
+          ) : null}
+        </div>
+
+        {/* ═══ THE SELECTED PO ═══ */}
+        <div className={cn("rounded-xl border border-border bg-surface p-4", openId ? "block" : "hidden lg:block")}>
+          <button
+            type="button"
+            onClick={() => setOpenId(null)}
+            className="mb-3 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground lg:hidden"
+          >
+            <ArrowLeft aria-hidden className="size-4" />
+            PO list
+          </button>
+          {detailBody}
+        </div>
+      </div>
+      )}
+    </div>
   );
 }

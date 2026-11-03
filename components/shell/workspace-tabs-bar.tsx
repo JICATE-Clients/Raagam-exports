@@ -51,7 +51,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { useEnsureWorkspaceTab, useOpenWorkspaceTab, useTrackTabSearch, useWorkspaceTabs } from "@/lib/workspace-tabs";
+import { isRecordSegment, useEnsureWorkspaceTab, useOpenWorkspaceTab, useTrackTabSearch, useWorkspaceTabs } from "@/lib/workspace-tabs";
 import { NAV } from "@/components/shell/nav";
 import { isHubRoute } from "@/lib/nav/module-groups";
 import { DropdownMenu, type DropdownItem } from "@/components/ui/dropdown-menu";
@@ -79,7 +79,7 @@ function titleFromSlug(pathname: string): string {
  *  and `/orders/setup` are hubs `isHubRoute` skips outright, but
  *  `/orders/garment-orders` is a group's grandchild and needs that third
  *  level to read "Order Entry" instead of falling through to the slug. */
-function titleForPath(pathname: string): string {
+function exactNavLabel(pathname: string): string | null {
   for (const item of NAV) {
     if (item.href === pathname) return item.label;
     for (const child of item.children ?? []) {
@@ -89,7 +89,51 @@ function titleForPath(pathname: string): string {
       }
     }
   }
+  return null;
+}
+
+/** What follows the record id: `/<id>/edit` is "Edit", `/<id>/print` "Print". */
+function actionAfterRecord(pathname: string): string | null {
+  const parts = pathname.split("/").filter(Boolean);
+  let at = -1;
+  parts.forEach((p, i) => {
+    if (isRecordSegment(p)) at = i;
+  });
+  if (at < 0 || at === parts.length - 1) return null;
+  return titleFromSlug("/" + parts.slice(at + 1).join("-"));
+}
+
+/**
+ * A RECORD ROUTE IS NAMED BY THE SCREEN IT BELONGS TO (screenshot 4001): `/purchase/grn/<uuid>`
+ * used to fall through to the slug, i.e. the uuid. Walk up the path to the nearest route the
+ * sidebar knows — "Purchase Receipts (GRN)" — and keep any action after the id ("· Edit").
+ */
+function titleForPath(pathname: string): string {
+  const exact = exactNavLabel(pathname);
+  if (exact) return exact;
+  const parts = pathname.split("/").filter(Boolean);
+  if (parts.some(isRecordSegment)) {
+    const action = actionAfterRecord(pathname);
+    for (let i = parts.findIndex(isRecordSegment); i > 0; i--) {
+      const screen = exactNavLabel("/" + parts.slice(0, i).join("/"));
+      if (screen) return action ? `${screen} · ${action}` : screen;
+    }
+  }
   return titleFromSlug(pathname);
+}
+
+/** The sidebar's name for the screen at this path (the tab's default title). */
+export function screenTitleForPath(pathname: string): string {
+  return titleForPath(pathname);
+}
+
+/** The tab title for a record page whose header declares `entry` (its GRN No, RE No …):
+ *  "GRN/26-27/0004 · Purchase Receipts (GRN)". Null off a record route — a list page's header
+ *  title is already the sidebar's name for it. */
+export function recordTabTitle(pathname: string, entry: string): string | null {
+  if (!pathname.split("/").some(isRecordSegment)) return null;
+  const screen = titleForPath(pathname);
+  return entry && entry !== screen ? `${entry} · ${screen}` : screen;
 }
 
 /** Same prefix-match `Sidebar` uses for "is this route inside this module". */

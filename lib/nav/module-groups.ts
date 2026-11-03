@@ -1179,8 +1179,8 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           { href: "/purchase/requirement-po", label: "Raise PO", description: "Pick RE numbers; what they still need lists itself; type the rate", newUntil: "2026-11-30" },
           { href: "/purchase/orders", label: "Purchase Orders", description: "Create from budget, submit and approve" },
           // The approver's queue of POs raised on Raise PO — Orders ▸ Approval's shape (user 2026-10-28).
-          { href: "/purchase/po-approval", label: "PO Approval", description: "Approve, send back or reject a PO raised on Raise PO", newUntil: "2026-11-30" },
-          { href: "/purchase/over-budget", label: "More than Budget Approval", description: "Budget versus quoted rate with variance" },
+          // More than Budget Approval is part of it since 2026-11-03 (user: "merge these two in one single screen") — the "Over budget" switch; /purchase/over-budget redirects here.
+          { href: "/purchase/po-approval", label: "PO Approval", description: "Approve every PO raised on Raise PO — within or over budget", newUntil: "2026-11-30" },
           { href: "/purchase/rate-amendments", label: "Rate Amendment", description: "Revise a PO line rate and recompute the total" },
           { href: "/purchase/po-cancellations", label: "Cancel Purchase Order", description: "Cancel a purchase order with a logged reason" },
           { href: "/purchase/completions", label: "PO Completions", description: "Close out a completed purchase order" },

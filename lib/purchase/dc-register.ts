@@ -219,7 +219,7 @@ export async function listDcRegister(): Promise<DcRegisterRow[]> {
         code: v.code,
         date: v.return_date,
         party: v.master_vendor_id ? (vendor.get(v.master_vendor_id) ?? "—") : v.vendor_id ? (legacy.get(v.vendor_id) ?? "—") : "—",
-        against: v.grn_id ? `GRN ${grn.get(v.grn_id) ?? ""}`.trim() : (v.reason ?? null),
+        against: v.grn_id ? (grn.get(v.grn_id) ?? "GRN") : (v.reason ?? null), // the GRN code already reads "GRN-0010"
         status: v.status,
         qty: a.qty,
         outstanding: kind === "replacement" && v.status !== "cancelled" ? a.out : 0,

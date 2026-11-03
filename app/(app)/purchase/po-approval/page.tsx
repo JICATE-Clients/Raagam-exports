@@ -16,10 +16,11 @@ export default async function PoApprovalPage({
   searchParams,
 }: {
   /** `?open=<po id>` — a notice's link opens THAT PO, as Orders ▸ Approval does. */
-  searchParams: Promise<{ open?: string }>;
+  searchParams: Promise<{ open?: string; budget?: string }>;
 }) {
   await requirePermission("materials_purchase", "view");
-  const { open } = await searchParams;
+  // `?budget=over` — More than Budget Approval's old address (merged here 2026-11-03).
+  const { open, budget } = await searchParams;
 
   const [rows, canApprove] = await Promise.all([listRaisedPos(), can("materials_purchase", "approve")]);
   // An enrichment: if it fails the list still renders, keyed on the PO alone.
@@ -34,6 +35,7 @@ export default async function PoApprovalPage({
       cards={cards}
       canApprove={canApprove}
       initialOpenId={open && rows.some((r) => r.id === open) ? open : null}
+      initialBudget={budget === "over" ? "over" : "any"}
     />
   );
 }

@@ -560,6 +560,8 @@ export function GrnNewForm({
     !!location?.postable &&
     !!grnDate &&
     !!vendorId &&
+    !!docNo.trim() &&
+    !!docDate &&
     poIds.length > 0 &&
     (!isRepl || !!repl) &&
     (!isDirect || (!!deliveryVendorId && !!processOrderId)) &&
@@ -884,6 +886,8 @@ export function GrnNewForm({
       ? "Pick the Replacement DC"
       : poIds.length === 0
         ? "Tick a PO on the left"
+        : !docNo.trim() || !docDate
+          ? `Enter the ${docType === "invoice" ? "Invoice" : "DC"} No and Date`
         : isDirect && (!deliveryVendorId || !processOrderId)
           ? "Pick the processor and its Process Order"
           : receiving.length === 0
@@ -1062,7 +1066,10 @@ export function GrnNewForm({
                 <option value="dc">DC</option>
               </Select>
             </Field>
-            <Field label={`${docLabel} No`} w="code" htmlFor="grn-doc-no">
+            {/* MANDATORY (user 2026-11-03: "invoice field required fields make it"): the vendor's
+                paper is what the bill is matched against — a GRN without its No and Date cannot
+                be settled. One declaration: the star, the cursor hold, Save, and createGrn. */}
+            <Field label={`${docLabel} No`} required w="code" htmlFor="grn-doc-no">
               <Input
                 id="grn-doc-no"
                 value={docNo}
@@ -1072,7 +1079,7 @@ export function GrnNewForm({
                 }}
               />
             </Field>
-            <Field label={`${docLabel} Date`} w="code" htmlFor="grn-doc-date">
+            <Field label={`${docLabel} Date`} required w="code" htmlFor="grn-doc-date">
               <Input
                 id="grn-doc-date"
                 type="date"

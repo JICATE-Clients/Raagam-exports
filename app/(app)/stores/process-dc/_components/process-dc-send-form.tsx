@@ -18,8 +18,8 @@ import {
 } from "@/components/purchase/doc-surface";
 import { Field, FieldError, FieldRow, FIELD_WIDTH_CSS } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
 import { Truncated } from "@/components/ui/truncated";
+import { StoreBinPickCell } from "@/components/purchase/store-bin-editor";
 import { useToast } from "@/components/ui/toast";
 import { saveProcessDc } from "@/lib/stores/process-dc-actions";
 import type { OpenProcessOrder, ProcessDc } from "@/lib/stores/process-dc-service";
@@ -181,9 +181,9 @@ export function ProcessDcSendForm({
   }
 
   /*
-   * BESIDE THE ORDER RAIL: Item 176 · Ordered 88 · Balance 88 · Send Qty 112 · From Store 112
-   * · Bin 112 · Lot No 112 = 800, + 40 (`#`; no ✕ — the rows are the order's own lines) =
-   * 840 <= 1155 -> tableFrom="5xl". Was Item 288 (952) with no rail. Send Qty is `range`
+   * BESIDE THE ORDER RAIL: Item 176 · Ordered 88 · Balance 88 · Send Qty 112 · From Store · Bin
+   * 176 (one button, 2026-11-03) · Lot No 112 = 752, + 40 (`#`; no ✕ — the rows are the
+   * order's own lines) = 792 <= 1155 -> tableFrom="5xl". Was Item 288 (952) with no rail. Send Qty is `range`
    * for its two refusals.
    */
   const columns: ChildGridColumn<Line>[] = [
@@ -227,33 +227,23 @@ export function ProcessDcSendForm({
       },
     },
     {
-      header: "From Store",
-      width: FIELD_WIDTH_CSS.range,
+      // ONE BUTTON, STORE AND BIN IN A POP-UP — GRN's cell (user 2026-11-03, screenshot 095545).
+      header: "From Store · Bin",
+      width: FIELD_WIDTH_CSS.term,
+      // pick-once: exempt -- several lines may leave from the same store and bin
       cell: (l) => (
-        <div data-focus-optional>
-          <Select aria-label={`From store, ${l.item}`} className="h-8" value={l.storeId} onChange={(e) => update(l.key, { storeId: e.target.value })}>
-            {sendStores.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </Select>
-          <div className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">in stock {fmtNumber(have(l))}</div>
-        </div>
-      ),
-    },
-    {
-      header: "Bin",
-      width: FIELD_WIDTH_CSS.range,
-      cell: (l) => (
-        <Select aria-label={`Bin, ${l.item}`} className="h-8" value={l.binId} onChange={(e) => update(l.key, { binId: e.target.value })}>
-          <option value="">{bins.length === 0 ? "No bins yet" : "—"}</option>
-          {bins.map((b) => (
-            <option key={b.id} value={b.id}>
-              {b.code}
-            </option>
-          ))}
-        </Select>
+        <StoreBinPickCell
+          description={l.item}
+          parent="DC"
+          stores={sendStores}
+          storeId={l.storeId}
+          onStore={(v) => update(l.key, { storeId: v })}
+          storeLabel="From store"
+          bins={bins}
+          binId={l.binId}
+          onBin={(v) => update(l.key, { binId: v })}
+          note={`in stock ${fmtNumber(have(l))}`}
+        />
       ),
     },
     {

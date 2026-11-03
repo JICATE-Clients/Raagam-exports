@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Segmented } from "@/components/ui/segmented";
 import { useToast } from "@/components/ui/toast";
+import { StoreBinPickCell } from "@/components/purchase/store-bin-editor";
 import { saveGeneralDc } from "@/lib/purchase/general-dc-actions";
 import type { GeneralDc, UomOption, VendorOption } from "@/lib/purchase/general-dc-service";
 import type { BinOption, StockOption, StoreOption, UnitOption } from "@/lib/stores/production-dc-service";
@@ -221,8 +222,9 @@ export function GeneralDcSendForm({
   }
 
   /*
-   * Item 176 · Description 200 · From Store 112 · Bin 88 · Lot No 112 · Qty 88 · UOM 88 ·
-   * Approx. Value 112 = 976, + 72 chrome (`#` and ✕) = 1048 <= 1155 -> tableFrom="5xl".
+   * Item 176 · Description 200 · From Store · Bin 176 (one button, 2026-11-03) · Lot No 112 ·
+   * Qty 88 · UOM 88 · Approx. Value 112 = 952, + 72 chrome (`#` and ✕) = 1024 <= 1155 ->
+   * tableFrom="5xl".
    */
   const generalDcLineColumns: ChildGridColumn<Line>[] = [
     {
@@ -252,38 +254,28 @@ export function GeneralDcSendForm({
       ),
     },
     {
-      header: "From Store",
-      width: FIELD_WIDTH_CSS.range,
-      cell: (l) => (
-        <Select
-          aria-label="From store"
-          className="h-8"
-          value={l.storeId}
-          disabled={!l.itemId}
-          onChange={(e) => update(l.key, { storeId: e.target.value })}
-        >
-          <option value="">—</option>
-          {sendStores.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </Select>
-      ),
-    },
-    {
-      header: "Bin",
-      width: FIELD_WIDTH_CSS.hug,
-      cell: (l) => (
-        <Select aria-label="Bin" className="h-8" value={l.binId} disabled={!l.itemId} onChange={(e) => update(l.key, { binId: e.target.value })}>
-          <option value="">—</option>
-          {bins.map((b) => (
-            <option key={b.id} value={b.id}>
-              {b.code}
-            </option>
-          ))}
-        </Select>
-      ),
+      // ONE BUTTON, STORE AND BIN IN A POP-UP — GRN's cell (user 2026-11-03, screenshot 095545).
+      // A free-text line moves no stock, so it has no store or bin to pick.
+      header: "From Store · Bin",
+      width: FIELD_WIDTH_CSS.term,
+      // pick-once: exempt -- several lines may leave from the same store and bin
+      cell: (l) =>
+        l.itemId ? (
+          <StoreBinPickCell
+            description={l.description || "line"}
+            parent="DC"
+            stores={sendStores}
+            storeId={l.storeId}
+            onStore={(v) => update(l.key, { storeId: v })}
+            storeLabel="From store"
+            allowNoStore
+            bins={bins}
+            binId={l.binId}
+            onBin={(v) => update(l.key, { binId: v })}
+          />
+        ) : (
+          <span className="text-xs text-muted-foreground">Free text — no stock</span>
+        ),
     },
     {
       header: "Lot No",

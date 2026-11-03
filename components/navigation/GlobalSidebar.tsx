@@ -39,20 +39,30 @@ const RAIL_BANDS: { label?: string; hrefs: string[] }[] = [
   // Its own captioned band, not among the overview screens (user 2026-10-26:
   // "message module kku oru name vachi heading … dashboard kulla vendam").
   { label: "Huddle", hrefs: ["/comms"] },
-  // Resolve Hub was only here by the fallback below; it is listed now.
-  // "Setup" alone since Help & Repairs moved out to Support (user 2026-10-29).
+  // Back in the scrolling list (user 2026-11-03: "move the master data and
+  // integration into scrolling area") — out of the pinned System zone, each
+  // under its own caption as 2026-10-29 chose.
   { label: "Setup", hrefs: ["/masters"] },
-  // Its own band (user 2026-10-29: "Integration also separate") — links to
-  // outside systems are not master data.
   { label: "Integration", hrefs: ["/integration"] },
-  // Its own band (user 2026-10-29: "Help & support also separate under
-  // Support") — reporting a breakdown is not setting the system up.
-  { label: "Support", hrefs: ["/resolve"] },
-  // Its own band, last (user 2026-10-29: "administration separate menu
-  // group"). Users, roles, units and the system jobs are not setup the
-  // shop floor does; they sit apart at the foot of the rail.
-  { label: "Administration", hrefs: ["/admin"] },
 ];
+
+/*
+ * THE SYSTEM ZONE, PINNED TO THE FOOT (user 2026-11-03, rail mock-up
+ * https://claude.ai/artifact/Y5nYRprnKMgx5fDa6Nifd5, "okay apply it"). Setup,
+ * Integration, Support and Administration were four captioned bands of ONE row
+ * each (2026-10-29) — nine captions for nineteen rows, ~918px on a ~730px
+ * window, so everything from Huddle down sat below the fold with no scrollbar
+ * and nothing saying it was there. They stay four separate rows, in the order
+ * that day chose, under one "System" caption in a zone that never scrolls away;
+ * the work bands above scroll behind a fade instead.
+ *
+ * ROWS, NOT THE MOCK-UP'S 2×2 TILES: the closed rail is one icon column, and a
+ * tile grid would slide its right-hand icons sideways as the panel opens —
+ * the "no icon moves under the pointer" rule (client 2026-09-16).
+ */
+// Support and Administration only since 2026-11-03 (Master Data and Integration
+// moved back into the scrolling list, above).
+const SYSTEM_HREFS = ["/resolve", "/admin"];
 
 // The icon colour is SIDEBAR_HUE (./module-hue) — one pastel for every module.
 /** The unlit icon: the FULL sidebar colour on a soft tile of the same colour (user
@@ -80,28 +90,35 @@ const HUE_INK = "text-muted-foreground";
 const GLOSS_TILE =
   "bg-[var(--hue)] bg-[image:linear-gradient(180deg,rgb(255_255_255/.32)_0%,rgb(255_255_255/.08)_50%,rgb(255_255_255/0)_60%)] " +
   "shadow-[inset_0_1px_0_rgb(255_255_255/.45),inset_0_-1px_0_rgb(0_0_0/.12),0_2px_5px_-1px_color-mix(in_oklab,var(--hue)_45%,transparent)]";
-const GLOSS_ROW =
-  "bg-[image:linear-gradient(180deg,#ffffff,#eef1f5)] shadow-[inset_0_1px_0_#fff,0_0_0_1px_rgb(15_20_30/.07),0_2px_6px_-3px_rgb(15_20_30/.22)] " +
-  "dark:bg-[image:linear-gradient(180deg,#2a303a,#1f242c)] dark:shadow-[inset_0_1px_0_rgb(255_255_255/.07),0_0_0_1px_rgb(255_255_255/.04),0_2px_6px_-3px_rgb(0_0_0/.6)]";
+/* THE OPEN ACTIVE ROW (rail mock-up fix 4, user 2026-11-03). It was a white
+   gloss on a white panel, so only the blue tile marked it. Now a faint wash of
+   the sidebar colour with a thin edge of the same; the tile keeps its gloss. */
+const ACTIVE_ROW =
+  "font-semibold bg-[color-mix(in_oklab,var(--hue)_10%,var(--surface))] shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--hue)_22%,var(--surface))]";
 const GLOSS_HOVER =
   "hover:bg-[image:linear-gradient(180deg,#ffffff,#f3f5f8)] hover:shadow-[inset_0_1px_0_#fff,0_0_0_1px_rgb(15_20_30/.05),0_2px_5px_-3px_rgb(15_20_30/.15)] " +
   "dark:hover:bg-[image:linear-gradient(180deg,#252a33,#1d2129)] dark:hover:shadow-[inset_0_1px_0_rgb(255_255_255/.05),0_2px_5px_-3px_rgb(0_0_0/.5)]";
 
-function toBands(items: NavItem[]) {
+type Band = { label?: string; rows: NavItem[] };
+
+function toBands(items: NavItem[]): { work: Band[]; system: Band | null } {
   const placed = new Set<string>();
-  const bands = RAIL_BANDS.map((b) => {
-    const rows = b.hrefs
-      .map((h) => items.find((i) => i.href === h))
-      .filter((i): i is NavItem => !!i);
+  const pick = (hrefs: string[]) => {
+    const rows = hrefs.map((h) => items.find((i) => i.href === h)).filter((i): i is NavItem => !!i);
     rows.forEach((r) => placed.add(r.href));
-    return { label: b.label, rows };
-  });
+    return rows;
+  };
+  const work = RAIL_BANDS.map((b) => ({ label: b.label, rows: pick(b.hrefs) }));
+  const systemRows = pick(SYSTEM_HREFS);
+  // An unlisted module joins the work bands' end, NOT the System zone: a new
+  // module is work the shop floor does, and System is fixed at four rows.
   const rest = items.filter((i) => !placed.has(i.href));
-  // Unlisted modules go to Setup, NOT the last band — that is
-  // Administration now, and a new module is not an admin screen.
-  (bands.find((b) => b.label === "Setup") ?? bands[bands.length - 1]).rows.push(...rest);
-  // A permission-trimmed band with nothing left would draw a lone caption.
-  return bands.filter((b) => b.rows.length > 0);
+  if (rest.length) work[work.length - 1].rows.push(...rest);
+  return {
+    // A permission-trimmed band with nothing left would draw a lone caption.
+    work: work.filter((b) => b.rows.length > 0),
+    system: systemRows.length ? { label: "System", rows: systemRows } : null,
+  };
 }
 
 /**
@@ -167,7 +184,27 @@ export function GlobalSidebar({
 
   const items = visibleModules(user);
   const active = activeModule(pathname, items);
-  const bands = toBands(items);
+  const { work: bands, system } = toBands(items);
+
+  /* "MORE BELOW" (rail mock-up fix 3). The work list keeps its no-scrollbar rule
+     (2026-10-01), so a fade at its foot is what says there is more; it clears
+     at the end. Re-measured on scroll and whenever the list or panel resizes. */
+  const workRef = useRef<HTMLElement>(null);
+  const [atEnd, setAtEnd] = useState(true);
+  useEffect(() => {
+    const el = workRef.current;
+    if (!el) return;
+    const check = () => setAtEnd(el.scrollTop + el.clientHeight >= el.scrollHeight - 2);
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    for (const child of Array.from(el.children)) ro.observe(child);
+    el.addEventListener("scroll", check, { passive: true });
+    return () => {
+      ro.disconnect();
+      el.removeEventListener("scroll", check);
+    };
+  }, []);
 
   function schedule(open: boolean, delay: number) {
     if (timer.current !== null) window.clearTimeout(timer.current);
@@ -176,6 +213,119 @@ export function GlobalSidebar({
       setExpanded(open);
     }, delay);
   }
+
+
+  /** One captioned band — the work zone's and the System zone's. */
+  const renderBand = (band: Band, bi: number) => (
+            <div key={band.label ?? bi} className={cn("space-y-0.5", bi > 0 && "pt-3.5")}>
+              {/* One fixed height either way (`h-[18px]`, was `h-5`): open it
+                  is the caption, closed it is a short divider. Same height in
+                  both states, so no icon moves when the panel opens (09-16). */}
+              {band.label && (
+                <div className="flex h-5 items-center gap-2 px-1.5" aria-hidden={!expanded}>
+                  {expanded ? (
+                    // No trailing hairline (2026-10-01): the caption alone
+                    // starts the group, same as in the module menu.
+                    <span className="shrink-0 whitespace-nowrap text-[10.5px] font-semibold uppercase tracking-[0.09em] text-caption">
+                      {band.label}
+                    </span>
+                  ) : (
+                    <span className="mx-auto h-px w-6 bg-border" />
+                  )}
+                </div>
+              )}
+              {band.rows.map((item) => {
+                const Icon = item.icon;
+                const isActive = active?.href === item.href;
+
+                return (
+                  // `--hue` is set once here and inherited by the icon tile,
+                  // the row wash and the trailing dot.
+                  <div
+                    key={item.href}
+                    className="relative"
+                    style={{ "--hue": SIDEBAR_HUE } as CSSProperties}
+                  >
+                    {/* Closed rail: a brand-green tab on the window edge
+                        (the nav's `p-1.5` is what `-left-1.5` reaches past).
+                        Brand on a CONTROL mark, never a surface. */}
+                    {isActive && !expanded && (
+                      <span
+                        aria-hidden
+                        className="absolute -left-1.5 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r bg-brand-green"
+                      />
+                    )}
+                    <SidebarItem
+                      href={item.href}
+                      label={item.label}
+                      tone="hue"
+                      icon={
+                        <span
+                          aria-hidden
+                          className={cn(
+                            "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-[background-color,box-shadow,color] duration-150",
+                            // GLOSSY (user 2026-10-29, screenshot 094801: "add
+                            // some glossy effect for the first menu module
+                            // sidebar"). Light from above on the lit tile — a
+                            // white band fading out by 60% and a 1px top
+                            // highlight — and a short drop in its own colour.
+                            isActive ? cn("text-white", GLOSS_TILE) : HUE_INK,
+                          )}
+                        >
+                          <Icon className="h-[18px] w-[18px]" strokeWidth={2.25} />
+                        </span>
+                      }
+                      collapsed={!expanded}
+                      active={isActive}
+                      // No glowing end dot (same day): the module menu's
+                      // active row has none, and the open rail now matches it.
+                      // ONE ROW HEIGHT IN BOTH STATES, so the icons stay put
+                      // under the pointer as the panel opens (client 2026-09-16).
+                      // 32px (2026-10-01): 40px rows needed 834px with the logo
+                      // row, so the SYSTEM group fell below the fold (screenshot
+                      // 3177); 34px still overflowed a 125%-scaled window by a
+                      // few px and drew a scrollbar (3181). 32px is the app's
+                      // compact control height (`h-8`). `w-full` makes the
+                      // active pill a whole row instead of a tag hugging its
+                      // label.
+                      // 28px since the sidebar dock (2026-10-01): the dock takes
+                      // ~64px off the bottom, and 16 rows × 4px is what gives it
+                      // back without bringing the scrollbar (3181) back.
+                      // 36px, 10px curve, 14px dark text (user 2026-10-08, from the sidebar
+                      // mock-up) — the same row as the context sidebar. This REVERSES the
+                      // 28px above on purpose; on a short window the rail scrolls
+                      // instead of fitting.
+                      // 32px again (user 2026-10-26, "side la compact aa venum"):
+                      // the Huddle band pushed Chats below the fold at 36px.
+                      // Spacing only — the 14px text and 10px curve stay.
+                      // COLOUR ICONS, OPTION C (user 2026-10-28, sidebar icon
+                      // mock-up): the 28px tile (18px icon, 2.25 stroke) is centred on the same 26px
+                      // line in both states — closed it sits in the 40px
+                      // button, open `px-[6px]` puts it there — so no icon
+                      // moves as the panel opens. The open active row takes a
+                      // faint wash of the sidebar colour instead of the
+                      // solid primary pill.
+                      className={cn(
+                        "h-8 rounded-[10px] text-[14px]",
+                        !isActive && "text-foreground",
+                        expanded && "w-full gap-2 px-[6px]",
+                        // The rail's rows are glossy (screenshot 094801): the
+                        // open active row is a raised sheen, an idle row
+                        // takes a fainter one on hover. The rail ONLY — the
+                        // module menu keeps its flat soft fill.
+                        expanded && isActive && ACTIVE_ROW,
+                        !isActive && GLOSS_HOVER,
+                      )}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        openTab({ href: item.href, title: item.label, inside: isActive });
+                      }}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+  );
 
   return (
     /* `w-13` (52px, was 56px — user 2026-10-01 "reduce the width"): 34px icon rows inside `p-1.5`. The spacer
@@ -292,11 +442,14 @@ export function GlobalSidebar({
                 is unchanged in both states, so no icon shifts as it opens.
             Captions now start at the icons' left edge (`px-3`, matching
             SidebarItem's own padding) instead of 4px outside it. */}
+        {/* THE WORK ZONE scrolls; a fade at its foot says "more below" (rail mock-up fix 3). */}
+        <div className="relative flex min-h-0 flex-1 flex-col">
         <nav
-          className={cn(
-            "scrollbar-none flex-1 overflow-y-auto overflow-x-hidden px-1.5 py-1",
-            expanded && "pr-3",
-          )}
+          ref={workRef}
+          // EVEN SIDES (rail mock-up): 6px left and right — was `pr-3` open,
+          // which pushed the active pill off-centre. The left stays 6px in
+          // both states, so no icon moves as the panel opens.
+          className="scrollbar-none min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-1.5 py-1"
         >
           {/* The way back to a folded module menu, at the top of the rail where
               the menu's own fold button sat beside the module name. */}
@@ -311,117 +464,23 @@ export function GlobalSidebar({
               <PanelLeftOpen aria-hidden className="h-[18px] w-[18px]" strokeWidth={2} />
             </button>
           )}
-          {bands.map((band, bi) => (
-            <div key={band.label ?? bi} className={cn("space-y-0.5", bi > 0 && "pt-1.5")}>
-              {/* One fixed height either way (`h-[18px]`, was `h-5`): open it
-                  is the caption, closed it is a short divider. Same height in
-                  both states, so no icon moves when the panel opens (09-16). */}
-              {band.label && (
-                <div className="flex h-[18px] items-center gap-2 px-3" aria-hidden={!expanded}>
-                  {expanded ? (
-                    // No trailing hairline (2026-10-01): the caption alone
-                    // starts the group, same as in the module menu.
-                    <span className="shrink-0 whitespace-nowrap text-[10px] font-semibold uppercase tracking-[0.08em] text-caption">
-                      {band.label}
-                    </span>
-                  ) : (
-                    <span className="mx-auto h-px w-6 bg-border" />
-                  )}
-                </div>
-              )}
-              {band.rows.map((item) => {
-                const Icon = item.icon;
-                const isActive = active?.href === item.href;
-
-                return (
-                  // `--hue` is set once here and inherited by the icon tile,
-                  // the row wash and the trailing dot.
-                  <div
-                    key={item.href}
-                    className="relative"
-                    style={{ "--hue": SIDEBAR_HUE } as CSSProperties}
-                  >
-                    {/* Closed rail: a brand-green tab on the window edge
-                        (the nav's `p-1.5` is what `-left-1.5` reaches past).
-                        Brand on a CONTROL mark, never a surface. */}
-                    {isActive && !expanded && (
-                      <span
-                        aria-hidden
-                        className="absolute -left-1.5 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r bg-brand-green"
-                      />
-                    )}
-                    <SidebarItem
-                      href={item.href}
-                      label={item.label}
-                      tone="hue"
-                      icon={
-                        <span
-                          aria-hidden
-                          className={cn(
-                            "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-[background-color,box-shadow,color] duration-150",
-                            // GLOSSY (user 2026-10-29, screenshot 094801: "add
-                            // some glossy effect for the first menu module
-                            // sidebar"). Light from above on the lit tile — a
-                            // white band fading out by 60% and a 1px top
-                            // highlight — and a short drop in its own colour.
-                            isActive ? cn("text-white", GLOSS_TILE) : HUE_INK,
-                          )}
-                        >
-                          <Icon className="h-[18px] w-[18px]" strokeWidth={2.25} />
-                        </span>
-                      }
-                      collapsed={!expanded}
-                      active={isActive}
-                      // No glowing end dot (same day): the module menu's
-                      // active row has none, and the open rail now matches it.
-                      // ONE ROW HEIGHT IN BOTH STATES, so the icons stay put
-                      // under the pointer as the panel opens (client 2026-09-16).
-                      // 32px (2026-10-01): 40px rows needed 834px with the logo
-                      // row, so the SYSTEM group fell below the fold (screenshot
-                      // 3177); 34px still overflowed a 125%-scaled window by a
-                      // few px and drew a scrollbar (3181). 32px is the app's
-                      // compact control height (`h-8`). `w-full` makes the
-                      // active pill a whole row instead of a tag hugging its
-                      // label.
-                      // 28px since the sidebar dock (2026-10-01): the dock takes
-                      // ~64px off the bottom, and 16 rows × 4px is what gives it
-                      // back without bringing the scrollbar (3181) back.
-                      // 36px, 10px curve, 14px dark text (user 2026-10-08, from the sidebar
-                      // mock-up) — the same row as the context sidebar. This REVERSES the
-                      // 28px above on purpose; on a short window the rail scrolls
-                      // instead of fitting.
-                      // 32px again (user 2026-10-26, "side la compact aa venum"):
-                      // the Huddle band pushed Chats below the fold at 36px.
-                      // Spacing only — the 14px text and 10px curve stay.
-                      // COLOUR ICONS, OPTION C (user 2026-10-28, sidebar icon
-                      // mock-up): the 28px tile (18px icon, 2.25 stroke) is centred on the same 26px
-                      // line in both states — closed it sits in the 40px
-                      // button, open `px-[6px]` puts it there — so no icon
-                      // moves as the panel opens. The open active row takes a
-                      // faint wash of the sidebar colour instead of the
-                      // solid primary pill.
-                      className={cn(
-                        "h-8 rounded-[10px] text-[14px]",
-                        !isActive && "text-foreground",
-                        expanded && "w-full gap-3 px-[6px]",
-                        // The rail's rows are glossy (screenshot 094801): the
-                        // open active row is a raised sheen, an idle row
-                        // takes a fainter one on hover. The rail ONLY — the
-                        // module menu keeps its flat soft fill.
-                        expanded && isActive && GLOSS_ROW,
-                        !isActive && GLOSS_HOVER,
-                      )}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        openTab({ href: item.href, title: item.label, inside: isActive });
-                      }}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          ))}
+          <div>{bands.map((band, bi) => renderBand(band, bi))}</div>
         </nav>
+          <div
+            aria-hidden
+            className={cn(
+              "pointer-events-none absolute inset-x-0 bottom-0 h-9 bg-gradient-to-b from-transparent transition-opacity duration-200",
+              expanded ? "to-surface" : "to-canvas",
+              atEnd && "opacity-0",
+            )}
+          />
+        </div>
+        {/* THE SYSTEM ZONE, pinned (rail mock-up fixes 1–2): never scrolls away. */}
+        {system ? (
+          <nav aria-label="System" className="shrink-0 border-t border-border px-1.5 pb-1 pt-2">
+            {renderBand(system, 0)}
+          </nav>
+        ) : null}
       </aside>
     </div>
   );

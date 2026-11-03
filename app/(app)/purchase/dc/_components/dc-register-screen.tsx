@@ -7,8 +7,9 @@ import { useToast } from "@/components/ui/toast";
 import { postVendorReturn } from "@/lib/stores/extras-actions";
 import { MasterListShell } from "@/components/masters/master-list-shell";
 import type { Column } from "@/components/ui/data-table";
+import { HUG } from "@/components/ui/created-columns";
 import { ToggleGroup } from "@/components/ui/segmented";
-import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
+import { StatusPill } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
 import type { DcKind, DcRegisterRow } from "@/lib/purchase/dc-register";
 import { fmtDate, fmtNumber } from "@/lib/format";
@@ -29,13 +30,6 @@ const KIND_LABEL: Record<DcKind, string> = {
   general: "General",
   rejection: "Rejection",
   replacement: "Replacement",
-};
-const KIND_TONE: Record<DcKind, StatusTone> = {
-  process: "info",
-  production: "neutral",
-  general: "info",
-  rejection: "danger",
-  replacement: "warning",
 };
 // Each kind's own words for its states; anything else prints as stored.
 const STATUS_LABEL: Record<string, string> = {
@@ -91,28 +85,35 @@ export function DcRegisterScreen({
       } else toastError(res.error ?? "Could not dispatch");
     });
 
+  // FITS WITHOUT A SIDEWAYS SCROLL (user 2026-11-03, screenshot 3995): every short column
+  // hugs its content (HUG) and Party alone takes the spare width, truncating with a reveal.
   const columns: Column<DcRegisterRow>[] = [
     {
       header: "DC No",
+      className: HUG,
       cell: (r) => (
         <button type="button" className="font-mono text-xs font-medium text-primary hover:underline" onClick={() => open(r)}>
           {r.code ?? "—"}
         </button>
       ),
     },
-    { header: "Type", cell: (r) => <StatusPill tone={KIND_TONE[r.kind]}>{KIND_LABEL[r.kind]}</StatusPill> },
-    { header: "Date", cell: (r) => <span className="text-sm">{fmtDate(r.date)}</span> },
-    { header: "Party / Transfer Units", cell: (r) => <Truncated>{r.party}</Truncated> },
-    { header: "Reference", cell: (r) => <Truncated className="text-sm">{r.against ?? "—"}</Truncated> },
-    { header: "Qty", align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtNumber(r.qty)}</span> },
+    // Plain text, not a pill: a pill here read as a second Status column (user 2026-11-03,
+    // screenshot 3994). Status is the row's only pill.
+    { header: "Type", className: HUG, cell: (r) => <span className="text-sm">{KIND_LABEL[r.kind]}</span> },
+    { header: "Date", className: HUG, cell: (r) => <span className="text-sm">{fmtDate(r.date)}</span> },
+    { header: "Party / Unit", className: "max-w-0 w-full", cell: (r) => <Truncated>{r.party}</Truncated> },
+    { header: "Reference", className: HUG, cell: (r) => <span className="text-sm">{r.against ?? "—"}</span> },
+    { header: "Qty", align: "right", className: HUG, cell: (r) => <span className="tabular-nums text-sm">{fmtNumber(r.qty)}</span> },
     {
-      header: "Balance Out",
+      header: "Bal. Out",
       align: "right",
+      className: HUG,
       cell: (r) =>
         r.outstanding > 0 ? <span className="tabular-nums text-sm font-semibold">{fmtNumber(r.outstanding)}</span> : <span className="text-muted-foreground">—</span>,
     },
     {
       header: "Status",
+      className: HUG,
       cell: (r) => <StatusPill tone={statusTone(r.status, OVERRIDES)}>{STATUS_LABEL[r.status] ?? r.status}</StatusPill>,
     },
   ];
@@ -124,6 +125,7 @@ export function DcRegisterScreen({
   return (
     <MasterListShell<DcRegisterRow>
       rows={shown}
+      dense="spacing"
       filterLeading={
         <ToggleGroup<Word>
           label="DC type"

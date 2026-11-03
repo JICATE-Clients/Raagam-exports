@@ -10,6 +10,7 @@ import { Field, FieldError, FieldRow, FIELD_WIDTH_CSS } from "@/components/ui/fi
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
+import { StoreBinPickCell } from "@/components/purchase/store-bin-editor";
 import { saveProductionDc } from "@/lib/stores/production-dc-actions";
 import type { BinOption, ProductionDc, StockOption, StoreOption, UnitOption } from "@/lib/stores/production-dc-service";
 import { useUnsavedGuard } from "@/lib/reload-guard";
@@ -132,8 +133,8 @@ export function ProductionDcSendForm({
   }
 
   /*
-   * From Store 112 · Item 288 · In Stock 88 · Qty 88 · Bin 112 · Lot No 112 = 800, + 72
-   * chrome (`#` and ✕) = 872 <= 1155 -> tableFrom="5xl".
+   * From Store 112 · Item 288 · In Stock 88 · Qty 88 · Bin 176 (store · bin button) · Lot No
+   * 112 = 864, + 72 chrome (`#` and ✕) = 936 <= 1155 -> tableFrom="5xl".
    */
   const lineColumns: ChildGridColumn<Line>[] = [
     {
@@ -216,17 +217,21 @@ export function ProductionDcSendForm({
       },
     },
     {
+      // GRN's one-line button (user 2026-11-03, screenshot 095545). From Store stays its own
+      // first column — it decides which items are offered — so the pop-up edits the bin only.
       header: "Bin",
-      width: FIELD_WIDTH_CSS.range,
+      width: FIELD_WIDTH_CSS.term,
+      // pick-once: exempt -- several lines may leave from the same bin
       cell: (l) => (
-        <Select aria-label="Bin" className="h-8" value={l.binId} onChange={(e) => update(l.key, { binId: e.target.value })}>
-          <option value="">{bins.length === 0 ? "No bins yet" : "—"}</option>
-          {bins.map((b) => (
-            <option key={b.id} value={b.id}>
-              {b.code}
-            </option>
-          ))}
-        </Select>
+        <StoreBinPickCell
+          description={l.itemId ? (stockOf(l.storeId, l.itemId)?.item_name ?? "line") : "line"}
+          parent="DC"
+          stores={stores}
+          storeId={l.storeId}
+          bins={bins}
+          binId={l.binId}
+          onBin={(v) => update(l.key, { binId: v })}
+        />
       ),
     },
     {

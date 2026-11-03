@@ -9,7 +9,7 @@ import type { Column } from "@/components/ui/data-table";
 import { FilterPill, type FilterPillOption } from "@/components/ui/filter-pill";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
-import { fmtDate, fmtNumber } from "@/lib/format";
+import { fmtDate } from "@/lib/format";
 import type {
   GrnBinOption,
   GrnGroupKind,
@@ -215,7 +215,10 @@ export function GrnScreen({
         id: d.id,
         no: d.code ?? "—",
         vendor: d.vendor_name,
-        refs: d.grn_code ? `Pending replacement from vendor · ${d.grn_code}` : "Pending replacement from vendor",
+        // Short enough to sit whole in the column (user 2026-11-03: "make better wording, look
+        // large" — "Pending replacement from vendor · GRN-0010" ran past it). The row's Pending
+        // tab and its vendor column already say the rest.
+        refs: d.grn_code ? `Replacement due · ${d.grn_code}` : "Replacement due",
         detail: [...new Set(d.lines.map((x) => lineById.get(x.po_line_item_id)?.item_class).filter(Boolean))].join(", "),
         lines: d.lines.length,
         status: "",
@@ -366,14 +369,15 @@ export function GrnScreen({
         { header: "Vendor", cell: (r) => <Truncated>{r.vendor || "—"}</Truncated> },
         { header: "RE / SWO / IWO", cell: (r) => <Truncated>{r.refs || "—"}</Truncated> },
         { header: "Item classes", cell: (r) => <Truncated>{r.detail || "—"}</Truncated> },
-        { header: "Lines to receive", align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtNumber(r.lines)}</span> },
+        // No "Lines to receive" column (user 2026-11-03: "no need this column") — the count
+        // of open PO lines is not a decision the operator makes from this list.
       ]
     : [
         { header: "GRN No", cell: docCell },
         { header: "Vendor", cell: (r) => <Truncated>{r.vendor || "—"}</Truncated> },
         { header: "Invoice / DC", cell: (r) => <Truncated>{r.refs || "—"}</Truncated> },
         { header: "GRN Date", cell: (r) => <span className="text-sm">{fmtDate(r.detail || null)}</span> },
-        { header: "Lines", align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtNumber(r.lines)}</span> },
+        // No "Lines" column (user 2026-11-03, screenshot 3999: "no need, remove it").
         {
           header: "Status",
           cell: (r) => (
@@ -400,7 +404,15 @@ export function GrnScreen({
       searchText={(r) => [r.no, r.vendor, r.refs, r.detail].filter(Boolean).join(" ")}
       searchPlaceholder={isPendingView ? "Search PO No, vendor, RE No or class…" : "Search GRN No, vendor or invoice…"}
       columns={columns}
-      actions={{ onEdit: edit, menuAs: "icons" }}
+      actions={{
+        onEdit: edit,
+        menuAs: "icons",
+        /* THE REPORT ICON (user 2026-11-03, screenshot 3999): FileText opens the GRN slip, left
+           of the pencil — the PO list's shape (AGENTS.md "Row actions"). A Pending row is a PO
+           still to be received, so it has no GRN to print. */
+        menu: (r) =>
+          r.word === "pending" ? [] : [{ label: "GRN report", icon: FileText, onClick: () => router.push(`/purchase/grn/${r.id}/print`) }],
+      }}
       rowLabel={(r) => r.no}
       empty={
         isPendingView
@@ -414,7 +426,7 @@ export function GrnScreen({
       mobile={{
         title: (r) => r.no,
         subtitle: (r) => r.vendor,
-        meta: (r) => (r.word === "pending" ? `${r.lines} line(s) to receive · ${r.refs}` : `${r.refs} · ${fmtDate(r.detail || null)}`),
+        meta: (r) => (r.word === "pending" ? r.refs : `${r.refs} · ${fmtDate(r.detail || null)}`),
         pill: (r) =>
           r.word === "pending" ? null : (
             <StatusPill tone={statusTone(r.status)}>{r.status === "posted" ? "Posted" : "Draft"}</StatusPill>

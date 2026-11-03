@@ -8,8 +8,8 @@ import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import { Field, FieldError, FieldRow, FIELD_WIDTH_CSS } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
 import { Truncated } from "@/components/ui/truncated";
+import { StoreBinPickCell } from "@/components/purchase/store-bin-editor";
 import { useToast } from "@/components/ui/toast";
 import { receiveProcessDc } from "@/lib/stores/process-dc-actions";
 import type { ProcessDc } from "@/lib/stores/process-dc-service";
@@ -141,8 +141,8 @@ export function ProcessReceiptForm({
 
   /*
    * Sent Item 176 · At Vendor 88 · Output Item 176 · Received 88 · Used 88 · Loss 112 ·
-   * Close 88 · Store 112 · Bin 112 = 1040, + 40 (`#`; no ✕ — the rows are the DC's own)
-   * = 1080 <= 1155 -> tableFrom="5xl". Lot No rides under the Bin (one cell, two controls).
+   * Close 88 · Store · Bin 176 (one button, 2026-11-03) · Lot No 112 = 1104, + 40 (`#`; no
+   * ✕ — the rows are the DC's own) = 1144 <= 1155 -> tableFrom="5xl".
    */
   const columns: ChildGridColumn<Line>[] = [
     { header: "Sent Item", width: FIELD_WIDTH_CSS.term, cell: (l) => <Truncated className="text-sm">{l.item}</Truncated> },
@@ -236,36 +236,27 @@ export function ProcessReceiptForm({
       ),
     },
     {
-      header: "Store",
-      width: FIELD_WIDTH_CSS.range,
+      // ONE BUTTON, STORE AND BIN IN A POP-UP — GRN's cell (user 2026-11-03, screenshot 095545).
+      header: "Store · Bin",
+      width: FIELD_WIDTH_CSS.term,
+      // pick-once: exempt -- several lines may go into the same store and bin
       cell: (l) => (
-        <div data-focus-optional>
-          <Select aria-label={`Store, ${l.item}`} className="h-8" value={l.storeId} onChange={(e) => update(l.key, { storeId: e.target.value })}>
-            {intoStores.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </Select>
-        </div>
+        <StoreBinPickCell
+          description={l.item}
+          parent="Receipt"
+          stores={intoStores}
+          storeId={l.storeId}
+          onStore={(v) => update(l.key, { storeId: v })}
+          bins={bins}
+          binId={l.binId}
+          onBin={(v) => update(l.key, { binId: v })}
+        />
       ),
     },
     {
-      header: "Bin / Lot",
+      header: "Lot No",
       width: FIELD_WIDTH_CSS.range,
-      cell: (l) => (
-        <div className="space-y-1">
-          <Select aria-label={`Bin, ${l.item}`} className="h-8" value={l.binId} onChange={(e) => update(l.key, { binId: e.target.value })}>
-            <option value="">{bins.length === 0 ? "No bins yet" : "Bin —"}</option>
-            {bins.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.code}
-              </option>
-            ))}
-          </Select>
-          <Input aria-label={`Lot No, ${l.item}`} placeholder="Lot No" className="h-7 text-xs" value={l.lotNo} onChange={(e) => update(l.key, { lotNo: e.target.value })} />
-        </div>
-      ),
+      cell: (l) => <Input aria-label={`Lot No, ${l.item}`} className="h-8" value={l.lotNo} onChange={(e) => update(l.key, { lotNo: e.target.value })} />,
     },
   ];
 

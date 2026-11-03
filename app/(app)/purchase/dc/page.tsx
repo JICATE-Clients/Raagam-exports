@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { FileText } from "lucide-react";
+import { buttonClasses } from "@/components/ui/button";
+import { Tooltip } from "@/components/ui/tooltip";
 import { notFound, redirect } from "next/navigation";
 import { can, requirePermission } from "@/lib/auth/server";
 import { listDcRegister } from "@/lib/purchase/dc-register";
@@ -37,6 +40,10 @@ import { getGeneralDc, getGeneralDcOptions } from "@/lib/purchase/general-dc-ser
  * 0788); those pages now redirect here. Purchase OR Stores may open it: job work is both
  * modules' work and a unit transfer is Stores'.
  */
+/* A Rejection / Replacement DC's own words: Replaced is the vendor's resend booked (a
+   step, info) and Closed is the return finished (success). */
+const RETURN_DC_TONES = { replaced: "info", closed: "success" } as const;
+
 type Search = { type?: string; new?: string; edit?: string; receive?: string; order?: string; view?: string };
 
 export default async function DcHubPage({ searchParams }: { searchParams: Promise<Search> }) {
@@ -80,19 +87,54 @@ async function drawer(sp: Search, type: string | null, rows: Awaited<ReturnType<
     if (!doc) notFound();
     const kindWord = doc.dc_kind === "replacement" ? "Replacement DC" : "Rejection DC";
     const sent = doc.status !== "draft" && doc.status !== "cancelled";
+    // Vendor and GRN come off the register row already loaded — the view used to show
+    // neither, so the page said WHAT went back but not to WHOM or from WHICH receipt
+    // (screenshot 3997). An unnamed GRN return falls back to the reason.
+    const reg = rows.find((r) => r.key === `vr-${doc.id}`);
+    const facts: { label: string; value: string }[] = [
+      { label: "Vendor", value: reg?.party ?? "—" },
+      { label: doc.grn_id ? "Against GRN" : "Reason", value: reg?.against ?? doc.reason ?? "—" },
+      { label: "Date", value: fmtDate(doc.return_date) },
+    ];
     return (
-      <DcDrawer title={`${kindWord} ${doc.code ?? ""}`.trim()} type={type} showBack>
-        <div className="max-w-[48rem] space-y-3">
-          <div className="flex flex-wrap items-center gap-3 text-sm">
-            <StatusPill tone={statusTone(doc.status, { replaced: "info", closed: "success" })}>{VENDOR_RETURN_STATUS_LABELS[doc.status]}</StatusPill>
-            <span className="text-muted-foreground">{fmtDate(doc.return_date)}</span>
-            {doc.reason ? <span className="text-muted-foreground">{doc.reason}</span> : null}
-            {/* The return slip prints once the DC has gone out (plan: Dispatch, then print). */}
-            {sent ? (
-              <Link href={`/purchase/vendor-returns/${doc.id}/print`} className="font-semibold text-primary hover:underline">
-                Print DC
-              </Link>
-            ) : null}
+      <DcDrawer title={`${kindWord} ${doc.code ?? ""}`.trim()} entry={doc.code} type={type} showBack>
+        {/* FULL WIDTH (user 2026-11-03, screenshot 095720): the 48rem cap squeezed a long
+            item name until the lines table scrolled sideways inside its card. */}
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-border bg-surface px-4 py-3 text-sm">
+            {facts.map((f) => (
+              <div key={f.label} className="min-w-0">
+                <div className="text-xs text-muted-foreground">{f.label}</div>
+                <div className="font-medium">{f.value}</div>
+              </div>
+            ))}
+            <div className="ml-auto flex items-center gap-3">
+              <StatusPill tone={statusTone(doc.status, RETURN_DC_TONES)}>{VENDOR_RETURN_STATUS_LABELS[doc.status]}</StatusPill>
+              {/* PRINT DC IS THE REPORT ICON (user 2026-11-03), the PO list's shape: FileText opens
+                  the return slip. It prints once the DC has gone out (plan: Dispatch, then print),
+                  so before that it stays visible, greyed, saying why. */}
+              {sent ? (
+                <Tooltip label="Print DC">
+                  <Link
+                    href={`/purchase/vendor-returns/${doc.id}/print`}
+                    aria-label={`Print DC ${doc.code ?? ""}`}
+                    className={`${buttonClasses({ variant: "ghost", size: "icon" })} text-primary`}
+                  >
+                    <FileText aria-hidden />
+                  </Link>
+                </Tooltip>
+              ) : (
+                <Tooltip label="Print opens once the DC is dispatched" touch>
+                  <span
+                    aria-disabled
+                    aria-label={`Print DC ${doc.code ?? ""} — print opens once the DC is dispatched`}
+                    className={`${buttonClasses({ variant: "ghost", size: "icon" })} cursor-not-allowed text-muted-foreground opacity-50`}
+                  >
+                    <FileText aria-hidden />
+                  </span>
+                </Tooltip>
+              )}
+            </div>
           </div>
           <ReturnDcDetail
             docId={doc.id}
@@ -102,6 +144,7 @@ async function drawer(sp: Search, type: string | null, rows: Awaited<ReturnType<
             canEdit={canEdit}
             canDelete={canDelete}
             fromGrn={!!doc.grn_id}
+            replacement={doc.dc_kind === "replacement"}
           />
         </div>
       </DcDrawer>
@@ -116,7 +159,7 @@ async function drawer(sp: Search, type: string | null, rows: Awaited<ReturnType<
       const [dc, setup] = await Promise.all([getProductionDc(sp.receive), getProductionDcSetup()]);
       if (!dc) notFound();
       return (
-        <DcDrawer title={`Receive stock · ${dc.code ?? "Production DC"}`} type={type}>
+        <DcDrawer title={`Receive stock · ${dc.code ?? "Production DC"}`} entry={dc.code} type={type}>
           <ProductionDcReceiveForm dc={dc} stores={setup.stores} bins={setup.bins} home={`/purchase/dc?type=production`} />
         </DcDrawer>
       );
@@ -124,7 +167,7 @@ async function drawer(sp: Search, type: string | null, rows: Awaited<ReturnType<
     const [dc, setup, items] = await Promise.all([getProcessDc(sp.receive), getProductionDcSetup(), getItems()]);
     if (!dc) notFound();
     return (
-      <DcDrawer title={`Receive back · ${dc.code ?? "Process DC"}`} type={type}>
+      <DcDrawer title={`Receive back · ${dc.code ?? "Process DC"}`} entry={dc.code} type={type}>
         <ProcessReceiptForm dc={dc} items={items} stores={setup.stores} bins={setup.bins} home={`/purchase/dc?type=process`} />
       </DcDrawer>
     );
@@ -142,7 +185,7 @@ async function drawer(sp: Search, type: string | null, rows: Awaited<ReturnType<
     ]);
     if (sp.edit && !dc) notFound();
     return (
-      <DcDrawer title={dc ? `Process DC ${dc.code ?? ""}` : "New Delivery Challan"} type={type} chooser={sp.edit ? null : "process"}>
+      <DcDrawer title={dc ? `Process DC ${dc.code ?? ""}` : "New Delivery Challan"} entry={dc?.code} type={type} chooser={sp.edit ? null : "process"}>
         {setup.unit ? (
           <ProcessDcSendForm
             orders={orders}
@@ -169,7 +212,7 @@ async function drawer(sp: Search, type: string | null, rows: Awaited<ReturnType<
     ]);
     if (sp.edit && !dc) notFound();
     return (
-      <DcDrawer title={dc ? `General DC ${dc.code ?? ""}` : "New Delivery Challan"} type={type} chooser={sp.edit ? null : "general"}>
+      <DcDrawer title={dc ? `General DC ${dc.code ?? ""}` : "New Delivery Challan"} entry={dc?.code} type={type} chooser={sp.edit ? null : "general"}>
         {setup.unit ? (
           <GeneralDcSendForm
             unit={setup.unit}
@@ -192,7 +235,7 @@ async function drawer(sp: Search, type: string | null, rows: Awaited<ReturnType<
     const [setup, dc] = await Promise.all([getProductionDcSetup(), sp.edit ? getProductionDc(sp.edit) : Promise.resolve(null)]);
     if (sp.edit && !dc) notFound();
     return (
-      <DcDrawer title={dc ? `Production DC ${dc.code ?? ""}` : "New Delivery Challan"} type={type} chooser={sp.edit ? null : "production"}>
+      <DcDrawer title={dc ? `Production DC ${dc.code ?? ""}` : "New Delivery Challan"} entry={dc?.code} type={type} chooser={sp.edit ? null : "production"}>
         {setup.unit ? (
           <ProductionDcSendForm
             unit={setup.unit}

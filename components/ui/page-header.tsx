@@ -2,6 +2,7 @@ import { type ReactNode } from "react";
 import { BackLink } from "@/components/ui/back-link";
 import type { BackTarget } from "@/lib/nav/back-target";
 import { cn } from "@/lib/utils";
+import { RecordTabTitle } from "@/components/shell/record-tab-title";
 
 export function PageHeader({
   title,
@@ -64,7 +65,14 @@ export function PageHeader({
    * takes no margin, so a page's content starts at the top.
    */
   void description;
-  const heading = <h1 className="sr-only">{title}</h1>;
+  // The title also names the workspace tab on a record route ("GRN/26-27/0004 · Purchase
+  // Receipts (GRN)", screenshot 4001) — the uuid in the URL was all the tab had to go on.
+  const heading = (
+    <>
+      <h1 className="sr-only">{title}</h1>
+      <RecordTabTitle entry={title} />
+    </>
+  );
   if (!backLink && !actions) return heading;
   return (
     <div

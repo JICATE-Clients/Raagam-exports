@@ -147,7 +147,6 @@ export const HUB_COUNT_TABLES: Record<string, string | null> = {
   "/purchase/indents": "purchase_indents",
   "/purchase/grn": "grns",
   "/purchase/dc": "delivery_challans",
-  "/purchase/over-budget": "over_budget_confirmations",
   "/purchase/rate-amendments": "po_rate_amendments",
   "/purchase/price-confirmations": "purchase_price_confirmations",
   "/purchase/po-cancellations": "po_cancellations",

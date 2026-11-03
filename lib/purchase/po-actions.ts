@@ -707,7 +707,12 @@ export async function submitPo(poId: string): Promise<ActionResult> {
   return { ok: true };
 }
 
-export async function approvePo(poId: string): Promise<ActionResult> {
+/**
+ * `note` — the approver's remark, kept on the run's trail (and the audit). PO Approval
+ * asks for one when the PO is over budget (user 2026-11-03, merged-screen plan): why the
+ * excess was accepted should outlive the click. Every other caller passes none.
+ */
+export async function approvePo(poId: string, note?: string): Promise<ActionResult> {
   if (!(await can("materials_purchase", "approve"))) throw new Error("Forbidden");
 
   const user = await getAppUser();
@@ -753,6 +758,7 @@ export async function approvePo(poId: string): Promise<ActionResult> {
     subjectTable: WORKFLOWS.purchase_order.subjectTable,
     subjectId: poId,
     action: "approve",
+    comment: note?.trim() || undefined,
     subjectPath: `/purchase/orders/${poId}`,
   });
   if (!viaRun.ok && !("noRun" in viaRun)) return { ok: false, error: viaRun.error };
@@ -770,14 +776,14 @@ export async function approvePo(poId: string): Promise<ActionResult> {
       })
       .eq("id", poId);
     if (error) return { ok: false, error: error.message };
-    await notifyPoDecided(poId, "approved", null);
+    await notifyPoDecided(poId, "approved", note?.trim() || null);
   }
 
   await writeAudit({
     action: "purchase_order.approved",
     entityType: "purchase_order",
     entityId: poId,
-    metadata: { total_amount: poRow.total_amount },
+    metadata: { total_amount: poRow.total_amount, ...(note?.trim() ? { note: note.trim() } : {}) },
   });
 
   revalidatePurchase(`/purchase/orders/${poId}`, "/purchase/orders");

@@ -12,14 +12,14 @@ import {
   UsersRound,
   Ship,
   Truck,
-  Wallet,
+  IndianRupee,
   Cable,
   FileChartColumn,
   ChartNoAxesCombined,
-  BadgeCheck,
+  Stamp,
   MessageCircleMore,
   Database,
-  ShieldCheck,
+  UserCog,
   Headset,
   MessagesSquare,
   type LucideIcon,
@@ -158,7 +158,7 @@ export const NAV: NavItem[] = [
     href: "/finance",
     label: "Finance",
     module: "finance",
-    icon: Wallet,
+    icon: IndianRupee, // was Wallet (user 2026-11-03, rail mock-up): the books are in rupees
     children: moduleNavChildren("/finance"),
   },
   {
@@ -197,7 +197,7 @@ export const NAV: NavItem[] = [
     href: "/approvals",
     label: "Approvals",
     module: "approvals",
-    icon: BadgeCheck,
+    icon: Stamp, // was BadgeCheck (user 2026-11-03): approving is signing off
     children: [{ href: "/approvals/flows", label: "Approval Flows" }],
   },
   {
@@ -273,7 +273,7 @@ export const NAV: NavItem[] = [
     href: "/admin",
     label: "Administration",
     module: "system_admin",
-    icon: ShieldCheck,
+    icon: UserCog, // was ShieldCheck (user 2026-11-03): users, roles and units, not security
     children: moduleNavChildren("/admin"),
   },
 ];

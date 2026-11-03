@@ -148,7 +148,12 @@ export function GrnEditForm({
   };
   const splitProblem = (l: EditLine): string | null => (l.qc_status === "pending" ? null : splitBinsProblem(l.bins, accepted(l)));
   const lineProblems = !qtyLock && lines.some((l) => problem(l) || splitProblem(l));
-  const canSave = !isPending && dirty && !lineProblems;
+  /* THE VENDOR'S PAPER IS MANDATORY (user 2026-11-03): its date always, and ONE number —
+     Invoice No or DC No, whichever paper came. So the No is required only while both are
+     blank (a state rule, like Fabric's Using). The star sits on Invoice No only: a held box
+     cannot be tabbed past, so starring both would cage the operator before DC No. */
+  const noPaperNo = !invoiceNo.trim() && !dcNo.trim();
+  const canSave = !isPending && dirty && !lineProblems && !noPaperNo && !!invoiceDate;
 
   function save() {
     if (!canSave) return;
@@ -293,7 +298,7 @@ export function GrnEditForm({
         </CardHeader>
         <CardBody>
           <FieldRow>
-            <Field label="Invoice No" w="code" htmlFor="ge-inv">
+            <Field label="Invoice No" required={noPaperNo} w="code" htmlFor="ge-inv">
               <Input
                 id="ge-inv"
                 value={invoiceNo}
@@ -303,7 +308,7 @@ export function GrnEditForm({
                 }}
               />
             </Field>
-            <Field label="Invoice / DC Date" w="code" htmlFor="ge-inv-date">
+            <Field label="Invoice / DC Date" required w="code" htmlFor="ge-inv-date">
               <Input
                 id="ge-inv-date"
                 type="date"
@@ -339,17 +344,15 @@ export function GrnEditForm({
         </CardBody>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Lines</CardTitle>
-          <span className={locked ? "text-xs text-warning" : "text-xs text-muted-foreground"}>
+      <div className="space-y-3">
+        {/* NO "Lines" CARD (user 2026-11-03: "lines layout remove it from overall module"): the
+          table sits on the page, full width — the card only added a second frame and a title. */}
+        <span className={locked ? "text-xs text-warning" : "text-xs text-muted-foreground"}>
             {locked
               ? `Quantities are locked: ${qtyLock}. The paper above can still be corrected.`
               : "Changing a quantity, lot or bin re-posts the GRN: stock, PO balance and the draft bill are recalculated."}
           </span>
-        </CardHeader>
-        {/* The same tight sheet as GRN entry (user 2026-11-02, screenshot 210433). */}
-        <CardBody data-grid-style="sheet" data-grid-cells="flat">
+        <div>
           {/* default-row: exempt -- the rows are the posted GRN's own lines; nothing is added here */}
           <ChildGrid<EditLine>
             columns={grnEditColumns}
@@ -362,8 +365,8 @@ export function GrnEditForm({
             onAdd={() => false}
             onRemove={() => {}}
           />
-        </CardBody>
-      </Card>
+        </div>
+      </div>
 
       <div data-focus-region="footer" className="flex flex-wrap items-center gap-3">
         <Button variant="outline" onClick={() => router.push(`/purchase/grn/${grn.id}`)} disabled={isPending}>

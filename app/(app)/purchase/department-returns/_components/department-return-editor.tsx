@@ -13,7 +13,7 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
-import { BinPicker } from "@/components/masters/bin-picker";
+import { StoreBinPickCell } from "@/components/purchase/store-bin-editor";
 import { DOC_BOTTOM_BAR, DOC_FRAME } from "@/components/purchase/doc-surface";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { statusTone } from "@/lib/ui/status-tone";
@@ -237,19 +237,24 @@ export function DepartmentReturnEditor({
         ),
     },
     {
-      header: "Bin",
-      width: FIELD_WIDTH_CSS.code,
+      // GRN's one-line button (user 2026-11-03, screenshot 095545). The store is the header's
+      // (the requisition's), so the button names it and the pop-up edits the bin only.
+      header: "Store · Bin",
+      width: FIELD_WIDTH_CSS.term,
       // pick-once: exempt -- one bin can take several returned items
       cell: (r) =>
         readOnly ? (
           <span className="text-sm">{savedById.get(r.mrs_line_id)?.bin_code ?? "—"}</span>
         ) : (
-          <BinPicker
-            label={`Bin for ${r.item_name}`}
+          <StoreBinPickCell
+            description={r.item_name}
+            parent="Return"
+            stores={mrs?.store_name ? [{ id: "header", name: mrs.store_name }] : undefined}
+            storeId="header"
             bins={bins}
-            value={entries[r.mrs_line_id]?.bin ?? ""}
-            onChange={(v) => setEntry(r.mrs_line_id, { bin: v })}
-            onCreated={(b) => setBins((list) => [...list, { id: b.id, code: b.code, description: null }])}
+            binId={entries[r.mrs_line_id]?.bin ?? ""}
+            onBin={(v) => setEntry(r.mrs_line_id, { bin: v })}
+            onBinCreated={(b) => setBins((list) => [...list, { id: b.id, code: b.code, description: null }])}
           />
         ),
     },
