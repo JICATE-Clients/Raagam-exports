@@ -169,6 +169,10 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, canRevoke 
     if (!draft.person) return "Pick the person";
     if (!draft.leave_type_id) return mode === "permission" ? "Pick the permission type" : "Pick the leave type";
     if (!draft.start_date) return "Pick the From date";
+    // Time off is applied in advance (0798; user 2026-11-03: "all the time off
+    // things happening in Raagam are beforehand") — the database refuses a
+    // past From date too; this says so before Save rather than after.
+    if (draft.start_date < t0) return "Time off is applied in advance — the date cannot be before today";
     if (mode === "permission") {
       if (!draft.start_time || !draft.end_time) return "Enter the From and To time";
       if (draft.end_time <= draft.start_time) return "To must be after From";
@@ -367,7 +371,7 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, canRevoke 
           {mode === "permission" ? (
             <FieldRow>
               <Field label="Date" w="code" required>
-                <Input type="date" value={draft.start_date} onChange={(e) => set("start_date", e.target.value)} />
+                <Input type="date" min={t0} value={draft.start_date} onChange={(e) => set("start_date", e.target.value)} />
               </Field>
               <Field label="From" w="code" required>
                 <Input type="time" value={draft.start_time} onChange={(e) => set("start_time", e.target.value)} />
@@ -381,6 +385,7 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, canRevoke 
               <Field label="From" w="code" required>
                 <Input
                   type="date"
+                  min={t0}
                   value={draft.start_date}
                   onChange={(e) => {
                     const v = e.target.value;

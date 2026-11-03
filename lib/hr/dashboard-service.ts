@@ -29,7 +29,14 @@ export interface FeedPunch {
 }
 
 export interface HrDashboard {
+  /** The clock, for the devices and "Updated" — always the real now. */
   now: number;
+  /** The shift day on view (IST, YYYY-MM-DD) — today unless a date was picked. */
+  day: string;
+  /** True for today: live figures, auto-refresh. False: a closed past day. */
+  live: boolean;
+  /** The instant every figure is judged at — `now` today, the day's close for a past day. */
+  asOf: number;
   groups: GroupDay[];
   timings: CategoryTiming[];
   trend: TrendRow[];
@@ -313,29 +320,44 @@ function istDay(now: number): string {
  * request is not yet leave. If a person has two, On Duty wins over Leave and
  * Leave over Permission (the stronger reason they are not at the gate).
  */
-async function timeOffToday(now: number, bioOf: Map<string, string>): Promise<TimeOffToday[]> {
+/*
+ * ONE READ OF THE WEEK'S APPROVED TIME OFF, STARTED WITH THE OTHERS (client
+ * 2026-11-03: "everything loading so slow"). Today's time off and the week's
+ * excused days were two reads of the same table, and both queued behind the
+ * people read because they map ids to device ids — the mapping needs the
+ * people, the READ does not. Now it starts in the first wave and is mapped by
+ * `timeOffToday` / `excusedDays` once the people are in.
+ */
+type TimeOffRow = {
+  staff_id: string | null;
+  worker_id: string | null;
+  request_category: string;
+  day_part: string;
+  start_date: string;
+  end_date: string;
+  leave_type: { code: string; name: string } | null;
+};
+async function approvedTimeOff(from: string, to: string): Promise<TimeOffRow[]> {
   const s = await createClient();
-  const day = istDay(now);
   const { data, error } = await s
     .from("timeoff_requests")
-    .select("staff_id, worker_id, request_category, day_part, leave_type:timeoff_leave_types!leave_type_id(code, name)")
+    .select("staff_id, worker_id, request_category, day_part, start_date, end_date, leave_type:timeoff_leave_types!leave_type_id(code, name)")
     .eq("status", "approved")
-    .lte("start_date", day)
-    .gte("end_date", day);
+    .lte("start_date", to)
+    .gte("end_date", from);
   if (error) {
     console.error("[hr-dashboard] time off failed", error);
     return [];
   }
-  type Row = {
-    staff_id: string | null;
-    worker_id: string | null;
-    request_category: string;
-    day_part: string;
-    leave_type: { code: string; name: string } | null;
-  };
+  return (data ?? []) as unknown as TimeOffRow[];
+}
+
+function timeOffToday(rows: TimeOffRow[], now: number, bioOf: Map<string, string>): TimeOffToday[] {
+  const day = istDay(now);
+  const data = rows.filter((r) => r.start_date <= day && r.end_date >= day);
   const rank: Record<TimeOffKind, number> = { on_duty: 3, leave: 2, permission: 1 };
   const out = new Map<string, TimeOffToday>();
-  for (const r of (data ?? []) as unknown as Row[]) {
+  for (const r of data) {
     const bio = r.staff_id ? bioOf.get(`staff:${r.staff_id}`) : r.worker_id ? bioOf.get(`worker:${r.worker_id}`) : undefined;
     if (!bio) continue; // not on the reader, so not on this dashboard
     const code = (r.leave_type?.code ?? "").trim().toUpperCase();
@@ -352,22 +374,10 @@ async function timeOffToday(now: number, bioOf: Map<string, string>): Promise<Ti
  * Approved Leave / On Duty days per person over [from, to] — what excuses an
  * absence. Permission (short time off) never excuses a whole day.
  */
-async function excusedDays(from: string, to: string, bioOf: Map<string, string>): Promise<Map<string, Set<string>>> {
-  const s = await createClient();
-  const { data, error } = await s
-    .from("timeoff_requests")
-    .select("staff_id, worker_id, start_date, end_date")
-    .eq("status", "approved")
-    .neq("request_category", "short_time_off")
-    .lte("start_date", to)
-    .gte("end_date", from);
-  if (error) {
-    console.error("[hr-dashboard] time off (week) failed", error);
-    return new Map();
-  }
+function excusedDays(rows: TimeOffRow[], from: string, to: string, bioOf: Map<string, string>): Map<string, Set<string>> {
   const out = new Map<string, Set<string>>();
-  type Row = { staff_id: string | null; worker_id: string | null; start_date: string; end_date: string };
-  for (const r of (data ?? []) as Row[]) {
+  for (const r of rows) {
+    if (r.request_category === "short_time_off") continue;
     const bio = r.staff_id ? bioOf.get(`staff:${r.staff_id}`) : r.worker_id ? bioOf.get(`worker:${r.worker_id}`) : undefined;
     if (!bio) continue;
     const set = out.get(bio) ?? new Set<string>();
@@ -382,6 +392,7 @@ function addDay(day: string, n: number): string {
 }
 
 const WEEK = 7;
+const DAY_MS = 24 * 3600_000;
 /** A day counts as a working day for a side when at least this share of it punched in. */
 const WORKING_DAY_SHARE = 0.2;
 const PRESENT_STATUSES = new Set(["inside", "stepped_out", "left", "left_early"]);
@@ -397,15 +408,10 @@ const PRESENT_STATUSES = new Set(["inside", "stepped_out", "left", "left_early"]
  * at least a fifth of that side punched in. A day nobody came is nobody's
  * absence.
  */
-function attentionOf(
-  people: Person[],
-  punches: RawPunch[],
-  timings: CategoryTiming[],
-  now: number,
-  today: GroupDay[],
-  excused: Map<string, Set<string>>,
-  devices: DeviceRow[],
-): Attention {
+/** Each of the week's seven shift days, per person — oldest first, the last one today. */
+type Week = { days: string[]; perDay: Map<string, PersonDay>[] };
+
+function weekOf(people: Person[], punches: RawPunch[], timings: CategoryTiming[], now: number, today: GroupDay[]): Week {
   const todayDay = istDayOf(now);
   // Oldest first: days[0] = 6 days ago … days[6] = today.
   const days = Array.from({ length: WEEK }, (_, i) => addDay(todayDay, i - (WEEK - 1)));
@@ -413,6 +419,45 @@ function attentionOf(
     const groups = i === WEEK - 1 ? today : computeGroupDays(people, punches, timings, now, d);
     return new Map(groups.flatMap((g) => g.people.map((p) => [p.person.bio, p] as const)));
   });
+  return { days, perDay };
+}
+
+/*
+ * THE WEEK CHART, FROM THE WEEK ALREADY WORKED OUT (client 2026-11-03:
+ * "everything loading so slow"). It was `hr_attendance_trend_by_dept`, an RPC
+ * that re-judged seven days of punches in SQL — the slowest read on the page,
+ * 1.8–3.2 s measured — while "Needs attention" judged the very same seven days
+ * here from the punches already in hand. Same people, same category hours,
+ * same rules (computeGroupDays), so the chart and the cards cannot disagree,
+ * and a picked day of any age has its whole week.
+ */
+function trendOf(people: Person[], week: Week): TrendRow[] {
+  const out = new Map<string, TrendRow>();
+  week.days.forEach((day, i) => {
+    for (const p of people) {
+      const k = `${day}|${p.kind}|${p.departmentId ?? ""}`;
+      const row = out.get(k) ?? { day, kind: p.kind, department_id: p.departmentId, enrolled: 0, present: 0, late: 0 };
+      const d = week.perDay[i].get(p.bio);
+      row.enrolled++;
+      if (d && PRESENT_STATUSES.has(d.status)) {
+        row.present++;
+        if (d.lateMin > 0) row.late++;
+      }
+      out.set(k, row);
+    }
+  });
+  return [...out.values()];
+}
+
+function attentionOf(
+  people: Person[],
+  week: Week,
+  excused: Map<string, Set<string>>,
+  devices: DeviceRow[],
+  /** The real clock — a device is silent NOW, whatever day is on view. */
+  clock: number,
+): Attention {
+  const { days, perDay } = week;
   const working = perDay.map((m) => {
     const ok = new Set<PersonKind>();
     for (const kind of ["staff", "worker"] as const) {
@@ -465,29 +510,33 @@ function attentionOf(
   missedOut.sort((a, b) => a.name.localeCompare(b.name));
 
   const silentDevices = devices.filter(
-    (d) => d.is_active && d.enabled && !!d.last_seen && now - Date.parse(d.last_seen) >= SILENT_MS,
+    (d) => d.is_active && d.enabled && !!d.last_seen && clock - Date.parse(d.last_seen) >= SILENT_MS,
   );
   return { late, absent, missedOut, missedOutDay: days[WEEK - 2], silentDevices };
 }
-
-async function trend(): Promise<{ rows: TrendRow[]; byDept: boolean }> {
-  const s = await createClient();
-  const byDept = await s.rpc("hr_attendance_trend_by_dept", { p_days: 7 });
-  if (!byDept.error) return { rows: (byDept.data ?? []) as TrendRow[], byDept: true };
-  const { data, error } = await s.rpc("hr_attendance_trend_by_kind", { p_days: 7 });
-  if (error) {
-    console.error("[hr-dashboard] trend failed", error);
-    return { rows: [], byDept: false };
-  }
-  return { rows: (data ?? []) as TrendRow[], byDept: false };
-}
-
-export async function getHrDashboard(now: number): Promise<HrDashboard> {
+/*
+ * ANY DAY, NOT ONLY TODAY (user 2026-11-03: "near the department add a date
+ * button, so that if I want to see previous dates also we can see them").
+ * `day` before today is read the way `computeGroupDays`' `atDay` reads a past
+ * shift — as it stood when that day's window closed — so a person with an odd
+ * punch count shows In with no Out, and nobody is "Not in yet". Everything
+ * day-bound follows it: the punches (bounded so a later day cannot leak in),
+ * the week behind it, its approved time off, the week chart. What is about
+ * NOW stays now: devices, approvals waiting, pending requests, the pipeline.
+ * A date after today, or none, is today — live.
+ */
+export async function getHrDashboard(clock: number, day?: string): Promise<HrDashboard> {
+  const realDay = istDayOf(clock);
+  const atDay = day && /^\d{4}-\d{2}-\d{2}$/.test(day) && day < realDay ? day : undefined;
+  // The instant each figure is judged at: the viewed day's last moment, IST.
+  const now = atDay ? Date.parse(`${atDay}T23:59:59.999+05:30`) : clock;
   // Today's window, widened to the week "Needs attention" looks back over:
   // from midnight IST six days ago, so each of those shift days is whole
   // (short of a shift that clocks in before 4 AM).
   const todayDay = istDayOf(now);
   const weekFrom = Date.parse(`${addDay(todayDay, -(WEEK - 1))}T00:00:00Z`) - 330 * 60_000;
+  // A past day's window can run past its midnight (a night shift), never a whole day.
+  const until = atDay ? new Date(now + DAY_MS).toISOString() : undefined;
 
   // EVERYTHING THAT DOES NOT NEED THE PEOPLE STARTS NOW (client 2026-11-02:
   // HR "loading time is lil bit long"). Only time off needs `bioOf`, yet the
@@ -496,8 +545,8 @@ export async function getHrDashboard(now: number): Promise<HrDashboard> {
   // a current shift starts today or yesterday, so `fetchFrom` is later — and
   // if a timing ever starts earlier, the gap is read below rather than lost.
   const early = Promise.all([
-    punchesSince(new Date(weekFrom).toISOString()),
-    trend(),
+    punchesSince(new Date(weekFrom).toISOString(), until),
+    approvedTimeOff(addDay(todayDay, -(WEEK - 1)), todayDay),
     listDevices(),
     rosterOf(),
     pendingTimeOffOf(),
@@ -506,19 +555,20 @@ export async function getHrDashboard(now: number): Promise<HrDashboard> {
   ]);
   const [timings, { people, noCategory, bioOf }] = await Promise.all([listCategoryTimings(), enrolledPeople()]);
   const shiftFrom = fetchFrom([...new Set(people.map((p) => p.categoryId))], timings, now);
-  const [[weekPunches, trendRows, devices, roster, pendingTimeOff, waitingOnMe, pipeline], timeOff, excused, gap] =
+  const [[weekPunches, offRows, devices, roster, pendingTimeOff, waitingOnMe, pipeline], gap] =
     await Promise.all([
       early,
-      timeOffToday(now, bioOf),
-      excusedDays(addDay(todayDay, -(WEEK - 1)), todayDay, bioOf),
       shiftFrom < weekFrom
         ? punchesSince(new Date(shiftFrom).toISOString(), new Date(weekFrom).toISOString())
         : Promise.resolve([] as RawPunch[]),
     ]);
   const punches = gap.length ? [...gap, ...weekPunches] : weekPunches;
 
-  const groups = computeGroupDays(people, punches, timings, now);
-  const attention = attentionOf(people, punches, timings, now, groups, excused, devices);
+  const timeOff = timeOffToday(offRows, now, bioOf);
+  const excused = excusedDays(offRows, addDay(todayDay, -(WEEK - 1)), todayDay, bioOf);
+  const groups = computeGroupDays(people, punches, timings, now, atDay);
+  const week = weekOf(people, punches, timings, now, groups);
+  const attention = attentionOf(people, week, excused, devices, clock);
 
   // The feed labels each punch by its place in that person's day, from the
   // same debounced list the statuses came from — so the feed and the tiles
@@ -544,11 +594,14 @@ export async function getHrDashboard(now: number): Promise<HrDashboard> {
   feed.sort((a, b) => b.at - a.at);
 
   return {
-    now,
+    now: clock,
+    day: todayDay,
+    live: !atDay,
+    asOf: now,
     groups,
     timings,
-    trend: trendRows.rows,
-    trendByDept: trendRows.byDept,
+    trend: trendOf(people, week),
+    trendByDept: true,
     devices,
     feed: feed.slice(0, 600),
     unlinkedIds: unlinked.size,

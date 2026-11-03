@@ -38,7 +38,30 @@ export interface PeopleRow {
   earlyMin: number;
   /** Approved Time Off today: the leave type's name. */
   offType: string | null;
+  /** Where the person stands today, first word first — the Status column. */
+  status: StatusTag[];
 }
+
+/** One word in the Status column. */
+export type StatusTag = { tone: keyof typeof TAG; label: string };
+
+/*
+ * Each word in the colour of its card at the top (LOOK below), so "Absent" in
+ * a row reads like the Absent card. status-tone: exempt -- these are the
+ * dashboard's own card colours, not a document status from lib/ui/status-tone.
+ */
+const TAG = {
+  leave: "bg-sky-50 text-sky-700 ring-sky-200 dark:bg-sky-500/10 dark:text-sky-300 dark:ring-sky-500/30",
+  duty: "bg-violet-50 text-violet-700 ring-violet-200 dark:bg-violet-500/10 dark:text-violet-300 dark:ring-violet-500/30",
+  permission: "bg-amber-50 text-amber-800 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30",
+  absent: "bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-500/10 dark:text-rose-300 dark:ring-rose-500/30",
+  waiting: "bg-slate-100 text-slate-600 ring-slate-200 dark:bg-slate-500/10 dark:text-slate-300 dark:ring-slate-500/30",
+  in: "bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/30",
+  out: "bg-cyan-50 text-cyan-700 ring-cyan-200 dark:bg-cyan-500/10 dark:text-cyan-300 dark:ring-cyan-500/30",
+  home: "bg-teal-50 text-teal-700 ring-teal-200 dark:bg-teal-500/10 dark:text-teal-300 dark:ring-teal-500/30",
+  early: "bg-fuchsia-50 text-fuchsia-700 ring-fuchsia-200 dark:bg-fuchsia-500/10 dark:text-fuchsia-300 dark:ring-fuchsia-500/30",
+  late: "bg-orange-50 text-orange-700 ring-orange-200 dark:bg-orange-500/10 dark:text-orange-300 dark:ring-orange-500/30",
+} as const;
 
 /** The top cards, in their order. `out` is the "out right now" half of On premises. */
 export const PEOPLE_LISTS = [
@@ -89,7 +112,16 @@ function mins(m: number): string {
  * it at the top, which lands here with `?show=`. Departments are narrowed by
  * the dashboard's own filter at the top, not again here (user 2026-10-31).
  */
-export function DashboardPeople({ rows, now }: { rows: PeopleRow[]; now: number }) {
+export function DashboardPeople({
+  rows,
+  now,
+  filters,
+}: {
+  rows: PeopleRow[];
+  now: number;
+  /** Department and Date over the table (user 2026-11-03) — the page's own filter, `variant="table"`. */
+  filters?: React.ReactNode;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -130,24 +162,56 @@ export function DashboardPeople({ rows, now }: { rows: PeopleRow[]; now: number 
             ? { header: "Type", cell: (r) => r.offType ?? "—" }
             : null;
 
+  /*
+   * SET SHARES OF THE WIDTH (user 2026-11-03, screenshot 101703: "adjust the
+   * columns properly"). Left to itself the table gave the slack to whichever
+   * column was widest that day, so In / Last punch drifted right, the Status
+   * words floated in a gap, and the last column was pushed to the edge. The
+   * two times are centred under their headers; the list's own figure (Late
+   * by, Early by…) closes the row on the right.
+   *
+   * FIXED LAYOUT, SHARES THAT ADD TO 100% (same day: "still every column space
+   * a little bit off"). Under the table's automatic layout a width is only a
+   * hint — it re-divided the row by whatever names and words were on screen,
+   * so each list and each page spaced its columns a little differently, and
+   * the shares summed to 86% when a list had no figure column. `table-fixed`
+   * (on the wrapper below) makes the shares the rule, in both shapes.
+   */
+  const W = detail
+    ? { name: "w-[18%]", dept: "w-[18%]", time: "w-[15%]", last: "w-[16%]", status: "w-[19%]", detail: "w-[14%]" }
+    : { name: "w-[20%]", dept: "w-[20%]", time: "w-[16%]", last: "w-[18%]", status: "w-[26%]", detail: "" };
   const columns: Column<PeopleRow>[] = [
     {
       // The count sits beside the column it counts (user 2026-10-31).
       header: `Employee (${visible.length})`,
+      className: W.name,
+      // The name alone (user 2026-11-03: "GENERAL STAFFS · ST-3614 … remove
+      // it, only name is enough").
       cell: (r) => (
-        <div className="min-w-0 max-w-[18rem]">
+        <div className="min-w-0">
           <Truncated text={r.name} className="block font-medium text-slate-900 dark:text-slate-100" />
-          <Truncated
-            text={[r.category, r.code].filter(Boolean).join(" · ") || "—"}
-            className="block text-xs text-slate-500"
-          />
         </div>
       ),
     },
-    { header: "Department", cell: (r) => <span className={cn(!r.deptId && "italic text-slate-500")}>{r.dept}</span> },
-    { header: "In", align: "right", cell: (r) => <span className="tabular-nums">{clock(r.firstAt)}</span> },
-    { header: list === "out" ? "Went out" : "Last punch", align: "right", cell: (r) => <span className="tabular-nums">{r.firstAt === r.lastAt ? "—" : clock(r.lastAt)}</span> },
-    ...(detail ? [{ ...detail, cell: (r: PeopleRow) => <span className="tabular-nums">{detail.cell(r)}</span> }] : []),
+    { header: "Department", className: W.dept, cell: (r) => <Truncated text={r.dept} className={cn("block", !r.deptId && "italic text-slate-500")} /> },
+    { header: "In", align: "center", className: W.time, cell: (r) => <span className="tabular-nums">{clock(r.firstAt)}</span> },
+    { header: list === "out" ? "Went out" : "Last punch", align: "center", className: W.last, cell: (r) => <span className="tabular-nums">{r.firstAt === r.lastAt ? "—" : clock(r.lastAt)}</span> },
+    // Whether they are absent, on leave, on duty, on permission… (user
+    // 2026-11-03: "after the last punch column … the status should be shown").
+    {
+      header: "Status",
+      className: W.status,
+      cell: (r) => (
+        <span className="flex flex-wrap gap-1">
+          {r.status.map((t) => (
+            <span key={t.label} className={cn("inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ring-inset", TAG[t.tone])}>
+              {t.label}
+            </span>
+          ))}
+        </span>
+      ),
+    },
+    ...(detail ? [{ ...detail, className: cn(W.detail, "pr-6"), cell: (r: PeopleRow) => <span className="tabular-nums">{detail.cell(r)}</span> }] : []),
   ];
 
   const look = LOOK[list];
@@ -200,6 +264,8 @@ export function DashboardPeople({ rows, now }: { rows: PeopleRow[]; now: number 
           })}
         </div>
       </div>
+      {filters && <div className="border-b border-slate-100 px-5 py-3 dark:border-slate-800">{filters}</div>}
+      <div className="[&_table]:table-fixed">
       <DataTable
         columns={columns}
         rows={pg.paged}
@@ -208,6 +274,7 @@ export function DashboardPeople({ rows, now }: { rows: PeopleRow[]; now: number 
         paginate={false}
         empty={`Nobody under ${label} right now.`}
       />
+      </div>
       {pg.pageCount > 1 && (
         <div className="border-t border-slate-100 px-4 py-2.5 dark:border-slate-800">
           <PaginationBar
