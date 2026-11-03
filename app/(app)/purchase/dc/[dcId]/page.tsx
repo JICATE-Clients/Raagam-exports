@@ -1,9 +1,9 @@
 import Link from "next/link";
+import { DocBackLink, DocFacts, DocPrintIcon } from "@/components/purchase/doc-facts";
 import { notFound } from "next/navigation";
 import { requirePermission } from "@/lib/auth/server";
 import { getDc, getDcLines } from "@/lib/purchase/grn-service";
 import { PageHeader } from "@/components/ui/page-header";
-import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { StatusPill } from "@/components/ui/status-pill";
 import { statusTone } from "@/lib/ui/status-tone";
 import { fmtDate, fmtNumber } from "@/lib/format";
@@ -39,67 +39,35 @@ export default async function DcDetailPage({
       <PageHeader
         title={dc.code ?? "DC"}
         description="Delivery Challan — track material sent to processor and returns"
-        actions={
-          <div className="flex items-center gap-2">
-            <StatusPill tone={statusTone(dc.status, DC_TONES)}>
-              {statusLabel[dc.status]}
-            </StatusPill>
-            <Link
-              href="/purchase/dc"
-              className="text-sm text-muted-foreground hover:text-foreground"
-            >
-              Back to list
-            </Link>
-          </div>
-        }
       />
 
-      {/* DC header */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Header</CardTitle>
-        </CardHeader>
-        <CardBody>
-          <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-            <div>
-              <dt className="text-xs text-muted-foreground">Code</dt>
-              <dd className="mt-0.5 font-medium">{dc.code ?? "—"}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">
-                Vendor / Processor
-              </dt>
-              <dd className="mt-0.5">{dc.master_vendors?.name ?? "—"}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Date</dt>
-              <dd className="mt-0.5">{fmtDate(dc.dc_date)}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Purpose</dt>
-              <dd className="mt-0.5">{dc.purpose ?? "—"}</dd>
-            </div>
-            {dc.notes && (
-              <div className="col-span-2">
-                <dt className="text-xs text-muted-foreground">Notes</dt>
-                <dd className="mt-0.5 text-muted-foreground">{dc.notes}</dd>
-              </div>
-            )}
-          </dl>
-        </CardBody>
-      </Card>
+      {/* ONE STRIP, NOT A TITLED CARD (user 2026-11-03, screenshot 4000) — components/purchase/doc-facts.tsx. */}
+      <DocFacts
+        trailing={
+          <>
+            <StatusPill tone={statusTone(dc.status, DC_TONES)}>{statusLabel[dc.status]}</StatusPill>
+            <DocBackLink href="/purchase/dc" />
+          </>
+        }
+        facts={[
+          { label: "DC No", value: dc.code ?? "—", mono: true },
+          { label: "Vendor / Processor", value: dc.master_vendors?.name ?? "—" },
+          { label: "Date", value: fmtDate(dc.dc_date) },
+          { label: "Purpose", value: dc.purpose ?? "—" },
+          dc.notes ? { label: "Notes", value: <span className="font-normal text-muted-foreground">{dc.notes}</span> } : null,
+        ]}
+      />
 
       {/* Lines table */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Lines ({lines.length})</CardTitle>
-          {!isClosed && (
+      <div className="space-y-3">
+        {/* NO "Lines" CARD (user 2026-11-03: "lines layout remove it from overall module"): the
+          table sits on the page, full width — the card only added a second frame and a title. */}
+        {!isClosed && (
             <span className="text-xs text-muted-foreground">
               Record returns as material comes back from the processor
             </span>
           )}
-        </CardHeader>
-        <CardBody className="p-0">
+        <div className="p-0">
           {lines.length === 0 ? (
             <p className="px-4 py-6 text-sm text-muted-foreground">
               No lines on this DC.
@@ -164,8 +132,8 @@ export default async function DcDetailPage({
               </table>
             </div>
           )}
-        </CardBody>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }

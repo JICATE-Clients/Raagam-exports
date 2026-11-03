@@ -7,8 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { FieldError, FIELD_WIDTH_CSS } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
 import { Truncated } from "@/components/ui/truncated";
+import { StoreBinPickCell } from "@/components/purchase/store-bin-editor";
 import { useToast } from "@/components/ui/toast";
 import { receiveProductionDc } from "@/lib/stores/production-dc-actions";
 import type { BinOption, ProductionDc, StoreOption } from "@/lib/stores/production-dc-service";
@@ -103,8 +103,9 @@ export function ProductionDcReceiveForm({
   }
 
   /*
-   * Item 288 · Sent 88 · Received 88 · Short 88 · Reason 176 · Store 112 · Bin 112 = 952,
-   * + 40 (`#`; no ✕ — the lines are the DC's own) = 992 <= 1155 -> tableFrom="5xl".
+   * Item 288 · Sent 88 · Received 88 · Short 88 · Reason 176 · Store · Bin 176 (one button,
+   * 2026-11-03) = 904, + 40 (`#`; no ✕ — the lines are the DC's own) = 944 <= 1155 ->
+   * tableFrom="5xl".
    */
   const columns: ChildGridColumn<Line>[] = [
     { header: "Item", width: FIELD_WIDTH_CSS.name, cell: (l) => <Truncated className="text-sm">{l.item}</Truncated> },
@@ -171,31 +172,21 @@ export function ProductionDcReceiveForm({
       },
     },
     {
-      header: "Store",
-      width: FIELD_WIDTH_CSS.range,
+      // ONE BUTTON, STORE AND BIN IN A POP-UP — GRN's cell (user 2026-11-03, screenshot 095545).
+      header: "Store · Bin",
+      width: FIELD_WIDTH_CSS.term,
+      // pick-once: exempt -- several lines may go into the same store and bin
       cell: (l) => (
-        <Select aria-label={`Store, ${l.item}`} className="h-8" value={l.storeId} onChange={(e) => update(l.key, { storeId: e.target.value })}>
-          {stores.length === 0 ? <option value="">No store in this unit</option> : null}
-          {stores.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </Select>
-      ),
-    },
-    {
-      header: "Bin",
-      width: FIELD_WIDTH_CSS.range,
-      cell: (l) => (
-        <Select aria-label={`Bin, ${l.item}`} className="h-8" value={l.binId} onChange={(e) => update(l.key, { binId: e.target.value })}>
-          <option value="">{bins.length === 0 ? "No bins yet" : "—"}</option>
-          {bins.map((b) => (
-            <option key={b.id} value={b.id}>
-              {b.code}
-            </option>
-          ))}
-        </Select>
+        <StoreBinPickCell
+          description={l.item}
+          parent="Receipt"
+          stores={stores}
+          storeId={l.storeId}
+          onStore={(v) => update(l.key, { storeId: v })}
+          bins={bins}
+          binId={l.binId}
+          onBin={(v) => update(l.key, { binId: v })}
+        />
       ),
     },
   ];

@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ToggleGroup } from "@/components/ui/segmented";
+import { RecordTabTitle } from "@/components/shell/record-tab-title";
 
 /**
  * THE DELIVERY CHALLANS HUB'S ONE FORM PANEL. The URL holds what is open
@@ -24,6 +25,7 @@ export function DcDrawer({
   type,
   chooser,
   showBack = false,
+  entry,
   children,
 }: {
   title: string;
@@ -33,6 +35,9 @@ export function DcDrawer({
   chooser?: NewType | null;
   /** Only where the content has no Cancel of its own (the Rejection / Replacement notes). */
   showBack?: boolean;
+  /** The open DC's number — names the workspace tab "DC-0009 · Delivery Challan" while it is
+   *  open (screenshot 4002). Omit on a new DC: there is no number yet. */
+  entry?: string | null;
   children: ReactNode;
 }) {
   const router = useRouter();
@@ -40,6 +45,7 @@ export function DcDrawer({
   return (
     // `data-dc-editor`: page.tsx hides the page's floating "← Back" while a form is open.
     <div data-dc-editor className="space-y-3">
+      <RecordTabTitle entry={entry} inPage />
       <div className="flex flex-wrap items-center gap-3">
         {chooser ? (
           <>

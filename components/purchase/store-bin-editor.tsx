@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Sheet, type SheetOrigin } from "@/components/ui/sheet";
 import { SubSheetFooter } from "@/components/orders/sub-sheet-footer";
 import { Select } from "@/components/ui/select";
@@ -158,20 +158,133 @@ function summary<T extends SplitRow>(p: BinRowsProps<T>): string {
  * (`data-field-trigger`: Tab stops here, ↓ opens) whose value is what it opens
  * (`data-enter-opens`: Enter opens rather than stepping past — file-attachments.tsx).
  */
-export function StoreBinCell<T extends SplitRow>(props: BinRowsProps<T> & { id?: string }) {
+export function StoreBinCell<T extends SplitRow>(props: BinRowsProps<T> & { id?: string; parent?: string }) {
+  return (
+    <StoreBinTrigger
+      id={props.id}
+      text={summary(props)}
+      problem={splitBinsProblem(props.rows, props.accepted)}
+      description={props.description}
+      parent={props.parent ?? "GRN"}
+    >
+      <BinRowsEditor {...props} />
+    </StoreBinTrigger>
+  );
+}
+
+/**
+ * ONE STORE, ONE BIN — THE SAME CELL (user 2026-11-03, screenshot 095545: "this ui button
+ * for all procurement material bin concept apply this"). The DC send / receive / return
+ * screens save ONE store and ONE bin per line, so they cannot use the split editor; they
+ * used to draw a Store select and a Bin select side by side. This is the same one-line
+ * button and the same small sheet, holding a Store select (when the screen has one to
+ * choose) and one BinPicker. `note` is a muted line under the button ("in stock 120").
+ */
+export function StoreBinPickCell({
+  id,
+  description,
+  parent,
+  stores,
+  storeId = "",
+  onStore,
+  storeLabel = "Store",
+  allowNoStore = false,
+  bins,
+  binId,
+  onBin,
+  canCreateBin = false,
+  onBinCreated,
+  note,
+}: {
+  id?: string;
+  description: string;
+  /** The document whose Save stores the pick ("DC", "Return"…). */
+  parent: string;
+  /** Omit where the store is fixed by the screen — the cell then edits the bin only. */
+  stores?: StoreOption[];
+  storeId?: string;
+  onStore?: (id: string) => void;
+  storeLabel?: string;
+  /** Offer a blank "—" store (a line that may go back to no store). Off: the select lists stores only. */
+  allowNoStore?: boolean;
+  bins: BinOption[];
+  binId: string;
+  onBin: (id: string) => void;
+  canCreateBin?: boolean;
+  onBinCreated?: (bin: { id: string; code: string }) => void;
+  note?: ReactNode;
+}) {
+  const store = stores ? (stores.find((s) => s.id === storeId)?.name ?? "No store") : null;
+  const code = binId ? (bins.find((b) => b.id === binId)?.code ?? "bin") : "no bin";
+  const text = store ? `${store} · ${code}` : code;
+  return (
+    <StoreBinTrigger id={id} text={text} problem={null} description={description} parent={parent} note={note}>
+      <div className="space-y-2">
+        {stores && onStore ? (
+          <label className="grid gap-0.5">
+            <span className="text-xs font-medium text-muted-foreground">{storeLabel}</span>
+            <Select aria-label={`${storeLabel}, ${description}`} value={storeId} onChange={(e) => onStore(e.target.value)}>
+              {stores.length === 0 ? <option value="">No store in this unit</option> : allowNoStore ? <option value="">—</option> : null}
+              {stores.map((st) => (
+                <option key={st.id} value={st.id}>
+                  {st.name}
+                </option>
+              ))}
+            </Select>
+          </label>
+        ) : null}
+        <div className="grid gap-0.5">
+          <span className="text-xs font-medium text-muted-foreground">Bin</span>
+          <BinPicker
+            label={`Bin, ${description}`}
+            bins={bins}
+            value={binId}
+            canCreate={canCreateBin}
+            onChange={onBin}
+            onCreated={(nb) => {
+              onBinCreated?.(nb);
+              onBin(nb.id);
+            }}
+          />
+        </div>
+      </div>
+    </StoreBinTrigger>
+  );
+}
+
+/**
+ * The grid cell both variants share: one line, opens the sheet. A FIELD for the keyboard
+ * contract (`data-field-trigger`: Tab stops here, ↓ opens) whose value is what it opens
+ * (`data-enter-opens`: Enter opens rather than stepping past — file-attachments.tsx).
+ */
+function StoreBinTrigger({
+  id,
+  text,
+  problem,
+  description,
+  parent,
+  note,
+  children,
+}: {
+  id?: string;
+  text: string;
+  problem: string | null;
+  description: string;
+  parent: string;
+  note?: ReactNode;
+  children: ReactNode;
+}) {
   const [open, setOpen] = useState(false);
   const [origin, setOrigin] = useState<SheetOrigin | null>(null);
-  const problem = splitBinsProblem(props.rows, props.accepted);
-  const text = summary(props);
   return (
     <div className="grid gap-0.5">
       <button
         type="button"
-        id={props.id}
+        id={id}
         data-field-trigger
         data-enter-opens
         aria-haspopup="dialog"
-        aria-label={`Store and bin, ${props.description}: ${text}${problem ? ` — ${problem}` : ""}`}
+        aria-label={`Store and bin, ${description}: ${text}${problem ? ` — ${problem}` : ""}`}
         onClick={(e) => {
           setOrigin(e.currentTarget.getBoundingClientRect());
           setOpen(true);
@@ -189,6 +302,7 @@ export function StoreBinCell<T extends SplitRow>(props: BinRowsProps<T> & { id?:
         <Truncated text={text} className="min-w-0" />
       </button>
       {problem ? <span className="text-[11px] text-danger">{problem}</span> : null}
+      {note ? <span className="text-[11px] tabular-nums text-muted-foreground">{note}</span> : null}
       <Sheet
         open={open}
         onClose={() => setOpen(false)}
@@ -201,10 +315,10 @@ export function StoreBinCell<T extends SplitRow>(props: BinRowsProps<T> & { id?:
         maxWidthClass="max-w-[15.5rem]"
         alignToPane
         origin={origin}
-        footer={<SubSheetFooter onDone={() => setOpen(false)} parent="GRN" />}
+        footer={<SubSheetFooter onDone={() => setOpen(false)} parent={parent} />}
       >
-        <Truncated text={props.description} className="mb-1.5 block text-[11px] text-muted-foreground" />
-        <BinRowsEditor {...props} />
+        <Truncated text={description} className="mb-1.5 block text-[11px] text-muted-foreground" />
+        {children}
       </Sheet>
     </div>
   );

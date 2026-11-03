@@ -1,8 +1,8 @@
 import Link from "next/link";
+import { DocBackLink, DocFacts, DocPrintIcon } from "@/components/purchase/doc-facts";
 import { notFound } from "next/navigation";
 import { requirePermission, can } from "@/lib/auth/server";
 import { PageHeader } from "@/components/ui/page-header";
-import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { StatusPill, type StatusTone } from "@/components/ui/status-pill";
 import { fmtDate } from "@/lib/format";
 import {
@@ -49,42 +49,21 @@ export default async function RequisitionDetailPage({
       <PageHeader
         title={doc.code ?? "Requisition"}
         description={`${doc.department} department`}
-        actions={
-          <div className="flex items-center gap-2">
-            <StatusPill tone={tone(doc.status)}>{MRS_STATUS_LABELS[doc.status]}</StatusPill>
-            <Link href="/purchase/requisitions" className="text-sm text-muted-foreground hover:text-foreground">
-              Back to list
-            </Link>
-          </div>
-        }
       />
-      <Card>
-        <CardHeader>
-          <CardTitle>Details</CardTitle>
-        </CardHeader>
-        <CardBody>
-          <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
-            <div>
-              <dt className="text-xs text-muted-foreground">Department</dt>
-              <dd className="mt-0.5 font-medium">{doc.department}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Required date</dt>
-              <dd className="mt-0.5 tabular-nums">{fmtDate(doc.required_date)}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-muted-foreground">Status</dt>
-              <dd className="mt-0.5">{MRS_STATUS_LABELS[doc.status]}</dd>
-            </div>
-            {doc.notes && (
-              <div className="col-span-2 sm:col-span-3">
-                <dt className="text-xs text-muted-foreground">Notes</dt>
-                <dd className="mt-0.5 text-muted-foreground">{doc.notes}</dd>
-              </div>
-            )}
-          </dl>
-        </CardBody>
-      </Card>
+      {/* ONE STRIP, NOT A TITLED CARD (user 2026-11-03, screenshot 4000) — components/purchase/doc-facts.tsx. */}
+      <DocFacts
+        trailing={
+          <>
+            <StatusPill tone={tone(doc.status)}>{MRS_STATUS_LABELS[doc.status]}</StatusPill>
+            <DocBackLink href="/purchase/requisitions" />
+          </>
+        }
+        facts={[
+          { label: "Department", value: doc.department },
+          { label: "Required date", value: fmtDate(doc.required_date), mono: true },
+          doc.notes ? { label: "Notes", value: <span className="font-normal text-muted-foreground">{doc.notes}</span> } : null,
+        ]}
+      />
       <RequisitionDetail
         docId={mrsId}
         status={doc.status}

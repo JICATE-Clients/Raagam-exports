@@ -32,15 +32,13 @@ export function PaginationBar({
 }) {
   if (total === 0) return null;
 
-  const start = (page - 1) * pageSize + 1;
-  const end = Math.min(page * pageSize, total);
-
+  /* NO "1–5 of 5" (user 2026-11-03: "this kind of word no need, remove it globally"). The
+     count used to lead the bar under every list and grid; it is gone app-wide, here, once.
+     This reverses the 2026-08-04 note that "1–1 of 1" explains a grid's single row. Paging
+     still says where you are — "Page 2 of 5" between Prev and Next, past one page. */
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 px-1 text-sm text-muted-foreground">
       <div className="flex items-center gap-2">
-        <span>
-          {start}–{end} of {total}
-        </span>
         {onPageSizeChange && (
           /* `data-focus-optional`: a page size is not data, so Tab and Enter
              step over it (the arrows and the mouse still reach it). Without it,

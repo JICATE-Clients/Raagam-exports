@@ -499,6 +499,10 @@ const OLD_NAV_LEAVES: Record<string, string[]> = {
 // through MODULE_GROUPS and never consults this table — an entry for it now
 // would be dead weight that reads as a live rule.
 const REDIRECTED: Record<string, string> = {
+  // More than Budget Approval MERGED into PO Approval (user 2026-11-03: "merge these
+  // two in one single screen"). The row is gone; the address opens PO Approval with
+  // Over budget selected.
+  "/purchase/over-budget": "/purchase/po-approval?budget=over",
   // Vendor Returns MOVED to Purchase ▸ Receiving beside Goods Receipts (user
   // 2026-10-31) — every return is a DC a GRN raised. The Stores address answers.
   "/stores/vendor-returns": "/purchase/vendor-returns",

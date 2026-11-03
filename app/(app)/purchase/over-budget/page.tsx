@@ -1,24 +1,11 @@
-import { requirePermission, can } from "@/lib/auth/server";
-import { PageHeader } from "@/components/ui/page-header";
-import { listOverBudget, getPoOptions } from "@/lib/purchase/extras-service";
-import { OverBudgetClient } from "./over-budget-client";
+import { redirect } from "next/navigation";
 
-export default async function OverBudgetPage() {
-  await requirePermission("materials_purchase", "view");
-  const [rows, pos, canCreate, canEdit, canApprove] = await Promise.all([
-    listOverBudget(),
-    getPoOptions(),
-    can("materials_purchase", "create"),
-    can("materials_purchase", "edit"),
-    can("materials_purchase", "approve"),
-  ]);
-  return (
-    <div className="space-y-4">
-      <PageHeader
-        title="Price-over-Budget Confirmation"
-        description="Route a quoted rate that exceeds the budget rate for management approval."
-      />
-      <OverBudgetClient rows={rows} pos={pos} canCreate={canCreate} canEdit={canEdit} canApprove={canApprove} />
-    </div>
-  );
+/**
+ * MORE THAN BUDGET APPROVAL IS PART OF PO APPROVAL NOW (user 2026-11-03: "merge these
+ * two in one single screen"). An over-budget PO is the same PO with a budget block, so
+ * it is decided on PO Approval with "Over budget" selected. The address stays so old
+ * links, bookmarks and notices still land somewhere useful.
+ */
+export default function OverBudgetMoved() {
+  redirect("/purchase/po-approval?budget=over");
 }

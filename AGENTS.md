@@ -467,7 +467,11 @@ fallback in that file already records: a per-screen fix leaves a remainder.
   `useIsListing` in `data-table-frame.tsx` decides it in the browser: not in a dialog or
   an editor (`isEditorScope`'s markers), not `bare`, and the only table in its pane. A
   table inside a sheet, a dashboard card or an editor section keeps the old rule, which
-  is still `ChildGrid`'s ("1–1 of 1" explains the one visible row, client 2026-08-04).
+  is still `ChildGrid`'s (bar only past one page).
+- **No "1–5 of 5" count** (user 2026-11-03: "this kind of word no need, remove it
+  globally"). `PaginationBar` no longer prints the range — the bar is the Rows picker,
+  and Prev · Page n of m · Next past one page. This withdraws the 2026-08-04 "1–1 of 1
+  explains the one visible row"; restoring the count needs a new client decision.
 - **A listing is FULL WIDTH** (same day): never wrap one in `w-fit`. Columns may still
   hug (`HUG`), so the extra width goes to the one name column — Sample Entry's shape.
   This reverses erp-table-fit's 2026-09-28 "as wide as its columns" for LISTINGS only;

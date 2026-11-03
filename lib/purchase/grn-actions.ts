@@ -66,6 +66,14 @@ export async function createGrn(payload: GrnInput, opts: { post?: boolean } = {}
   if (rawLines.length === 0) {
     return { ok: false, error: "Enter Today Recd on at least one line" };
   }
+  /* THE VENDOR'S PAPER IS MANDATORY (user 2026-11-03): one Invoice or DC No, and its date.
+     The screen holds the cursor on both; this is the guard behind it. */
+  if (!headerFields.invoice_no?.trim() && !headerFields.dc_no?.trim()) {
+    return { ok: false, error: "Enter the Invoice / DC No" };
+  }
+  if (!headerFields.invoice_date) {
+    return { ok: false, error: "Enter the Invoice / DC Date" };
+  }
   /* PLACE OF DELIVERY (0792). Direct names the processor and its Process Order — grn_post
      re-checks both against the order; our store names neither. */
   if (headerFields.delivery_kind === "direct") {
@@ -804,6 +812,9 @@ export type GrnEdit = {
  */
 export async function editPostedGrn(grnId: string, e: GrnEdit): Promise<ActionResult> {
   if (!(await can("materials_purchase", "edit"))) throw new Error("Forbidden");
+  // The vendor's paper is mandatory (user 2026-11-03) — the screen's guard, repeated here.
+  if (!e.header.invoice_no?.trim() && !e.header.dc_no?.trim()) return { ok: false, error: "Enter the Invoice / DC No" };
+  if (!e.header.invoice_date) return { ok: false, error: "Enter the Invoice / DC Date" };
   for (const l of e.lines) {
     if (!Number.isFinite(l.received_qty) || l.received_qty < 0) return { ok: false, error: "Received qty cannot be negative" };
   }

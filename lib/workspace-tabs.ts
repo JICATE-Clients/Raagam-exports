@@ -329,6 +329,40 @@ export function useWorkspaceTabs() {
   };
 }
 
+/** Is this path segment a record id? The same test `familyOf` blanks with. */
+export function isRecordSegment(segment: string): boolean {
+  return UUID_SEGMENT.test(segment);
+}
+
+/** Hrefs whose screen named its own tab (`useRegisterWorkspaceTab`) — the record
+ *  title below never overwrites one of those. */
+const namedByScreen = new Set<string>();
+
+/**
+ * A RECORD PAGE'S TAB SAYS WHICH RECORD (user 2026-11-03, screenshot 4001: the GRN tab read
+ * "3a2f360b 21d0 4d72 A…" — "show the entry no like RE number, GRN no and what the screen is").
+ * Called once, from `PageHeader`, so every `[id]` page is named by the title it already declares
+ * ("GRN/26-27/0004 · Purchase Receipts (GRN)") without being edited. A screen that names its own
+ * tab (`useRegisterWorkspaceTab`) wins in either effect order: this skips an href that screen has
+ * claimed, and the screen's own write lands over this one.
+ */
+export function useRecordTabTitle(opts: { href: string; title: string | null; restore?: string }): void {
+  const { href, title, restore } = opts;
+  useEffect(() => {
+    if (!title || namedByScreen.has(href)) return;
+    registerTab({ href, title });
+    // A RECORD OPENED INSIDE A LIST PAGE (`/purchase/dc?view=<id>`, screenshot 4002) shares the
+    // list's href, so closing it must hand the tab back its screen name.
+    if (!restore) return;
+    return () => {
+      const tab = findByHref(href);
+      if (tab && tab.title === title && !namedByScreen.has(href)) {
+        setState({ ...state, tabs: state.tabs.map((t) => (t.id === tab.id ? { ...t, title: restore } : t)) });
+      }
+    };
+  }, [href, title, restore]);
+}
+
 /**
  * Called by a screen to appear in the workspace tab bar while it's mounted,
  * and to keep the bar's active tab pointed at it. `href` should be the
@@ -349,6 +383,7 @@ export function useRegisterWorkspaceTab(opts: {
   const { href, title, icon, dirty } = opts;
 
   useEffect(() => {
+    namedByScreen.add(href);
     registerTab({ href, title, icon });
   }, [href, title, icon]);
 

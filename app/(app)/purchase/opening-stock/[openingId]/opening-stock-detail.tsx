@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
@@ -91,11 +90,10 @@ export function OpeningStockDetail({ docId, status, lines, items, canEdit, canDe
 
   return (
     <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <CardTitle>Lines ({lines.length})</CardTitle>
-        </CardHeader>
-        <CardBody className="space-y-4">
+      <div className="space-y-3">
+        {/* NO "Lines" CARD (user 2026-11-03: "lines layout remove it from overall module"): the
+          table sits on the page, full width — the card only added a second frame and a title. */}
+        <div className="space-y-4">
           {canEdit && editable && (
             <form onSubmit={handleAdd} className="flex flex-wrap items-end gap-3">
               <div className="w-56">
@@ -117,8 +115,8 @@ export function OpeningStockDetail({ docId, status, lines, items, canEdit, canDe
             </form>
           )}
           <DataTable paginate={false} columns={columns} rows={lines} getKey={(r) => r.id} empty="No lines yet." />
-        </CardBody>
-      </Card>
+        </div>
+      </div>
 
       {canEdit && (
         <div className="flex flex-wrap gap-3">

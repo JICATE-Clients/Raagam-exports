@@ -16,7 +16,6 @@ import { PO_STATUS_LABELS } from "@/lib/purchase/types";
 import type { PoStatus } from "@/lib/purchase/types";
 import { PoDetail } from "./po-detail";
 import { PoReview } from "./po-review";
-import { PoTabTitle } from "./po-tab-title";
 import { PoChangeActions } from "./po-change-actions";
 import { getRequirementLines } from "@/lib/purchase/re-po/service";
 import { statusTone } from "@/lib/ui/status-tone";
@@ -92,7 +91,6 @@ export default async function PoDetailPage({
       />
 
       {/* The tab reads the PO number, not the route's uuid (screenshot 3818). */}
-      <PoTabTitle href={`/purchase/orders/${po.id}`} title={po.code ?? "Purchase Order"} />
       {raised ? (
         <PoReview
           po={po}
