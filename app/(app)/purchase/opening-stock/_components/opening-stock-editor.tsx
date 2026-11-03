@@ -1,12 +1,12 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState, useTransition, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
+import { Combobox } from "@/components/ui/combobox";
 import { Segmented } from "@/components/ui/segmented";
 import { Field, FieldRow, FIELD_WIDTH_CSS } from "@/components/ui/field";
 import { PageHeader } from "@/components/ui/page-header";
@@ -15,8 +15,8 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { RecordPicker } from "@/components/masters/record-picker";
-import { StoreBinCell } from "@/components/purchase/store-bin-editor";
-import { DOC_BOTTOM_BAR, DOC_CHIP, DOC_FRAME } from "@/components/purchase/doc-surface";
+import { BinQtyCell } from "@/components/purchase/store-bin-editor";
+import { DOC_BOTTOM_BAR, DOC_CHIP, DOC_FRAME, DOC_RULE } from "@/components/purchase/doc-surface";
 import { fmtDate, fmtFixed, fmtMoney, fmtNumber } from "@/lib/format";
 import { statusTone } from "@/lib/ui/status-tone";
 import { useUnsavedGuard } from "@/lib/reload-guard";
@@ -43,7 +43,6 @@ const BASE = "/purchase/opening-stock";
 type Row = {
   key: string;
   itemId: string;
-  storeId: string;
   bins: SplitRow[];
   lot: string;
   refNo: string;
@@ -63,9 +62,9 @@ const num = (s: string): number => {
 };
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
 
-/** A fresh line. The store is the header's — a value the operator did not type. */
-function blankRow(storeId: string): Row {
-  return { key: nextKey("l"), itemId: "", storeId, bins: [blankBin()], lot: "", refNo: "", refDate: "", bags: "", bagWt: "", qty: "", rate: "" };
+/** A fresh line. Its store is the header's, so the line carries none of its own. */
+function blankRow(): Row {
+  return { key: nextKey("l"), itemId: "", bins: [blankBin()], lot: "", refNo: "", refDate: "", bags: "", bagWt: "", qty: "", rate: "" };
 }
 
 /**
@@ -77,15 +76,14 @@ function isBlank(r: Row): boolean {
   return !r.itemId && !r.lot.trim() && !r.refNo.trim() && !r.refDate && !r.bags.trim() && !r.qty.trim() && !r.rate.trim() && pickedBins(r.bins).length === 0;
 }
 
-function rowsFrom(lines: OpeningStockLine[], headerStore: string): Row[] {
+function rowsFrom(lines: OpeningStockLine[]): Row[] {
   const rows = lines.map<Row>((l) => {
     const qty = Number(l.quantity);
     const bins: SplitRow[] = l.bins.map((b) => ({ key: nextKey("b"), binId: b.bin_id, qty: String(b.qty), typed: true }));
     return {
       key: nextKey("l"),
       itemId: l.item_id,
-      storeId: l.store_id ?? headerStore,
-      bins: withTailBin(bins, blankBin, qty),
+      bins: withTailBin(bins, blankBin, qty, false),
       lot: l.lot_no ?? "",
       refNo: l.ref_no ?? "",
       refDate: l.ref_date ?? "",
@@ -102,7 +100,7 @@ function rowsFrom(lines: OpeningStockLine[], headerStore: string): Row[] {
 function stateKey(h: Header, rows: Row[]): string {
   const lines = rows
     .filter((r) => !isBlank(r))
-    .map((r) => [r.itemId, r.storeId, pickedBins(r.bins).map((b) => [b.binId, num(b.qty)]), r.lot.trim().toUpperCase(), r.refNo.trim().toUpperCase(), r.refDate, num(r.bags), num(r.bagWt), num(r.qty), r.rate.trim()]);
+    .map((r) => [r.itemId, pickedBins(r.bins).map((b) => [b.binId, num(b.qty)]), r.lot.trim().toUpperCase(), r.refNo.trim().toUpperCase(), r.refDate, num(r.bags), num(r.bagWt), num(r.qty), r.rate.trim()]);
   return JSON.stringify([h, lines]);
 }
 
@@ -122,7 +120,7 @@ type Header = {
  *
  *   Header — Opening Date, Stock Type (Accepted / Rejected / Replacement — Rejected and
  *   Replacement lock the store to the unit's Rejection store, because Stock Statement reads
- *   status off the store type), Target Store (every new line's store), Group Type → Order
+ *   status off the store type), Store (the document's ONE store — lines pick bins in it), Group Type → Order
  *   No, with the Buyer read off the order, never typed. Item Class is a FILTER on the line's
  *   item list and is not stored — the item already knows its class.
  *
@@ -173,11 +171,11 @@ export function OpeningStockEditor({
   const [header, setHeader] = useState<Header>(initialHeader);
   const [classFilter, setClassFilter] = useState("");
   const [rows, setRows] = useState<Row[]>(() => {
-    const r = rowsFrom(lines, initialHeader.storeId);
-    return readOnly ? r : [...r, blankRow(initialHeader.storeId)];
+    const r = rowsFrom(lines);
+    return readOnly ? r : [...r, blankRow()];
   });
   const [bins, setBins] = useState(initialBins);
-  const [baseline, setBaseline] = useState(() => stateKey(initialHeader, rowsFrom(lines, initialHeader.storeId)));
+  const [baseline, setBaseline] = useState(() => stateKey(initialHeader, rowsFrom(lines)));
   const [confirmPost, setConfirmPost] = useState(false);
 
   const dirty = !readOnly && stateKey(header, rows) !== baseline;
@@ -201,8 +199,9 @@ export function OpeningStockEditor({
       rs.map((r) => {
         if (r.key !== key) return r;
         const next = { ...r, ...patch };
-        // The bins follow the qty: an untyped Bin 1 holds it all (bin-split.ts).
-        return { ...next, bins: withTailBin(next.bins, blankBin, num(next.qty)) };
+        // GRN's rule (user 2026-11-03): nothing auto-filled — each bin holds what is typed,
+        // and a blank bin row waits while the bins hold less than the qty.
+        return { ...next, bins: withTailBin(next.bins, blankBin, num(next.qty), false) };
       }),
     );
 
@@ -210,14 +209,15 @@ export function OpeningStockEditor({
     const store = t === "accepted" ? (header.storeId && header.storeId !== rejectionStore?.id ? header.storeId : (firstAccepted?.id ?? "")) : (rejectionStore?.id ?? "");
     setHeader((h) => ({ ...h, stockType: t, storeId: store }));
     // Every line moves with it; a bin of another store goes (0800).
-    setRows((rs) => rs.map((r) => ({ ...r, storeId: store, bins: [blankBin()] })).map((r) => ({ ...r, bins: withTailBin(r.bins, blankBin, num(r.qty)) })));
+    if (store !== header.storeId) setRows((rs) => rs.map((r) => ({ ...r, bins: [blankBin()] })));
   }
 
+  /** GRN's Received Store (user 2026-11-03): every line is in this store, so changing it
+   *  clears every line's bins — the Bin list follows the Store (0800). */
   function setHeaderStore(id: string) {
-    const old = header.storeId;
+    if (id === header.storeId) return;
     setHeader((h) => ({ ...h, storeId: id }));
-    // Lines still on the old default follow the new one; a line the operator moved stays.
-    setRows((rs) => rs.map((r) => (r.storeId === old ? { ...r, storeId: id, bins: withTailBin([blankBin()], blankBin, num(r.qty)) } : r)));
+    setRows((rs) => rs.map((r) => ({ ...r, bins: [blankBin()] })));
   }
 
   function pickItem(r: Row, id: string | null) {
@@ -242,8 +242,7 @@ export function OpeningStockEditor({
     if (!r.itemId) return "Pick the item";
     if (num(r.qty) <= 0) return "Enter the opening qty";
     if (!r.rate.trim() || num(r.rate) < 0) return "Enter the rate";
-    if (!r.storeId) return "Pick the store";
-    if (pickedBins(r.bins).length > 1 || pickedBins(r.bins).some((b) => b.typed)) return splitBinsProblem(r.bins, num(r.qty));
+    return splitBinsProblem(r.bins, num(r.qty));
     return null;
   };
   const firstProblem = typed.map((r) => ({ r, p: lineProblem(r) })).find((x) => x.p);
@@ -284,7 +283,7 @@ export function OpeningStockEditor({
             const it = itemById.get(r.itemId);
             return {
               item_id: r.itemId,
-              store_id: r.storeId || null,
+              store_id: header.storeId,
               lot_no: r.lot.trim() || null,
               ref_no: r.refNo.trim() || null,
               ref_date: r.refDate || null,
@@ -318,10 +317,18 @@ export function OpeningStockEditor({
       .map((i) => (classFilter || !i.item_class ? i : { ...i, name: `${i.item_class} · ${i.name}` }));
 
   /*
-   * 200 + 112 + 144 + 176 + 88 + 112 + 88 + 112 = 1032, + 72 chrome (the `#` and the ✕)
-   * = 1104 <= 1155 -> tableFrom="5xl". Item Class is a header filter, not a column, and the
-   * UOM sits under the qty, which is what buys the room.
+   * 200 + 112 + 144 + 176 + 112 + 112 + 88 + 112 = 1056, + 72 chrome (the `#` and the ✕)
+   * = 1128 <= 1155 -> tableFrom="5xl". Item Class is a header filter, not a column, and the
+   * UOM sits under the qty, which is what buys the room. Bags takes `range`, not `hug`, so
+   * "Bags × Wt" fits its header on one line (screenshot 4030: it wrapped).
+   *
+   * ONE BASELINE (screenshot 4030): a cell with nothing to type — a dash, a read-only
+   * figure — sits in an `h-9` box, the height of the inputs beside it, so it lines up with
+   * the first field of the row instead of floating at the cell's top edge.
    */
+  const lineCell = (align: "left" | "right", children: ReactNode) => (
+    <div className={`flex h-9 items-center ${align === "right" ? "justify-end" : ""}`}>{children}</div>
+  );
   const openingLineColumns: ChildGridColumn<Row>[] = [
     {
       header: "Item",
@@ -367,29 +374,37 @@ export function OpeningStockEditor({
         ),
     },
     {
-      header: "Store · Bin",
+      /*
+       * BIN · QTY, NO STORE — GRN's cell (user 2026-11-03, GRN entry). The store is the
+       * header's, so the line asks only WHERE in it: a Bin picker (that store's bins, 0800)
+       * with its Qty box beside it, nothing pre-filled, and a blank bin row waiting while the
+       * bins hold less than the line's qty. Bins are optional; picked ones must hold the qty
+       * exactly (`splitBinsProblem`, re-checked by opening_stock_post).
+       */
+      header: "Bin",
       width: FIELD_WIDTH_CSS.term,
-      // pick-once: exempt -- one store and one bin take many items
+      // pick-once: exempt -- one bin takes many items
       cell: (r) => {
         const it = itemById.get(r.itemId);
         if (readOnly) {
           const picked = pickedBins(r.bins);
-          const codes = picked.map((b) => `${bins.find((x) => x.id === b.binId)?.code ?? "bin"} (${fmtNumber(num(b.qty))})`).join(", ");
           return (
-            <div className="grid text-sm">
-              <span>{storeName(r.storeId)}</span>
-              <span className="text-[11px] text-muted-foreground">{codes || "no bin"}</span>
+            <div className="grid gap-0.5 text-sm">
+              {picked.length === 0
+                ? lineCell("left", <span className="text-xs text-muted-foreground">No bin</span>)
+                : picked.map((b) => (
+                    <span key={b.key} className="flex h-9 items-center justify-between gap-2">
+                      <span>{bins.find((x) => x.id === b.binId)?.code ?? "bin"}</span>
+                      <span className="tabular-nums">{fmtNumber(num(b.qty))}</span>
+                    </span>
+                  ))}
             </div>
           );
         }
         return (
-          <StoreBinCell<SplitRow>
-            inline
-            parent="Opening Stock"
+          <BinQtyCell<SplitRow>
             description={it?.name ?? "this line"}
-            stores={lineStores}
-            storeId={r.storeId}
-            onStore={(id) => patchRow(r.key, { storeId: id })}
+            storeId={header.storeId}
             rows={r.bins}
             onRow={(k, patch) => patchRow(r.key, { bins: r.bins.map((b) => (b.key === k ? { ...b, ...patch } : b)) })}
             accepted={num(r.qty)}
@@ -403,12 +418,12 @@ export function OpeningStockEditor({
     },
     {
       header: "Bags × Wt",
-      width: FIELD_WIDTH_CSS.hug,
+      width: FIELD_WIDTH_CSS.range,
       cell: (r) => {
         const it = itemById.get(r.itemId);
-        if (!it?.is_yarn) return <span className="text-xs text-muted-foreground">—</span>;
+        if (!it?.is_yarn) return lineCell("left", <span className="text-xs text-muted-foreground">—</span>);
         return readOnly ? (
-          <span className="text-sm tabular-nums">{r.bags ? `${fmtNumber(num(r.bags))} × ${fmtNumber(num(r.bagWt))}` : "—"}</span>
+          lineCell("left", <span className="text-sm tabular-nums">{r.bags ? `${fmtNumber(num(r.bags))} × ${fmtNumber(num(r.bagWt))}` : "—"}</span>)
         ) : (
           <div className="grid gap-1">
             <Input type="number" min={0} inputMode="decimal" aria-label="Bags" placeholder="Bags" className="h-8 text-right tabular-nums" value={r.bags} onChange={(e) => setBags(r, { bags: e.target.value })} />
@@ -418,7 +433,9 @@ export function OpeningStockEditor({
       },
     },
     {
-      header: "Opening Qty",
+      // "Qty", not "Opening Qty" — the whole document is opening stock, and the longer word
+      // wrapped the header onto two lines (screenshot 4030). The UOM sits under the box.
+      header: "Qty",
       width: FIELD_WIDTH_CSS.range,
       align: "right",
       required: true,
@@ -427,7 +444,7 @@ export function OpeningStockEditor({
         return (
           <div className="grid gap-0.5">
             {readOnly ? (
-              <span className="text-sm font-semibold tabular-nums">{fmtNumber(num(r.qty))}</span>
+              lineCell("right", <span className="text-sm font-semibold tabular-nums">{fmtNumber(num(r.qty))}</span>)
             ) : (
               <Input type="number" min={0} inputMode="decimal" aria-label="Opening qty" required className="text-right tabular-nums" value={r.qty} onChange={(e) => patchRow(r.key, { qty: e.target.value })} />
             )}
@@ -443,7 +460,7 @@ export function OpeningStockEditor({
       required: true,
       cell: (r) =>
         readOnly ? (
-          <span className="text-sm tabular-nums">{fmtFixed(num(r.rate))}</span>
+          lineCell("right", <span className="text-sm tabular-nums">{fmtFixed(num(r.rate))}</span>)
         ) : (
           <Input type="number" min={0} inputMode="decimal" aria-label="Rate" required className="text-right tabular-nums" value={r.rate} onChange={(e) => patchRow(r.key, { rate: e.target.value })} />
         ),
@@ -452,7 +469,15 @@ export function OpeningStockEditor({
       header: "Value ₹",
       width: FIELD_WIDTH_CSS.range,
       align: "right",
-      cell: (r) => <span className="text-sm tabular-nums">{num(r.qty) && r.rate.trim() ? fmtFixed(num(r.qty) * num(r.rate)) : "—"}</span>,
+      cell: (r) =>
+        lineCell(
+          "right",
+          num(r.qty) && r.rate.trim() ? (
+            <span className="text-sm font-semibold tabular-nums">{fmtFixed(num(r.qty) * num(r.rate))}</span>
+          ) : (
+            <span className="text-xs text-muted-foreground">—</span>
+          ),
+        ),
     },
   ];
 
@@ -460,18 +485,13 @@ export function OpeningStockEditor({
 
   return (
     <div className="space-y-4">
+      {/* Title and description only; the entry's own facts live in the frame's title row. */}
       <PageHeader
         title={doc ? (doc.code ?? "Opening Stock") : "New Opening Stock"}
         description="Stock already on hand, counted into a store with its bin, lot and rate."
-        actions={
-          <div className="flex items-center gap-2">
-            <span className={DOC_CHIP}>{doc?.code ?? "New"}</span>
-            {doc ? <StatusPill tone={statusTone(status)}>{OPENING_STOCK_STATUS_LABELS[status]}</StatusPill> : null}
-          </div>
-        }
       />
 
-      {/* 72rem: the 1104px line grid plus the frame's padding. */}
+      {/* 72rem: the 1128px line grid plus the frame's padding. */}
       <form
         className={`${DOC_FRAME} max-w-[72rem]`}
         data-focus-scope=""
@@ -480,8 +500,25 @@ export function OpeningStockEditor({
           if (!readOnly) setConfirmPost(true);
         }}
       >
-        <div className="space-y-4 p-4">
-          {/* 144 + 288 + 200 = 632 + 2 × 12 gap = 656px. */}
+        {/* THE TITLE ROW IS PART OF THE DOCUMENT (GRN / Raise PO surface): the Entry No and
+            status sit on the frame's top edge, not floating above it (screenshot 4030). */}
+        <div className="flex flex-wrap items-center gap-2 px-4 pt-3 pb-2.5">
+          <span className="text-sm font-semibold">Opening Stock Balance</span>
+          <span className={DOC_CHIP}>{doc?.code ?? "New"}</span>
+          {doc ? <StatusPill tone={statusTone(status)}>{OPENING_STOCK_STATUS_LABELS[status]}</StatusPill> : null}
+        </div>
+        <div className={`${DOC_RULE} space-y-4 p-4`}>
+          {/*
+           * ONE COLUMN GRID FOR BOTH ROWS (screenshot 4030: Stock Type ended where Group did
+           * not, the store started where Buyer did not). Each column has one width and
+           * holds one pair, read top then bottom:
+           *   code 144  Opening Date / Group Type
+           *   name 288  Stock Type   / Group or Order No
+           *   party 200 Store        / Buyer
+           *   name 288  Remarks      / Item Class (the line filter)
+           * 144 + 288 + 200 + 288 = 920 + 3 x 12 gap = 956px. No field carries a hint: a hint
+           * under one field lifted its label above the row's (Item Class did).
+           */}
           <FieldRow>
             <Field label="Opening Date" required w="code">
               <Input type="date" value={header.date} readOnly={readOnly} required onChange={(e) => setHeader((h) => ({ ...h, date: e.target.value }))} />
@@ -493,25 +530,31 @@ export function OpeningStockEditor({
                 <Segmented<StockType> name="opening-stock-type" value={header.stockType} onChange={setStockType} options={STOCK_TYPES.map((t) => ({ ...t }))} />
               )}
             </Field>
-            <Field label="Target Store" required w="party">
+            {/* THE ONLY STORE ON THE DOCUMENT — GRN's Received Store (user 2026-11-03). Every
+                line is put away here; the line's Bin list is this store's bins. */}
+            <Field label="Store" required w="party" htmlFor="opening-store">
               {readOnly || header.stockType !== "accepted" ? (
-                <Input readOnly value={header.storeId ? storeName(header.storeId) : "No Rejection store in this unit"} />
+                <Input id="opening-store" readOnly value={header.storeId ? storeName(header.storeId) : "No Rejection store in this unit"} />
               ) : (
-                <Select value={header.storeId} required onChange={(e) => setHeaderStore(e.target.value)}>
-                  {lineStores.length === 0 ? <option value="">No store in this unit</option> : null}
-                  {lineStores.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </Select>
+                <Combobox
+                  id="opening-store"
+                  options={lineStores.map((st) => ({ value: st.id, label: st.name }))}
+                  value={header.storeId}
+                  placeholder="Store…"
+                  openOnFocus={false}
+                  onChange={(sid) => {
+                    if (sid) setHeaderStore(sid);
+                  }}
+                />
               )}
+            </Field>
+            <Field label="Remarks" w="name">
+              <Input value={header.notes} readOnly={readOnly} onChange={(e) => setHeader((h) => ({ ...h, notes: e.target.value }))} />
             </Field>
           </FieldRow>
 
-          {/* 176 + 288 + 200 + 176 = 840 + 3 × 12 gap = 876px. */}
           <FieldRow>
-            <Field label="Group Type" w="term">
+            <Field label="Group Type" w="code">
               {readOnly ? (
                 <Input readOnly value={GROUP_KINDS.find((g) => g.value === header.kind)?.label ?? ""} />
               ) : (
@@ -541,7 +584,7 @@ export function OpeningStockEditor({
               <Input readOnly value={order?.customer_name ?? ""} />
             </Field>
             {!readOnly ? (
-              <Field label="Item Class" w="term" hint="Narrows the item list">
+              <Field label="Item Class (filter)" w="name">
                 <Select value={classFilter} onChange={(e) => setClassFilter(e.target.value)}>
                   <option value="">All classes</option>
                   {classes.map(([id, name]) => (
@@ -567,16 +610,9 @@ export function OpeningStockEditor({
             hideRemove={readOnly}
             keepOne
             tailRow={readOnly ? undefined : isBlank}
-            onAdd={() => setRows((rs) => [...rs, blankRow(header.storeId)])}
+            onAdd={() => setRows((rs) => [...rs, blankRow()])}
             onRemove={(r) => setRows((rs) => rs.filter((x) => x.key !== r.key))}
           />
-
-          {/* 288px. */}
-          <FieldRow>
-            <Field label="Remarks" w="name">
-              <Textarea rows={1} value={header.notes} readOnly={readOnly} onChange={(e) => setHeader((h) => ({ ...h, notes: e.target.value }))} />
-            </Field>
-          </FieldRow>
 
           {doc?.posted_at ? <p className="text-xs text-muted-foreground">Posted {fmtDate(doc.posted_at)} — the stock is in the ledger and on Stock Statement.</p> : null}
         </div>
