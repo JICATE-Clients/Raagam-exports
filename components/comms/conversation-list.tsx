@@ -421,9 +421,9 @@ export function ConversationList({
         <div className="flex items-center gap-2">
         <div role="search" className="relative min-w-0 flex-1">
           {term.length >= 2 && searchingMsgs ? (
-            <Loader2 className="pointer-events-none absolute left-4 top-1/2 h-[18px] w-[18px] -translate-y-1/2 animate-spin text-[#54656f] dark:text-[#aebac1]" aria-hidden />
+            <Loader2 className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-[#54656f] dark:text-[#aebac1]" aria-hidden />
           ) : (
-            <Search className="pointer-events-none absolute left-4 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-[#54656f] dark:text-[#aebac1]" aria-hidden />
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#54656f] dark:text-[#aebac1]" aria-hidden />
           )}
           {/* caps-input: exempt -- a search box; the query is not a stored value */}
           <Input
@@ -438,11 +438,18 @@ export function ConversationList({
                 setQ("");
               }
             }}
-            placeholder="Search or start a new chat"
             aria-label="Search or start a new chat"
             // WhatsApp Web's search (user 2026-11-02): a 40px pill on a warm grey.
-            className="h-10 rounded-full border-2 border-transparent md:h-8 bg-surface-muted pl-11 pr-9 text-sm placeholder:text-muted-foreground focus-visible:border-primary focus-visible:bg-surface focus-visible:ring-0 md:text-sm [&::-webkit-search-cancel-button]:appearance-none"
+            className="h-10 rounded-full border-2 border-transparent md:h-8 bg-surface-muted pl-10 pr-9 text-[12.5px] placeholder:text-muted-foreground focus-visible:border-primary focus-visible:bg-surface focus-visible:ring-0 md:text-[12.5px] [&::-webkit-search-cancel-button]:appearance-none"
           />
+          {/* A drawn label, not a placeholder: placeholders are switched off app-wide
+              (lib/ui/placeholders.ts), and this box is the one that should say what it is
+              (user 2026-11-03). Gone as soon as anything is typed. */}
+          {!q && (
+            <span className="pointer-events-none absolute inset-y-0 left-10 right-3 flex items-center truncate text-[12.5px] text-muted-foreground">
+              Search or start a new chat
+            </span>
+          )}
           {q && (
             <button
               type="button"
@@ -1068,7 +1075,8 @@ function Row({
                 )}
               />
             )}
-            <span className={cn("line-clamp-2 min-w-0 flex-1 break-words text-[13px] leading-tight", unread > 0 ? "font-semibold text-foreground" : "text-muted-foreground")}>{preview(c)}</span>
+            {/* No message text in the list (user 2026-11-03) — just the unread count. The text is in the chat. */}
+            <span className="min-w-0 flex-1" />
             {c.mention_count > 0 && !active && (
               <span className={cn("shrink-0 text-xs font-extrabold", UNREAD_TEXT)} aria-hidden>
                 @

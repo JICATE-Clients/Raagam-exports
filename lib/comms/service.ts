@@ -333,6 +333,7 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
     joined_at: r.joined_at,
     removed_at: r.removed_at,
     full_name: names.get(r.user_id) ?? null,
+    last_read_at: r.last_read_at ?? null,
   }));
   // 0759: who the composer may offer for @mention. Before 0759 the read fails
   // and everyone stays offered, as before (the server still drops a mention of
