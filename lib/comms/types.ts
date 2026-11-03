@@ -193,6 +193,8 @@ export interface CommMember {
   /** 0759: may be offered for @mention here (active login, not deactivated).
    *  Undefined before 0759 is applied — treated as yes, as before. */
   mentionable?: boolean;
+  /** When this member last opened the conversation — drives the blue ticks on a sender's messages. */
+  last_read_at?: string | null;
 }
 
 export interface ConversationDetail {

@@ -4,6 +4,8 @@ import { useState, type KeyboardEvent } from "react";
 import {
   Bookmark,
   BookmarkCheck,
+  Check,
+  CheckCheck,
   ChevronDown,
   Copy,
   MessageSquareReply,
@@ -65,6 +67,7 @@ export function MessageItem({
   actions,
   highlight = false,
   bubble = null,
+  seen = false,
 }: {
   message: CommMessage;
   grouped: boolean;
@@ -78,6 +81,8 @@ export function MessageItem({
   highlight?: boolean;
   /** Draw as a chat bubble (Pulse's direct and group chats); null = a channel row. */
   bubble?: "direct" | "group" | null;
+  /** On a message the viewer sent: every other member has read it (two blue ticks). */
+  seen?: boolean;
 }) {
   const toast = useToast();
   const [editing, setEditing] = useState(false);
@@ -176,6 +181,14 @@ export function MessageItem({
         {m.saved && <BookmarkCheck className="h-3 w-3" aria-label="Saved" />}
         {m.edited_at && <span>Edited</span>}
         <time dateTime={m.created_at}>{clockTime(m.created_at)}</time>
+        {/* WhatsApp's ticks, on messages I sent: one grey = sent, two blue = everyone has read it. */}
+        {bubble && mine && !deleted && (
+          seen ? (
+            <CheckCheck className="h-[14px] w-[14px] text-[#34a7e0]" aria-label="Seen" />
+          ) : (
+            <Check className="h-[14px] w-[14px]" aria-label="Sent" />
+          )
+        )}
         {menu}
       </span>
     );

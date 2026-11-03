@@ -448,6 +448,15 @@ export function ConversationView({
     else setMessages((prev) => prev.map((x) => (x.id === m.id ? { ...x, deleted_at: new Date().toISOString(), body: null, attachments: [], reactions: [] } : x)));
   }
 
+  // TWO BLUE TICKS (user 2026-11-03, WhatsApp): a message I sent is "seen" once
+  // EVERY other active member has opened the conversation since it was sent.
+  // There is no delivery / presence record, so two grey ticks are not drawn.
+  function isSeen(m: CommMessage): boolean {
+    if (m.author_id !== meId) return false;
+    const others = conversation.members.filter((x) => x.user_id !== meId && !x.removed_at);
+    return others.length > 0 && others.every((x) => !!x.last_read_at && x.last_read_at >= m.created_at);
+  }
+
   function mayDelete(m: CommMessage): boolean {
     return m.author_id === meId || conversation.can_manage || (conversation.kind === "channel" && canModerate);
   }
@@ -723,6 +732,7 @@ export function ConversationView({
                 canDelete={mayDelete(m)}
                 actions={actions}
                 highlight={m.id === flashId}
+                seen={isSeen(m)}
               />
             </div>
           );

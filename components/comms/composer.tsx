@@ -666,7 +666,7 @@ export function Composer({
           onBlur={() => setMention(null)}
           className={
             chat
-              ? "order-3 field-sizing-content max-h-32 min-h-[42px] min-w-0 flex-1 resize-none rounded-[10px] border border-border bg-[#f7f8fa] px-4 py-2.5 text-sm shadow-none md:text-sm placeholder:text-muted-foreground focus-visible:border-primary focus-visible:bg-surface focus-visible:ring-0 focus-visible:ring-offset-0 dark:bg-surface-muted max-md:max-h-28"
+              ? "order-3 field-sizing-content max-h-32 min-h-[44px] min-w-0 flex-1 resize-none rounded-3xl border-2 border-transparent bg-[#f0f2f5] py-2.5 pl-11 pr-11 text-sm shadow-none md:text-sm placeholder:text-muted-foreground focus-visible:border-primary focus-visible:bg-surface focus-visible:ring-0 focus-visible:ring-offset-0 dark:bg-surface-muted max-md:max-h-28"
               : "max-h-48 min-h-14 w-full resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 max-md:max-h-28"
           }
         />
@@ -688,7 +688,7 @@ export function Composer({
           <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" aria-hidden tabIndex={-1} onChange={(e) => { void addFiles(e.target.files); e.target.value = ""; }} />
           <input ref={audioRef} type="file" multiple accept="audio/mpeg,audio/mp4,audio/x-m4a,audio/aac,audio/ogg,audio/wav,audio/x-wav,audio/webm,.mp3,.m4a,.aac,.ogg,.wav" className="hidden" aria-hidden tabIndex={-1} onChange={(e) => { void addFiles(e.target.files); e.target.value = ""; }} />
           <input ref={stickerRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" className="hidden" aria-hidden tabIndex={-1} onChange={(e) => void sendSticker(e.target.files?.[0])} />
-          <span title={`Attach: ${ATTACHMENT_TYPES_LABEL}`} className={cn(chat && "order-1 mb-px")}>
+          <span title={`Attach: ${ATTACHMENT_TYPES_LABEL}`} className={cn(chat && "absolute bottom-[5px] right-14 z-10")}>
             <AttachMenu onPick={pickAttach} disabled={stickering} />
           </span>
           <Button
@@ -719,7 +719,7 @@ export function Composer({
             aria-label="Emoji"
             aria-expanded={!!emojiAt}
             title="Emoji"
-            className={cn(chat && "order-2 mb-px h-10 w-10 text-[#54656f] dark:text-[#aebac1]")}
+            className={cn(chat && "absolute bottom-[5px] left-1 z-10 h-[34px] w-[34px] text-[#54656f] dark:text-[#aebac1]")}
           >
             <Smile className={chat ? "h-5 w-5" : "h-4 w-4"} />
           </Button>
