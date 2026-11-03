@@ -60,7 +60,8 @@ export type VendorOption = { id: string; name: string; inactive: boolean };
 export type UomOption = { id: string; code: string };
 
 /** The party as printed and listed: the vendor, else the typed name. */
-export const partyOf = (dc: Pick<GeneralDc, "vendor_name" | "party_name">) => dc.vendor_name ?? dc.party_name ?? "—";
+// Lives in a client-safe file (a client form needs it); re-exported for server callers.
+export { partyOf } from "./general-dc-party";
 
 export async function getGeneralDc(id: string): Promise<GeneralDc | null> {
   const s = await createClient();

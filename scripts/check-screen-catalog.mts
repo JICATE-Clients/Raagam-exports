@@ -70,6 +70,7 @@ const UNREGISTERED: Record<string, string> = {
   "/resolve/desk-hub": "redirect() to Resolve ▸ Reports — the Service Desk hub folded into Work + Reports 2026-10-26",
   "/admin/document-no-formats": "redirect() to Master Data ▸ System (declared in check-module-groups REDIRECTED)",
   "/purchase/vendors": "redirect() to Master Data ▸ Associates ▸ Vendor — Vendors left the Purchase menu 2026-10-28",
+  "/purchase/over-budget": "redirect() to Purchase ▸ PO Approval with Over budget selected — the two screens merged 2026-11-03",
   // Purchase child alignment (user 2026-11-02) — the Stores screens moved to /purchase/*.
   "/stores/opening-stock": "redirect() to Purchase ▸ Purchase Store ▸ Opening Stock — moved 2026-11-02",
   "/stores/adjustments": "redirect() to Purchase ▸ Purchase Store ▸ Stock Adjustment — moved 2026-11-02",
