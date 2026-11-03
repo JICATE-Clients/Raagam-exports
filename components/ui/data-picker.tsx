@@ -538,6 +538,14 @@ export function DataPicker({
    * dropdown closes on a page scroll; so do these three (MultiSelect,
    * Combobox, DataPicker). A scroll INSIDE the list is the operator reading
    * it and is ignored; a resize still re-places it.
+   *
+   * THE OPERATOR'S SCROLL, NOT ANY SCROLL (same day, "drop down not working
+   * properly"). The first cut closed on every `scroll` event — and the page
+   * scrolls by itself: ticking a department re-renders the dashboard, the
+   * page gets shorter, the browser clamps its scroll position, and the list
+   * shut after every tick. So a WHEEL or a TOUCH DRAG outside the list closes
+   * it (that is the operator scrolling away); a scroll event alone only
+   * re-places the panel against its field.
    */
   //
   // Not while the panel holds a quick-create FORM: closing would throw away a
@@ -547,15 +555,19 @@ export function DataPicker({
     if (!open || !fine) return;
     measure();
     const onMove = () => measure();
-    const onScroll = (e: Event) => {
-      if (mode !== "list") return measure();
+    const onGesture = (e: Event) => {
+      if (mode !== "list") return;
       if (e.target instanceof Node && panelRef.current?.contains(e.target)) return;
       close();
     };
-    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("wheel", onGesture, { capture: true, passive: true });
+    window.addEventListener("touchmove", onGesture, { capture: true, passive: true });
+    window.addEventListener("scroll", onMove, true);
     window.addEventListener("resize", onMove);
     return () => {
-      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("wheel", onGesture, true);
+      window.removeEventListener("touchmove", onGesture, true);
+      window.removeEventListener("scroll", onMove, true);
       window.removeEventListener("resize", onMove);
     };
   }, [open, fine, measure, mode]);
@@ -1408,22 +1420,9 @@ export function DataPicker({
                lands here and is told apart by where it fell: on an OPEN list it
                closes it, so the arrow still toggles. A click on the text of an
                open list leaves it open, so the operator can keep typing. */
-            //
-            // SUPERSEDED 2026-11-03 (user): only the ▼ opens it on a click now.
-            /*
-             * ONLY THE ▼ OPENS IT ON A CLICK (user 2026-11-03: "if I click the drop down
-             * arrow only the drop down should show, not by default … fix it
-             * everywhere"). This REVERSES the client's 2026-10-30 "clicking anywhere
-             * inside the text field box opens the options list" — on the newer word.
-             * A click on the text only places the caret; the ▼ (`pointer-events-none`,
-             * field-affordance.tsx, so its click lands here) opens and closes the list,
-             * told apart by where the click fell. ↓ and typing still open it — the
-             * keyboard contract's way in — and focus alone never does.
-             */
-            const box = e.currentTarget.getBoundingClientRect();
-            if (e.clientX < box.right - (compact ? 24 : 32)) return;
             if (!open) return openList();
-            close();
+            const box = e.currentTarget.getBoundingClientRect();
+            if (e.clientX >= box.right - (compact ? 24 : 32)) close();
           }}
           onChange={(e) => {
             if (!fine) return; // touch types into the sheet's own search box
