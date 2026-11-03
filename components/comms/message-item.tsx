@@ -57,6 +57,9 @@ export type MessageActions = {
  * as the mouse passes over ("keep the chat fixed in place"). On a touch screen
  * there is no hover, so it is always shown.
  */
+/** WhatsApp's six quick reactions; the ＋ opens the full list. All six are in ALLOWED_EMOJI. */
+const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
+
 export function MessageItem({
   message: m,
   grouped,
@@ -88,6 +91,10 @@ export function MessageItem({
   const [editing, setEditing] = useState(false);
   const [reacting, setReacting] = useState(false);
   const [pickerAnchor, setPickerAnchor] = useState<HTMLSpanElement | null>(null);
+  // WhatsApp's smiley beside the bubble on hover: its own picker, anchored to it.
+  const [hoverReact, setHoverReact] = useState<HTMLButtonElement | null>(null);
+  // The quick bar (👍 ❤️ 😂 😮 😢 🙏 ＋) the smiley opens, WhatsApp-style.
+  const [quick, setQuick] = useState(false);
 
   // The text as the reader sees it — @Name, never the <@uuid> token.
   function copy() {
@@ -237,7 +244,13 @@ export function MessageItem({
       )}
 
       {!deleted && m.reactions.length > 0 && (
-        <ul className="mt-1 flex flex-wrap gap-1" aria-label="Reactions">
+        <ul
+          className={cn(
+            bubble ? "absolute -bottom-3.5 z-10 flex gap-0.5" : "mt-1 flex flex-wrap gap-1",
+            bubble && (mine ? "right-2" : "left-2"),
+          )}
+          aria-label="Reactions"
+        >
           {m.reactions.map((r) => {
             const who = reactorNames(r.users, names, meId);
             return (
@@ -251,15 +264,19 @@ export function MessageItem({
                 title={`${who} reacted with ${emojiName(r.emoji)}`}
                 aria-label={`${emojiName(r.emoji)}, ${r.count} ${r.count === 1 ? "reaction" : "reactions"}: ${who}${r.mine ? ". Press to remove yours" : ""}`}
                 className={cn(
-                  "flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs",
+                  "flex items-center gap-1 rounded-full border text-xs",
+                  bubble ? "h-6 border-2 border-surface px-1.5 text-[14px] shadow-[0_1px_2px_rgba(13,15,19,.2)]" : "px-2 py-0.5",
                   r.mine ? "border-primary bg-primary-soft text-primary" : "border-border bg-surface text-foreground",
+                  bubble && !r.mine && "border-surface",
                   canAct && "hover:border-primary",
                 )}
               >
                 <span aria-hidden>{r.emoji}</span>
-                <span className="tabular-nums" aria-hidden>
-                  {r.count}
-                </span>
+                {(!bubble || r.count > 1) && (
+                  <span className="text-xs tabular-nums" aria-hidden>
+                    {r.count}
+                  </span>
+                )}
               </button>
             </li>
             );
@@ -303,6 +320,7 @@ export function MessageItem({
           "group relative flex scroll-mt-16 items-end gap-2 px-3",
           // 2px between one person's messages, 12px when the sender changes.
           grouped ? "pt-0.5" : "pt-3",
+          !deleted && m.reactions.length > 0 && "pb-3.5",
           mine ? "justify-end" : "justify-start",
           highlight && "rounded-md bg-warning-soft ring-2 ring-warning/60 transition-colors",
         )}
@@ -347,6 +365,86 @@ export function MessageItem({
           {content}
           {!timeInText && <p className="mt-0.5 flex justify-end">{metaLine(false)}</p>}
         </div>
+        {canAct && actions.onReact && !deleted && !editing && !sticker && (
+          <>
+            {/* button-shape: exempt -- WhatsApp's round hover smiley beside a bubble (user 2026-11-03), an icon chip rather than an action button */}
+            <button
+              type="button"
+              aria-label="React"
+              title="React"
+              onClick={() => setQuick((o) => !o)}
+              aria-expanded={quick}
+              className={cn(
+                "mb-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border bg-surface text-muted-foreground shadow-sm transition-opacity hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                mine ? "order-first" : "order-last",
+                quick || hoverReact ? "opacity-100" : "opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 max-md:hidden",
+              )}
+            >
+              <SmilePlus className="h-4 w-4" aria-hidden />
+            </button>
+            {quick && (
+              <div
+                role="menu"
+                aria-label="Quick reactions"
+                className={cn(
+                  "absolute bottom-full z-30 mb-1 flex items-center gap-0.5 rounded-full border border-border bg-surface px-1.5 py-1 shadow-lg",
+                  mine ? "right-3" : "left-11",
+                )}
+                onMouseLeave={() => !hoverReact && setQuick(false)}
+              >
+                {QUICK_REACTIONS.map((e) => {
+                  const wearing = m.reactions.some((r) => r.emoji === e && r.mine);
+                  return (
+                    // button-shape: exempt -- one emoji in WhatsApp's quick-reaction bar (user 2026-11-03), a glyph in a circle
+                    <button
+                      key={e}
+                      type="button"
+                      role="menuitem"
+                      aria-label={`${wearing ? "Remove" : "React with"} ${emojiName(e)}`}
+                      onClick={() => {
+                        setQuick(false);
+                        actions.onReact!(m, e, !wearing);
+                      }}
+                      className={cn(
+                        "flex h-9 w-9 items-center justify-center rounded-full text-[22px] transition-transform hover:-translate-y-0.5 hover:scale-125 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        wearing && "bg-primary-soft",
+                      )}
+                    >
+                      {e}
+                    </button>
+                  );
+                })}
+                {/* button-shape: exempt -- the ＋ that opens the full emoji list from the quick bar */}
+                <button
+                  type="button"
+                  aria-label="More emoji"
+                  title="More emoji"
+                  onClick={(ev) => {
+                    const btn = ev.currentTarget;
+                    setHoverReact((cur) => (cur ? null : btn));
+                  }}
+                  className="ml-0.5 flex h-8 w-8 items-center justify-center rounded-full bg-surface-muted text-lg text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  +
+                </button>
+              </div>
+            )}
+            {hoverReact && (
+              <EmojiPicker
+                anchor={hoverReact}
+                onClose={() => {
+                  setHoverReact(null);
+                  setQuick(false);
+                }}
+                onPick={(e) => {
+                  setHoverReact(null);
+                  setQuick(false);
+                  actions.onReact!(m, e, true);
+                }}
+              />
+            )}
+          </>
+        )}
       </div>
     );
   }

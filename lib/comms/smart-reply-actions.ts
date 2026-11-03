@@ -47,7 +47,7 @@ export async function suggestReplies(conversationId: string): Promise<{ ok: true
       model: MODEL,
       max_tokens: 200,
       system:
-        "You suggest replies for a garment exporter's internal team chat. Given a conversation, return ONLY a JSON array of 3 short replies (max 8 words each) that I could send to the last message, in the same language as the conversation. Make them relevant and different from each other. Never invent facts, numbers or commitments beyond a simple yes / no / will-check.",
+        "You suggest replies for a garment exporter's internal team chat. Given a conversation, return ONLY a JSON array of 3 short replies (max 8 words each) that I could send to the last message, in the same language as the conversation. Make them relevant and different from each other; where it fits, include a plain acknowledgement such as 'Okay' or 'Done'. Never invent facts, numbers or commitments beyond a simple yes / no / will-check.",
       messages: [{ role: "user", content: transcript }],
     });
     const text = res.content.map((b) => (b.type === "text" ? b.text : "")).join("");

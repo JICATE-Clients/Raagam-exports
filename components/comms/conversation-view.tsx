@@ -43,6 +43,7 @@ import { PinnedSheet } from "./pinned-sheet";
 import { ThreadSheet } from "./thread-sheet";
 import { ChatSearchPanel } from "./chat-search-panel";
 import { suggestReplies } from "@/lib/comms/smart-reply-actions";
+import { ruleReplies } from "@/lib/comms/smart-reply-rules";
 
 type Pending = {
   client_id: string;
@@ -792,6 +793,7 @@ export function ConversationView({
           conversationId={id}
           lastId={messages[messages.length - 1]?.id ?? null}
           lastIsMine={messages[messages.length - 1]?.author_id === meId}
+          lastBody={messages[messages.length - 1]?.body ?? ""}
           onPick={(text) => setFill((f) => ({ text, n: (f?.n ?? 0) + 1 }))}
         />
       )}
@@ -922,11 +924,14 @@ function QuickReplies({
   conversationId,
   lastId,
   lastIsMine,
+  lastBody,
   onPick,
 }: {
   conversationId: string;
   lastId: string | null;
   lastIsMine: boolean;
+  /** The last message's text — the offline rules answer it at once. */
+  lastBody: string;
   onPick: (text: string) => void;
 }) {
   // SMART REPLIES (user 2026-11-02): relevant to the last message, fetched when
@@ -940,9 +945,10 @@ function QuickReplies({
       live = false;
     };
   }, [conversationId, lastId, lastIsMine]);
-  // No fixed fallback chips any more (user 2026-11-02): only replies written for
-  // this conversation show, and nothing shows while loading or when there are none.
-  const shown = smart.id === lastId && !lastIsMine ? smart.replies : [];
+  // Every incoming message has chips (user 2026-11-03): the offline rules answer at
+  // once, the Claude-written set replaces them when it arrives. None while the last
+  // word is mine.
+  const shown = lastIsMine ? [] : smart.id === lastId && smart.replies.length > 0 ? smart.replies : ruleReplies(lastBody);
   if (shown.length === 0) return null;
   return (
     // One row that scrolls sideways on a phone: wrapped, the four pills took
