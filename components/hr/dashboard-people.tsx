@@ -181,6 +181,9 @@ export function DashboardPeople({
     ? { name: "w-[18%]", dept: "w-[18%]", time: "w-[15%]", last: "w-[16%]", status: "w-[19%]", detail: "w-[14%]" }
     : { name: "w-[20%]", dept: "w-[20%]", time: "w-[16%]", last: "w-[18%]", status: "w-[26%]", detail: "" };
   const columns: Column<PeopleRow>[] = [
+    // Department first, then the name (user 2026-11-03: "first column should
+    // be dept, second can be employee name").
+    { header: "Department", className: W.dept, cell: (r) => <Truncated text={r.dept} className={cn("block font-medium text-slate-900 dark:text-slate-100", !r.deptId && "italic text-slate-500 dark:text-slate-400")} /> },
     {
       // The count sits beside the column it counts (user 2026-10-31).
       header: `Employee (${visible.length})`,
@@ -193,7 +196,6 @@ export function DashboardPeople({
         </div>
       ),
     },
-    { header: "Department", className: W.dept, cell: (r) => <Truncated text={r.dept} className={cn("block", !r.deptId && "italic text-slate-500")} /> },
     { header: "In", align: "center", className: W.time, cell: (r) => <span className="tabular-nums">{clock(r.firstAt)}</span> },
     { header: list === "out" ? "Went out" : "Last punch", align: "center", className: W.last, cell: (r) => <span className="tabular-nums">{r.firstAt === r.lastAt ? "—" : clock(r.lastAt)}</span> },
     // Whether they are absent, on leave, on duty, on permission… (user
