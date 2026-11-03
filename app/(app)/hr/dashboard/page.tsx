@@ -1,4 +1,5 @@
 import { requirePermission } from "@/lib/auth/server";
+import { today as istToday } from "@/lib/calendar";
 import { filterHrDashboard, getHrDashboard } from "@/lib/hr/dashboard-service";
 import { HrDashboardFilter } from "@/components/hr/dashboard-filter";
 import type { PersonKind } from "@/lib/masters/category-timing-types";
@@ -23,7 +24,7 @@ import { HrDashboardView } from "./hr-dashboard";
 export default async function HrDashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ kind?: string; dept?: string; show?: string }>;
+  searchParams: Promise<{ kind?: string; dept?: string; show?: string; day?: string }>;
 }) {
   await requirePermission("hr_payroll", "view");
   const sp = await searchParams;
@@ -33,8 +34,10 @@ export default async function HrDashboardPage({
     .filter(Boolean)
     .map((d) => (d === "none" ? "" : d));
 
+  // `?day=` — any day before today, read as it closed (getHrDashboard).
   const now = new Date().getTime();
-  const full = await getHrDashboard(now);
+  const full = await getHrDashboard(now, sp.day);
+  const today = istToday();
   const view = filterHrDashboard(full, { kind, depts });
   const counts = {
     staff: full.groups.find((g) => g.group === "staff")?.people.length ?? 0,
@@ -44,13 +47,16 @@ export default async function HrDashboardPage({
   return (
     <HrDashboardView
       data={view.data}
-      query={new URLSearchParams({ kind, ...(sp.dept ? { dept: sp.dept } : {}) }).toString()}
+      query={new URLSearchParams({ kind, ...(sp.dept ? { dept: sp.dept } : {}), ...(full.live ? {} : { day: full.day }) }).toString()}
       weekNote={
         view.picked.length > 0 && !full.trendByDept
           ? "The week shows every department until migration 0776 is applied."
           : undefined
       }
-      filter={<HrDashboardFilter kind={kind} counts={counts} depts={view.depts} picked={view.picked} />}
+      filter={<HrDashboardFilter kind={kind} counts={counts} depts={view.depts} picked={view.picked} day={full.day} today={today} />}
+      peopleFilter={
+        <HrDashboardFilter variant="table" kind={kind} counts={counts} depts={view.depts} picked={view.picked} day={full.day} today={today} />
+      }
     />
   );
 }

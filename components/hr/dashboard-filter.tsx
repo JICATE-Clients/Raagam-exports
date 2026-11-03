@@ -2,7 +2,9 @@
 
 import { useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Building2, Loader2, X } from "lucide-react";
+import { Building2, CalendarDays, ChevronLeft, ChevronRight, Loader2, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { ToggleGroup } from "@/components/ui/segmented";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { PERSON_KINDS, type PersonKind } from "@/lib/masters/category-timing-types";
@@ -16,26 +18,48 @@ import type { DeptOption } from "@/lib/hr/dashboard-service";
  *
  * Switching side clears the departments: the list is scoped to the side in
  * view, so a department picked under Staff means nothing under Worker.
+ *
+ * AND A DAY (user 2026-11-03: "near the department add a date button, so that
+ * if I want to see previous dates also we can see them"). `?day=` — not
+ * `?date=`, which the Attendance page already spends on its Day sheet. Today
+ * is the address with no `day`, so a bookmark of the dashboard stays live.
+ * Nothing after today: a day that has not happened has no attendance.
+ *
+ * `variant="table"` is the same Department and Date over the People table
+ * (same day: "in that big table also add department and date filters") —
+ * without the side switch, which the bar above already holds. Both write the
+ * same URL, so the two can never disagree about what is on screen.
  */
 export function HrDashboardFilter({
   kind,
   counts,
   depts,
   picked,
+  day,
+  today,
+  variant = "bar",
 }: {
   kind: PersonKind;
   /** People on the reader per side, for the switch's labels. */
   counts: Record<PersonKind, number>;
   depts: DeptOption[];
   picked: string[];
+  /** The day on view and the factory's today (IST, YYYY-MM-DD). */
+  day: string;
+  today: string;
+  variant?: "bar" | "table";
 }) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
   const [isPending, startTransition] = useTransition();
 
-  function go(next: { kind?: PersonKind; depts?: string[] }) {
+  function go(next: { kind?: PersonKind; depts?: string[]; day?: string }) {
     const q = new URLSearchParams(params.toString());
+    if (next.day !== undefined) {
+      if (next.day && next.day < today) q.set("day", next.day);
+      else q.delete("day");
+    }
     if (next.kind) q.set("kind", next.kind);
     if (next.depts !== undefined) {
       // "" (no department) travels as "none" — an empty value would vanish.
@@ -46,15 +70,30 @@ export function HrDashboardFilter({
     startTransition(() => router.replace(s ? `${pathname}?${s}` : pathname, { scroll: false }));
   }
 
+  const table = variant === "table";
+  const step = (n: number) => {
+    const d = new Date(`${day}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + n);
+    go({ day: d.toISOString().slice(0, 10) });
+  };
+
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200/80 bg-white/80 px-4 py-3 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-900/70">
-      <ToggleGroup
-        label="Staff or Worker"
-        role="tablist"
-        value={kind}
-        onChange={(k) => go({ kind: k, depts: [] })}
-        options={PERSON_KINDS.map((k) => ({ value: k.value, label: `${k.label} (${counts[k.value]})` }))}
-      />
+    <div
+      className={
+        table
+          ? "flex flex-wrap items-center gap-3"
+          : "flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200/80 bg-white/80 px-4 py-3 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-900/70"
+      }
+    >
+      {!table && (
+        <ToggleGroup
+          label="Staff or Worker"
+          role="tablist"
+          value={kind}
+          onChange={(k) => go({ kind: k, depts: [] })}
+          options={PERSON_KINDS.map((k) => ({ value: k.value, label: `${k.label} (${counts[k.value]})` }))}
+        />
+      )}
       <div className="flex min-w-0 flex-1 items-center gap-2 sm:flex-none">
         <Building2 className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
         <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">Department</span>
@@ -78,6 +117,33 @@ export function HrDashboardFilter({
             className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
           >
             <X className="h-3.5 w-3.5" /> Clear
+          </button>
+        )}
+      </div>
+      <div className="flex items-center gap-2">
+        <CalendarDays className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+        <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">Date</span>
+        <Button type="button" variant="outline" size="icon" aria-label="Previous day" onClick={() => step(-1)}>
+          <ChevronLeft />
+        </Button>
+        <Input
+          type="date"
+          aria-label="Date"
+          className="w-40"
+          max={today}
+          value={day}
+          onChange={(e) => e.target.value && go({ day: e.target.value })}
+        />
+        <Button type="button" variant="outline" size="icon" aria-label="Next day" disabled={day >= today} onClick={() => step(1)}>
+          <ChevronRight />
+        </Button>
+        {day < today && (
+          <button
+            type="button"
+            onClick={() => go({ day: today })}
+            className="shrink-0 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+          >
+            Today
           </button>
         )}
       </div>

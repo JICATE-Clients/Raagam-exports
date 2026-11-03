@@ -520,12 +520,28 @@ export function MultiSelect({
   useLayoutEffect(() => {
     if (open) placePanel();
   });
+  /*
+   * A SCROLL OUTSIDE THE LIST CLOSES IT (user 2026-11-03, screenshot 110850:
+   * the HR People table's Department list, opened and then the page scrolled
+   * up — "it is following like this … it should not happen anywhere"). The
+   * panel is portaled and pinned to the viewport, so following the trigger
+   * meant it slid across the cards, the header and whatever else lay between,
+   * and stayed open over them once the field had scrolled away. Every native
+   * dropdown closes on a page scroll; so do these three (MultiSelect,
+   * Combobox, DataPicker). A scroll INSIDE the list is the operator reading
+   * it and is ignored; a resize still re-places it.
+   */
   useEffect(() => {
     if (!open) return;
-    window.addEventListener("scroll", placePanel, true);
+    const onScroll = (e: Event) => {
+      if (e.target instanceof Node && panelRef.current?.contains(e.target)) return;
+      setOpen(false);
+      setQuery("");
+    };
+    window.addEventListener("scroll", onScroll, true);
     window.addEventListener("resize", placePanel);
     return () => {
-      window.removeEventListener("scroll", placePanel, true);
+      window.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", placePanel);
     };
   }, [open]);
@@ -839,7 +855,22 @@ export function MultiSelect({
           data-form-type="other"
           value={open ? query : summary}
           placeholder={hint(placeholder)}
-          onClick={() => (open ? close() : openList())}
+          onClick={(e) => {
+            /*
+             * ONLY THE ▼ OPENS IT ON A CLICK (user 2026-11-03: "if I click the drop down
+             * arrow only the drop down should show, not by default … fix it
+             * everywhere"). This REVERSES the client's 2026-10-30 "clicking anywhere
+             * inside the text field box opens the options list" — on the newer word.
+             * A click on the text only places the caret; the ▼ (`pointer-events-none`,
+             * field-affordance.tsx, so its click lands here) opens and closes the list,
+             * told apart by where the click fell. ↓ and typing still open it — the
+             * keyboard contract's way in — and focus alone never does.
+             */
+            const box = e.currentTarget.getBoundingClientRect();
+            if (e.clientX < box.right - 32) return;
+            if (open) close();
+            else openList();
+          }}
           onChange={(e) => {
             setQuery(e.target.value);
             setCreateError(null);
@@ -926,7 +957,10 @@ export function MultiSelect({
               // the first place; the style attribute simply sidesteps it.
               style={gridded && !gridColumns ? { gridTemplateColumns: cellTrack } : undefined}
               className={cn(
-                "overflow-auto py-1",
+                // `scrollbar-slim` (user 2026-11-03, HR's Department filter:
+                // "remove the big scroll bar, make it thin") — the panel is
+                // portaled, so a module's own scrollbar rule never reaches it.
+                "overflow-auto scrollbar-slim py-1",
                 gridded
                   ? // The `<ul>` IS the grid — a <div> between <ul> and <li> is
                     // invalid, and `columnCount()` reads the resolved track off

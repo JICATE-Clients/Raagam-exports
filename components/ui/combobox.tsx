@@ -73,7 +73,7 @@ export function Combobox({
   id,
   className,
   inputClassName,
-  openOnFocus = true,
+  openOnFocus = false,
   required = false,
   compact = false,
 }: {
@@ -171,15 +171,30 @@ export function Combobox({
     setRect({ top: r.bottom + 4, left: r.left, width: r.width, vw: window.innerWidth });
   }, []);
 
-  // Reposition while open (inner Sheet scrolling, window resize).
+  /*
+   * A SCROLL OUTSIDE THE LIST CLOSES IT (user 2026-11-03, screenshot 110850:
+   * the HR People table's Department list, opened and then the page scrolled
+   * up — "it is following like this … it should not happen anywhere"). The
+   * panel is portaled and pinned to the viewport, so following the trigger
+   * meant it slid across the cards, the header and whatever else lay between,
+   * and stayed open over them once the field had scrolled away. Every native
+   * dropdown closes on a page scroll; so do these three (MultiSelect,
+   * Combobox, DataPicker). A scroll INSIDE the list is the operator reading
+   * it and is ignored; a resize still re-places it.
+   */
   useEffect(() => {
     if (!open) return;
     measure();
     const onMove = () => measure();
-    window.addEventListener("scroll", onMove, true);
+    const onScroll = (e: Event) => {
+      if (e.target instanceof Node && listRef.current?.contains(e.target)) return;
+      setOpen(false);
+      setQuery("");
+    };
+    window.addEventListener("scroll", onScroll, true);
     window.addEventListener("resize", onMove);
     return () => {
-      window.removeEventListener("scroll", onMove, true);
+      window.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", onMove);
     };
   }, [open, measure]);
@@ -351,16 +366,13 @@ export function Combobox({
         placeholder={selected ? selected.label : (hint(placeholder) ?? "")}
         onFocus={openOnFocus ? openList : undefined}
         onClick={(e) => {
-          // A click anywhere in the box opens the list; on an OPEN list a click
-          // on the ▼ closes it, so the arrow toggles — the same rule as
-          // data-picker.tsx (client 2026-10-30). The ▼ is `pointer-events-none`
-          // (field-affordance.tsx), so its click lands here, told apart by x.
-          if (!open) return openList();
+          // Only the ▼ opens / closes it on a click — see data-picker.tsx
+          // (user 2026-11-03, reversing the client's 2026-10-30 "anywhere").
           const box = e.currentTarget.getBoundingClientRect();
-          if (e.clientX >= box.right - (compact ? 24 : 32)) {
-            setOpen(false);
-            setQuery("");
-          }
+          if (e.clientX < box.right - (compact ? 24 : 32)) return;
+          if (!open) return openList();
+          setOpen(false);
+          setQuery("");
         }}
         onChange={(e) => {
           if (locked) return;

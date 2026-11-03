@@ -528,17 +528,37 @@ export function DataPicker({
   // Track the field while open — an editor Sheet scrolls its own body, so a
   // panel measured once detaches the moment anything moves. Same fix, and the
   // same reason, as combobox.tsx.
+  /*
+   * A SCROLL OUTSIDE THE LIST CLOSES IT (user 2026-11-03, screenshot 110850:
+   * the HR People table's Department list, opened and then the page scrolled
+   * up — "it is following like this … it should not happen anywhere"). The
+   * panel is portaled and pinned to the viewport, so following the trigger
+   * meant it slid across the cards, the header and whatever else lay between,
+   * and stayed open over them once the field had scrolled away. Every native
+   * dropdown closes on a page scroll; so do these three (MultiSelect,
+   * Combobox, DataPicker). A scroll INSIDE the list is the operator reading
+   * it and is ignored; a resize still re-places it.
+   */
+  //
+  // Not while the panel holds a quick-create FORM: closing would throw away a
+  // typed draft (the same reason an outside click does not dismiss it), so a
+  // form still follows its field.
   useEffect(() => {
     if (!open || !fine) return;
     measure();
     const onMove = () => measure();
-    window.addEventListener("scroll", onMove, true);
+    const onScroll = (e: Event) => {
+      if (mode !== "list") return measure();
+      if (e.target instanceof Node && panelRef.current?.contains(e.target)) return;
+      close();
+    };
+    window.addEventListener("scroll", onScroll, true);
     window.addEventListener("resize", onMove);
     return () => {
-      window.removeEventListener("scroll", onMove, true);
+      window.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", onMove);
     };
-  }, [open, fine, measure]);
+  }, [open, fine, measure, mode]);
 
   // Dismiss on an outside click — list mode only. In form mode the scrim owns
   // the outside, and a stray click must not silently discard a typed draft.
@@ -1388,9 +1408,22 @@ export function DataPicker({
                lands here and is told apart by where it fell: on an OPEN list it
                closes it, so the arrow still toggles. A click on the text of an
                open list leaves it open, so the operator can keep typing. */
-            if (!open) return openList();
+            //
+            // SUPERSEDED 2026-11-03 (user): only the ▼ opens it on a click now.
+            /*
+             * ONLY THE ▼ OPENS IT ON A CLICK (user 2026-11-03: "if I click the drop down
+             * arrow only the drop down should show, not by default … fix it
+             * everywhere"). This REVERSES the client's 2026-10-30 "clicking anywhere
+             * inside the text field box opens the options list" — on the newer word.
+             * A click on the text only places the caret; the ▼ (`pointer-events-none`,
+             * field-affordance.tsx, so its click lands here) opens and closes the list,
+             * told apart by where the click fell. ↓ and typing still open it — the
+             * keyboard contract's way in — and focus alone never does.
+             */
             const box = e.currentTarget.getBoundingClientRect();
-            if (e.clientX >= box.right - (compact ? 24 : 32)) close();
+            if (e.clientX < box.right - (compact ? 24 : 32)) return;
+            if (!open) return openList();
+            close();
           }}
           onChange={(e) => {
             if (!fine) return; // touch types into the sheet's own search box

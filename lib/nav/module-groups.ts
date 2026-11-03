@@ -1340,12 +1340,17 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         icon: Clock,
         description: "Attendance, piece records and leave",
         children: [
-          { href: "/hr/attendance", label: "Attendance", description: "Mark and review daily attendance" },
+          // "Attendance Report" (user 2026-11-02: "instead here put name as
+          // attendance report, I'll tell you what to put in there"); 2026-11-03:
+          // the dashboard's ten cards + People table (the Day sheet and Month muster stay at ?view=day / ?view=month).
+          { href: "/hr/attendance", label: "Attendance Report", description: "Today's head-count cards and who is in, late, absent or away" },
           // Client 2026-11-02 — the legacy register of the same name: every
           // punch of the day as Time 1, Time 2, … Read-only, from `punches`.
           { href: "/hr/movement-register", label: "Daily Movement Register", description: "Every punch of the day, in order, per person" },
           { href: "/hr/piece-records", label: "Piece Records", description: "Piece-rate output per worker" },
           { href: "/hr/leave", label: "Leave & Encashment", description: "Leave balances, applications and encashment" },
+          // Was the Attendance page's third tab (?view=live).
+          { href: "/hr/live", label: "Live", description: "What the biometric devices are sending, as it arrives" },
         ],
       },
       {

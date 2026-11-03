@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { requirePermission } from "@/lib/auth/server";
 import { today } from "@/lib/calendar";
 import {
@@ -11,15 +12,12 @@ import {
 import { getLocations, getSettings } from "@/lib/hr/masters-service";
 import { PageHeader } from "@/components/ui/page-header";
 import { cn } from "@/lib/utils";
-import {
-  listDevices,
-  listPunchesToday,
-  countPunchesToday,
-  getPunchIdentities,
-} from "@/lib/hr/punch-service";
+import { filterHrDashboard, getHrDashboard } from "@/lib/hr/dashboard-service";
+import { HrDashboardFilter } from "@/components/hr/dashboard-filter";
+import type { PersonKind } from "@/lib/masters/category-timing-types";
+import { HrDashboardView } from "../dashboard/hr-dashboard";
 import AttendanceClient from "./attendance-client";
 import MusterClient from "./muster-client";
-import LiveClient from "./live-client";
 
 interface Props {
   searchParams: Promise<{
@@ -27,13 +25,29 @@ interface Props {
     location?: string;
     view?: string;
     month?: string;
+    /** The report's Staff | Worker side and departments (?show= is read in the browser). */
+    kind?: string;
+    dept?: string;
+    /** The report's day (not `date`, which is the Day sheet's). */
+    day?: string;
   }>;
 }
 
 /**
- * THREE VIEWS OF ONE THING, AT ONE URL. `?view=month` is the muster roll,
- * `?view=live` is what the biometric devices are sending right now, and the
- * default is the day entry sheet.
+ * ATTENDANCE REPORT FIRST (user 2026-11-03: "in attendance report there should
+ * be only the up cards and this whole thing from the dashboard"). With no
+ * `view` and no `date` this page is the dashboard's ten cards and its People
+ * table — the same `HrDashboardView`, in its `report` variant, so the two can
+ * never count a day differently. The Day sheet and Month muster below are
+ * still here at `?view=day` / `?view=month` (and a bare `?date=`, which their
+ * own date pickers push): the dashboard's "Fix" on a missing Out opens the
+ * Day sheet, so they stay reachable rather than being deleted.
+ *
+ * TWO VIEWS OF ONE THING, AT ONE URL. `?view=month` is the muster roll and
+ * the default is the day entry sheet. Live left this page on 2026-11-02 for its
+ * own sidebar row (`/hr/live`, user: "this only live thing can come under as
+ * name Live after the Leave & Encashment"); a stale `?view=live` lands on the
+ * report (see the redirect below for why not on Live).
  *
  * NOT A SECOND SIDEBAR ROW, deliberately. The month grid is the same table,
  * read through the same location filter, and a cell on it links to the day
@@ -43,20 +57,55 @@ interface Props {
 export default async function AttendancePage({ searchParams }: Props) {
   await requirePermission("hr_payroll", "view");
 
-  const { date, location, view, month } = await searchParams;
+  const { date, location, view, month, kind: kindParam, dept, day } = await searchParams;
   const locationId = location || null;
   const isMonth = view === "month";
-  const isLive = view === "live";
+  /*
+   * `?view=live` LANDS HERE, NOT ON LIVE (user 2026-11-03: "if I click
+   * attendance report it again goes to the live"). The workspace tabs remember
+   * each screen's last query (lib/workspace-tabs.ts) and the sidebar row
+   * reopens a screen as it was left — so an Attendance tab last standing on
+   * ?view=live was sent to /hr/live by the redirect that used to be here, on
+   * every click, forever. Dropping the query instead lets the tab remember the
+   * bare address. Nothing links to ?view=live any more; Live is /hr/live.
+   */
+  if (view === "live") redirect("/hr/attendance");
+
+  if ((!view || view === "report") && !date) {
+    // The dashboard page's own reading of ?kind / ?dept (hr/dashboard/page.tsx).
+    const kind: PersonKind = kindParam === "worker" ? "worker" : "staff";
+    const depts = (dept ?? "")
+      .split(",")
+      .filter(Boolean)
+      .map((d) => (d === "none" ? "" : d));
+    const full = await getHrDashboard(new Date().getTime(), day);
+    const todayIso = today();
+    const shown = filterHrDashboard(full, { kind, depts });
+    const counts = {
+      staff: full.groups.find((g) => g.group === "staff")?.people.length ?? 0,
+      worker: full.groups.find((g) => g.group === "worker")?.people.length ?? 0,
+    };
+    return (
+      <HrDashboardView
+        variant="report"
+        data={shown.data}
+        query={new URLSearchParams({ kind, ...(dept ? { dept } : {}), ...(full.live ? {} : { day: full.day }) }).toString()}
+        filter={<HrDashboardFilter kind={kind} counts={counts} depts={shown.depts} picked={shown.picked} day={full.day} today={todayIso} />}
+        peopleFilter={
+          <HrDashboardFilter variant="table" kind={kind} counts={counts} depts={shown.depts} picked={shown.picked} day={full.day} today={todayIso} />
+        }
+      />
+    );
+  }
 
   const locationParam = locationId ? `&location=${locationId}` : "";
   const tabs = [
     {
       label: "Day",
       href: `/hr/attendance?view=day${locationParam}`,
-      on: !isMonth && !isLive,
+      on: !isMonth,
     },
     { label: "Month", href: `/hr/attendance?view=month${locationParam}`, on: isMonth },
-    { label: "Live", href: `/hr/attendance?view=live`, on: isLive },
   ];
   const viewSwitch = (
     <div className="flex rounded-lg border border-border bg-surface p-0.5">
@@ -76,66 +125,6 @@ export default async function AttendancePage({ searchParams }: Props) {
       ))}
     </div>
   );
-
-  if (isLive) {
-    /**
-     * ADMINS ONLY (user 2026-10-23). The page above is gated on `hr_payroll`
-     * view, which is every HR user; this tab is one step tighter because what
-     * it shows is the RAW device feed — a user id as enrolled on a reader,
-     * with no person behind it yet. That is a diagnostic, not an HR record,
-     * and it is the wrong thing to put in front of someone looking for
-     * somebody's attendance.
-     *
-     * `has_permission` bypasses for a super admin, so this needs no change to
-     * 0733's RLS: an admin already reads `punches` through the `hr_payroll`
-     * policy. Widen to HR admins by also accepting `hr_payroll` edit.
-     */
-    await requirePermission("system_admin", "view");
-
-    /**
-     * The IST day boundary and the clock are both resolved HERE, on the server,
-     * and handed down as props — `live-client.tsx` must not call `Date.now()`
-     * in a render (impure, and it would be the viewer's clock rather than the
-     * one the punches were stamped against).
-     *
-     * No location filter: a punch is scoped by its DEVICE's unit through RLS,
-     * not by this screen's picker, so narrowing it here would hide rows the
-     * viewer is entitled to see.
-     */
-    const serverNowIso = new Date().toISOString();
-    const todayIst = new Intl.DateTimeFormat("en-CA", {
-      timeZone: "Asia/Kolkata",
-    }).format(new Date(serverNowIso));
-    const todayFromIso = `${todayIst}T00:00:00+05:30`;
-
-    const [devices, punches, todayCount, identities, deviceLocations] =
-      await Promise.all([
-        listDevices(),
-        listPunchesToday(todayFromIso),
-        countPunchesToday(todayFromIso),
-        getPunchIdentities(),
-        getLocations(),
-      ]);
-
-    return (
-      <div className="space-y-4">
-        <PageHeader
-          title="Live Punches"
-          description="What the biometric devices are sending, as it arrives."
-          actions={viewSwitch}
-        />
-        <LiveClient
-          devices={devices}
-          punches={punches}
-          identities={identities}
-          locations={deviceLocations}
-          todayCount={todayCount}
-          todayFromIso={todayFromIso}
-          serverNowIso={serverNowIso}
-        />
-      </div>
-    );
-  }
 
   // The factory's calendar date (IST), not the server's. Vercel runs in UTC,
   // so `new Date().toISOString()` / `getMonth()` answered with YESTERDAY for

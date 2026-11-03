@@ -36,6 +36,9 @@ import {
   Wifi,
   WifiOff,
   type LucideIcon,
+  ListOrdered,
+  Palmtree,
+  Timer,
 } from "lucide-react";
 import { AutoRefresh } from "@/components/hr/auto-refresh";
 import { RadarPanel } from "@/components/hr/radar-panel";
@@ -50,7 +53,7 @@ import {
 import type { DayStatus, GroupDay, PersonDay } from "@/lib/hr/timing-calc";
 import { fmtDate, fmtTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { DashboardPeople, type PeopleKey, type PeopleRow } from "@/components/hr/dashboard-people";
+import { DashboardPeople, type PeopleKey, type PeopleRow, type StatusTag } from "@/components/hr/dashboard-people";
 import { Truncated } from "@/components/ui/truncated";
 
 /*
@@ -104,10 +107,6 @@ function pctOf(n: number, d: number): number {
 }
 function count(groups: GroupDay[], pick: (d: PersonDay) => boolean): number {
   return groups.reduce((t, g) => t + g.people.filter(pick).length, 0);
-}
-/** YYYY-MM-DD in IST. */
-function istIso(ms: number): string {
-  return new Date(ms + 330 * 60_000).toISOString().slice(0, 10);
 }
 const isoMs = (iso: string) => Date.parse(`${iso}T00:00:00Z`);
 /** Days from `today` to the next time `iso`'s month-day comes round (0 = today). */
@@ -311,9 +310,22 @@ function ViewAll({ href, children = "View all" }: { href: string; children?: Rea
   );
 }
 
-function Label({ children }: { children: React.ReactNode }) {
-  return <p className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500 dark:text-slate-400">{children}</p>;
-}
+/*
+ * Quick actions, one colour each: a tinted tile, a soft glow in its corner and
+ * a gradient badge for the icon. Literal class strings — Tailwind v4 compiles
+ * only what it finds written out.
+ */
+const ACT_TONE = {
+  emerald: { tile: "border-emerald-200/70 from-emerald-50 to-white text-emerald-800 hover:border-emerald-300 dark:border-emerald-500/20 dark:from-emerald-500/10 dark:to-slate-900 dark:text-emerald-300", blob: "bg-emerald-300", badge: "from-emerald-400 to-green-600 shadow-emerald-500/30" },
+  violet: { tile: "border-violet-200/70 from-violet-50 to-white text-violet-800 hover:border-violet-300 dark:border-violet-500/20 dark:from-violet-500/10 dark:to-slate-900 dark:text-violet-300", blob: "bg-violet-300", badge: "from-violet-400 to-purple-600 shadow-violet-500/30" },
+  indigo: { tile: "border-indigo-200/70 from-indigo-50 to-white text-indigo-800 hover:border-indigo-300 dark:border-indigo-500/20 dark:from-indigo-500/10 dark:to-slate-900 dark:text-indigo-300", blob: "bg-indigo-300", badge: "from-indigo-400 to-blue-600 shadow-indigo-500/30" },
+  sky: { tile: "border-sky-200/70 from-sky-50 to-white text-sky-800 hover:border-sky-300 dark:border-sky-500/20 dark:from-sky-500/10 dark:to-slate-900 dark:text-sky-300", blob: "bg-sky-300", badge: "from-sky-400 to-cyan-600 shadow-sky-500/30" },
+  amber: { tile: "border-amber-200/70 from-amber-50 to-white text-amber-800 hover:border-amber-300 dark:border-amber-500/20 dark:from-amber-500/10 dark:to-slate-900 dark:text-amber-300", blob: "bg-amber-300", badge: "from-amber-400 to-orange-500 shadow-amber-500/30" },
+  teal: { tile: "border-teal-200/70 from-teal-50 to-white text-teal-800 hover:border-teal-300 dark:border-teal-500/20 dark:from-teal-500/10 dark:to-slate-900 dark:text-teal-300", blob: "bg-teal-300", badge: "from-teal-400 to-emerald-600 shadow-teal-500/30" },
+  rose: { tile: "border-rose-200/70 from-rose-50 to-white text-rose-800 hover:border-rose-300 dark:border-rose-500/20 dark:from-rose-500/10 dark:to-slate-900 dark:text-rose-300", blob: "bg-rose-300", badge: "from-rose-400 to-pink-600 shadow-rose-500/30" },
+  fuchsia: { tile: "border-fuchsia-200/70 from-fuchsia-50 to-white text-fuchsia-800 hover:border-fuchsia-300 dark:border-fuchsia-500/20 dark:from-fuchsia-500/10 dark:to-slate-900 dark:text-fuchsia-300", blob: "bg-fuchsia-300", badge: "from-fuchsia-400 to-purple-600 shadow-fuchsia-500/30" },
+  orange: { tile: "border-orange-200/70 from-orange-50 to-white text-orange-800 hover:border-orange-300 dark:border-orange-500/20 dark:from-orange-500/10 dark:to-slate-900 dark:text-orange-300", blob: "bg-orange-300", badge: "from-orange-400 to-red-500 shadow-orange-500/30" },
+} as const;
 
 function Dot({ className }: { className: string }) {
   return <i aria-hidden className={cn("inline-block h-2 w-2 shrink-0 rounded-full", className)} />;
@@ -400,7 +412,6 @@ function Kpi({
   note,
   art,
   tone,
-  bar,
   href,
 }: {
   /** Opens this card's people in the People panel below. */
@@ -412,19 +423,18 @@ function Kpi({
   /** A 3D icon under /public/hr/3d — see the note on the files there. */
   art: string;
   tone: keyof typeof KPI_TONE;
-  bar?: number;
 }) {
   const t = KPI_TONE[tone];
   const Box = href ? Link : "div";
   return (
     <Box
       href={href as string}
-      className={cn("group/kpi relative isolate flex h-full min-w-0 flex-col overflow-hidden rounded-2xl border bg-gradient-to-br to-white px-5 py-4 shadow-lg transition duration-300 hover:-translate-y-1.5 hover:scale-[1.02] hover:shadow-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:to-slate-900", t.card)}
+      className={cn("group/kpi relative isolate flex h-full min-w-0 flex-col overflow-hidden rounded-xl border bg-gradient-to-br to-white px-3 py-2.5 shadow-md transition duration-300 hover:-translate-y-1 hover:scale-[1.02] hover:shadow-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:to-slate-900", t.card)}
     >
-      <span aria-hidden className={cn("pointer-events-none absolute -right-8 -top-8 -z-10 h-28 w-28 rounded-full blur-2xl transition-transform duration-500 group-hover/kpi:scale-150", t.blob)} />
+      <span aria-hidden className={cn("pointer-events-none absolute -right-8 -top-8 -z-10 h-16 w-16 rounded-full blur-2xl transition-transform duration-500 group-hover/kpi:scale-150", t.blob)} />
       <span aria-hidden className={cn("absolute inset-x-0 bottom-0 h-1 bg-gradient-to-r", t.bar)} />
-      <div className="flex items-center justify-between gap-2">
-        <Label>{label}</Label>
+      <div className="flex items-center justify-between gap-1.5">
+        <p className="min-w-0 truncate text-[9.5px] font-semibold uppercase tracking-[0.05em] text-slate-500 dark:text-slate-400">{label}</p>
         {/*
           3D icons (client 2026-10-28: "real images or like a 3D one, colourful,
           not like a bg") — Microsoft Fluent Emoji 3D, MIT licence, vendored in
@@ -435,21 +445,16 @@ function Kpi({
         <Image
           src={art}
           alt=""
-          width={32}
-          height={32}
-          className="h-8 w-8 shrink-0 drop-shadow-[0_3px_4px_rgb(15_23_42/0.16)] transition-transform duration-300 group-hover/kpi:-translate-y-0.5 group-hover/kpi:-rotate-6 group-hover/kpi:scale-110"
+          width={20}
+          height={20}
+          className="h-5 w-5 shrink-0 drop-shadow-[0_3px_4px_rgb(15_23_42/0.16)] transition-transform duration-300 group-hover/kpi:-translate-y-0.5 group-hover/kpi:-rotate-6 group-hover/kpi:scale-110"
         />
       </div>
-      <p className="mt-2 flex items-baseline gap-1 text-[28px] font-semibold leading-none tracking-tight tabular-nums text-slate-900 dark:text-white">
+      <p className="mt-1 flex items-baseline gap-1 text-xl font-semibold leading-none tracking-tight tabular-nums text-slate-900 dark:text-white">
         {value}
-        {unit && <span className="text-sm font-medium text-slate-400">{unit}</span>}
+        {unit && <span className="text-[11px] font-medium text-slate-400">{unit}</span>}
       </p>
-      <div className={cn("mb-3 mt-2 text-xs font-medium", t.text)}>{note}</div>
-      {bar != null && (
-        <div className="mt-auto h-1.5 overflow-hidden rounded-full bg-white/70 ring-1 ring-slate-200/60 dark:bg-slate-800 dark:ring-0">
-          <div className={cn("h-full rounded-full bg-gradient-to-r", t.bar)} style={{ width: `${Math.min(100, bar)}%` }} />
-        </div>
-      )}
+      <div className={cn("mb-1.5 mt-1 line-clamp-2 text-[10.5px] font-medium leading-snug", t.text)}>{note}</div>
     </Box>
   );
 }
@@ -647,7 +652,7 @@ function NeedsAttention({ attention: a, now, className }: { attention: HrDashboa
                       .join(" · ")}
                   />
                 </span>
-                <AttnAction href="/hr/attendance?view=live">Check</AttnAction>
+                <AttnAction href="/hr/live">Check</AttnAction>
               </div>
             </div>
           )}
@@ -664,19 +669,40 @@ function NeedsAttention({ attention: a, now, className }: { attention: HrDashboa
 export function HrDashboardView({
   data,
   filter,
+  peopleFilter,
   weekNote,
   query = "",
+  variant = "dashboard",
 }: {
   data: HrDashboard;
+  /**
+   * `report` is Time & Attendance ▸ Attendance Report (user 2026-11-03: "only
+   * the up cards and this whole thing from the dashboard") — the filter, the
+   * ten cards and the People table, and nothing else. Same component, so the
+   * report and the dashboard can never count a day differently.
+   */
+  variant?: "dashboard" | "report";
   /** The Staff | Worker switch and department filter, under the header. */
   filter?: React.ReactNode;
+  /** The same Department and Date, over the People table. */
+  peopleFilter?: React.ReactNode;
   /** Said under the week chart when it can't follow the filter. */
   weekNote?: string;
   /** The dashboard filter's query (kind, dept), kept on a tile's link. */
   query?: string;
 }) {
-  const { groups, now } = data;
-  const today = istIso(now);
+  /*
+   * TWO CLOCKS SINCE THE DATE PICKER (user 2026-11-03). `now` is the instant
+   * the day is judged at — the real now for today, the day's close for a past
+   * day — and drives every figure. `clockNow` is the wall clock, for what is
+   * about this moment whatever day is on view: the devices, "Updated", the
+   * greeting.
+   */
+  const { groups, now: clockNow, live } = data;
+  const now = data.asOf;
+  const report = variant === "report";
+  const today = data.day;
+  const onDay = live ? "today" : "that day";
   const all = groups.flatMap((g) => g.people);
   const enrolled = all.length;
   const present = count(groups, isPresent);
@@ -744,6 +770,19 @@ export function HrDashboardView({
     if (d.status === "left_early") tags.push("early");
     if (d.status === "inside") tags.push("premises");
     if (d.status === "stepped_out") tags.push("out");
+    // The Status column: time off first (it explains the rest), then where the
+    // day stands, then Late and Permission beside it.
+    const status: StatusTag[] = [];
+    if (off === "leave") status.push({ tone: "leave", label: offType.get(d.person.bio) ?? "Leave" });
+    if (off === "on_duty") status.push({ tone: "duty", label: "On duty" });
+    if (d.status === "absent" && !excused(d)) status.push({ tone: "absent", label: "Absent" });
+    if (d.status === "not_in") status.push({ tone: "waiting", label: "Not in yet" });
+    if (d.status === "inside") status.push({ tone: "in", label: "In" });
+    if (d.status === "stepped_out") status.push({ tone: "out", label: "Out now" });
+    if (d.status === "left") status.push({ tone: "home", label: "Gone home" });
+    if (d.status === "left_early") status.push({ tone: "early", label: "Left early" });
+    if (isPresent(d) && d.lateMin > 0) status.push({ tone: "late", label: "Late" });
+    if (off === "permission") status.push({ tone: "permission", label: "Permission" });
     return {
       bio: d.person.bio,
       name: d.person.name,
@@ -757,6 +796,7 @@ export function HrDashboardView({
       lateMin: d.lateMin,
       earlyMin: d.earlyMin,
       offType: off ? (offType.get(d.person.bio) ?? null) : null,
+      status,
     };
   });
   const show = (key: PeopleKey) => `?${query ? `${query}&` : ""}show=${key}#people`;
@@ -844,26 +884,35 @@ export function HrDashboardView({
     return v.length ? (v.reduce((t, x) => t + x, 0) / v.length).toFixed(1) : "—";
   })();
 
-  const online = data.devices.filter((d) => d.last_seen && now - Date.parse(d.last_seen) <= ONLINE_WINDOW_MS);
+  const online = data.devices.filter((d) => d.last_seen && clockNow - Date.parse(d.last_seen) <= ONLINE_WINDOW_MS);
   const allOnline = data.devices.length > 0 && online.length === data.devices.length;
   // Radar blips = punches in the last 15 minutes (the sweep caps them at 16).
-  const recentPunches = all.reduce((t, d) => t + d.punches.filter((p) => p >= now - 15 * 60_000).length, 0);
+  const recentPunches = all.reduce((t, d) => t + d.punches.filter((p) => p >= clockNow - 15 * 60_000).length, 0);
   // Categories people are in that have no hours today — nobody there is judged.
   const missingTimings = groups.flatMap((g) => g.shifts).filter((x) => x.categoryId && !x.timing);
   const shifts = groups.flatMap((g) => g.shifts.map((x) => ({ ...x, group: g.group })));
   const side: PersonKind = groups[0]?.group ?? "staff";
 
-  const hour = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", hour: "numeric", hourCycle: "h23" }).format(now));
+  const hour = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", hour: "numeric", hourCycle: "h23" }).format(clockNow));
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const dateLine = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(now);
 
-  const ACTIONS: { label: string; href: string; icon: LucideIcon; badge?: number }[] = [
-    { label: "Attendance", href: "/hr/attendance", icon: CalendarCheck },
-    { label: "Leave approvals", href: "/hr/time-off/approvals", icon: ClipboardCheck, badge: data.pendingTimeOff.length },
-    { label: side === "worker" ? "Add worker" : "Add staff", href: side === "worker" ? "/hr/workers?new=1" : "/hr/staff?new=1", icon: UserPlus },
-    { label: "Issue memo", href: "/hr/conduct/memos?new=1", icon: MailWarning },
-    { label: "Payroll", href: "/hr/payroll", icon: Wallet },
-    { label: "Leave calendar", href: "/hr/time-off/calendar", icon: CalendarDays },
+  /*
+   * NINE, EACH IN ITS OWN COLOUR (user 2026-11-03, screenshot 111641: "make
+   * these also colourful, add functions, more styles and designs"). Three more
+   * jobs HR does daily — applying leave and permission for someone (in
+   * advance, 0798) and the movement register — make a full 3 × 3.
+   */
+  const ACTIONS: { label: string; href: string; icon: LucideIcon; tone: keyof typeof ACT_TONE; badge?: number }[] = [
+    { label: "Attendance", href: "/hr/attendance", icon: CalendarCheck, tone: "emerald" },
+    { label: "Leave approvals", href: "/hr/time-off/approvals", icon: ClipboardCheck, tone: "violet", badge: data.pendingTimeOff.length },
+    { label: side === "worker" ? "Add worker" : "Add staff", href: side === "worker" ? "/hr/workers?new=1" : "/hr/staff?new=1", icon: UserPlus, tone: "indigo" },
+    { label: "Apply leave", href: "/hr/time-off/leave", icon: Palmtree, tone: "sky" },
+    { label: "Permission", href: "/hr/time-off/permission", icon: Timer, tone: "amber" },
+    { label: "Movement register", href: "/hr/movement-register", icon: ListOrdered, tone: "teal" },
+    { label: "Issue memo", href: "/hr/conduct/memos?new=1", icon: MailWarning, tone: "rose" },
+    { label: "Payroll", href: "/hr/payroll", icon: Wallet, tone: "fuchsia" },
+    { label: "Leave calendar", href: "/hr/time-off/calendar", icon: CalendarDays, tone: "orange" },
   ];
 
   const PIPELINE: { label: string; n: number; href: string; icon: LucideIcon }[] = [
@@ -885,9 +934,30 @@ export function HrDashboardView({
      * it scroll: `<main>` is a scrolling flex column.
      */
     <div className="-mx-4 -mt-4 min-h-[calc(100%+2rem)] shrink-0 bg-gradient-to-br from-indigo-50 via-slate-50 to-fuchsia-50 px-4 pb-8 pt-5 text-slate-700 !w-[calc(100%+2rem)] md:-mb-6 md:min-h-[calc(100%+2.5rem)] md:px-8 md:pt-7 dark:bg-slate-950 dark:text-slate-300">
-      <AutoRefresh seconds={60} />
+      {live && <AutoRefresh seconds={60} />}
       <div className="mx-auto max-w-[1440px] space-y-6">
         {/* ── Header ───────────────────────────────────────── */}
+        {report ? (
+          <header className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-white">Attendance Report</h1>
+              <p className="mt-1 text-sm text-slate-500">
+                {dateLine} · <b className="font-semibold text-slate-900 dark:text-white">{present}</b> of {enrolled} in {onDay}
+              </p>
+            </div>
+            {live ? (
+              <span className="inline-flex items-center gap-2 text-xs text-slate-500">
+                <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden />
+                Updated {clock(clockNow)}
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-2 text-xs text-slate-500">
+                <span className="h-2 w-2 rounded-full bg-slate-400" aria-hidden />
+                Past day · as it closed
+              </span>
+            )}
+          </header>
+        ) : (
         <header className="relative isolate flex flex-wrap items-end justify-between gap-4 overflow-hidden rounded-2xl bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-600 px-6 py-6 text-white shadow-lg shadow-indigo-500/20">
           <div aria-hidden className="absolute -right-16 -top-20 -z-10 h-56 w-56 rounded-full bg-white/15 blur-2xl" />
           <div aria-hidden className="absolute -bottom-24 left-1/3 -z-10 h-56 w-56 rounded-full bg-cyan-300/25 blur-3xl" />
@@ -895,7 +965,7 @@ export function HrDashboardView({
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-white/75">HR &amp; Payroll</p>
             <h1 className="mt-1 text-2xl font-semibold tracking-tight md:text-3xl">{greeting} 👋</h1>
             <p className="mt-1 text-sm text-white/80">
-              {dateLine} · <b className="font-semibold text-white">{present}</b> of {enrolled} in today
+              {dateLine} · <b className="font-semibold text-white">{present}</b> of {enrolled} in {onDay}
               {data.waitingOnMe > 0 && (
                 <>
                   {" · "}
@@ -918,20 +988,30 @@ export function HrDashboardView({
               </span>
             ))}
             <span className="inline-flex items-center gap-2 rounded-lg bg-white/15 px-3 py-1.5 text-xs font-medium ring-1 ring-white/20 backdrop-blur">
-              <span className="relative flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-60" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-              </span>
-              Live · updated {clock(now)}
+              {live ? (
+                <>
+                  <span className="relative flex h-2 w-2">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-60" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+                  </span>
+                  Live · updated {clock(clockNow)}
+                </>
+              ) : (
+                <>
+                  <span className="h-2 w-2 rounded-full bg-white/60" aria-hidden />
+                  Past day · as it closed
+                </>
+              )}
             </span>
             <Link
-              href="/hr/attendance?view=live"
+              href="/hr/live"
               className="inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-indigo-700 shadow-sm transition hover:bg-indigo-50"
             >
               <Radio className="h-3.5 w-3.5" aria-hidden /> Live monitor <ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
             </Link>
           </div>
         </header>
+        )}
 
         {filter}
 
@@ -970,7 +1050,16 @@ export function HrDashboardView({
             and `auto-rows-fr` makes every row as tall as the tallest card.
             The "Right now" strip of 2026-11-02 folded back into these cards
             (user: "like before it can all be the cards"). */}
-        <section className="grid auto-rows-fr grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
+        {/*
+          SMALLER, AND ONE LINE WHEN THERE IS ROOM (user 2026-11-03: "make the
+          top cards a little bit smaller or can all the boxes fit in one line").
+          Ten in a row needs ~120px a card, which the content area has from
+          80rem; below that they fall back to 5 / 3 / 2 a row. CONTAINER
+          queries, not the viewport — the open sidebar takes width a viewport
+          breakpoint cannot see, and ten cards under it would crush.
+        */}
+        <div className="@container">
+        <section className="grid auto-rows-fr grid-cols-2 gap-2.5 @xl:grid-cols-3 @4xl:grid-cols-5 @min-[80rem]:grid-cols-10">
           <Kpi
             label="On roll"
             value={enrolled}
@@ -984,7 +1073,6 @@ export function HrDashboardView({
             value={present}
             unit={`/ ${enrolled}`}
             art="/hr/3d/present.png"
-            bar={pctOf(present, enrolled)}
             tone="emerald"
             href={show("present")}
             note={<Delta today={present} yesterday={prev?.present} goodWhen="up" />}
@@ -1011,7 +1099,7 @@ export function HrDashboardView({
             art="/hr/3d/permission.png"
             tone="amber"
             href={show("permission")}
-            note={onPermission ? "short time off today" : "no permission today"}
+            note={onPermission ? `short time off ${onDay}` : `no permission ${onDay}`}
           />
           <Kpi
             label="Absent"
@@ -1042,7 +1130,6 @@ export function HrDashboardView({
             value={`${onTimeRate}%`}
             art="/hr/3d/ontime.png"
             tone="emerald"
-            bar={onTimeRate}
             href={show("ontime")}
             note={
               <Delta
@@ -1062,7 +1149,10 @@ export function HrDashboardView({
             note={`${outNow} out right now · ${trips} trips out`}
           />
         </section>
+        </div>
 
+        {!report && (
+        <>
         {/* ── Week + today's breakdown ─────────────────────── */}
         <div className="grid gap-6 xl:grid-cols-12">
           <Panel accent="sky"
@@ -1175,7 +1265,7 @@ export function HrDashboardView({
 
         {/* ── Act on it: attention + approvals & quick actions ── */}
         <div className="grid gap-6 xl:grid-cols-12">
-          <NeedsAttention attention={data.attention} now={now} className="xl:col-span-8" />
+          <NeedsAttention attention={data.attention} now={clockNow} className="xl:col-span-8" />
 
           <div className="flex flex-col gap-6 xl:col-span-4">
             <Panel accent="amber"
@@ -1206,20 +1296,36 @@ export function HrDashboardView({
             </Panel>
 
             <Panel accent="indigo" title="Quick actions" icon={ArrowRight}>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-2 2xl:grid-cols-3">
-                {ACTIONS.map((a) => (
-                  <Link
-                    key={a.label}
-                    href={a.href}
-                    className="group/act relative flex flex-col items-center gap-1.5 rounded-xl border border-slate-200/80 px-2 py-3 text-center text-xs font-medium text-slate-700 transition hover:border-indigo-300 hover:bg-indigo-50/60 hover:text-indigo-700 dark:border-slate-800 dark:text-slate-300 dark:hover:border-indigo-500/40 dark:hover:bg-indigo-500/10"
-                  >
-                    <a.icon className="h-5 w-5 text-slate-400 transition group-hover/act:text-indigo-600" aria-hidden />
-                    {a.label}
-                    {!!a.badge && (
-                      <span className="absolute right-1.5 top-1.5 rounded-full bg-rose-600 px-1.5 text-[10px] font-bold tabular-nums text-white">{a.badge}</span>
-                    )}
-                  </Link>
-                ))}
+              <div className="grid grid-cols-3 gap-2.5">
+                {ACTIONS.map((a) => {
+                  const t = ACT_TONE[a.tone];
+                  return (
+                    <Link
+                      key={a.label}
+                      href={a.href}
+                      className={cn(
+                        "group/act relative isolate flex flex-col items-center gap-2 overflow-hidden rounded-xl border bg-gradient-to-br px-1.5 pb-2.5 pt-3 text-center text-[11px] font-semibold leading-tight shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500",
+                        t.tile,
+                      )}
+                    >
+                      <span aria-hidden className={cn("pointer-events-none absolute -right-5 -top-5 -z-10 h-12 w-12 rounded-full opacity-60 blur-xl transition-transform duration-500 group-hover/act:scale-150", t.blob)} />
+                      <span
+                        className={cn(
+                          "grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br text-white shadow-md ring-2 ring-white/70 transition duration-300 group-hover/act:-rotate-6 group-hover/act:scale-110 dark:ring-white/10",
+                          t.badge,
+                        )}
+                      >
+                        <a.icon className="h-[18px] w-[18px]" aria-hidden />
+                      </span>
+                      {a.label}
+                      {!!a.badge && (
+                        <span className="absolute right-1.5 top-1.5 grid h-[18px] min-w-[18px] place-items-center rounded-full bg-rose-600 px-1 text-[10px] font-bold tabular-nums text-white shadow ring-2 ring-white dark:ring-slate-900">
+                          {a.badge}
+                        </span>
+                      )}
+                    </Link>
+                  );
+                })}
               </div>
             </Panel>
           </div>
@@ -1227,11 +1333,23 @@ export function HrDashboardView({
 
         {/* ── Department · away · celebrations ─────────────── */}
         <div className="grid gap-6 lg:grid-cols-2 xl:grid-cols-3">
-          <Panel accent="cyan" title="Attendance by department" subtitle="Today, present of on roll" icon={Building2}>
+          <Panel
+            accent="cyan"
+            title="Attendance by department"
+            subtitle={`${live ? "Today" : "That day"}, present of on roll · ${depts.length} department${depts.length === 1 ? "" : "s"}`}
+            icon={Building2}
+          >
             {depts.length ? (
               <>
-                <ul className="space-y-3">
-                  {depts.slice(0, 7).map((d) => {
+                {/*
+                  EVERY DEPARTMENT (user 2026-11-03, screenshot 112241: "here I
+                  want the full departments"). It stopped at seven with "+9
+                  smaller departments — use the filter above". All of them now,
+                  in a scroll the height those seven took, so the panel still
+                  lines up with Who's away beside it.
+                */}
+                <ul className="-mr-2 max-h-[22rem] space-y-3 overflow-y-auto pr-2 scrollbar-slim">
+                  {depts.map((d) => {
                     const p = d.ontime + d.late;
                     return (
                       <li key={d.name}>
@@ -1249,7 +1367,6 @@ export function HrDashboardView({
                     );
                   })}
                 </ul>
-                {depts.length > 7 && <p className="mt-3 text-xs text-slate-500">+{depts.length - 7} smaller departments — use the filter above.</p>}
               </>
             ) : (
               <Empty>Nobody on the punch reader yet.</Empty>
@@ -1257,7 +1374,7 @@ export function HrDashboardView({
           </Panel>
 
           <Panel accent="violet"
-            title="Who's away today"
+            title={live ? "Who's away today" : "Who was away that day"}
             subtitle={`${onLeave} on leave · ${onDuty} on duty · ${onPermission} permission`}
             icon={Plane}
             action={<ViewAll href="/hr/time-off/calendar">Calendar</ViewAll>}
@@ -1288,7 +1405,7 @@ export function HrDashboardView({
                 )}
               </ul>
             ) : (
-              <Empty icon={UserCheck}>Everyone is expected in today.</Empty>
+              <Empty icon={UserCheck}>Everyone is expected in {onDay}.</Empty>
             )}
           </Panel>
 
@@ -1428,9 +1545,14 @@ export function HrDashboardView({
           </Panel>
         </div>
 
-        {/* ── People — the names behind any tile ───────────── */}
-        <DashboardPeople rows={peopleRows} now={now} />
+        </>
+        )}
 
+        {/* ── People — the names behind any tile ───────────── */}
+        <DashboardPeople rows={peopleRows} now={now} filters={peopleFilter} />
+
+        {!report && (
+        <>
         {/* ── Activity log + devices ───────────────────────── */}
         <div className="grid gap-6 xl:grid-cols-12">
           <Panel accent="fuchsia"
@@ -1439,7 +1561,7 @@ export function HrDashboardView({
             icon={Fingerprint}
             className="xl:col-span-8"
             bodyClass="p-0"
-            action={<ViewAll href="/hr/attendance?view=live" />}
+            action={<ViewAll href="/hr/live" />}
           >
             {data.feed.length ? (
               <div className="max-h-96 overflow-y-auto">
@@ -1475,7 +1597,7 @@ export function HrDashboardView({
               </div>
             ) : (
               <div className="p-5">
-                <Empty icon={Fingerprint} art={<WaitingScene className="h-28" />}>No punches recorded yet today.</Empty>
+                <Empty icon={Fingerprint} art={<WaitingScene className="h-28" />}>{live ? "No punches recorded yet today." : "No punches recorded that day."}</Empty>
               </div>
             )}
           </Panel>
@@ -1510,6 +1632,8 @@ export function HrDashboardView({
             )}
           </Panel>
         </div>
+        </>
+        )}
 
         <p className="text-center text-xs text-slate-400">Refreshes every minute · all times IST</p>
       </div>

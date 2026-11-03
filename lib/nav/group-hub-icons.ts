@@ -1,4 +1,5 @@
 import {
+  Radio,
   Award,
   BadgeCheck,
   Banknote,
@@ -118,6 +119,7 @@ export const GROUP_HUB_ICONS: Readonly<Record<string, HubMark>> = {
   "/hr/movement-register": { icon: ListOrdered, tone: "info" },
   "/hr/piece-records": { icon: Scissors, tone: "accent" },
   "/hr/leave": { icon: CalendarOff, tone: "primary" },
+  "/hr/live": { icon: Radio, tone: "danger" },
 
   // Pay — Salary Registry (accent) · Bank Details (primary) lead it, then
   // Payroll Runs (success); no two adjacent cards share a tone.
