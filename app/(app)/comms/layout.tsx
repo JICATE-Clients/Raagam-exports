@@ -4,6 +4,7 @@ import { isCommsMissing, listMyConversations } from "@/lib/comms/service";
 import { getWorkspace } from "@/lib/comms/workspace-service";
 import { listMyCommunities } from "@/lib/comms/community-service";
 import type { Workspace } from "@/lib/comms/workspace";
+import { getUserPhotos } from "@/lib/comms/photos";
 import { CommsShell } from "@/components/comms/comms-shell";
 import { CommsNotInstalled } from "@/components/comms/comms-not-installed";
 import { WorkspaceBar, WorkspaceDeactivated } from "@/components/comms/workspace-bar";
@@ -39,12 +40,13 @@ export default async function CommsLayout({ children }: { children: ReactNode })
     if (isCommsMissing(e)) return <CommsNotInstalled />;
     throw e;
   }
+  const photos = await getUserPhotos();
   if (workspace?.my_status === "deactivated") return <WorkspaceDeactivated workspace={workspace} />;
   // `chats` feeds Pulse's list pane (comms-shell.tsx, "PULSE IS TWO PANES").
   // The workspace name bar is hidden (user 2026-11-02: remove the "RAAGAM"
   // strip); it only shows while the workspace is suspended, to carry the Paused pill.
   return (
-    <CommsShell top={workspace?.status === "suspended" ? <WorkspaceBar workspace={workspace} /> : null} chats={chats} communities={communities}>
+    <CommsShell top={workspace?.status === "suspended" ? <WorkspaceBar workspace={workspace} /> : null} chats={chats} communities={communities} photos={photos}>
       {children}
     </CommsShell>
   );

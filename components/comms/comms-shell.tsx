@@ -9,6 +9,7 @@ import type { CommunitySummary, ConversationSummary } from "@/lib/comms/types";
 import { cn } from "@/lib/utils";
 import { ConversationList } from "./conversation-list";
 import { NewConversationSheet } from "./new-conversation-sheet";
+import { PhotosProvider } from "./person-photo";
 
 /**
  * ## PULSE IS TWO PANES (user 2026-10-29, "apply this design … in the same way")
@@ -52,6 +53,7 @@ export function CommsShell({
   top,
   chats,
   communities,
+  photos,
 }: {
   children: ReactNode;
   top?: ReactNode;
@@ -59,6 +61,8 @@ export function CommsShell({
   chats?: ConversationSummary[];
   /** 0775: the caller's communities; null before 0775 is applied. */
   communities?: CommunitySummary[] | null;
+  /** userId → HR photo URL (lib/comms/photos.ts). */
+  photos?: Record<string, string>;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -113,6 +117,7 @@ export function CommsShell({
   const pulse = !!chats && (isHome || !!communityId || !!fileId || !!openId);
 
   return (
+    <PhotosProvider photos={photos ?? {}}>
     <div
       data-focus-scope="off"
       data-comms-frame=""
@@ -154,5 +159,6 @@ export function CommsShell({
       )}
       <NewConversationSheet open={composing} meId={user.id} onClose={() => setComposing(false)} />
     </div>
+    </PhotosProvider>
   );
 }

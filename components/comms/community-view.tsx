@@ -31,6 +31,7 @@ import { cn } from "@/lib/utils";
 import { CommunityAvatar } from "./community-avatar";
 import { avatarStyle, AVATAR_TINT } from "./conversation-list";
 import { initials } from "./message-body";
+import { Face } from "./person-photo";
 import { PeoplePicker } from "./people-picker";
 
 const GREEN_TINT = "bg-[color-mix(in_srgb,#1f9d6b_14%,var(--surface))] text-[#137a52] dark:text-[#6fdcaa]";
@@ -188,7 +189,7 @@ export function CommunityView({ community }: { community: CommunityDetail }) {
             <ul>
               {community.requests.map((r) => (
                 <li key={r.id} className="flex flex-wrap items-center gap-2 px-2 py-1.5">
-                  <PersonAvatar name={r.full_name ?? "?"} />
+                  <PersonAvatar userId={r.user_id} name={r.full_name ?? "?"} />
                   <span className="min-w-0 flex-1 text-sm">
                     <span className="font-bold text-heading">{r.full_name ?? "Someone"}</span>
                     <span className="text-muted-foreground"> wants to join {r.group_name ?? "a group"}</span>
@@ -263,7 +264,7 @@ export function CommunityView({ community }: { community: CommunityDetail }) {
           <ul>
             {community.members.map((m) => (
               <li key={m.user_id} className="flex items-center gap-2.5 px-2 py-1.5">
-                <PersonAvatar name={m.full_name ?? "?"} />
+                <PersonAvatar userId={m.user_id} name={m.full_name ?? "?"} />
                 <Truncated text={m.full_name ?? "Unknown"} className="min-w-0 flex-1 text-sm font-semibold text-foreground" />
                 {m.role !== "member" && (
                   <span className={cn("shrink-0 rounded-md px-1.5 text-[11px] font-extrabold", GREEN_TINT)}>
@@ -348,10 +349,11 @@ function GroupAvatar({ name }: { name: string }) {
   );
 }
 
-function PersonAvatar({ name }: { name: string }) {
+/** A community member or join requester — a real login, so their HR photo (lib/comms/photos.ts), else initials. */
+function PersonAvatar({ userId, name }: { userId: string; name: string }) {
   return (
-    <span aria-hidden style={avatarStyle(name)} className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-extrabold", AVATAR_TINT)}>
-      {initials(name)}
+    <span aria-hidden style={avatarStyle(name)} className={cn("flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full text-xs font-extrabold", AVATAR_TINT)}>
+      <Face userId={userId} name={name} />
     </span>
   );
 }

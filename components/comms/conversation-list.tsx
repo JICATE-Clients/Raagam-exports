@@ -49,6 +49,8 @@ import { cn } from "@/lib/utils";
 import { clockTime, fileSize, initials } from "./message-body";
 import { CommunityAvatar } from "./community-avatar";
 import { NewCommunitySheet } from "./new-community-sheet";
+import { PhotoImg, useUserPhoto } from "./person-photo";
+import { nameCase } from "@/lib/comms/name-case";
 
 type Filter = "all" | "unread" | "favorites" | "groups" | "communities" | "channels" | "files";
 
@@ -77,7 +79,7 @@ const FILTERS: { value: Filter; label: string }[] = [
 const ROW: Filter[] = ["all", "unread", "favorites", "groups"];
 
 const CHIP =
-  "inline-flex h-8 min-w-0 items-center gap-1 md:h-6 whitespace-nowrap rounded-full border px-3 text-[13px] font-semibold md:px-2 md:text-[12px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  "inline-flex h-8 min-w-0 items-center gap-1 md:h-6 whitespace-nowrap rounded-full border px-3 text-[12px] font-semibold md:px-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 const CHIP_OFF = "border-[#d1d7db] bg-surface text-[#54656f] hover:bg-surface-muted dark:border-[#3b4a54] dark:text-[#aebac1]";
 // The chosen filter, the unread counts and the search focus follow the theme
 // colour (user 2026-11-02) instead of WhatsApp's green and the old coral.
@@ -964,6 +966,7 @@ function preview(c: ConversationSummary): string {
 }
 
 function ChatAvatar({ c, size }: { c: ConversationSummary; size: "sm" | "md" | "lg" | "compact" }) {
+  const photo = useUserPhoto(c.kind === "direct" ? c.other_user_id : null);
   const channel = c.kind === "channel";
   const Icon = c.is_announcement ? Megaphone : channel ? (c.visibility === "private" ? Lock : Hash) : c.kind === "group" && !c.name ? Users : null;
   return (
@@ -971,13 +974,13 @@ function ChatAvatar({ c, size }: { c: ConversationSummary; size: "sm" | "md" | "
       aria-hidden
       style={avatarStyle(c.title)}
       className={cn(
-        "flex shrink-0 items-center justify-center font-extrabold",
+        "flex shrink-0 items-center justify-center overflow-hidden font-extrabold",
         AVATAR_TINT,
-        size === "compact" ? "h-[38px] w-[38px] text-[13px] max-md:h-11 max-md:w-11 max-md:text-sm" : size === "sm" ? "h-9 w-9 text-sm" : size === "lg" ? "h-11 w-11 text-sm" : "h-[50px] w-[50px] text-[17px]",
+        size === "compact" ? "h-[38px] w-[38px] text-[13px] max-md:h-10 max-md:w-10 max-md:text-sm" : size === "sm" ? "h-9 w-9 text-sm" : size === "lg" ? "h-11 w-11 text-sm" : "h-[50px] w-[50px] text-[17px]",
         c.kind === "direct" ? "rounded-full" : size === "md" ? "rounded-[15px]" : "rounded-xl",
       )}
     >
-      {Icon ? <Icon className="h-5 w-5" /> : initials(c.title.replace(/^#/, ""))}
+      {photo ? <PhotoImg src={photo} /> : Icon ? <Icon className="h-5 w-5" /> : initials(c.title.replace(/^#/, ""))}
     </span>
   );
 }
@@ -1027,7 +1030,7 @@ function Row({
   menu: DropdownItem[];
 }) {
   const unread = active || c.muted ? 0 : c.unread_count;
-  const label = c.title.replace(/^#/, "");
+  const label = c.kind === "direct" ? nameCase(c.title) : c.title.replace(/^#/, "");
   const tag = c.is_announcement
     ? "Announcements"
     : community
@@ -1053,8 +1056,8 @@ function Row({
         {/* The divider runs edge to edge on the row itself (user 2026-11-02). */}
         <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 self-stretch">
           <span className="flex items-center gap-2">
-            <Truncated text={label} className="min-w-0 flex-1 text-[15px] font-bold leading-snug text-heading" />
-            <span className={cn("shrink-0 text-xs tabular-nums", unread > 0 ? cn("font-extrabold", UNREAD_TEXT) : "font-medium text-muted-foreground")}>
+            <Truncated text={label} className="min-w-0 flex-1 text-sm font-semibold leading-snug text-heading" />
+            <span className={cn("shrink-0 text-[11.5px] tabular-nums", unread > 0 ? cn("font-extrabold", UNREAD_TEXT) : "font-medium text-muted-foreground")}>
               {when}
             </span>
           </span>
@@ -1066,7 +1069,7 @@ function Row({
               <Truncated
                 text={tag}
                 className={cn(
-                  "max-w-[45%] shrink-0 rounded px-1.5 text-[11px] font-extrabold",
+                  "max-w-[45%] shrink-0 rounded px-1.5 text-[10px] font-extrabold",
                   c.is_announcement || community
                     ? COMMUNITY_TINT
                     : tag === "Group"

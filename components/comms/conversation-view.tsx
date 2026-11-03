@@ -43,6 +43,7 @@ import { PinnedSheet } from "./pinned-sheet";
 import { ThreadSheet } from "./thread-sheet";
 import { ChatSearchPanel } from "./chat-search-panel";
 import { suggestReplies } from "@/lib/comms/smart-reply-actions";
+import { PhotoImg, useUserPhoto } from "./person-photo";
 import { ruleReplies } from "@/lib/comms/smart-reply-rules";
 
 type Pending = {
@@ -122,6 +123,8 @@ export function ConversationView({
 
   const [messages, setMessages] = useState<CommMessage[]>(initialPage.messages);
   const [fill, setFill] = useState<{ text: string; n: number } | null>(null);
+  // The other person's HR photo in a direct chat's header (lib/comms/photos.ts).
+  const headerPhoto = useUserPhoto(conversation.kind === "direct" ? (conversation.members.find((x) => x.user_id !== meId && !x.removed_at)?.user_id ?? null) : null);
   const [cursor, setCursor] = useState<string | null>(initialPage.next_cursor);
   const [pending, setPending] = useState<Pending[]>([]);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -577,9 +580,9 @@ export function ConversationView({
           <span
             aria-hidden
             style={avatarStyle(conversation.title)}
-            className={cn("flex h-10 w-10 shrink-0 items-center justify-center text-sm font-bold", AVATAR_TINT, chat === "group" ? "rounded-xl" : "rounded-full")}
+            className={cn("flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden text-sm font-bold", AVATAR_TINT, chat === "group" ? "rounded-xl" : "rounded-full")}
           >
-            {chat === "group" && !conversation.name ? <Users className="h-5 w-5" /> : initials(conversation.title)}
+            {headerPhoto ? <PhotoImg src={headerPhoto} /> : chat === "group" && !conversation.name ? <Users className="h-5 w-5" /> : initials(conversation.title)}
           </span>
         ) : (
           <KindIcon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />

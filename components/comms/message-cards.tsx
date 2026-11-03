@@ -10,7 +10,7 @@ import type { EventData, PollData, RsvpAnswer } from "@/lib/comms/cards";
 import type { CommMessage } from "@/lib/comms/types";
 import { glowVars } from "@/lib/ui/buyer-glow";
 import { cn } from "@/lib/utils";
-import { initials } from "./message-body";
+import { Face } from "./person-photo";
 
 /**
  * The 📎 cards inside a message (0776; lib/comms/cards.ts). Each sits on its
@@ -199,9 +199,9 @@ export function ContactCard({ contact, meId }: { contact: { id: string; name: st
         <span
           aria-hidden
           style={glowVars(contact.name) as CSSProperties}
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--glow)_20%,var(--surface))] text-sm font-extrabold text-[var(--ink)]"
+          className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--glow)_20%,var(--surface))] text-sm font-extrabold text-[var(--ink)]"
         >
-          {initials(contact.name)}
+          <Face userId={contact.id} name={contact.name} />
         </span>
         <span className="min-w-0 break-words text-sm font-bold">{contact.name}</span>
       </div>

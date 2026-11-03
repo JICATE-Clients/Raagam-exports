@@ -20,7 +20,7 @@ import {
   updateConversation,
 } from "@/lib/comms/actions";
 import type { ConversationDetail, DirectoryPerson, MemberRole } from "@/lib/comms/types";
-import { initials } from "./message-body";
+import { Face } from "./person-photo";
 import { PeoplePicker } from "./people-picker";
 
 const ROLE_LABEL: Record<MemberRole, string> = { owner: "Owner", admin: "Admin", member: "Member" };
@@ -183,8 +183,8 @@ export function DetailsSheet({
           <ul className="divide-y divide-border rounded-lg border border-border">
             {active.map((m) => (
               <li key={m.user_id} className="flex items-center gap-3 px-3 py-2">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-muted text-xs font-semibold text-muted-foreground">
-                  {initials(m.full_name)}
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-muted text-xs font-semibold text-muted-foreground">
+                  <Face userId={m.user_id} name={m.full_name} />
                 </span>
                 <span className="min-w-0 flex-1 break-words text-sm text-foreground">
                   {m.full_name ?? "—"}

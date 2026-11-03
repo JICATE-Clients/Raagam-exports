@@ -27,7 +27,7 @@ import type { SearchOutcome } from "@/lib/comms/service";
 import type { DiscoveredChannel } from "@/lib/comms/channels";
 import type { WorkspacePerson } from "@/lib/comms/workspace";
 import { fmtDate, fmtDateTime } from "@/lib/format";
-import { initials } from "./message-body";
+import { Face } from "./person-photo";
 import { PeoplePicker } from "./people-picker";
 
 export type SearchState = {
@@ -263,8 +263,8 @@ export function SearchView({
                     <ul className="space-y-1">
                       {people.map((p) => (
                         <li key={p.id} className="flex items-center gap-2 text-sm">
-                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-surface-muted text-[11px] font-semibold text-muted-foreground">
-                            {initials(p.full_name)}
+                          <span className="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-muted text-[11px] font-semibold text-muted-foreground">
+                            <Face userId={p.id} name={p.full_name} />
                           </span>
                           <Link href={`/comms/people?q=${encodeURIComponent(p.full_name ?? "")}`} className="min-w-0 flex-1 break-words hover:underline">
                             <span className="font-medium text-foreground">{p.full_name}</span>
@@ -365,8 +365,8 @@ function SearchResult({ hit: h, names, terms }: { hit: MessageHit; names: Map<st
         href={messageHref(m)}
         className="flex gap-3 px-3 py-2.5 hover:bg-surface-muted focus-visible:bg-surface-muted focus-visible:outline-none"
       >
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary-soft text-xs font-semibold text-primary" aria-hidden>
-          {initials(m.author_name)}
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary-soft text-xs font-semibold text-primary" aria-hidden>
+          <Face userId={m.author_id} name={m.author_name} />
         </span>
         <span className="min-w-0 flex-1">
           <span className="flex flex-wrap items-baseline gap-x-2 text-xs text-muted-foreground">

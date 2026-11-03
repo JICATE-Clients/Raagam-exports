@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import {
   Bookmark,
   BookmarkCheck,
@@ -15,6 +15,8 @@ import {
   SmilePlus,
   Trash2,
 } from "lucide-react";
+import { useModalGuard } from "@/lib/reload-guard";
+import { PhotoImg, useUserPhoto } from "./person-photo";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, type DropdownItem } from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/textarea";
@@ -92,9 +94,23 @@ export function MessageItem({
   const [reacting, setReacting] = useState(false);
   const [pickerAnchor, setPickerAnchor] = useState<HTMLSpanElement | null>(null);
   // WhatsApp's smiley beside the bubble on hover: its own picker, anchored to it.
+  const authorPhoto = useUserPhoto(m.author_id);
   const [hoverReact, setHoverReact] = useState<HTMLButtonElement | null>(null);
   // The quick bar (👍 ❤️ 😂 😮 😢 🙏 ＋) the smiley opens, WhatsApp-style.
   const [quick, setQuick] = useState(false);
+  // PHONE: press and hold a bubble → a sheet with the quick bar and the actions
+  // (user 2026-11-03, the mobile reactions artifact). There is no hover on touch.
+  const [sheet, setSheet] = useState(false);
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useModalGuard(sheet);
+  useEffect(() => {
+    if (!sheet) return;
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === "Escape") setSheet(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [sheet]);
 
   // The text as the reader sees it — @Name, never the <@uuid> token.
   function copy() {
@@ -331,9 +347,9 @@ export function MessageItem({
               <span
                 aria-hidden
                 style={avatarStyle(author)}
-                className={cn("flex h-8 w-8 items-center justify-center rounded-full text-[11px] font-bold", AVATAR_TINT)}
+                className={cn("flex h-8 w-8 items-center justify-center overflow-hidden rounded-full text-[11px] font-bold", AVATAR_TINT)}
               >
-                {initials(author)}
+                {authorPhoto ? <PhotoImg src={authorPhoto} /> : initials(author)}
               </span>
             )}
           </div>
@@ -346,7 +362,7 @@ export function MessageItem({
             // the text deepened from it), so it changes with the topbar colour
             // menu, light and dark; theirs white with a hairline border. 12px
             // corners with a 4px one on the sender's side.
-            "relative min-w-0 max-w-[min(65%,32.5rem)] rounded-xl pb-2 pl-2.5 pr-2 pt-1.5 [&_.text-sm]:text-[14.2px] [&_.text-sm]:leading-[19px]",
+            "relative min-w-0 max-w-[min(65%,32.5rem)] rounded-xl pb-2 pl-2.5 pr-2 pt-1.5 [&_.text-sm]:text-[14.2px] [&_.text-sm]:leading-[19px] [@media(hover:none)]:select-none",
             // A sticker is drawn without a bubble, as WhatsApp does.
             sticker
               ? "bg-transparent px-0 shadow-none [&_.text-muted-foreground]:text-muted-foreground"
@@ -356,6 +372,16 @@ export function MessageItem({
             // The first bubble of a run points at its sender.
             !sticker && !grouped && (mine ? "rounded-br-[4px]" : "rounded-bl-[4px]"),
           )}
+          onPointerDown={(e) => {
+            if (e.pointerType !== "touch" || !canAct || menuItems.length === 0 || deleted || editing) return;
+            holdTimer.current = setTimeout(() => setSheet(true), 400);
+          }}
+          onPointerUp={() => holdTimer.current && clearTimeout(holdTimer.current)}
+          onPointerCancel={() => holdTimer.current && clearTimeout(holdTimer.current)}
+          onPointerMove={() => holdTimer.current && clearTimeout(holdTimer.current)}
+          onContextMenu={(e) => {
+            if (sheet || holdTimer.current) e.preventDefault();
+          }}
         >
           {showWho && !grouped && (
             <p style={avatarStyle(author)} className="mb-0.5 text-xs font-bold text-[var(--ink)]">
@@ -429,16 +455,85 @@ export function MessageItem({
                 </button>
               </div>
             )}
+            {sheet && (
+              <div
+                className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-black/45 px-4"
+                onClick={(e) => {
+                  if (e.target === e.currentTarget) setSheet(false);
+                }}
+              >
+                <div role="menu" aria-label="Quick reactions" className="flex items-center gap-0.5 rounded-full bg-surface px-2 py-1.5 shadow-xl">
+                  {QUICK_REACTIONS.map((e) => {
+                    const wearing = m.reactions.some((r) => r.emoji === e && r.mine);
+                    return (
+                      // button-shape: exempt -- one emoji in the phone's quick-reaction sheet, a glyph in a circle
+                      <button
+                        key={e}
+                        type="button"
+                        role="menuitem"
+                        aria-label={`${wearing ? "Remove" : "React with"} ${emojiName(e)}`}
+                        onClick={() => {
+                          setSheet(false);
+                          actions.onReact?.(m, e, !wearing);
+                        }}
+                        className={cn("flex h-11 w-11 items-center justify-center rounded-full text-[26px] active:scale-125", wearing && "bg-primary-soft")}
+                      >
+                        {e}
+                      </button>
+                    );
+                  })}
+                  {/* button-shape: exempt -- the ＋ that opens the full emoji list from the phone sheet */}
+                  <button
+                    type="button"
+                    aria-label="More emoji"
+                    onClick={(ev) => {
+                      const btn = ev.currentTarget;
+                      setHoverReact((cur) => (cur ? null : btn));
+                    }}
+                    className="ml-0.5 flex h-10 w-10 items-center justify-center rounded-full bg-surface-muted text-xl text-muted-foreground"
+                  >
+                    +
+                  </button>
+                </div>
+                {m.body && (
+                  <p className="max-h-32 max-w-sm overflow-hidden rounded-xl bg-surface px-3 py-2 text-[14.5px] shadow-lg">{plainText(m.body, names)}</p>
+                )}
+                <ul className="w-60 overflow-hidden rounded-2xl bg-surface shadow-xl">
+                  {menuItems
+                    .filter((it) => it.label !== "React")
+                    .map((it) => {
+                      const Icon = it.icon;
+                      return (
+                        <li key={it.label} className="border-b border-border last:border-b-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSheet(false);
+                              it.onClick?.();
+                            }}
+                            className={cn("flex w-full items-center gap-3 px-4 py-3 text-left text-[15px]", it.danger ? "text-danger" : "text-foreground")}
+                          >
+                            {Icon && <Icon className="h-4 w-4" aria-hidden />}
+                            {it.label}
+                          </button>
+                        </li>
+                      );
+                    })}
+                </ul>
+              </div>
+            )}
             {hoverReact && (
               <EmojiPicker
                 anchor={hoverReact}
                 onClose={() => {
                   setHoverReact(null);
                   setQuick(false);
+                  setSheet(false);
                 }}
                 onPick={(e) => {
                   setHoverReact(null);
                   setQuick(false);
+                  setSheet(false);
                   actions.onReact!(m, e, true);
                 }}
               />

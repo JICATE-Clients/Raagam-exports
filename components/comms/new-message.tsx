@@ -10,7 +10,8 @@ import { MESSAGE_MAX, type DirectoryPerson } from "@/lib/comms/types";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { cn } from "@/lib/utils";
 import { avatarStyle } from "./conversation-list";
-import { initials } from "./message-body";
+import { Face } from "./person-photo";
+import { nameCase } from "@/lib/comms/name-case";
 
 /** Somebody or somewhere the message can go. */
 export type QuickPick = Target;
@@ -231,7 +232,7 @@ export function NewMessage({
               id="pulse-to-list"
               role="listbox"
               aria-label="Channels and people"
-              className="absolute left-4 right-4 top-full z-20 mt-1 max-h-80 overflow-y-auto rounded-lg border border-border bg-surface py-1 shadow-lg sm:left-12 sm:right-auto sm:w-96"
+              className="absolute left-4 right-4 top-full z-20 mt-1 max-h-80 overflow-y-auto rounded-lg border border-border bg-surface py-1 shadow-lg sm:left-12 sm:right-auto sm:w-[26rem]"
             >
               {suggestions.map((t, i) => (
                 <li key={`${t.kind}:${t.id}`} role="option" aria-selected={i === lit}>
@@ -249,16 +250,19 @@ export function NewMessage({
                       <span
                         aria-hidden
                         style={avatarStyle(t.label)}
-                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[var(--ink)] text-[10px] font-bold text-white"
+                        className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-md bg-[var(--ink)] text-[10px] font-bold text-white"
                       >
-                        {initials(t.label)}
+                        <Face userId={t.id} name={t.label} />
                       </span>
                     )}
-                    <span className="font-semibold text-foreground">
-                      {t.kind === "channel" && "#"}
-                      {t.label}
+                    {/* Name on one line, role under it (user 2026-11-03, the New message mockup). */}
+                    <span className="flex min-w-0 flex-1 flex-col">
+                      <Truncated
+                        text={t.kind === "channel" ? `#${t.label}` : nameCase(t.label)}
+                        className="text-sm font-semibold leading-snug text-foreground"
+                      />
+                      {t.sub && <Truncated text={t.sub} className="text-xs leading-snug text-muted-foreground" />}
                     </span>
-                    {t.sub && <span className="min-w-0 truncate text-xs text-muted-foreground">{/* truncate-reveal: exempt -- a hint line in a suggestion; the name beside it is the value */}{t.sub}</span>}
                   </button>
                 </li>
               ))}
@@ -348,13 +352,13 @@ function PickList({ title, picks, onPick }: { title: string; picks: QuickPick[];
                 <span
                   aria-hidden
                   style={avatarStyle(t.label)}
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--ink)] text-xs font-bold text-white"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--ink)] text-xs font-bold text-white"
                 >
-                  {initials(t.label)}
+                  <Face userId={t.id} name={t.label} />
                 </span>
               )}
               <span className="flex min-w-0 flex-1 flex-col">
-                <Truncated text={t.kind === "channel" ? `#${t.label}` : t.label} className="text-sm font-bold leading-snug text-heading" />
+                <Truncated text={t.kind === "channel" ? `#${t.label}` : nameCase(t.label)} className="text-sm font-semibold leading-snug text-heading" />
                 {t.sub && <Truncated text={t.sub} className="text-[12.5px] text-muted-foreground" />}
               </span>
             </button>

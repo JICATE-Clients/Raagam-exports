@@ -32,7 +32,7 @@ import {
   type WorkspaceRole,
 } from "@/lib/comms/workspace";
 import { fmtDate, fmtDateTime } from "@/lib/format";
-import { initials } from "./message-body";
+import { Face } from "./person-photo";
 
 /**
  * The workspace's people (0750). Everyone active sees the active directory and
@@ -137,8 +137,8 @@ export function PeopleDirectory({
                   onClick={() => setOpenId(p.id)}
                   className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-surface-muted focus-visible:bg-surface-muted focus-visible:outline-none"
                 >
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-muted text-xs font-semibold text-muted-foreground">
-                    {initials(p.full_name)}
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-muted text-xs font-semibold text-muted-foreground">
+                    <Face userId={p.id} name={p.full_name} />
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block break-words text-sm font-semibold text-foreground">
@@ -288,8 +288,8 @@ function ProfileSheet({
       ) : (
         <div className="space-y-4">
           <div className="flex items-center gap-3">
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-primary-soft text-sm font-semibold text-primary">
-              {initials(person.full_name)}
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary-soft text-sm font-semibold text-primary">
+              <Face userId={person.id} name={person.full_name} />
             </span>
             <div className="min-w-0">
               <p className="break-words text-base font-semibold text-heading">{person.full_name ?? "Unnamed login"}</p>
