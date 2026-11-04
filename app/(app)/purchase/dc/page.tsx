@@ -24,6 +24,8 @@ import { ProductionDcSendForm } from "../../stores/production-dc/_components/pro
 import { ProductionDcReceiveForm } from "../../stores/production-dc/_components/production-dc-receive-form";
 import { GeneralDcSendForm } from "../general-delivery/_components/general-dc-send-form";
 import { getGeneralDc, getGeneralDcOptions } from "@/lib/purchase/general-dc-service";
+import { listStoreNavLinks } from "@/lib/stores/service";
+import { DepartmentDeliveryForm } from "./_components/department-delivery-form";
 
 /**
  * PURCHASE ▸ RECEIVING ▸ DELIVERY CHALLANS — THE ONE DC HUB (user 2026-10-31: "consolidate the
@@ -64,14 +66,14 @@ export default async function DcHubPage({ searchParams }: { searchParams: Promis
   return (
     /* No floating "← Back" over an open form (Raise PO's rule); the list keeps it. */
     <div className="space-y-4 [&:has([data-dc-editor])>[data-focus-region=header]>div]:hidden">
-      <PageHeader title="Delivery Challans" description="Every DC — job work, unit transfers, rejections and replacements" />
+      <PageHeader title="Delivery Challans" description="Every DC — job work, inter-unit transfers, general dispatches, department deliveries, rejections and replacements" />
       {form ?? <DcRegisterScreen rows={rows} canCreate={canCreate} canDispatch={canDispatch} initialType={type} />}
     </div>
   );
 }
 
 async function drawer(sp: Search, type: string | null, rows: Awaited<ReturnType<typeof listDcRegister>>) {
-  const newType = (["process", "production", "general", "rejection", "replacement"] as const).find((t) => t === sp.new) ?? null;
+  const newType = (["process", "production", "general", "department", "rejection", "replacement"] as const).find((t) => t === sp.new) ?? null;
 
   // VIEW A REJECTION / REPLACEMENT DC — opened, dispatched and printed HERE (user 2026-11-02,
   // two-screen return plan: GRN raises it, this screen sends it). The old Vendor Returns
@@ -159,7 +161,7 @@ async function drawer(sp: Search, type: string | null, rows: Awaited<ReturnType<
       const [dc, setup] = await Promise.all([getProductionDc(sp.receive), getProductionDcSetup()]);
       if (!dc) notFound();
       return (
-        <DcDrawer title={`Receive stock · ${dc.code ?? "Production DC"}`} entry={dc.code} type={type}>
+        <DcDrawer title={`Receive stock · ${dc.code ?? "Inter-Unit DC"}`} entry={dc.code} type={type}>
           <ProductionDcReceiveForm dc={dc} stores={setup.stores} bins={setup.bins} home={`/purchase/dc?type=production`} />
         </DcDrawer>
       );
@@ -167,7 +169,7 @@ async function drawer(sp: Search, type: string | null, rows: Awaited<ReturnType<
     const [dc, setup, items] = await Promise.all([getProcessDc(sp.receive), getProductionDcSetup(), getItems()]);
     if (!dc) notFound();
     return (
-      <DcDrawer title={`Receive back · ${dc.code ?? "Process DC"}`} entry={dc.code} type={type}>
+      <DcDrawer title={`Receive back · ${dc.code ?? "Job Work DC"}`} entry={dc.code} type={type}>
         <ProcessReceiptForm dc={dc} items={items} stores={setup.stores} bins={setup.bins} home={`/purchase/dc?type=process`} />
       </DcDrawer>
     );
@@ -185,7 +187,7 @@ async function drawer(sp: Search, type: string | null, rows: Awaited<ReturnType<
     ]);
     if (sp.edit && !dc) notFound();
     return (
-      <DcDrawer title={dc ? `Process DC ${dc.code ?? ""}` : "New Delivery Challan"} entry={dc?.code} type={type} chooser={sp.edit ? null : "process"}>
+      <DcDrawer title={dc ? `Job Work DC ${dc.code ?? ""}` : "New Delivery Challan"} entry={dc?.code} type={type} chooser={sp.edit ? null : "process"}>
         {setup.unit ? (
           <ProcessDcSendForm
             orders={orders}
@@ -231,11 +233,22 @@ async function drawer(sp: Search, type: string | null, rows: Awaited<ReturnType<
     );
   }
 
+  // DEPARTMENT DELIVERY (0365) — store → store between departments; new only, it has never
+  // had an edit (user 2026-11-04 moved it here from its own page).
+  if (formType === "department") {
+    const [stores, items] = await Promise.all([listStoreNavLinks(), getItems()]);
+    return (
+      <DcDrawer title="New Delivery Challan" type={type} chooser="department">
+        <DepartmentDeliveryForm stores={stores} items={items} />
+      </DcDrawer>
+    );
+  }
+
   if (formType === "production") {
     const [setup, dc] = await Promise.all([getProductionDcSetup(), sp.edit ? getProductionDc(sp.edit) : Promise.resolve(null)]);
     if (sp.edit && !dc) notFound();
     return (
-      <DcDrawer title={dc ? `Production DC ${dc.code ?? ""}` : "New Delivery Challan"} entry={dc?.code} type={type} chooser={sp.edit ? null : "production"}>
+      <DcDrawer title={dc ? `Inter-Unit DC ${dc.code ?? ""}` : "New Delivery Challan"} entry={dc?.code} type={type} chooser={sp.edit ? null : "production"}>
         {setup.unit ? (
           <ProductionDcSendForm
             unit={setup.unit}
@@ -280,7 +293,7 @@ async function drawer(sp: Search, type: string | null, rows: Awaited<ReturnType<
           <ul className="divide-y divide-border rounded-lg border border-border">
             {open.map((r) => (
               <li key={r.key} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm">
-                <Link href={r.href} className="font-mono text-xs font-medium text-primary hover:underline">
+                <Link href={r.href ?? `/purchase/dc?type=${kind}`} className="font-mono text-xs font-medium text-primary hover:underline">
                   {r.code ?? "—"}
                 </Link>
                 <Truncated className="min-w-0 flex-1">{r.party}</Truncated>

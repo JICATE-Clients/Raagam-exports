@@ -16,9 +16,13 @@ import { getCurrentLocation } from "@/lib/auth/location";
  * DC raised by a GRN — and every Production DC — was invisible there. Each row here opens
  * the screen that owns that kind; nothing is edited from the register itself.
  * RLS decides what a reader sees (a Production DC is visible to both of its units).
+ *
+ * DEPARTMENT DELIVERY joined 2026-11-04 (user: "Department Delivery move it to the delivery
+ * challans") — `interdept_deliveries` (0365), store → store between departments, no stock
+ * moved. Its RLS is `stores:view`, so a Purchase-only reader simply sees none of them.
  */
 
-export type DcKind = "process" | "production" | "general" | "rejection" | "replacement";
+export type DcKind = "process" | "production" | "general" | "department" | "rejection" | "replacement";
 
 export type DcRegisterRow = {
   key: string;
@@ -26,7 +30,7 @@ export type DcRegisterRow = {
   kind: DcKind;
   code: string | null;
   date: string | null;
-  /** The vendor, or "From → To" for a Production DC. */
+  /** The vendor, or "From → To" for a Production DC / Department Delivery. */
   party: string;
   /** What it is against: Process Order, GRN, purpose. */
   against: string | null;
@@ -34,7 +38,8 @@ export type DcRegisterRow = {
   qty: number;
   /** Still out: at the vendor, on the road, or owed back as a replacement. */
   outstanding: number;
-  href: string;
+  /** Where the row opens; null when its kind has no screen to open (Department Delivery). */
+  href: string | null;
   print: string | null;
   /** The action this unit can take on the row now, from the hub (user 2026-10-31). */
   action: "receive-back" | "receive-stock" | "dispatch" | null;
@@ -48,16 +53,32 @@ export async function listDcRegister(): Promise<DcRegisterRow[]> {
   const s = await createClient();
   const { location } = await getCurrentLocation();
   const here = location?.id ?? null;
-  const [dcRes, vrRes] = await Promise.all([
+  const [dcRes, vrRes, iddRes] = await Promise.all([
     s
       .from("delivery_challans")
       .select("id, code, dc_kind, dc_date, status, vendor_id, location_id, to_location_id, purpose, process_order_id, is_returnable, party_name, created_at, created_by"),
     s
       .from("vendor_returns")
       .select("id, code, dc_kind, return_date, status, master_vendor_id, vendor_id, grn_id, reason, created_at, created_by"),
+    s
+      .from("interdept_deliveries")
+      .select("id, code, from_department, to_department, from_store_id, to_store_id, delivery_date, status, created_at, created_by"),
   ]);
   if (dcRes.error) throw new Error(`Delivery challans: ${dcRes.error.message}`);
   if (vrRes.error) throw new Error(`Rejection / replacement DCs: ${vrRes.error.message}`);
+  if (iddRes.error) throw new Error(`Department deliveries: ${iddRes.error.message}`);
+  const idds = (iddRes.data ?? []) as {
+    id: string;
+    code: string | null;
+    from_department: string;
+    to_department: string;
+    from_store_id: string;
+    to_store_id: string;
+    delivery_date: string | null;
+    status: string;
+    created_at: string;
+    created_by: string | null;
+  }[];
   const dcs = (dcRes.data ?? []) as {
     id: string;
     code: string | null;
@@ -88,7 +109,7 @@ export async function listDcRegister(): Promise<DcRegisterRow[]> {
     created_by: string | null;
   }[];
 
-  const [dcLines, vrLines, vendors, legacyVendors, units, orders, grns] = await Promise.all([
+  const [dcLines, vrLines, vendors, legacyVendors, units, orders, grns, iddLines, iddStores] = await Promise.all([
     dcs.length
       ? s.from("dc_line_items").select("delivery_challan_id, sent_qty, returned_qty, received_qty, shortage_qty").in("delivery_challan_id", dcs.map((d) => d.id))
       : Promise.resolve({ data: [] }),
@@ -100,6 +121,10 @@ export async function listDcRegister(): Promise<DcRegisterRow[]> {
     s.from("locations").select("id, name").in("id", uniq(dcs.flatMap((d) => [d.location_id, d.to_location_id]))),
     s.from("process_orders").select("id, code").in("id", uniq(dcs.map((d) => d.process_order_id))),
     s.from("grns").select("id, code").in("id", uniq(vrs.map((v) => v.grn_id))),
+    idds.length
+      ? s.from("interdept_delivery_lines").select("delivery_id, quantity").in("delivery_id", idds.map((d) => d.id))
+      : Promise.resolve({ data: [] }),
+    s.from("stores").select("id, name").in("id", uniq(idds.flatMap((d) => [d.from_store_id, d.to_store_id]))),
   ]);
   const nameOf = (r: { data: unknown }) =>
     new Map(((r.data ?? []) as { id: string; name?: string; code?: string }[]).map((x) => [x.id, x.name ?? x.code ?? ""]));
@@ -108,6 +133,11 @@ export async function listDcRegister(): Promise<DcRegisterRow[]> {
   const unit = nameOf(units);
   const order = nameOf(orders);
   const grn = nameOf(grns);
+  const store = nameOf(iddStores);
+  const iddQty = new Map<string, number>();
+  for (const l of (iddLines.data ?? []) as { delivery_id: string; quantity: number }[]) {
+    iddQty.set(l.delivery_id, (iddQty.get(l.delivery_id) ?? 0) + (Number(l.quantity) || 0));
+  }
 
   const dcAgg = new Map<string, { qty: number; out: number }>();
   for (const l of (dcLines.data ?? []) as { delivery_challan_id: string; sent_qty: number; returned_qty: number; received_qty: number; shortage_qty: number }[]) {
@@ -233,6 +263,26 @@ export async function listDcRegister(): Promise<DcRegisterRow[]> {
         created_by: v.created_by,
       };
     }),
+    ...idds.map(
+      (d): DcRegisterRow => ({
+        key: `idd-${d.id}`,
+        id: d.id,
+        kind: "department",
+        code: d.code,
+        date: d.delivery_date,
+        party: `${d.from_department} → ${d.to_department}`,
+        against: `${store.get(d.from_store_id) ?? "—"} → ${store.get(d.to_store_id) ?? "—"}`,
+        status: d.status,
+        qty: iddQty.get(d.id) ?? 0,
+        outstanding: 0,
+        // It never had a screen of its own to open — the old page was a list and a pop-up.
+        href: null,
+        print: null,
+        action: null,
+        created_at: d.created_at,
+        created_by: d.created_by,
+      }),
+    ),
   ];
   // LISTED IN ENTRY ORDER (user 2026-09-22).
   rows.sort((x, y) => x.created_at.localeCompare(y.created_at));

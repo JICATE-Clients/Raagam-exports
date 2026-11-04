@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { Button } from "@/components/ui/button";
-import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
+import { DENSE, DOC_BOTTOM_BAR, DOC_CHIP, DOC_FRAME, DOC_RULE, DocDateChip, DocHint, DocTotals, GRID_HEAD, type HintKind } from "@/components/purchase/doc-surface";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import { Field, FieldError, FieldRow, FIELD_WIDTH_CSS } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -18,6 +18,7 @@ import type { BinOption, StockOption, StoreOption, UnitOption } from "@/lib/stor
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { today } from "@/lib/calendar";
 import { fmtNumber } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 /**
  * GENERAL DC — SEND (0796). Material going OUT to someone outside that is neither job work
@@ -341,23 +342,29 @@ export function GeneralDcSendForm({
     },
   ];
 
+  const hintKind: HintKind = canSave ? "ready" : lineProblems ? "md" : "todo";
+  const sendingQty = filled.reduce((n, l) => n + num(l.qty), 0);
+
   return (
-    <div data-focus-scope className="space-y-5">
-      {/* Unit 176 · Date 144 · Returnable 200 · Party 200 · (Address 288) · Purpose 176 ·
-          Expected 144 · Vehicle 144 · Transporter 176 — wraps to two rows inside 72rem. */}
-      <Card className="max-w-[72rem]">
-        <CardHeader>
-          <CardTitle>{existing ? `General DC ${existing.code ?? ""}` : "New General DC"}</CardTitle>
-          <span className="text-xs text-muted-foreground">Repair, sample, loan or gift — not for sale</span>
-        </CardHeader>
-        <CardBody>
+    <div data-focus-scope>
+      <div className={cn("max-w-[88rem]", DOC_FRAME)}>
+        {/* TITLE ROW (the Job Work DC's): the DC, its number (given on save), its date, the unit. */}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-2 px-4 py-2.5">
+          <h2 className="text-base font-bold">General DC</h2>
+          <span className={DOC_CHIP} title={existing?.code ? "DC No" : "The DC No is given when it is saved"}>
+            {existing?.code ?? "DC No · on save"}
+          </span>
+          <DocDateChip id="gdc-date" label="DC Date" value={dcDate} onChange={touch(setDcDate)} />
+          <span className={DOC_CHIP} title="Unit">
+            {unit.name}
+          </span>
+          <span className="ml-auto text-xs text-muted-foreground">Repair, sample, loan or gift — not for sale</span>
+        </div>
+
+        {/* THE PARTY AND WHY: Returnable 200 · Party Is 200 · Vendor 200 (or Party 200 +
+            Address 288) · Purpose 176 · Expected 144 — wraps inside 88rem. */}
+        <div className={cn(DOC_RULE, "px-4 py-2.5")}>
           <FieldRow>
-            <Field label="Unit" w="term" htmlFor="gdc-unit">
-              <Input id="gdc-unit" value={unit.name} readOnly />
-            </Field>
-            <Field label="DC Date" required w="code" htmlFor="gdc-date">
-              <Input id="gdc-date" type="date" max="9999-12-31" value={dcDate} onChange={(e) => touch(setDcDate)(e.target.value)} />
-            </Field>
             <Field label="Returnable" w="party">
               <Segmented<"yes" | "no">
                 name="gdc-returnable"
@@ -409,6 +416,12 @@ export function GeneralDcSendForm({
                 />
               </Field>
             ) : null}
+          </FieldRow>
+        </div>
+
+        {/* THE TRANSPORT, ONE ROW (the Job Work DC's band): Vehicle No 144 · Transporter 176. */}
+        <div className={cn(DOC_RULE, "px-4 py-2.5")}>
+          <FieldRow>
             <Field label="Vehicle No" w="code" htmlFor="gdc-vehicle">
               <Input id="gdc-vehicle" value={vehicle} onChange={(e) => touch(setVehicle)(e.target.value)} />
             </Field>
@@ -416,41 +429,47 @@ export function GeneralDcSendForm({
               <Input id="gdc-transporter" value={transporter} onChange={(e) => touch(setTransporter)(e.target.value)} />
             </Field>
           </FieldRow>
-        </CardBody>
-      </Card>
+        </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Items Sent</CardTitle>
-          <span className="text-xs text-muted-foreground">Pick a stock item, or leave Item blank and describe it (moves no stock)</span>
-        </CardHeader>
-        <CardBody>
+        {/* THE ITEMS SENT, frameless under the hairline with the Orders table band. */}
+        <div className={cn(DOC_RULE, "min-w-0 p-2", DENSE)}>
+          <p className="px-1 pb-1.5 text-xs text-muted-foreground">Pick a stock item, or leave Item blank and describe it (moves no stock)</p>
           <ChildGrid<Line>
             columns={generalDcLineColumns}
             rows={lines}
             tableFrom="5xl"
             flatRows
             tailRow={isBlank}
+            frameless
+            headerClassName={GRID_HEAD}
             onAdd={() => setLines((prev) => [...prev, blankLine()])}
             onRemove={(r) => {
               setDirty(true);
               setLines((prev) => (prev.length > 1 ? prev.filter((x) => x.key !== r.key) : [blankLine()]));
             }}
           />
-        </CardBody>
-      </Card>
+        </div>
 
-      <div data-focus-region="footer" className="flex flex-wrap items-center gap-3">
-        <Button variant="outline" onClick={() => router.push(home)} disabled={isPending}>
-          Cancel
-        </Button>
-        <Button variant="outline" onClick={() => save(false)} disabled={!canSave}>
-          Save draft
-        </Button>
-        <Button onClick={() => save(true)} disabled={!canSave}>
-          {isPending ? "Saving…" : "Dispatch"}
-        </Button>
-        {blocker && !isPending ? <span className="text-sm text-muted-foreground">{blocker}</span> : null}
+        {/* THE BOTTOM BAR: what goes out, why Dispatch waits, and the buttons. Enter off the
+            last field and Ctrl+S press its LAST button (lib/focus.ts), so Dispatch is last. */}
+        <div className={DOC_BOTTOM_BAR} data-focus-region="footer">
+          <DocTotals
+            items={[
+              ["Lines", filled.length],
+              ["Sending", fmtNumber(sendingQty)],
+            ]}
+          />
+          <div className="flex min-w-0 flex-1">{!isPending ? <DocHint kind={hintKind}>{blocker ?? "Ready to dispatch"}</DocHint> : null}</div>
+          <Button variant="ghost" onClick={() => router.push(home)} disabled={isPending}>
+            Cancel
+          </Button>
+          <Button variant="outline" onClick={() => save(false)} disabled={!canSave}>
+            Save draft
+          </Button>
+          <Button onClick={() => save(true)} disabled={!canSave}>
+            {isPending ? "Saving…" : "Dispatch"}
+          </Button>
+        </div>
       </div>
     </div>
   );

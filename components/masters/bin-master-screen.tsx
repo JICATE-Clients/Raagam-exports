@@ -1,38 +1,53 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   SimpleMasterScreen,
   type SimpleMasterDescriptor,
 } from "@/components/masters/simple-master-screen";
-import { createBin, updateBin, deleteBin } from "@/lib/masters/bin-actions";
+import { BinRack } from "@/components/masters/bin-rack";
+import { Button } from "@/components/ui/button";
+import { ViewToggle, useViewMode } from "@/components/ui/view-toggle";
+import { createBinRange, updateBin, deleteBin } from "@/lib/masters/bin-actions";
 import type { Bin } from "@/lib/masters/bin-types";
+import type { BinStock } from "@/lib/masters/bin-service";
 import { FIELD_WIDTH } from "@/components/ui/field";
+import { fmtNumber } from "@/lib/format";
 import type { StoreRow } from "@/lib/masters/store-master-types";
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
 
 /**
- * Bin master (Materials): Store (req) · Bin Code · Description · status.
+ * Bin master (Materials). TWO VIEWS OF ONE LIST (user 2026-11-04, approved mockup):
  *
- * EVERY BIN IS IN A STORE (0800, user 2026-11-03). The Store replaced the Location box:
- * a bin's unit is now its store's, set by the database, so the two can never disagree,
- * and every bin box on GRN / Pending QC / the DCs offers only the chosen store's bins.
- * Bin Code may be left blank when the store has a Bin Prefix: it is numbered PREFIX +
- * 001, 002 … (createBin). Store options come from the dispatcher page (the unit's
- * active stores), so the descriptor is built inside the component to close over them.
+ *   Rack — the default. A store list beside the chosen store drawn as a physical rack
+ *          (`BinRack`). "+ Add Bins" opens a one-line Prefix · From · To · Description
+ *          row in the pane, filled from the store's own codes, and shows what Save makes.
+ *   List — the master table: search, Status / Store filters, Created columns, Download,
+ *          inline edit of Store and Description. Bin Code is fixed once made.
+ *
+ * ONE "+ Add Bins" for both, here, so the screen never shows two (AGENTS.md "Buttons:
+ * one job, one button"). From the List it switches to the Rack, where bins are made.
+ *
+ * EVERY BIN IS IN A STORE (0800): its unit is the store's, set by the database, and
+ * every bin box on GRN / Pending QC / the DCs offers only the chosen store's bins.
  */
 export function BinMasterScreen({
   rows,
   stores,
+  stock,
   perms,
 }: {
   rows: Bin[];
   stores: StoreRow[];
+  stock: Record<string, BinStock>;
   perms: Perms;
 }) {
+  const { view, setView } = useViewMode("bins", "cards");
+  const [adding, setAdding] = useState(false);
+
   const descriptor = useMemo<SimpleMasterDescriptor<Bin>>(() => {
     const storeLabel = new Map<string, string>();
-    for (const st of stores) storeLabel.set(st.id, st.bin_prefix ? `${st.name} (${st.bin_prefix})` : st.name);
+    for (const st of stores) storeLabel.set(st.id, st.name);
     // Offered: the active stores. A bin already in a switched-off store keeps showing it.
     const storeOptions = stores
       .filter((st) => st.is_active)
@@ -45,12 +60,12 @@ export function BinMasterScreen({
       // 2026-09-26, the 08-17 rule for the Materials module) — see
       // `blockEntity` in simple-master-screen.tsx.
       blockEntity: "bin",
-      /* COMPACT (erp-form-compact): each inline edit box takes a width from the
-         shared vocabulary instead of filling its table column — Location and
-         Description used to stretch across whatever the full-width table left
-         them, and Bin Code carried a hand-typed `w-32`.
-           store 176 · code 144 · description 288 */
+      mobileTitleKey: "bin_code",
+      /* COMPACT: code 144 · store 176 · description 288 */
       fields: [
+        // Bin Code leads: it is how a bin is known. Made by Prefix + From–To on the Rack
+        // and fixed after that, so the inline edit shows it read-only.
+        { key: "bin_code", label: "Bin Code", mono: true, lockedOnEdit: true, widthClass: FIELD_WIDTH.code },
         {
           key: "store_id",
           label: "Store",
@@ -58,15 +73,7 @@ export function BinMasterScreen({
           required: true,
           options: storeOptions,
           optionLabel: (v) => storeLabel.get(v) ?? "—",
-          widthClass: FIELD_WIDTH.term, // 176px — a store name with its prefix
-        },
-        {
-          key: "bin_code",
-          label: "Bin Code",
-          mono: true,
-          // Blank = numbered from the store's Bin Prefix; createBin says so if it has none.
-          placeholder: "Auto from prefix",
-          widthClass: FIELD_WIDTH.code, // 144px — a short rack/bin code
+          widthClass: FIELD_WIDTH.term, // 176px — a store name
         },
         {
           key: "description",
@@ -74,33 +81,84 @@ export function BinMasterScreen({
           widthClass: FIELD_WIDTH.name, // 288px — free text, the widest step
         },
       ],
+      extraColumns: [
+        {
+          header: "Stock",
+          cell: (r) => (stock[r.id] ? `${fmtNumber(stock[r.id].qty)} qty` : "—"),
+        },
+      ],
+      extraFilters: [
+        {
+          key: "store",
+          label: "Store",
+          options: stores.map((st) => ({ value: st.id, label: st.name })),
+          predicate: (r, v) => r.store_id === v,
+        },
+      ],
       fromRow: (r) => ({
-        store_id: r.store_id ?? "",
         bin_code: r.bin_code ?? "",
+        store_id: r.store_id ?? "",
         description: r.description ?? "",
       }),
       searchText: (r) =>
-        [
-          r.bin_code,
-          r.description,
-          r.store?.name ?? (r.store_id ? storeLabel.get(r.store_id) : null),
-        ]
+        [r.bin_code, r.description, r.store?.name ?? (r.store_id ? storeLabel.get(r.store_id) : null)]
           .filter(Boolean)
           .join(" "),
       statusOf: (r) => (r.inactive ? "inactive" : "active"),
+      // The code goes back unchanged (it is locked on the row); updateBin re-checks it
+      // against the other bins, excluding this one.
       toPayload: (v, s) => ({
         bin_code: String(v.bin_code ?? ""),
         store_id: String(v.store_id),
-        description: String(v.description) || null,
+        description: String(v.description ?? "") || null,
         inactive: !s.active,
       }),
-      // Offers near-matching names already in THIS master while typing;
-      // keyboard: down-arrow into the chips, Enter applies, Esc dismisses.
-      spellSuggest: true,
-      dupCheck: { table: "bins", fieldKey: "bin_code", nameColumn: "bin_code" },
-      actions: { create: createBin, update: updateBin, remove: deleteBin },
+      // dup-check: exempt -- no bin code is typed here: codes come from Prefix + From–To on
+      // the Rack, and createBinRange refuses a whole range when any code in it exists,
+      // naming them. The Rack's own line shows the clash before Save. No typed name, so no
+      // spell-suggest strip either.
+      actions: { create: createBinRange, update: updateBin, remove: deleteBin },
     };
-  }, [stores]);
+  }, [stores, stock]);
 
-  return <SimpleMasterScreen rows={rows} perms={perms} descriptor={descriptor} />;
+  const toolbar = (
+    <>
+      <ViewToggle value={view} onChange={setView} cardsLabel="Rack View" />
+      {perms.canCreate && (
+        <Button
+          size="md"
+          disabled={adding && view === "cards"}
+          onClick={() => {
+            setView("cards");
+            setAdding(true);
+          }}
+        >
+          + Add Bins
+        </Button>
+      )}
+    </>
+  );
+
+  if (view === "cards") {
+    return (
+      <BinRack
+        bins={rows}
+        stores={stores}
+        stock={stock}
+        perms={perms}
+        adding={adding}
+        setAdding={setAdding}
+        toolbar={toolbar}
+      />
+    );
+  }
+  // The List never adds (its own "+ Add" is off): bins are made as a range on the Rack.
+  return (
+    <SimpleMasterScreen
+      rows={rows}
+      perms={{ ...perms, canCreate: false }}
+      descriptor={descriptor}
+      toolbarExtra={toolbar}
+    />
+  );
 }

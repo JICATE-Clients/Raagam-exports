@@ -77,7 +77,7 @@ export default async function ProcessDcPrintPage({ params }: { params: Promise<{
 
   return (
     <div>
-      <PoPrintToolbar backHref="/stores/process-dc" backLabel="Process DC" printable={dc.status !== "draft"} />
+      <PoPrintToolbar backHref="/stores/process-dc" backLabel="Job Work DC" printable={dc.status !== "draft"} />
       <DocumentPrintStyles scope="po" />
       <article className="po-sheet mx-auto max-w-[1100px] space-y-3 bg-white pb-6 text-[12px] text-[#17202b]">
         <div className="po-keep">

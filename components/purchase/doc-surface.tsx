@@ -120,3 +120,74 @@ export function RailTickRow({
   );
 }
 
+
+/**
+ * THE BOTTOM BAR'S "WHY IT WAITS" CHIP — the Job Work DC's markup, shared so every DC form
+ * on the Delivery Challans hub reads the same (user 2026-11-04: "delivery challan UI not
+ * proper" — Job Work wore this surface, the other four types were stacked cards).
+ */
+export function DocHint({ kind, children }: { kind: HintKind; children: ReactNode }) {
+  const tone = HINT_CHIP_TONES[kind];
+  return (
+    <span role="status" className={cn("inline-flex h-7 max-w-full min-w-0 items-center gap-1.5 rounded-full border px-2.5 text-[12px] font-medium", tone.box)}>
+      <span aria-hidden className={cn("size-2 shrink-0 rounded-full", tone.dot)} />
+      <Truncated className="min-w-0">{children}</Truncated>
+    </span>
+  );
+}
+
+/** The bottom bar's figures — "Lines 3 | Sending 12 KG", parted by hairlines. */
+export function DocTotals({ items }: { items: [label: string, value: ReactNode][] }) {
+  return (
+    <dl className="flex items-center gap-3 text-[12.5px] whitespace-nowrap tabular-nums">
+      {items.map(([label, value], i) => (
+        <div key={`${label}-${i}`} className="flex items-center gap-3">
+          {i > 0 ? <span aria-hidden className="h-4 w-px bg-[#dde4eb]" /> : null}
+          <div className="flex items-baseline gap-1.5">
+            <dt className="text-muted-foreground">{label}</dt>
+            <dd className="font-semibold">{value}</dd>
+          </div>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/**
+ * THE DOCUMENT DATE AS A TITLE-ROW CHIP — today by default, a click changes it (Job Work DC's
+ * shape). A raw `<input type="date">`, so it sets the autofill opt-outs itself (AGENTS,
+ * "Browser autofill").
+ */
+export function DocDateChip({
+  id,
+  label,
+  value,
+  onChange,
+  min,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  min?: string;
+}) {
+  return (
+    <label className={cn(DOC_CHIP, "inline-flex items-center gap-1 focus-within:border-[#037bb8]")} title={label}>
+      <input
+        id={id}
+        type="date"
+        max="9999-12-31"
+        min={min}
+        required
+        aria-label={label}
+        autoComplete="off"
+        data-1p-ignore
+        data-lpignore="true"
+        data-form-type="other"
+        className="h-5 bg-transparent text-xs tabular-nums text-foreground outline-none"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </label>
+  );
+}

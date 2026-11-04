@@ -1,15 +1,13 @@
-import DcHubPage from "../dc/page";
+import { redirect } from "next/navigation";
 
 /**
- * PURCHASE ▸ PURCHASE STORE ▸ GENERAL DELIVERY (0796) — material sent out to a party for
- * repair, sample, loan or gift, returnable or not. It is a kind of the ONE Delivery Challan
- * (doc/stores/dc-plan.md, "One hub"), so this row opens the DC hub on its General tab rather
- * than a second register: same numbering, same list, same print kit. A real route, not a
- * redirect, so the sidebar row resolves to itself.
+ * PURCHASE ▸ PURCHASE STORE ▸ GENERAL DELIVERY left the sidebar 2026-11-04 (user: "all
+ * outward material dispatches are handled in a single Delivery Challan workspace"). A General
+ * DC (0796) was always a kind of the ONE Delivery Challan, so its row only ever opened the hub
+ * on the General tab — two sidebar rows, one screen. The address answers so bookmarks land on
+ * that tab. Its print page (`[dcId]/print`) and send form (`_components`) stay where they are:
+ * the hub renders the form, and the register's Print links point at the print page.
  */
-type Search = { type?: string; new?: string; edit?: string; receive?: string; order?: string; view?: string };
-
-export default async function GeneralDeliveryPage({ searchParams }: { searchParams: Promise<Search> }) {
-  const sp = await searchParams;
-  return DcHubPage({ searchParams: Promise.resolve({ ...sp, type: sp.type ?? "general" }) });
+export default function GeneralDeliveryPage() {
+  redirect("/purchase/dc?type=general");
 }

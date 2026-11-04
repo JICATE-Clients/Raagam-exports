@@ -265,10 +265,14 @@ export function SimpleMasterScreen<Row>({
   rows,
   perms,
   descriptor,
+  toolbarExtra,
 }: {
   rows: Row[];
   perms: Perms;
   descriptor: SimpleMasterDescriptor<Row>;
+  /** Controls for the header row's right side, before Download / + Add — e.g. a
+   *  view toggle and an Add button the screen owns (Bins: Rack / List). */
+  toolbarExtra?: React.ReactNode;
 }) {
   const d = descriptor;
   const router = useRouter();
@@ -915,6 +919,7 @@ export function SimpleMasterScreen<Row>({
           ) : undefined}
         </FilterBar>
         <div className="flex flex-1 items-center justify-end gap-2">
+          {toolbarExtra}
           {d.ioEntityKey && (
             <DataIoToolbar
               entityKey={d.ioEntityKey}

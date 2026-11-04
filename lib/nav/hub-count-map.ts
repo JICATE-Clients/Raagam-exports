@@ -162,11 +162,6 @@ export const HUB_COUNT_TABLES: Record<string, string | null> = {
   // A work queue over `material_requisitions` (the approved slips waiting to be
   // handed over), which the Requisition card beside it already counts.
   "/purchase/general-items-delivery": null,
-  "/purchase/interdept": "interdept_deliveries",
-  // A General DC is a `delivery_challans` row (dc_kind 'general', 0796), which the
-  // Delivery Challan card already counts; a whole-table count here would print every
-  // kind's total on the General card — a confident wrong number.
-  "/purchase/general-delivery": null,
   "/purchase/delivery-returns": "dc_returns",
   "/stores/process-orders": "process_orders",
   "/purchase/csp-receipts": "csp_receipts",
