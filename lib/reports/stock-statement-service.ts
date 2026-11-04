@@ -108,3 +108,31 @@ export async function pendingQcCount(): Promise<number> {
   if (error) throw new Error(`Pending QC: ${error.message}`);
   return Number(data) || 0;
 }
+
+/**
+ * PURCHASE ▸ INVENTORY DASHBOARD's read (user 2026-11-04). The SAME two RPCs as the two
+ * reports, tried in the order of what the caller may see: with value if they hold the
+ * Stock Statement with Value screen, else quantities, else nothing. Both RPCs refuse with
+ * 42501 rather than returning a partial answer, so the refusal is read off the error and
+ * turned into a sentence; any other error still throws. No database rule is widened here.
+ */
+export type InventoryRead =
+  | { access: "value"; rows: StockValueRow[] }
+  | { access: "qty"; rows: StockStatementRow[] }
+  | { access: "none"; rows: [] };
+
+export async function inventoryDashboard(asOf: string): Promise<InventoryRead> {
+  const s = await createClient();
+  const v = await s.rpc("report_stock_statement_value", { p_as_of: asOf });
+  if (!v.error) {
+    const rows = ((v.data ?? []) as RawRow[])
+      .map((r) => ({ ...shape(r), rate: r.rate == null ? null : Number(r.rate), value: Number(r.value) || 0 }))
+      .sort(byAge);
+    return { access: "value", rows };
+  }
+  if (v.error.code !== "42501") throw new Error(`Inventory: ${v.error.message}`);
+  const q = await s.rpc("report_stock_statement", { p_as_of: asOf });
+  if (!q.error) return { access: "qty", rows: ((q.data ?? []) as RawRow[]).map(shape).sort(byAge) };
+  if (q.error.code !== "42501") throw new Error(`Inventory: ${q.error.message}`);
+  return { access: "none", rows: [] };
+}

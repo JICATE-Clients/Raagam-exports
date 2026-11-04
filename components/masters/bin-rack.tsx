@@ -41,7 +41,7 @@ type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 type Style = { prefix: string; width: number; next: string; last: string };
 
 /** The prefix this store's bins mostly use, its widest number and the next free one. */
-function storeStyle(bins: Bin[]): Style | null {
+export function storeStyle(bins: Pick<Bin, "bin_code">[]): Style | null {
   const parts = bins
     .map((b) => (b.bin_code ?? "").match(/^(.*?)(\d+)$/))
     .filter((m): m is RegExpMatchArray => !!m);
@@ -98,7 +98,6 @@ export function BinRack({
   }, [bins, stores]);
 
   const [storeId, setStoreId] = useState<string>(() => storeList.withBins[0]?.id ?? storeList.empty[0]?.id ?? "");
-  const [find, setFind] = useState("");
   const [picked, setPicked] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [editDesc, setEditDesc] = useState("");
@@ -231,22 +230,6 @@ export function BinRack({
     });
   }
 
-  /* ---------------------------------------------------------------- find */
-
-  function onFind(v: string) {
-    setFind(v);
-    const q = v.trim().toUpperCase();
-    if (!q) return;
-    const hit = bins.find((b) => (b.bin_code ?? "").toUpperCase() === q) ?? bins.find((b) => (b.bin_code ?? "").toUpperCase().includes(q));
-    if (hit) {
-      setAdding(false);
-      setEditing(false);
-      setStoreId(hit.store_id);
-      setPicked(hit.id);
-    }
-  }
-  const q = find.trim().toUpperCase();
-
   /* -------------------------------------------------------------- render */
 
   const keys = [...byNumber.keys()];
@@ -258,7 +241,6 @@ export function BinRack({
 
   function binCell(b: Bin, label: string) {
     const s = stock[b.id];
-    const dim = q && !(b.bin_code ?? "").toUpperCase().includes(q);
     return (
       // button-shape: exempt -- a rack compartment that selects its bin for the detail strip, not a pick-one word control
       <button
@@ -274,7 +256,6 @@ export function BinRack({
           fresh.includes((b.bin_code ?? "").toUpperCase()) && "ring-2 ring-inset ring-success",
           b.inactive && "text-muted-foreground line-through opacity-60",
           picked === b.id && "border-primary bg-primary text-white hover:text-white after:bg-white/80",
-          dim && "opacity-25",
         )}
       >
         {label}
@@ -284,17 +265,9 @@ export function BinRack({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          type="search"
-          value={find}
-          onChange={(e) => onFind(e.target.value)}
-          placeholder="Find a bin, e.g. MAT14"
-          aria-label="Find a bin"
-          className="w-64"
-        />
-        <div className="flex flex-1 items-center justify-end gap-2">{toolbar}</div>
-      </div>
+      {/* No "Find a bin" box (user 2026-11-04, screenshot 122222: a blank field under the
+          breadcrumb) — the store list and the rack ARE the way to a bin; List view keeps search. */}
+      <div className="flex flex-wrap items-center justify-end gap-2">{toolbar}</div>
 
       <div className="grid items-start gap-4 md:grid-cols-[15rem_1fr]">
         {/* ---------------- store list ---------------- */}
@@ -427,12 +400,15 @@ export function BinRack({
                     </span>
                   ))}
                 </div>
-                {/* frame: two uprights, a beam under every shelf */}
+                {/* frame: two uprights, a beam under every shelf — SOFT hairlines, not dark bars
+                    (user 2026-11-04, screenshot 4032: "dark lines … soft division"). The LAST shelf drops
+                    its bottom margin so the uprights end on its beam instead of hanging 10px
+                    below it (screenshot 4033: "not finished line hanging"). */}
                 <div className="relative px-3 pt-2.5">
-                  <span className="absolute inset-y-0 left-0 w-2 rounded-sm bg-muted-foreground/45" aria-hidden />
-                  <span className="absolute inset-y-0 right-0 w-2 rounded-sm bg-muted-foreground/45" aria-hidden />
+                  <span className="absolute inset-y-0 left-0 w-px bg-border" aria-hidden />
+                  <span className="absolute inset-y-0 right-0 w-px bg-border" aria-hidden />
                   {shelves.map((start) => (
-                    <div key={start} className="relative mb-2.5 grid h-[3.25rem] grid-cols-10 gap-1.5 px-1 pb-1.5">
+                    <div key={start} className="relative mb-2.5 grid h-[3.25rem] grid-cols-10 gap-1.5 px-1 pb-1.5 last:mb-0">
                       {Array.from({ length: 10 }, (_, i) => {
                         const n = start + i;
                         const b = byNumber.get(n);
@@ -448,7 +424,7 @@ export function BinRack({
                           </span>
                         );
                       })}
-                      <span className="absolute -inset-x-3 bottom-0 h-[5px] rounded-[1px] bg-muted-foreground/70" aria-hidden />
+                      <span className="absolute -inset-x-3 bottom-0 h-px bg-border" aria-hidden />
                     </div>
                   ))}
                 </div>

@@ -172,6 +172,8 @@ export const HUB_COUNT_TABLES: Record<string, string | null> = {
   // number on the card, over the biggest table in the schema.
   "/purchase/adjustments": null,
   "/purchase/transfers": null,
+  // Stock layers, not documents — a count of rows would be a count of lots, not of anything entered.
+  "/purchase/inventory": null,
 
   // ------------------------------------------------------------ production
   "/production/job-orders": "production_job_orders",

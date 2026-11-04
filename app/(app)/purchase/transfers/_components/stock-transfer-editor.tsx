@@ -42,6 +42,7 @@ import {
 import {
   STOCK_TRANSFER_STATUS_LABELS,
   TRANSFER_TYPES,
+  TRANSFER_TYPE_LABELS,
   remarksRequired,
   sidesFor,
   type StockTransfer,
@@ -296,7 +297,9 @@ export function StockTransferEditor({
     start(async () => {
       const res = await saveStockTransfer(doc?.id ?? null, {
         transfer_date: transferDate,
-        transfer_type: type,
+        // A Bin → Bin transfer is posted the moment it is made (assignBin), so it is never a
+        // draft here to save — the editor only ever saves the four types on its toggle.
+        transfer_type: type as Exclude<TransferType, "bin_to_bin">,
         from_store_id: fromStore,
         to_store_id: toStore,
         from_garment_order_id: f.re,
@@ -633,7 +636,7 @@ export function StockTransferEditor({
           facts={[
             { label: "Transfer No", value: doc.code ?? "—", mono: true },
             { label: "Date", value: fmtDate(doc.transfer_date), mono: true },
-            { label: "Type", value: TRANSFER_TYPES.find((t) => t.value === type)?.label ?? "—" },
+            { label: "Type", value: TRANSFER_TYPE_LABELS[type] ?? "—" },
             { label: "From", value: `${ownerName(fromOwner || GENERAL)} · ${fromStoreName ?? "—"}` },
             { label: "To", value: `${ownerName(effectiveTo || GENERAL)} · ${toStoreName}` },
             doc.posted_at ? { label: "Posted", value: fmtDate(doc.posted_at), mono: true } : null,

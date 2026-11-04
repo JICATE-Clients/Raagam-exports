@@ -1197,6 +1197,10 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         icon: PackageOpen,
         description: "Receipts, delivery challans, returns and stock movements",
         children: [
+          // OVERVIEW — FIRST, the store at a glance (user 2026-11-04: "rename it as overview, move it
+          // as first child"). Was "Inventory Dashboard", lower down; the route is unchanged. The
+          // racks, yarn cones, ageing and Assign a bin over 0793's stock layers (0809 for the move).
+          { href: "/purchase/inventory", label: "Overview", description: "The store at a glance — racks and bins, yarn, value, ageing and what needs doing", newUntil: "2026-12-04" },
           { href: "/purchase/grn", label: "Purchase Receipts (GRN)", description: "Partial receipt, QC accept or reject, posts to Stores" },
           /* ONE REGISTER for every DC (user 2026-11-02, the return plan): job-work (process),
              production, and the Rejection / Replacement DCs a GRN raises — so the list's
@@ -1535,6 +1539,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           { href: "/logistics/transport/requests", label: "Trip Requests", description: "Book a vehicle for an order's material", newUntil: "2026-11-30" },
           { href: "/logistics/transport/dispatch", label: "Dispatch", description: "Pool pending requests onto a vehicle", newUntil: "2026-11-30" },
           { href: "/logistics/transport/board", label: "Fleet Board", description: "Live trips, status and load per vehicle", newUntil: "2026-11-30" },
+          { href: "/logistics/transport/map", label: "Fleet Map", description: "Places, their fences and every vehicle on a trip", newUntil: "2026-12-31" },
         ],
       },
       {

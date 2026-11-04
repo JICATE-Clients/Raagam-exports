@@ -156,3 +156,94 @@ export async function deleteStockTransfer(id: string): Promise<R> {
   revalidate();
   return { ok: true };
 }
+
+/**
+ * ASSIGN A BIN (0809, user 2026-11-04 — Purchase ▸ Inventory Dashboard). Puts whole lots into a
+ * bin of THEIR OWN store: one `bin_to_bin` Stock Transfer per owner (General Stock, an RE, an IWO),
+ * every lot at its full balance, posted at once by the unchanged `stock_transfer_post`. So a bin
+ * move has a number on the Stock Transfer register, a print and an audit row, and the lot keeps
+ * its GRN, rate and age (both legs carry the receipt as their origin).
+ *
+ * Every rule is the database's: the header guard refuses a second store, the line guard a missing
+ * or unchanged bin, the post re-checks the balance. A post that fails leaves its draft CANCELLED,
+ * never a half-done draft on the register.
+ */
+export async function assignBin(layerIds: string[], toBinId: string): Promise<{ ok: true; codes: string[] } | Err> {
+  if (!(await can("stores", "create")) || !(await can("stores", "edit"))) return bad("Moving stock needs Stores create and edit");
+  const ids = [...new Set(layerIds.filter(Boolean))];
+  if (!ids.length) return bad("Pick the stock to move");
+  if (!toBinId) return bad("Pick the bin the stock goes to");
+
+  const s = await createClient();
+  const [{ data: bin, error: bErr }, { data: src, error: sErr }] = await Promise.all([
+    s.from("bins").select("id, store_id, bin_code").eq("id", toBinId).maybeSingle(),
+    s.from("stock_ledger").select("id, store_id, garment_order_id, iwo_id").in("id", ids),
+  ]);
+  if (bErr) return bad(bErr.message);
+  if (!bin) return bad("That bin no longer exists");
+  if (sErr) return bad(sErr.message);
+  const rows = (src ?? []) as { id: string; store_id: string; garment_order_id: string | null; iwo_id: string | null }[];
+  if (rows.length !== ids.length) return bad("Some of the stock picked is no longer there — refresh and try again");
+  if (rows.some((r) => r.store_id !== bin.store_id)) return bad(`${bin.bin_code} is in another store — a bin move stays in one store`);
+
+  // One transfer per owner: a transfer has ONE From owner (0803).
+  const groups = new Map<string, typeof rows>();
+  for (const r of rows) {
+    const k = `${r.garment_order_id ?? ""}|${r.iwo_id ?? ""}`;
+    groups.set(k, [...(groups.get(k) ?? []), r]);
+  }
+
+  const codes: string[] = [];
+  for (const group of groups.values()) {
+    const owner = group[0];
+    const { data: layers, error: lErr } = await s.rpc("stock_transfer_layers", {
+      p_store_id: bin.store_id,
+      p_garment_order_id: owner.garment_order_id,
+      p_iwo_id: owner.iwo_id,
+      p_as_of: null,
+    });
+    if (lErr) return bad(lErr.message);
+    const qtyOf = new Map(((layers ?? []) as { layer_id: string; qty_on_hand: number | string }[]).map((l) => [l.layer_id, Number(l.qty_on_hand) || 0]));
+
+    const { data: head, error: hErr } = await s
+      .from("stock_transfers")
+      .insert({
+        transfer_type: "bin_to_bin",
+        from_store_id: bin.store_id,
+        to_store_id: bin.store_id,
+        from_garment_order_id: owner.garment_order_id,
+        from_iwo_id: owner.iwo_id,
+        remarks: `PUT AWAY INTO ${bin.bin_code}`,
+      })
+      .select("id, code")
+      .single();
+    if (hErr || !head) return bad(hErr?.message ?? "Could not start the bin move");
+
+    const lines = group
+      .map((r, i) => ({
+        transfer_id: head.id,
+        source_ledger_id: r.id,
+        item_id: "00000000-0000-0000-0000-000000000000", // replaced from the layer by the line guard
+        quantity: qtyOf.get(r.id) ?? 0,
+        to_bin_id: bin.id,
+        sort_order: i,
+      }))
+      .filter((l) => l.quantity > 0);
+    const fail = async (m: string) => {
+      await s.from("stock_transfers").update({ status: "cancelled" }).eq("id", head.id);
+      return bad(m);
+    };
+    if (!lines.length) return fail("Nothing is left of that stock to move");
+    const { error: liErr } = await s.from("stock_transfer_lines").insert(lines);
+    if (liErr) return fail(liErr.message);
+    const { error: pErr } = await s.rpc("stock_transfer_post", { p_id: head.id });
+    if (pErr) return fail(pErr.message);
+    await writeAudit({ action: "stock_transfer.posted", entityType: "stock_transfer", entityId: head.id, metadata: { kind: "bin_to_bin", to_bin: bin.bin_code } });
+    codes.push((head.code as string | null) ?? "");
+  }
+
+  revalidate();
+  revalidatePath("/purchase/inventory");
+  revalidatePath("/masters/materials/bins");
+  return { ok: true, codes };
+}

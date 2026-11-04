@@ -13,17 +13,23 @@ export const STOCK_TRANSFER_STATUS_LABELS = {
 } as const;
 export type StockTransferStatus = keyof typeof STOCK_TRANSFER_STATUS_LABELS;
 
-/** The four kinds of transfer, in the order the toggle shows them. */
+/** The four kinds of transfer the EDITOR raises, in the order its toggle shows them. */
 export const TRANSFER_TYPES = [
   { value: "general_to_order", label: "General → Order" },
   { value: "order_to_order", label: "Order → Order" },
   { value: "order_to_general", label: "Order → General" },
   { value: "store_to_store", label: "Store → Store" },
 ] as const;
-export type TransferType = (typeof TRANSFER_TYPES)[number]["value"];
-export const TRANSFER_TYPE_LABELS: Record<TransferType, string> = Object.fromEntries(
-  TRANSFER_TYPES.map((t) => [t.value, t.label]),
-) as Record<TransferType, string>;
+/**
+ * Plus `bin_to_bin` (0809): raised and posted in one step by `assignBin` from Inventory
+ * Dashboard's "Assign a bin", never typed in the editor — so it is on the register and the print
+ * but not on the toggle.
+ */
+export type TransferType = (typeof TRANSFER_TYPES)[number]["value"] | "bin_to_bin";
+export const TRANSFER_TYPE_LABELS: Record<TransferType, string> = {
+  ...(Object.fromEntries(TRANSFER_TYPES.map((t) => [t.value, t.label])) as Record<(typeof TRANSFER_TYPES)[number]["value"], string>),
+  bin_to_bin: "Bin → Bin",
+};
 
 /** Which side names an order, per type. Store → Store keeps whatever owner the From side has. */
 export function sidesFor(type: TransferType): { from: "general" | "order" | "any"; to: "general" | "order" | "same" } {
@@ -35,6 +41,7 @@ export function sidesFor(type: TransferType): { from: "general" | "order" | "any
     case "order_to_general":
       return { from: "order", to: "general" };
     case "store_to_store":
+    case "bin_to_bin":
       return { from: "any", to: "same" };
   }
 }
