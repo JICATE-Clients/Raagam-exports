@@ -1025,7 +1025,7 @@ function Frame({
     // the answers stay docked at its foot, so the page itself never scrolls.
     <section
       aria-label="Raagam Assist"
-      className="flex w-full flex-col border-border bg-background md:h-[calc(100dvh-10.5rem)] md:min-h-[30rem] md:rounded-2xl md:border md:shadow-sm"
+      className="flex w-full flex-col border-border bg-background md:h-[calc(100dvh-12.5rem)] md:min-h-[30rem] md:rounded-2xl md:border md:shadow-sm"
     >
       <AssistHeader
         mood={mood}

@@ -1,5 +1,6 @@
 "use client";
 
+import { createContext, useContext } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { backTarget, type BackTarget } from "@/lib/nav/back-target";
@@ -44,6 +45,15 @@ import { cn } from "@/lib/utils";
  * to mount unconditionally: a module root, a hub page, a document detail route
  * and every screen outside the nav registry all resolve to `null`.
  */
+/**
+ * A MODULE THAT DRAWS ITS OWN BACK sets this (Help & Repairs, user 2026-11-04:
+ * "every screen needs a back icon" — `components/resolve/resolve-back-bar.tsx`
+ * puts one on every route, phone included). Inside it, the DERIVED link a
+ * `PageHeader` would add stands down, so a screen never shows two Backs. A
+ * Back with an explicit `target` or `onBack` is the screen's own and still shows.
+ */
+export const ModuleDrawsBack = createContext(false);
+
 const BACK_CLASS =
   "inline-flex h-9 shrink-0 items-center gap-1 rounded-control px-1 text-sm font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
@@ -68,6 +78,7 @@ export function BackLink({
   className?: string;
 }) {
   const pathname = usePathname();
+  const moduleDrawsBack = useContext(ModuleDrawsBack);
   if (onBack) {
     const to = label ?? "list";
     return (
@@ -85,6 +96,7 @@ export function BackLink({
       </button>
     );
   }
+  if (!target && moduleDrawsBack) return null;
   const to = target ?? backTarget(pathname ?? "");
   if (!to) return null;
   return (

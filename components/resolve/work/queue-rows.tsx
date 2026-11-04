@@ -45,12 +45,22 @@ export function QueueList<T>({
   renderRow,
   empty,
   label,
+  fit = false,
 }: {
   rows: T[];
   getKey: (r: T) => string;
   renderRow: (r: T) => ReactNode;
   empty: string;
   label: string;
+  /**
+   * The card is only as wide as its longest row (user 2026-11-04, Sort New
+   * Jobs: "centerla irukka white space remove"), so the clock and Assign sit
+   * right after the text instead of across an empty middle. Each row still
+   * fills the card, so the clocks line up down the list.
+   *
+   * listing-width: exempt -- a work queue the client asked to hug its rows, not a register of records
+   */
+  fit?: boolean;
 }) {
   const pg = usePagination(rows);
   if (!rows.length) {
@@ -62,7 +72,7 @@ export function QueueList<T>({
   }
   return (
     <div className="space-y-2">
-      <div role="list" aria-label={label} className="overflow-hidden rounded-xl border border-border bg-surface">
+      <div role="list" aria-label={label} className={cn("overflow-hidden rounded-xl border border-border bg-surface", fit && "w-fit max-w-full")}>
         {pg.paged.map((r) => (
           <div key={getKey(r)} role="listitem" className="border-b border-border last:border-b-0">
             {renderRow(r)}
@@ -101,6 +111,7 @@ export function QueueRow({
   selecting = false,
   selected = false,
   onToggle,
+  compact = false,
 }: {
   id: string;
   lead: ReactNode;
@@ -120,17 +131,19 @@ export function QueueRow({
   selecting?: boolean;
   selected?: boolean;
   onToggle?: (id: string) => void;
+  /** Tighter: 12.5px title, 11px line, 4px above and below (Sort New Jobs, user 2026-11-04). */
+  compact?: boolean;
 }) {
   const line = meta.filter(Boolean).join(" · ");
   const body = (
     <span className="min-w-0 flex-1">
-      <span className="flex items-center gap-1 text-[13px] font-semibold">
+      <span className={cn("flex items-center gap-1 font-semibold", compact ? "text-[12.5px] leading-4" : "text-[13px]")}>
         {dangerous && <TriangleAlert className="size-3.5 flex-none text-danger" aria-label="Dangerous" />}
         {titleIcon}
         <Truncated text={title} className="min-w-0" />
       </span>
-      <span className="flex gap-1 text-[11.5px] text-muted-foreground">
-        <span className="flex-none font-mono text-[10.5px] leading-[17px]">{refNo}</span>
+      <span className={cn("flex gap-1 text-muted-foreground", compact ? "text-[11px] leading-[14px]" : "text-[11.5px]")}>
+        <span className={cn("flex-none font-mono text-[10.5px]", compact ? "leading-[14px]" : "leading-[17px]")}>{refNo}</span>
         {line && <Truncated text={`· ${line}`} className="min-w-0" />}
       </span>
     </span>
@@ -141,7 +154,7 @@ export function QueueRow({
   return (
     <div className={cn("relative", selected && "bg-primary-soft")}>
       {stripe && <span className={cn("absolute inset-y-0 left-0 w-[3px]", STRIPE[stripe])} aria-hidden="true" />}
-      <div className="flex items-center gap-2.5 py-2 pl-3 pr-2.5">
+      <div className={cn("flex items-center", compact ? "gap-2 py-1 pl-2.5 pr-2" : "gap-2.5 py-2 pl-3 pr-2.5")}>
         {selecting && (
           <span
             className={cn(
@@ -164,7 +177,7 @@ export function QueueRow({
             {body}
           </Link>
         )}
-        <span className="flex flex-none flex-col items-end gap-1 md:flex-row md:items-center md:gap-3">
+        <span className={cn("flex flex-none flex-col items-end gap-1 md:flex-row md:items-center", compact ? "md:gap-2" : "md:gap-3")}>
           <Clock tone={clock.tone}>{clock.text}</Clock>
           {!selecting && action}
         </span>
@@ -220,7 +233,7 @@ export function SelectDock({
     <div
       role="region"
       aria-label="Bulk actions"
-      className="sticky bottom-2 z-10 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2 shadow-lg"
+      className="sticky bottom-[calc(5rem+env(safe-area-inset-bottom))] z-10 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2 shadow-lg md:bottom-2"
     >
       <span className="mr-auto text-sm font-semibold tabular-nums">{count} selected</span>
       {count < total ? (

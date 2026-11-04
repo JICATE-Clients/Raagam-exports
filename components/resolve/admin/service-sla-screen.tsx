@@ -143,7 +143,7 @@ export function ServiceSlaScreen({ sla }: { sla: ServiceSla[] }) {
       <p className="text-xs text-muted-foreground">
         Urgent is set only by an override, with its reason. On Hold pauses the fix clock, never the first-reply one.
       </p>
-      <div className="sticky bottom-0 z-10 flex items-center justify-end gap-2 rounded-xl border border-border bg-surface px-3 py-2 shadow-sm">
+      <div className="sticky bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-10 flex items-center justify-end gap-2 rounded-xl border border-border bg-surface px-3 py-2 shadow-sm md:bottom-0">
         <span className="mr-auto text-sm text-muted-foreground">{dirty ? "Unsaved changes" : "No changes"}</span>
         <Button
           variant="outline"

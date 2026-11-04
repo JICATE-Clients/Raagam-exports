@@ -72,7 +72,8 @@ function TriageItem({
           title={explanation}
           onClick={() => setWhy((w) => !w)}
           className={cn(
-            "flex size-8 flex-none items-center justify-center rounded-full text-xs font-bold tabular-nums",
+            // 24px (user 2026-11-04, Sort New Jobs compact), down from 32px.
+            "flex size-8 flex-none items-center justify-center rounded-full text-[10.5px] font-bold tabular-nums md:size-6",
             "focus-visible:outline-2 focus-visible:outline-ring",
             scoreLook(row.score),
           )}
@@ -88,6 +89,7 @@ function TriageItem({
       selecting={selecting}
       selected={selected}
       onToggle={onToggle}
+      compact
       action={<AssignButton onClick={onAssign} />}
       below={
         why ? (
@@ -190,6 +192,7 @@ export function TriageScreen({
       <QueueList
         key={tab}
         label="Triage queue"
+        fit
         rows={filtered}
         getKey={(r) => r.id}
         empty={rows.length ? "No job matches this search." : tab === "decide" ? "Nothing waiting on a decision." : "No jobs."}

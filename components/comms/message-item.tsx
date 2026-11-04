@@ -213,7 +213,7 @@ export function MessageItem({
   // the last line, so a short message is one slim line; anything that follows
   // the text (files, reactions, a poll) puts it on its own line at the bottom.
   const timeInText =
-    !!bubble && !deleted && !editing && !card && !!m.body && m.attachments.length === 0 && m.reactions.length === 0 && m.reply_count === 0;
+    !!bubble && !deleted && !editing && !card && !!m.body && m.attachments.length === 0 && m.reply_count === 0;
   function metaLine(inText: boolean) {
     return (
       <span
@@ -234,8 +234,10 @@ export function MessageItem({
             <Check className="h-[14px] w-[14px]" aria-label="Sent" />
           )
         )}
-        {/* In a bubble the ⌄ sits in the top-right corner instead (below). */}
-        {!bubble && menu}
+        {/* THE ⌄ AFTER THE TIME (user 2026-11-04, the Pulse compact-bubbles board):
+            a 20px slot that is ALWAYS there, so the ⌄ only fades in on hover and
+            nothing in the bubble moves or is covered. */}
+        {menu && <span className="inline-flex w-5 shrink-0 justify-center">{menu}</span>}
       </span>
     );
   }
@@ -286,7 +288,7 @@ export function MessageItem({
         <ul
           className={cn(
             bubble ? "absolute -bottom-3.5 z-10 flex gap-0.5" : "mt-1 flex flex-wrap gap-1",
-            bubble && (mine ? "right-2" : "left-2"),
+            bubble && (mine ? "right-1.5" : "left-1.5"),
           )}
           aria-label="Reactions"
         >
@@ -304,15 +306,17 @@ export function MessageItem({
                 aria-label={`${emojiName(r.emoji)}, ${r.count} ${r.count === 1 ? "reaction" : "reactions"}: ${who}${r.mine ? ". Press to remove yours" : ""}`}
                 className={cn(
                   "flex items-center gap-1 rounded-full border text-xs",
-                  bubble ? "h-6 border-2 border-surface px-1.5 text-[14px] shadow-[0_1px_2px_rgba(13,15,19,.2)]" : "px-2 py-0.5",
+                  // A bubble's chip: 22px, one line, a soft shadow and no thick ring
+                  // (user 2026-11-04, the Pulse compact-bubbles board).
+                  bubble ? "h-[22px] gap-0.5 whitespace-nowrap px-[5px] text-[13px] leading-none shadow-[0_1px_2px_rgba(11,20,26,.18)]" : "px-2 py-0.5",
                   r.mine ? "border-primary bg-primary-soft text-primary" : "border-border bg-surface text-foreground",
-                  bubble && !r.mine && "border-surface",
+                  bubble && !r.mine && "border-transparent",
                   canAct && "hover:border-primary",
                 )}
               >
                 <span aria-hidden>{r.emoji}</span>
                 {(!bubble || r.count > 1) && (
-                  <span className="text-xs tabular-nums" aria-hidden>
+                  <span className={cn("tabular-nums", bubble ? "text-[11px] text-muted-foreground" : "text-xs")} aria-hidden>
                     {r.count}
                   </span>
                 )}
@@ -390,15 +394,14 @@ export function MessageItem({
             // A sticker is drawn without a bubble, as WhatsApp does.
             sticker
               ? "bg-transparent px-0 shadow-none [&_.text-muted-foreground]:text-muted-foreground"
-              : // `--bubble` is the bubble's own fill, read by the ⌄'s fade below.
-                mine
+              : mine
               ? // SOFT PEACH SANDAL (user 2026-11-04, the Pulse bubble-colour
                 // board): a sent bubble is #FFF8F1 with a #F3E3D3 hairline in the
                 // light theme, whatever the topbar colour; replies stay white.
                 // Dark keeps the theme-colour mix above, since a near-white
                 // bubble would glare on the dark wall.
-                "[--bubble:#fff8f1] dark:[--bubble:color-mix(in_srgb,var(--primary)_14%,var(--surface))] border border-[#f3e3d3] bg-[#fff8f1] text-foreground shadow-[0_1px_2px_rgba(13,15,19,.06)] dark:border-[color-mix(in_srgb,var(--primary)_28%,var(--surface))] dark:bg-[color-mix(in_srgb,var(--primary)_14%,var(--surface))] dark:text-[color-mix(in_srgb,var(--primary)_35%,var(--foreground))] dark:[&_.text-foreground]:text-[color-mix(in_srgb,var(--primary)_35%,var(--foreground))] dark:[&_.text-muted-foreground]:text-[color-mix(in_srgb,var(--primary)_55%,var(--muted-foreground))]"
-              : "[--bubble:var(--surface)] border border-border bg-surface shadow-[0_1px_2px_rgba(13,15,19,.06)]",
+                "border border-[#f3e3d3] bg-[#fff8f1] text-foreground shadow-[0_1px_2px_rgba(13,15,19,.06)] dark:border-[color-mix(in_srgb,var(--primary)_28%,var(--surface))] dark:bg-[color-mix(in_srgb,var(--primary)_14%,var(--surface))] dark:text-[color-mix(in_srgb,var(--primary)_35%,var(--foreground))] dark:[&_.text-foreground]:text-[color-mix(in_srgb,var(--primary)_35%,var(--foreground))] dark:[&_.text-muted-foreground]:text-[color-mix(in_srgb,var(--primary)_55%,var(--muted-foreground))]"
+              : "border border-border bg-surface shadow-[0_1px_2px_rgba(13,15,19,.06)]",
             // The first bubble of a run points at its sender.
             !sticker && !grouped && (mine ? "rounded-br-[4px]" : "rounded-bl-[4px]"),
           )}
@@ -439,14 +442,6 @@ export function MessageItem({
           )}
           {content}
           {!timeInText && <p className="mt-0.5 flex justify-end">{metaLine(false)}</p>}
-          {/* THE ⌄ IN THE CORNER (user 2026-11-04, screenshot 122815): inside the
-              bubble's top-right, over a fade of the bubble's own fill so it never
-              sits on text; shown on hover, or once tapped on a phone. */}
-          {menu && !sticker && (
-            <span className="absolute right-0.5 top-0.5 z-10 flex h-[22px] w-[26px] items-center justify-end rounded-tr-[10px] bg-[radial-gradient(circle_at_70%_40%,var(--bubble)_55%,transparent_80%)] pr-0.5">
-              {menu}
-            </span>
-          )}
         </div>
         {canAct && actions.onReact && !deleted && !editing && !sticker && (
           <>
@@ -459,12 +454,12 @@ export function MessageItem({
               onClick={() => setQuick((o) => !o)}
               aria-expanded={quick}
               className={cn(
-                "mb-1 flex h-8 w-8 shrink-0 items-center justify-center self-center rounded-full bg-surface/90 text-[#8696a0] shadow-[0_1px_2px_rgba(11,20,26,.12)] transition-opacity hover:text-[#54656f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:text-muted-foreground",
+                "mb-1 flex h-7 w-7 shrink-0 items-center justify-center self-center rounded-full bg-surface/85 text-[#8696a0] shadow-[0_1px_2px_rgba(11,20,26,.12)] transition-opacity hover:text-[#54656f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:text-muted-foreground",
                 mine ? "order-first" : "order-last",
                 quick || hoverReact || tapped ? "opacity-100" : "opacity-0 group-focus-within:opacity-100 group-hover:opacity-100",
               )}
             >
-              <Smile className="h-[21px] w-[21px]" strokeWidth={1.6} aria-hidden />
+              <Smile className="h-[19px] w-[19px]" strokeWidth={1.6} aria-hidden />
             </button>
             {quick && (
               <div

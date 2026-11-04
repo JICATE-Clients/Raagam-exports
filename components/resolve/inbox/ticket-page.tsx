@@ -135,7 +135,7 @@ export function TicketPage({
           Sent — <span className="font-mono">{t.ref_no}</span>. You will be told as it moves.
         </p>
       )}
-      <div className="grid h-[calc(100dvh-8.5rem)] min-h-[34rem] overflow-hidden rounded-xl border border-border bg-surface md:grid-cols-[minmax(0,1fr)_17rem]">
+      <div className="grid h-[calc(100dvh-9rem-env(safe-area-inset-bottom))] min-h-[26rem] overflow-hidden md:h-[calc(100dvh-8.5rem)] md:min-h-[34rem] rounded-xl border border-border bg-surface md:grid-cols-[minmax(0,1fr)_17rem]">
         <section aria-label="Ticket" className="flex min-h-0 min-w-0 flex-col">
           {detail.isStaff ? <ResolverPane {...paneProps} /> : <RaiserPane {...paneProps} />}
         </section>
