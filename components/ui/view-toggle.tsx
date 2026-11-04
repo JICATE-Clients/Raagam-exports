@@ -21,14 +21,23 @@ import { ToggleGroup } from "@/components/ui/segmented";
  */
 export type ViewMode = "cards" | "list";
 
-export function ViewToggle({ value, onChange }: { value: ViewMode; onChange: (v: ViewMode) => void }) {
+export function ViewToggle({
+  value,
+  onChange,
+  cardsLabel = "Card View",
+}: {
+  value: ViewMode;
+  onChange: (v: ViewMode) => void;
+  /** What the picture view is called on this screen — Bins says "Rack View". */
+  cardsLabel?: string;
+}) {
   return (
     <ToggleGroup<ViewMode>
       label="View"
       value={value}
       onChange={onChange}
       options={[
-        { value: "cards", icon: LayoutGrid, label: <span className="sr-only">Card View</span>, tooltip: "Card View" },
+        { value: "cards", icon: LayoutGrid, label: <span className="sr-only">{cardsLabel}</span>, tooltip: cardsLabel },
         { value: "list", icon: List, label: <span className="sr-only">List View</span>, tooltip: "List View" },
       ]}
     />

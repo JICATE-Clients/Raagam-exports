@@ -34,7 +34,7 @@ import { listOutDocumentTerms } from "@/lib/masters/out-document-term-service";
 import { BinMasterScreen } from "@/components/masters/bin-master-screen";
 import { StoreMasterScreen } from "@/components/masters/store-master-screen";
 import { listStoresForMaster } from "@/lib/masters/store-master-service";
-import { listBins } from "@/lib/masters/bin-service";
+import { listBins, listBinStock } from "@/lib/masters/bin-service";
 // Size Groups lost its own master screen with the 2026-08-01 withdrawal, but
 // `listSizeGroups` STAYS: Categories (a survivor) renders a size-group field,
 // so the service and its types outlive the screen. Same for the table — see
@@ -265,8 +265,8 @@ export default async function MaterialEntityPage({
       );
     } else if (child.custom === "bins") {
       // A bin's store: the current unit's stores (their read policy narrows to it).
-      const [rows, stores] = await Promise.all([listBins(), listStoresForMaster()]);
-      screen = <BinMasterScreen rows={rows} stores={stores} perms={perms} />;
+      const [rows, stores, stock] = await Promise.all([listBins(), listStoresForMaster(), listBinStock()]);
+      screen = <BinMasterScreen rows={rows} stores={stores} stock={stock} perms={perms} />;
     } else if (child.custom === "garment_rejection_rules") {
       const rows = await listGarmentRejectionRules();
       screen = <GarmentRejectionRuleMasterScreen rows={rows} perms={perms} />;
