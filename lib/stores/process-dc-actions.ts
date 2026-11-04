@@ -44,7 +44,7 @@ function friendly(message: string): string {
 }
 
 export async function saveProcessDc(id: string | null, payload: ProcessDcInput, dispatch: boolean): Promise<Result> {
-  if (!(await can("stores", id ? "edit" : "create"))) return { ok: false, error: "You do not have permission to raise a Process DC" };
+  if (!(await can("stores", id ? "edit" : "create"))) return { ok: false, error: "You do not have permission to raise a Job Work DC" };
   const parsed = dcInput.safeParse(payload);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   const { lines, ...header } = parsed.data;
@@ -112,7 +112,7 @@ export async function saveProcessDc(id: string | null, payload: ProcessDcInput, 
 }
 
 export async function deleteProcessDc(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
-  if (!(await can("stores", "edit"))) return { ok: false, error: "You do not have permission to delete a Process DC" };
+  if (!(await can("stores", "edit"))) return { ok: false, error: "You do not have permission to delete a Job Work DC" };
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("delivery_challans")

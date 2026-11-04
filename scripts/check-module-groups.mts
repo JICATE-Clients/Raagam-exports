@@ -588,7 +588,7 @@ const REDIRECTED: Record<string, string> = {
   "/stores/adjustments": "/purchase/adjustments",
   "/stores/transfers": "/purchase/transfers",
   "/stores/csp-receipts": "/purchase/csp-receipts",
-  "/stores/interdept": "/purchase/interdept",
+  "/stores/interdept": "/purchase/dc?type=department",
   "/stores/requisitions": "/purchase/requisitions",
   // Group hubs whose groups were dissolved into the three above.
   "/purchase/receiving": "/purchase/store",
@@ -596,6 +596,10 @@ const REDIRECTED: Record<string, string> = {
   "/stores/setup": "/purchase/store",
   // Vendor Returns folded into the DC register's Rejection tab (user 2026-11-02, the return plan).
   "/purchase/vendor-returns": "/purchase/dc?type=rejection",
+  // General Delivery's sidebar row folded into the DC register's General tab (user 2026-11-04).
+  "/purchase/general-delivery": "/purchase/dc?type=general",
+  // Department Delivery folded into the DC register's Department tab (user 2026-11-04).
+  "/purchase/interdept": "/purchase/dc?type=department",
   "/stores/issues": "/purchase/general-items",
 };
 

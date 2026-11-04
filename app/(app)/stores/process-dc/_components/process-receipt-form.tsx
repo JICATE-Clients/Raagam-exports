@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { Button } from "@/components/ui/button";
-import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
+import { DENSE, DOC_BOTTOM_BAR, DOC_CHIP, DOC_FRAME, DOC_RULE, DocDateChip, DocHint, DocTotals, GRID_HEAD, type HintKind } from "@/components/purchase/doc-surface";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import { Field, FieldError, FieldRow, FIELD_WIDTH_CSS } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,7 @@ import type { BinOption, StoreOption } from "@/lib/stores/production-dc-service"
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { today } from "@/lib/calendar";
 import { fmtNumber } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 /**
  * PROCESS RECEIPT (doc/stores/dc-plan.md Phase 3, 0787) — job work coming back.
@@ -260,31 +261,38 @@ export function ProcessReceiptForm({
     },
   ];
 
+  const blocker = sending.length === 0 ? "Enter Received (or tick Close) on at least one line" : blocked ? "Fix the lines marked in red" : null;
+  const hintKind: HintKind = canSave ? "ready" : blocked ? "md" : "todo";
+
   return (
-    <div data-focus-scope className="space-y-5">
-      <Card className="max-w-[60rem]">
-        <CardHeader>
-          <CardTitle>Receive job work · {dc.code ?? ""}</CardTitle>
-          <span className="text-xs text-muted-foreground">
-            {dc.vendor_name} · {(dc.process_type ?? "").toUpperCase()} · Process Order {dc.process_order_code ?? "—"}
-            {allowed != null ? ` · allowed loss ${allowed}%` : " · no loss limit set on the order"}
+    <div data-focus-scope>
+      <div className={cn("max-w-[88rem]", DOC_FRAME)}>
+        {/* TITLE ROW: the DC coming back, the receipt date, and the order it is against. */}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-2 px-4 py-2.5">
+          <h2 className="text-base font-bold">Receive Job Work</h2>
+          <span className={DOC_CHIP} title="DC No">
+            {dc.code ?? "—"}
           </span>
-        </CardHeader>
-        <CardBody>
-          {/* Receipt Date 144 · Vendor DC No 144 = 288 + 12 — a short row; the card caps at 60rem for the title line. */}
+          <DocDateChip
+            id="prc-date"
+            label="Receipt Date"
+            value={receiptDate}
+            onChange={(v) => {
+              setDirty(true);
+              setReceiptDate(v);
+            }}
+          />
+          <span className={DOC_CHIP} title="Processor · process · Process Order">
+            {dc.vendor_name} · {(dc.process_type ?? "").toUpperCase()} · {dc.process_order_code ?? "—"}
+          </span>
+          <span className="ml-auto text-xs text-muted-foreground">
+            {allowed != null ? `Allowed loss ${allowed}%` : "No loss limit set on the order"}
+          </span>
+        </div>
+
+        {/* THE VENDOR'S PAPER, ONE FIELD: Vendor DC / Bill No 144. */}
+        <div className={cn(DOC_RULE, "px-4 py-2.5")}>
           <FieldRow>
-            <Field label="Receipt Date" required w="code" htmlFor="prc-date">
-              <Input
-                id="prc-date"
-                type="date"
-                max="9999-12-31"
-                value={receiptDate}
-                onChange={(e) => {
-                  setDirty(true);
-                  setReceiptDate(e.target.value);
-                }}
-              />
-            </Field>
             <Field label="Vendor DC / Bill No" w="code" htmlFor="prc-vdc">
               <Input
                 id="prc-vdc"
@@ -296,46 +304,48 @@ export function ProcessReceiptForm({
               />
             </Field>
           </FieldRow>
-        </CardBody>
-      </Card>
+        </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>What came back</CardTitle>
-          <span className="text-xs text-muted-foreground">Blank Received and no Close = nothing back on that line yet</span>
-        </CardHeader>
-        <CardBody>
+        {/* WHAT CAME BACK, frameless under the hairline with the Orders table band. */}
+        <div className={cn(DOC_RULE, "min-w-0 p-2", DENSE)}>
           {lines.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Everything on this DC has come back.</p>
+            <p className="grid min-h-40 place-items-center p-6 text-center text-sm text-muted-foreground">Everything on this DC has come back.</p>
           ) : (
-            // default-row: exempt -- the rows are the DC's own lines, derived; nothing is added here
-            <ChildGrid<Line>
-              columns={columns}
-              rows={lines}
-              tableFrom="5xl"
-              flatRows
-              hideAdd
-              hideRemove
-              keepOne={false}
-              onAdd={() => false}
-              onRemove={() => {}}
-            />
+            <>
+              <p className="px-1 pb-1.5 text-xs text-muted-foreground">Blank Received and no Close = nothing back on that line yet</p>
+              {/* default-row: exempt -- the rows are the DC's own lines, derived; nothing is added here */}
+              <ChildGrid<Line>
+                columns={columns}
+                rows={lines}
+                tableFrom="5xl"
+                flatRows
+                hideAdd
+                hideRemove
+                keepOne={false}
+                onAdd={() => false}
+                onRemove={() => {}}
+                frameless
+                headerClassName={GRID_HEAD}
+              />
+            </>
           )}
-        </CardBody>
-      </Card>
+        </div>
 
-      <div data-focus-region="footer" className="flex flex-wrap items-center gap-3">
-        <Button variant="outline" onClick={() => router.push(home)} disabled={isPending}>
-          Cancel
-        </Button>
-        <Button onClick={post} disabled={!canSave}>
-          {isPending ? "Receiving…" : "Receive"}
-        </Button>
-        {!canSave && !isPending ? (
-          <span className="text-sm text-muted-foreground">
-            {sending.length === 0 ? "Enter Received (or tick Close) on at least one line" : blocked ? "Fix the lines marked in red" : null}
-          </span>
-        ) : null}
+        <div className={DOC_BOTTOM_BAR} data-focus-region="footer">
+          <DocTotals
+            items={[
+              ["Lines", lines.length],
+              ["Receiving", sending.length],
+            ]}
+          />
+          <div className="flex min-w-0 flex-1">{!isPending ? <DocHint kind={hintKind}>{blocker ?? "Ready to receive"}</DocHint> : null}</div>
+          <Button variant="ghost" onClick={() => router.push(home)} disabled={isPending}>
+            Cancel
+          </Button>
+          <Button onClick={post} disabled={!canSave}>
+            {isPending ? "Receiving…" : "Receive"}
+          </Button>
+        </div>
       </div>
     </div>
   );

@@ -690,7 +690,7 @@ export async function grnQtyLockReason(grnId: string): Promise<string | null> {
   if (!g) return "GRN not found";
   if (g.status !== "posted") return "Only a posted GRN is edited here";
   if (g.kind !== "regular") return "A Replacement GRN's quantities cannot be edited — it has already filled its Replacement DC";
-  if (g.delivery_kind === "direct") return "Delivered direct to a processor — its Process DC is already with the processor";
+  if (g.delivery_kind === "direct") return "Delivered direct to a processor — its Job Work DC is already with the processor";
   if (((linesRes.data ?? []) as { close_balance: boolean | null }[]).some((l) => l.close_balance)) {
     return "A line on this GRN closed its PO balance — that cannot be undone by an edit";
   }

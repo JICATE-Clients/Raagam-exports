@@ -60,7 +60,6 @@ function friendly(message: string): string {
 
 function revalidate(id?: string) {
   revalidatePath("/purchase/dc");
-  revalidatePath("/purchase/general-delivery");
   revalidatePath("/purchase/delivery-returns");
   if (id) revalidatePath(`/purchase/general-delivery/${id}/print`);
 }

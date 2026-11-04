@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
 import { Button } from "@/components/ui/button";
-import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
+import { DENSE, DOC_BOTTOM_BAR, DOC_CHIP, DOC_FRAME, DOC_RULE, DocHint, DocTotals, GRID_HEAD, type HintKind } from "@/components/purchase/doc-surface";
 import { FieldError, FIELD_WIDTH_CSS } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Truncated } from "@/components/ui/truncated";
@@ -14,6 +14,7 @@ import { receiveProductionDc } from "@/lib/stores/production-dc-actions";
 import type { BinOption, ProductionDc, StoreOption } from "@/lib/stores/production-dc-service";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { fmtDate, fmtNumber } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 /**
  * PRODUCTION DC — RECEIVE (0784), at the unit it was sent to. Every line is settled in one
@@ -191,36 +192,41 @@ export function ProductionDcReceiveForm({
     },
   ];
 
-  return (
-    <div data-focus-scope className="space-y-5">
-      <Card className="max-w-[68rem]">
-        <CardHeader>
-          <CardTitle>Receive Production DC {dc.code ?? ""}</CardTitle>
-        </CardHeader>
-        <CardBody>
-          <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-5">
-            {[
-              ["From", dc.from_unit],
-              ["To", dc.to_unit],
-              ["DC Date", fmtDate(dc.dc_date)],
-              ["Vehicle", dc.vehicle_no ?? "—"],
-              ["E-way Bill", dc.eway_bill_no ?? "—"],
-            ].map(([k, v]) => (
-              <div key={k}>
-                <dt className="text-xs text-muted-foreground">{k}</dt>
-                <dd className="mt-0.5 font-medium">{v}</dd>
-              </div>
-            ))}
-          </dl>
-        </CardBody>
-      </Card>
+  const sentQty = lines.reduce((n, l) => n + l.sent, 0);
+  const receivedQty = lines.reduce((n, l) => n + num(l.received), 0);
+  const shortQty = lines.reduce((n, l) => n + short(l), 0);
+  const hintKind: HintKind = canSave ? "ready" : blocked ? "md" : "todo";
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Items Received</CardTitle>
-          <span className="text-xs text-muted-foreground">Received opens on what was sent — lower it if less arrived, and say why</span>
-        </CardHeader>
-        <CardBody>
+  return (
+    <div data-focus-scope>
+      <div className={cn("max-w-[88rem]", DOC_FRAME)}>
+        {/* TITLE ROW: the DC being received and its facts as chips (the Job Work DC's shape). */}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-2 px-4 py-2.5">
+          <h2 className="text-base font-bold">Receive Inter-Unit DC</h2>
+          <span className={DOC_CHIP} title="DC No">
+            {dc.code ?? "—"}
+          </span>
+          <span className={DOC_CHIP} title="DC Date">
+            {fmtDate(dc.dc_date)}
+          </span>
+          <span className={DOC_CHIP} title="From → To">
+            {dc.from_unit} → {dc.to_unit}
+          </span>
+          {dc.vehicle_no ? (
+            <span className={DOC_CHIP} title="Vehicle No">
+              {dc.vehicle_no}
+            </span>
+          ) : null}
+          {dc.eway_bill_no ? (
+            <span className={DOC_CHIP} title="E-way Bill No">
+              E-way {dc.eway_bill_no}
+            </span>
+          ) : null}
+          <span className="ml-auto text-xs text-muted-foreground">Received opens on what was sent — lower it if less arrived, and say why</span>
+        </div>
+
+        {/* THE LINES, frameless under the hairline with the Orders table band. */}
+        <div className={cn(DOC_RULE, "min-w-0 p-2", DENSE)}>
           {/* default-row: exempt -- the rows are the DC's own lines, derived; nothing is added here */}
           <ChildGrid<Line>
             columns={columns}
@@ -232,20 +238,29 @@ export function ProductionDcReceiveForm({
             keepOne={false}
             onAdd={() => false}
             onRemove={() => {}}
+            frameless
+            headerClassName={GRID_HEAD}
           />
-        </CardBody>
-      </Card>
+        </div>
 
-      <div data-focus-region="footer" className="flex flex-wrap items-center gap-3">
-        <Button variant="outline" onClick={() => router.push(home)} disabled={isPending}>
-          Cancel
-        </Button>
-        <Button onClick={receive} disabled={!canSave}>
-          {isPending ? "Receiving…" : "Receive"}
-        </Button>
-        {!canSave && !isPending && blocked ? (
-          <span className="text-sm text-muted-foreground">Give a reason for every shortage and pick a store</span>
-        ) : null}
+        <div className={DOC_BOTTOM_BAR} data-focus-region="footer">
+          <DocTotals
+            items={[
+              ["Sent", fmtNumber(sentQty)],
+              ["Received", fmtNumber(receivedQty)],
+              ["Short", fmtNumber(shortQty)],
+            ]}
+          />
+          <div className="flex min-w-0 flex-1">
+            {!isPending ? <DocHint kind={hintKind}>{blocked ? "Give a reason for every shortage and pick a store" : "Ready to receive"}</DocHint> : null}
+          </div>
+          <Button variant="ghost" onClick={() => router.push(home)} disabled={isPending}>
+            Cancel
+          </Button>
+          <Button onClick={receive} disabled={!canSave}>
+            {isPending ? "Receiving…" : "Receive"}
+          </Button>
+        </div>
       </div>
     </div>
   );

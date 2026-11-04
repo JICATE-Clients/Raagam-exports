@@ -49,14 +49,14 @@ function revalidate(id?: string) {
 
 /** Save the draft (new or existing) and, when `dispatch`, send it in the same call. */
 export async function saveProductionDc(id: string | null, payload: ProductionDcInput, dispatch: boolean): Promise<Result> {
-  if (!(await can("stores", id ? "edit" : "create"))) return { ok: false, error: "You do not have permission to raise a Production DC" };
+  if (!(await can("stores", id ? "edit" : "create"))) return { ok: false, error: "You do not have permission to raise an Inter-Unit DC" };
   const parsed = dcInput.safeParse(payload);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   const { lines, ...header } = parsed.data;
 
   const { location } = await getCurrentLocation();
   if (!location) return { ok: false, error: "Pick your working unit in the top bar first" };
-  if (header.to_location_id === location.id) return { ok: false, error: "A Production DC goes to ANOTHER unit" };
+  if (header.to_location_id === location.id) return { ok: false, error: "An Inter-Unit DC goes to ANOTHER unit" };
 
   const supabase = await createClient();
   let dcId = id;
@@ -99,7 +99,7 @@ export async function saveProductionDc(id: string | null, payload: ProductionDcI
 }
 
 export async function deleteProductionDc(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
-  if (!(await can("stores", "edit"))) return { ok: false, error: "You do not have permission to delete a Production DC" };
+  if (!(await can("stores", "edit"))) return { ok: false, error: "You do not have permission to delete an Inter-Unit DC" };
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("delivery_challans")
@@ -127,7 +127,7 @@ const receiveInput = z.array(
 export type ProductionDcReceiveInput = z.input<typeof receiveInput>;
 
 export async function receiveProductionDc(id: string, lines: ProductionDcReceiveInput): Promise<Result> {
-  if (!(await can("stores", "edit"))) return { ok: false, error: "You do not have permission to receive a Production DC" };
+  if (!(await can("stores", "edit"))) return { ok: false, error: "You do not have permission to receive an Inter-Unit DC" };
   const parsed = receiveInput.safeParse(lines);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
   const supabase = await createClient();

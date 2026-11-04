@@ -25,9 +25,10 @@ import { statusTone } from "@/lib/ui/status-tone";
 type Word = "all" | DcKind;
 
 const KIND_LABEL: Record<DcKind, string> = {
-  process: "Process",
-  production: "Production",
+  process: "Job Work",
+  production: "Inter-Unit",
   general: "General",
+  department: "Department",
   rejection: "Rejection",
   replacement: "Replacement",
 };
@@ -39,13 +40,14 @@ const STATUS_LABEL: Record<string, string> = {
   closed: "Returned",
   dispatched: "In transit",
   received: "Received",
+  delivered: "Delivered",
   returned: "Dispatched",
   replaced: "Replaced",
   cancelled: "Cancelled",
   // A non-returnable General DC once dispatched (0796) — gone for good, not "returned".
   sent: "Sent",
 };
-const OVERRIDES = { issued: "warning", dispatched: "warning", returned: "warning", replaced: "success", closed: "success" } as const;
+const OVERRIDES = { delivered: "warning", issued: "warning", dispatched: "warning", returned: "warning", replaced: "success", closed: "success" } as const;
 
 export function DcRegisterScreen({
   rows,
@@ -62,15 +64,17 @@ export function DcRegisterScreen({
 }) {
   const router = useRouter();
   const [word, setWord] = useState<Word>(
-    initialType === "process" || initialType === "production" || initialType === "general" || initialType === "rejection" || initialType === "replacement" ? initialType : "all",
+    initialType === "process" || initialType === "production" || initialType === "general" || initialType === "department" || initialType === "rejection" || initialType === "replacement" ? initialType : "all",
   );
   const counts = useMemo(() => {
-    const c: Record<Word, number> = { all: rows.length, process: 0, production: 0, general: 0, rejection: 0, replacement: 0 };
+    const c: Record<Word, number> = { all: rows.length, process: 0, production: 0, general: 0, department: 0, rejection: 0, replacement: 0 };
     for (const r of rows) c[r.kind]++;
     return c;
   }, [rows]);
   const shown = useMemo(() => (word === "all" ? rows : rows.filter((r) => r.kind === word)), [rows, word]);
-  const open = (r: DcRegisterRow) => router.push(r.href);
+  const open = (r: DcRegisterRow) => {
+    if (r.href) router.push(r.href);
+  };
   const { success, error: toastError } = useToast();
   const [dispatching, startDispatch] = useTransition();
   /** DISPATCH IN PLACE (user 2026-11-02, two-screen return plan): a draft Rejection /
@@ -92,9 +96,13 @@ export function DcRegisterScreen({
       header: "DC No",
       className: HUG,
       cell: (r) => (
-        <button type="button" className="font-mono text-xs font-medium text-primary hover:underline" onClick={() => open(r)}>
-          {r.code ?? "—"}
-        </button>
+        r.href ? (
+          <button type="button" className="font-mono text-xs font-medium text-primary hover:underline" onClick={() => open(r)}>
+            {r.code ?? "—"}
+          </button>
+        ) : (
+          <span className="font-mono text-xs font-medium">{r.code ?? "—"}</span>
+        )
       ),
     },
     // Plain text, not a pill: a pill here read as a second Status column (user 2026-11-03,
@@ -133,9 +141,10 @@ export function DcRegisterScreen({
           onChange={setWord}
           options={[
             { value: "all", label: `All (${counts.all})` },
-            { value: "process", label: `Process (${counts.process})` },
-            { value: "production", label: `Production (${counts.production})` },
+            { value: "process", label: `Job Work (${counts.process})` },
+            { value: "production", label: `Inter-Unit (${counts.production})` },
             { value: "general", label: `General (${counts.general})` },
+            { value: "department", label: `Department (${counts.department})` },
             { value: "rejection", label: `Rejection (${counts.rejection})` },
             { value: "replacement", label: `Replacement (${counts.replacement})` },
           ]}
@@ -156,10 +165,10 @@ export function DcRegisterScreen({
           ...(r.action === "dispatch" && canDispatch
             ? [{ label: dispatching ? "Dispatching…" : "Dispatch", icon: Send, onClick: () => dispatch(r) }]
             : []),
-          ...(r.action === "receive-back"
-            ? [{ label: "Receive back", icon: Undo2, onClick: () => router.push(r.href) }]
-            : r.action === "receive-stock"
-              ? [{ label: "Receive stock", icon: PackageCheck, onClick: () => router.push(r.href) }]
+          ...(r.action === "receive-back" && r.href
+            ? [{ label: "Receive back", icon: Undo2, onClick: () => router.push(r.href!) }]
+            : r.action === "receive-stock" && r.href
+              ? [{ label: "Receive stock", icon: PackageCheck, onClick: () => router.push(r.href!) }]
               : []),
           ...(r.print ? [{ label: "Print DC", icon: FileText, onClick: () => router.push(r.print!) }] : []),
         ],

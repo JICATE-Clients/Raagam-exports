@@ -55,7 +55,7 @@ export default async function ProductionDcPrintPage({ params }: { params: Promis
 
   return (
     <div>
-      <PoPrintToolbar backHref="/stores/production-dc" backLabel="Production DC" printable={dc.status !== "draft"} />
+      <PoPrintToolbar backHref="/stores/production-dc" backLabel="Inter-Unit DC" printable={dc.status !== "draft"} />
       <DocumentPrintStyles scope="po" />
       <article className="po-sheet mx-auto max-w-[1100px] space-y-3 bg-white pb-6 text-[12px] text-[#17202b]">
         <div className="po-keep">
