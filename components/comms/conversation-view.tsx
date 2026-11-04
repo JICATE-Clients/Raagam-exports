@@ -4,11 +4,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useTransition, type CSSProperties } from "react";
 import { CHAT_WALL_MASK } from "@/lib/comms/chat-wall";
-import { ArrowLeft, Hash, Loader2, Lock, Megaphone, MoreVertical, RotateCw, Users, WifiOff } from "lucide-react";
+import { ArrowLeft, Hash, Loader2, Lock, Megaphone, MoreVertical, Pin, RotateCw, Users, WifiOff, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { DropdownMenu, type DropdownItem } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/components/ui/toast";
+import { Truncated } from "@/components/ui/truncated";
 import { createClient } from "@/lib/supabase/client";
 import { fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -30,7 +31,7 @@ import {
   setChatFlags,
   setMuted,
 } from "@/lib/comms/actions";
-import type { AttachmentInput, CommAttachment, CommMessage, ConversationDetail, MessagePage } from "@/lib/comms/types";
+import { plainText, type AttachmentInput, type CommAttachment, type CommMessage, type ConversationDetail, type MessagePage } from "@/lib/comms/types";
 import { Composer } from "./composer";
 import { DeleteMessageDialog } from "./delete-message-dialog";
 import { DetailsSheet } from "./details-sheet";
@@ -146,8 +147,13 @@ export function ConversationView({
   const [menuBusy, startMenu] = useTransition();
   const [confirmDelete, setConfirmDelete] = useState<CommMessage | null>(null);
   const [joining, startJoin] = useTransition();
+  // The channel's one-line intro, hidden with its ✕ for this visit. Keyed by
+  // conversation so hiding it in one channel does not hide it in the next.
+  const [introHiddenFor, setIntroHiddenFor] = useState<string | null>(null);
 
   const id = conversation.id;
+  const introOpen = introHiddenFor !== id;
+  const setIntroOpen = (open: boolean) => setIntroHiddenFor(open ? null : id);
   const me = conversation.me;
   const canPost = !!me?.active && !conversation.is_archived;
   // 0775: a community's Announcements takes messages from its admins only
@@ -490,6 +496,10 @@ export function ConversationView({
 
   const KindIcon = conversation.kind === "channel" ? (conversation.visibility === "private" ? Lock : Hash) : Users;
   const activeCount = conversation.members.filter((m) => !m.removed_at).length;
+  // The pinned strip: the newest pinned message among those loaded.
+  const pinnedLoaded = messages.filter((m) => m.pinned && !m.deleted_at);
+  const latestPin = pinnedLoaded.length > 0 ? pinnedLoaded[pinnedLoaded.length - 1] : null;
+  const pinCount = pinnedLoaded.length;
   const subtitle =
     conversation.topic ??
     conversation.description ??
@@ -555,9 +565,11 @@ export function ConversationView({
   return (
     // `data-chat-page`: on a phone the conversation takes the whole screen and
     // sits on the keyboard (globals.css, "PHONE CHAT").
-    <div data-chat-page="" className="flex min-h-0 flex-1 flex-col">
-      {/* WhatsApp spacing (user 2026-11-02): 60px, 16px margin, 12px avatar-to-name. */}
-      <header className={cn("flex min-h-[60px] items-center gap-3 pl-4 pr-3", chat ? "shadow-[0_1px_0_rgba(0,0,0,.05)]" : "border-b border-border", chat ? "py-2" : "py-2.5")}>
+    <div data-chat-page="" className="relative flex min-h-0 flex-1 flex-col">
+      {/* COMPACT (user 2026-11-04, the Pulse chat-header board): 44px, 12px
+          margin, a 30px avatar and a 13.5px name, down from WhatsApp's 60px of
+          2026-11-02. A direct chat no longer says "Direct message" under the name. */}
+      <header className={cn("flex min-h-11 items-center gap-2 py-1 pl-3 pr-2", chat ? "shadow-[0_1px_0_rgba(0,0,0,.05)]" : "border-b border-border")}>
         {/* Inside Pulse's frame (`data-pulse`, comms-shell.tsx) the sidebar is
             beside the conversation once the hub is wide, so the back arrow is
             for narrow screens only; a conversation opened from outside Pulse
@@ -575,26 +587,27 @@ export function ConversationView({
         {announcement ? (
           <span
             aria-hidden
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[color-mix(in_srgb,#1f9d6b_14%,var(--surface))] text-[#137a52] dark:text-[#6fdcaa]"
+            className="flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-lg bg-[color-mix(in_srgb,#1f9d6b_14%,var(--surface))] text-[#137a52] dark:text-[#6fdcaa]"
           >
-            <Megaphone className="h-5 w-5" />
+            <Megaphone className="h-4 w-4" />
           </span>
         ) : chat ? (
           <span
             aria-hidden
             style={avatarStyle(conversation.title)}
-            className={cn("flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden text-sm font-bold", AVATAR_TINT, chat === "group" ? "rounded-xl" : "rounded-full")}
+            className={cn("flex h-[30px] w-[30px] shrink-0 items-center justify-center overflow-hidden text-[11.5px] font-bold", AVATAR_TINT, chat === "group" ? "rounded-lg" : "rounded-full")}
           >
-            {headerPhoto ? <PhotoImg src={headerPhoto} /> : chat === "group" && !conversation.name ? <Users className="h-5 w-5" /> : initials(conversation.title)}
+            {headerPhoto ? <PhotoImg src={headerPhoto} /> : chat === "group" && !conversation.name ? <Users className="h-4 w-4" /> : initials(conversation.title)}
           </span>
         ) : (
           <KindIcon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
         )}
         <div className="min-w-0 flex-1">
-          <h1 className="break-words text-[15px] font-semibold leading-snug text-heading">
+          <h1 className="break-words text-[13.5px] font-semibold leading-snug text-heading">
             {announcement ? "Announcements" : conversation.kind === "channel" ? conversation.title.replace(/^#/, "") : conversation.title}
           </h1>
-          <p className="break-words text-[12.5px] text-muted-foreground">
+          {(conversation.kind !== "direct" || !!conversation.community) && (
+          <p className="break-words text-[11.5px] leading-tight text-muted-foreground">
             {/* 0775: a community's group or Announcements names its community, linked to it. */}
             {conversation.community && (
               <>
@@ -607,8 +620,25 @@ export function ConversationView({
                 {" · "}
               </>
             )}
-            {subtitle}
+            {conversation.kind === "direct" ? null : conversation.kind === "channel" ? (
+              // CHANNEL HEADER (user 2026-11-04, the Pulse channel-page board):
+              // the size and department, then the topic as a small tag, so the
+              // intro card no longer has to say them.
+              <>
+                {activeCount} {activeCount === 1 ? "member" : "members"}
+                {conversation.department_name && ` · ${conversation.department_name}`}
+                {(conversation.topic ?? conversation.description) && (
+                  <Truncated
+                    text={(conversation.topic ?? conversation.description)!}
+                    className="ml-1.5 inline-block max-w-[12rem] rounded bg-primary-soft px-1.5 align-middle text-[10.5px] font-medium leading-4 text-primary"
+                  />
+                )}
+              </>
+            ) : (
+              subtitle
+            )}
           </p>
+          )}
         </div>
         {!connected && (
           <span className="flex items-center gap-1 text-xs text-warning" role="status">
@@ -618,11 +648,30 @@ export function ConversationView({
         {/* No magnifier in the header (user 2026-11-02) — Search is in the ⋮ menu. */}
         <DropdownMenu
           label="Menu"
-          trigger={<MoreVertical className="h-5 w-5" />}
-          triggerClassName="inline-flex h-10 w-10 items-center justify-center rounded-control text-foreground hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          trigger={<MoreVertical className="h-[18px] w-[18px]" />}
+          // Compact, and only as wide as "Mute notifications" (user 2026-11-04).
+          compact
+          fit
+          triggerClassName="inline-flex h-8 w-8 items-center justify-center rounded-control text-foreground hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           items={chatMenu}
         />
       </header>
+
+      {/* PINNED STRIP (user 2026-11-04, the Pulse channel-page board): the newest
+          pinned message among those loaded, in a thin bar under a channel's
+          header. It opens the Pinned messages sheet, which lists every pin. */}
+      {conversation.kind === "channel" && latestPin && (
+        <button
+          type="button"
+          onClick={() => setPinnedOpen(true)}
+          className="flex w-full items-center gap-2 border-b border-border bg-surface-muted px-3 py-1 text-left text-xs text-muted-foreground hover:bg-[color-mix(in_srgb,var(--surface-muted)_70%,var(--border))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        >
+          <Pin className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />
+          <span className="sr-only">Pinned: </span>
+          <Truncated text={plainText(latestPin.body, names) || "Attachment"} className="min-w-0 flex-1 font-medium text-foreground" />
+          {pinCount > 1 && <span className="shrink-0 tabular-nums">{pinCount} pinned</span>}
+        </button>
+      )}
 
       {/* The chat and, while 🔍 is on, Search messages beside it (over it on a
           narrow pane — chat-search-panel.tsx). */}
@@ -665,35 +714,45 @@ export function ConversationView({
             )}
           </div>
         ) : conversation.kind === "channel" ? (
-          // A CHANNEL OPENS ON ITS OWN CARD (user 2026-10-31, the Pulse mockup:
-          // "each channel's conversation displayed individually, like WhatsApp"):
-          // its name, size and purpose head its own feed, with Join while the
-          // person is only reading it.
-          <section
-            aria-label={`About ${conversation.title}`}
-            className="mx-auto mb-2 mt-1 flex w-[calc(100%-1.5rem)] max-w-xl flex-col items-center gap-1 rounded-2xl border border-border bg-surface px-4 py-4 text-center"
-          >
-            <span
-              aria-hidden
-              style={avatarStyle(conversation.title)}
-              className={cn("flex h-14 w-14 items-center justify-center rounded-full", AVATAR_TINT)}
+          // A CHANNEL OPENS ON ONE LINE (user 2026-11-04, the Pulse channel-page
+          // board), not the 2026-10-31 card: the header now carries the size,
+          // department and topic, so this only marks the start of the feed.
+          // The ✕ hides it for this visit; Join stays while the person is only
+          // reading the channel (and the line cannot be hidden until they join).
+          (introOpen || !me?.active) && (
+            <section
+              aria-label={`About ${conversation.title}`}
+              className="mx-3 mb-1 mt-1 flex items-center gap-2.5 rounded-[10px] bg-surface-muted px-2.5 py-2 text-[12.5px] text-muted-foreground"
             >
-              <KindIcon className="h-6 w-6" />
-            </span>
-            <h2 className="break-words text-lg font-extrabold text-heading">{conversation.title.replace(/^#/, "# ")}</h2>
-            <p className="text-[13px] text-muted-foreground">
-              Channel · {activeCount} {activeCount === 1 ? "member" : "members"}
-              {conversation.department_name ? ` · ${conversation.department_name}` : ""}
-            </p>
-            {(conversation.description ?? conversation.topic) && (
-              <p className="max-w-prose whitespace-pre-line text-sm text-foreground">{conversation.description ?? conversation.topic}</p>
-            )}
-            {!me?.active && !conversation.is_archived && conversation.visibility === "public" && (
-              <Button size="sm" className="mt-1" onClick={join} disabled={joining}>
-                {joining && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Join channel
-              </Button>
-            )}
-          </section>
+              <span
+                aria-hidden
+                style={avatarStyle(conversation.title)}
+                className={cn("flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-[7px]", AVATAR_TINT)}
+              >
+                <KindIcon className="h-3.5 w-3.5" />
+              </span>
+              <span className="min-w-0 flex-1 break-words">
+                This is the start of <b className="font-semibold text-foreground">{conversation.title.replace(/^#?/, "#")}</b>
+                {(conversation.description ?? conversation.topic) && ` · ${conversation.description ?? conversation.topic}`}
+              </span>
+              {!me?.active && !conversation.is_archived && conversation.visibility === "public" ? (
+                <Button size="sm" onClick={join} disabled={joining}>
+                  {joining && <Loader2 className="h-3.5 w-3.5 animate-spin" />} Join channel
+                </Button>
+              ) : (
+                // button-shape: exempt -- a small ✕ chip that hides the intro line
+                <button
+                  type="button"
+                  onClick={() => setIntroOpen(false)}
+                  aria-label="Hide"
+                  title="Hide"
+                  className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <X className="h-3.5 w-3.5" aria-hidden />
+                </button>
+              )}
+            </section>
+          )
         ) : messages.length > 0 ? (
           <p className="flex justify-center py-3">
             <span className={cn("text-xs text-muted-foreground", chat && "rounded-full border border-border bg-surface px-3 py-1")}>

@@ -1108,7 +1108,9 @@ function Row({
           trigger={<ChevronDown className="h-5 w-5" aria-hidden />}
           triggerClassName="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-surface hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           items={menu}
-          menuWidth={232}
+          // Compact (user 2026-11-04): still wide enough for "Remove from favourites".
+          compact
+          menuWidth={196}
         />
       </div>
     </li>
