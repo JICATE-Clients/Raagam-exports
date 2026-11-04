@@ -142,6 +142,9 @@ export function buildScreenCatalog(): CatalogModule[] {
       const screens: CatalogScreen[] = [];
       if (ROOT_SCREENS.has(item.href)) screens.push(rootScreen());
       for (const c of [...(item.children ?? []), ...(OFF_MENU_SCREENS[item.href] ?? [])]) {
+        // A child row that IS the module's root screen (Pulse ▸ Messages = /comms, 2026-11-04)
+        // is that one screen, not a second one with the same key — one permission tick.
+        if (screens.some((x) => x.key === c.href)) continue;
         screens.push({ key: c.href, label: c.label, module: item.module });
       }
       if (screens.length === 0) screens.push(rootScreen());

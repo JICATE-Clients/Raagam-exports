@@ -119,7 +119,9 @@ export function DropdownMenu({
   menuWidth?: number;
 }) {
   const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  /* `top` when the menu opens below the trigger, `bottom` when it opens above it —
+     one of the two, never both. */
+  const [pos, setPos] = useState<{ top?: number; bottom?: number; left: number } | null>(null);
   const [active, setActive] = useState(0);
   const btnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -129,11 +131,22 @@ export function DropdownMenu({
     if (!el) return;
     const r = el.getBoundingClientRect();
     const width = menuWidth;
-    setPos({
-      top: r.bottom + 4,
-      left: align === "right" ? r.right - width : r.left,
-    });
-  }, [align, menuWidth]);
+    /* FLIP UP WHEN BELOW HAS NO ROOM (user 2026-11-04, screenshot 4045: the approval
+       sheet's Decision menu sits in a footer at the foot of a phone screen, opened
+       downward, and its three choices were cut off by the screen's edge). The menu's
+       height is ~36px a row plus its padding, capped as its own `max-h` caps it; it
+       opens above the trigger when that does not fit below AND above has more room. */
+    const vh = window.innerHeight;
+    const want = Math.min(items.length * 36 + 8, vh * 0.7, 512);
+    const below = vh - r.bottom - 8;
+    const above = r.top - 8;
+    const up = below < want && above > below;
+    /* And never off the side of a narrow screen: an `align="right"` menu under a button
+       near the left edge used to start at a negative x. */
+    const rawLeft = align === "right" ? r.right - width : r.left;
+    const left = Math.max(8, Math.min(rawLeft, window.innerWidth - width - 8));
+    setPos(up ? { bottom: vh - r.top + 4, left } : { top: r.bottom + 4, left });
+  }, [align, menuWidth, items.length]);
 
   useEffect(() => {
     if (!open) return;
@@ -217,7 +230,7 @@ export function DropdownMenu({
             role="menu"
             tabIndex={-1}
             onKeyDown={onMenuKeyDown}
-            style={{ position: "fixed", top: pos.top, left: pos.left, width: menuWidth, zIndex: 150 }}
+            style={{ position: "fixed", top: pos.top, bottom: pos.bottom, left: pos.left, width: menuWidth, zIndex: 150 }}
             className="max-h-[min(70vh,32rem)] overflow-y-auto rounded-md border border-border bg-surface py-1 shadow-lg focus:outline-none"
           >
             {items.map((item, i) => {

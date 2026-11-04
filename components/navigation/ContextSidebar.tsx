@@ -1,7 +1,7 @@
 "use client";
 
 import type { CSSProperties, MouseEvent, ReactNode } from "react";
-import { Hash, PanelLeftClose, Search, type LucideIcon } from "lucide-react";
+import { PanelLeftClose, Search, UsersRound, type LucideIcon } from "lucide-react";
 import { useSearch } from "@/components/search/search-provider";
 import { usePathname } from "next/navigation";
 import { useOpenWorkspaceTab } from "@/lib/workspace-tabs";
@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 import { useRecent } from "@/lib/use-recent";
 import { useAccordion } from "@/lib/ui/use-accordion";
 import { hasPermission } from "@/lib/auth/types";
-import { SidebarChannels } from "@/components/comms/sidebar-channels";
+import { ChannelsHeaderActions, SidebarChannels } from "@/components/comms/sidebar-channels";
 import {
   activeChildHref,
   activeModule,
@@ -38,6 +38,8 @@ interface SidebarBlock {
   /** Live content drawn INSTEAD of `rows` — the comms Channels list (0751),
    *  which is data, not registry. Still one fold of the same accordion. */
   content?: ReactNode;
+  /** Icon buttons on the heading itself — see SidebarSection `actions`. */
+  actions?: ReactNode;
 }
 
 /**
@@ -112,21 +114,20 @@ export function ContextSidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
   // holds across both. Appended after `leaves` is taken: its rows are records,
   // not screens, and must not compete for the screen highlight.
   if (mod.href === "/comms") {
+    const canCreateChannel = hasPermission(user, "communication", "create");
+    const openInTab = (href: string, title: string) => (e: MouseEvent<HTMLAnchorElement>) => {
+      e.preventDefault();
+      openTab({ href, title });
+    };
     blocks.push({
       key: "comms:channels",
       label: "Channels",
-      icon: Hash,
+      // UsersRound, not Hash (user 2026-11-04: "i dont like that hash"): a
+      // channel is a group of people talking, which the heading should say.
+      icon: UsersRound,
       rows: [],
-      content: (
-        <SidebarChannels
-          pathname={pathname}
-          canCreate={hasPermission(user, "communication", "create")}
-          navigate={(href, title) => (e) => {
-            e.preventDefault();
-            openTab({ href, title });
-          }}
-        />
-      ),
+      actions: <ChannelsHeaderActions pathname={pathname} canCreate={canCreateChannel} navigate={openInTab} />,
+      content: <SidebarChannels pathname={pathname} navigate={openInTab} />,
     });
   }
   const activeHref = activeChildHref(pathname, leaves);
@@ -361,6 +362,7 @@ function FoldingGroups({
           key={block.key}
           label={block.label}
           icon={block.icon}
+          actions={block.actions}
           current={!!activeHref && block.rows.some((r) => r.href === activeHref)}
           fold={
             block.label

@@ -33,6 +33,7 @@ export function SidebarSection({
   icon: Icon,
   current = false,
   fold,
+  actions,
   children,
 }: {
   label?: string;
@@ -41,6 +42,12 @@ export function SidebarSection({
   /** The screen in view is one of this section's rows. */
   current?: boolean;
   fold?: { open: boolean; onToggle: () => void };
+  /** Small icon buttons drawn ON the heading, right of the name (comms
+   *  Channels: Browse / New, user 2026-11-04). Siblings of the fold button,
+   *  never inside it, so a click never folds; they reserve their own width
+   *  (`pr-*` on the heading) so a long name ellipsises before them. Heading
+   *  form (with `icon`) only. */
+  actions?: ReactNode;
   children: ReactNode;
 }) {
   if (label && Icon) {
@@ -70,25 +77,34 @@ export function SidebarSection({
       "flex h-9 w-full items-center gap-2 rounded-lg pl-1.5 pr-2 text-left text-[13.5px] font-semibold text-foreground";
     return (
       <div className="space-y-0.5">
-        {fold ? (
-          <button
-            type="button"
-            aria-expanded={fold.open}
-            onClick={fold.onToggle}
-            className={cn(headingClass, "transition-colors hover:bg-surface-muted")}
-          >
-            {heading}
-            <ChevronRight
-              aria-hidden
-              className={cn(
-                "h-3.5 w-3.5 shrink-0 text-caption transition-transform duration-150",
-                fold.open && "rotate-90",
-              )}
-            />
-          </button>
-        ) : (
-          <div className={headingClass}>{heading}</div>
-        )}
+        <div className="relative">
+          {fold ? (
+            <button
+              type="button"
+              aria-expanded={fold.open}
+              onClick={fold.onToggle}
+              className={cn(headingClass, "transition-colors hover:bg-surface-muted", actions && "pr-[4.25rem]")}
+            >
+              {heading}
+              <ChevronRight
+                aria-hidden
+                className={cn(
+                  "h-3.5 w-3.5 shrink-0 text-caption transition-transform duration-150",
+                  actions && "absolute right-2 top-1/2 -translate-y-1/2",
+                  fold.open && "rotate-90",
+                )}
+              />
+            </button>
+          ) : (
+            <div className={cn(headingClass, actions && "pr-[3rem]")}>{heading}</div>
+          )}
+          {actions && (
+            // Left of the chevron (which sits at right-2, 14px wide).
+            <div className={cn("absolute top-1/2 flex -translate-y-1/2 items-center", fold ? "right-6" : "right-1")}>
+              {actions}
+            </div>
+          )}
+        </div>
         {(!fold || fold.open) && (
           <div className="ml-[19px] space-y-0.5 border-l border-border pl-2">{children}</div>
         )}
