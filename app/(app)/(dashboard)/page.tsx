@@ -21,6 +21,16 @@ import { OrderBookSection } from "./sections/order-book";
 import { ManufacturingSection } from "./sections/manufacturing";
 import { NeedsYouSection } from "./sections/activity-alerts";
 import { CalendarSection } from "./sections/calendar";
+import {
+  MobileDay,
+  MobileGlance,
+  MobileHero,
+  MobileInsights,
+  MobileQuickStart,
+  MobileSkeleton,
+  MobileWaiting,
+  MobileWeek,
+} from "@/components/dashboard/mobile-home";
 
 /**
  * Raagam ERP — executive dashboard. Serves "/" (the (dashboard) route group
@@ -115,9 +125,37 @@ export default async function DashboardPage({
   const lines = await getLinesReporting(caps);
 
   return (
-    // `isolate` so the backdrop's -z-10 stays inside this page, behind the
-    // cards, instead of slipping under the shell's own panel.
-    <div className="relative isolate mx-auto flex max-w-[1440px] flex-col gap-3 xl:min-h-[600px] xl:flex-1">
+    <>
+    {/* THE PHONE HOME (user 2026-11-04, "this is only for mobile view"): below md the
+        dashboard is its own layout, not the desktop's cards stacked. Same loaders, so
+        the two cannot disagree; reasons and the colour roles in mobile-home.tsx. */}
+    <div data-mobile-home className="flex flex-col gap-[18px] md:hidden">
+      {sp.denied && <DeniedBanner module={sp.denied} />}
+      <Suspense fallback={<div className="-mx-4 -mt-4 h-14 bg-[#0a2e4d]" />}>
+        <MobileHero caps={caps} />
+      </Suspense>
+      <Suspense fallback={<MobileSkeleton h="h-28" />}>
+        <MobileDay user={user} />
+      </Suspense>
+      <Suspense fallback={<MobileSkeleton h="h-28" />}>
+        <MobileWaiting caps={caps} />
+      </Suspense>
+      <Suspense fallback={<MobileSkeleton h="h-40" />}>
+        <MobileGlance caps={caps} />
+      </Suspense>
+      <Suspense fallback={<MobileSkeleton h="h-48" />}>
+        <MobileWeek user={user} />
+      </Suspense>
+      <Suspense fallback={<MobileSkeleton h="h-48" />}>
+        <MobileInsights caps={caps} />
+      </Suspense>
+      <MobileQuickStart user={user} />
+    </div>
+
+    {/* THE DESKTOP DASHBOARD — from md up only. */}
+    {/* `isolate` so the backdrop's -z-10 stays inside this page, behind the
+        cards, instead of slipping under the shell's own panel. */}
+    <div className="relative isolate mx-auto hidden max-w-[1440px] flex-col gap-3 md:flex xl:min-h-[600px] xl:flex-1">
       <GlassBackdrop />
       <h1 className="sr-only">Operations Dashboard</h1>
 
@@ -191,5 +229,6 @@ export default async function DashboardPage({
         </div>
       </div>
     </div>
+    </>
   );
 }

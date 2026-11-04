@@ -1057,7 +1057,13 @@ export async function getActivity(caps: DashboardCaps): Promise<ActivityItem[]> 
 /** How many documents of one alert kind are read before the count says "N+". */
 const GROUP_LIMIT = 50;
 
-export async function getAlerts(caps: DashboardCaps): Promise<AlertItem[]> {
+/** Memoised per request: the desktop "What waits on me?" card and the phone home's
+ *  "Waiting on you" tiles (2026-11-04) both render on every request — one is hidden by
+ *  CSS — and must cost one set of queries, not two. `caps` comes from `getCaps()`, itself
+ *  memoised, so both callers pass the same object. */
+export const getAlerts = cache(getAlertsUncached);
+
+async function getAlertsUncached(caps: DashboardCaps): Promise<AlertItem[]> {
   const sb = await createClient();
   const t = today();
 

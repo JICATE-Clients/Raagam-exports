@@ -6,8 +6,8 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   Search,
   X,
+  ChevronLeft,
   ChevronRight,
-  ChevronDown,
   LayoutGrid,
   Building2,
   Truck,
@@ -20,9 +20,8 @@ import {
 import { type NavItem, type SubNavItem } from "./nav";
 import { searchNav, type NavSearchRow } from "./nav-search";
 import { type StoreNavLink } from "./sidebar";
-import { isHubRoute, owningNavHref } from "@/lib/nav/module-groups";
+import { isHubRoute } from "@/lib/nav/module-groups";
 import { useOverlayFocus } from "@/lib/use-overlay-focus";
-import { useAccordion } from "@/lib/ui/use-accordion";
 import { confirmDiscard, useModalGuard } from "@/lib/reload-guard";
 import { useAppUser } from "@/lib/auth/permission-context";
 import { useEditorOpen } from "@/lib/editor-presence";
@@ -33,24 +32,17 @@ import { cn } from "@/lib/utils";
 /**
  * MOBILE BOTTOM TAB BAR (below `md`; the sidebar owns ≥md and is untouched).
  *
- *   Home · <the login's modules, Orders and Approvals first> · Menu
+ *   Home · <the login's modules, Orders and Approvals first> · More (past 4)
  *
  * Replaced the floating "Peek Sheet" pill + separate ＋ FAB (user, 2026-09-24:
  * "bottom navigation with 4–5 primary items … feel native on iOS and
- * Android"). The pill's job — saying where you are — moved to the Menu tab,
- * which takes the current module's glyph and name whenever that module has no
- * tab of its own. Nothing floats any more, so the bug-reporter button and the
- * toast stack have one fixed edge to clear. The New tab (and its create sheet)
- * was removed on 2026-10-03 (user: "remove the new menu totally, no need");
- * create actions stay on each screen's own "+ Add" button.
+ * Android"). Nothing floats, so the bug-reporter button and the toast stack
+ * have one fixed edge to clear. The New tab (and its create sheet) was removed
+ * on 2026-10-03 (user: "remove the new menu totally, no need"); create actions
+ * stay on each screen's own "+ Add" button.
  *
- * Four behaviours make it feel like a native tab bar rather than a row of links:
+ * What makes it feel like a native tab bar rather than a row of links:
  *
- * - **Tabs remember where you were.** Leaving Orders from a Fabric BOM and
- *   tapping Orders again lands back on that Fabric BOM (`tabTarget`), the way
- *   an iOS / Android tab keeps its own stack. Kept in sessionStorage, so it is
- *   per-tab-of-the-browser and dies with it.
- * - **Tapping the ACTIVE tab goes to its root** — the platform's "pop to root".
  * - **Back closes a sheet, it does not leave the page.** Each sheet pushes one
  *   history entry (`useBackDismiss`); Android's Back button and iOS's edge
  *   swipe pop it. A link inside the sheet REPLACES that entry, so Back from the
@@ -58,8 +50,8 @@ import { cn } from "@/lib/utils";
  *   just reopens nothing.
  * - **It stands down inside a full-page editor** (`useEditorOpen`), which
  *   carries its own back button and Save / Next row (user 2026-10-03).
- * - **A small login gets its screens as tabs** (`COMPACT_MAX`): Home · My
- *   Profile for a regular staff member, no Menu sheet (2026-10-03).
+ * - **Home + the login's modules** (2026-11-04, see `PREFERRED`): a module tab
+ *   opens its screens as big tiles; the folding Menu tree is gone.
  * - **Leaving asks first.** A tab tap is a navigation like `BackLink`'s, so it
  *   runs the same `confirmDiscard()` before abandoning a dirty editor.
  */
@@ -74,40 +66,26 @@ const ENTITY_ICON: Record<SearchEntity, LucideIcon> = {
 };
 
 /**
- * THE BAR FOLLOWS THE LOGIN'S ALLOCATION (user 2026-10-03, screenshot 3237).
- * It was a fixed Home · Orders · Approvals · Menu, so a login without
- * Approvals simply lost that slot and kept its OWN module behind the Menu —
- * a staff member allocated Orders saw Home · Orders · Menu, with My Profile
- * two levels down a sheet.
+ * THE BAR IS HOME + THE LOGIN'S MODULES (user 2026-11-04, plan v3
+ * https://claude.ai/artifact/Vk5K2FhmeCD2JzoMn51dFs: "think easier" — after two
+ * richer plans were turned down). Three statements, nothing else:
  *
- * Now: Home, then `MODULE_SLOTS` module tabs, then Menu. `PREFERRED` modules
- * take the slots first when the login holds them (Orders and Approvals — the
- * old bar, unchanged for anyone who has both); a slot they leave empty goes
- * to the login's next module in sidebar order. A module holding ONE screen is
- * that screen on the bar ("My Profile", not "HR & Payroll").
+ * - The bar is Home, then each module the role holds (`PREFERRED` first).
+ * - Tapping a module opens its screens as BIG TILES — one more tap and you are
+ *   there. A module holding ONE screen is that screen ("My Profile").
+ * - Past `MAX_MODULE_TABS` modules, the last slot is More: module tiles → screen tiles.
+ *
+ * What went: the Menu sheet's folding tree (overview row, sections, counts), the
+ * Menu tab borrowing the current module's face, the compact screens-as-tabs bar,
+ * and per-tab screen memory. A driver now sees Home · Transport; a store keeper
+ * Home · Purchase. NO ALERTS TAB still holds (user 2026-10-03): the bell is in
+ * the top bar.
  */
 const PREFERRED: readonly string[] = ["/orders", "/approvals"];
-const MODULE_SLOTS = 2;
+/** Home + 4 is the five a phone bar holds; a fifth module turns slot 4 into More. */
+const MAX_MODULE_TABS = 4;
 /** A module's bar label when it differs from its sidebar label. */
 const TAB_LABEL: Record<string, string> = { "/": "Home" };
-
-const MEMORY_KEY = "raagam.mobile-tab-memory";
-
-/**
- * A SMALL LOGIN'S BAR HOLDS ITS SCREENS (user 2026-10-03, mockup "Staff Login
- * Bottom Bar", option B). A regular staff member reaches Home and My Profile
- * and nothing else, so the standard bar was Home + a Menu sheet three levels
- * deep (HR & Payroll ▸ People ▸ My Profile) around the one screen they have.
- * At this many screens or fewer, each is its own tab and the Menu tab goes.
- * Four, so Home + 4 is the five a phone bar holds.
- *
- * NO ALERTS TAB. The mockup filled the bar with one; the user struck it the
- * same day ("already top bar have the notification then why its need in
- * bottom too?") — the top bar's bell is on screen everywhere this bar is.
- */
-const COMPACT_MAX = 4;
-
-type ScreenTab = { href: string; label: string; icon: LucideIcon };
 
 /**
  * The screens a module holds for this login. Its ROOT counts as one unless it
@@ -124,24 +102,30 @@ function screensOf(
   return rootIsScreen ? [{ href: m.href, label: m.label }, ...leaves] : leaves;
 }
 
-/** Every screen this login can open (not a module row, not a group), or null
- *  once there are more than `COMPACT_MAX` — the standard bar then applies. */
-function compactScreens(
-  modules: NavItem[],
+type Tile = { href: string; label: string; icon: LucideIcon };
+type TileGroup = { label: string | null; tiles: Tile[] };
+
+/**
+ * A module's screens as tile groups: loose screens first (unlabelled), then one
+ * group per sub-module under its own small heading. ONE level — a heading is a
+ * label, never a fold. Each tile wears its sub-module's icon, so the icon says
+ * which family a screen belongs to rather than decorating it.
+ */
+function tileGroupsOf(
+  m: NavItem,
   childrenFor: (href: string, children?: SubNavItem[]) => SubNavItem[],
-): ScreenTab[] | null {
-  const out: ScreenTab[] = [];
-  const seen = new Set<string>();
-  for (const m of modules) {
-    if (m.href === "/") continue;
-    for (const l of screensOf(m, childrenFor)) {
-      if (seen.has(l.href)) continue;
-      seen.add(l.href);
-      out.push({ href: l.href, label: l.label, icon: m.icon });
-      if (out.length > COMPACT_MAX) return null;
-    }
+): TileGroup[] {
+  const sections = childrenFor(m.href, m.children);
+  const loose: Tile[] = [];
+  const groups: TileGroup[] = [];
+  const hasLeaves = sections.length > 0;
+  if (!hasLeaves || !isHubRoute(m.href)) loose.push({ href: m.href, label: hasLeaves ? "Overview" : m.label, icon: m.icon });
+  for (const s of sections) {
+    const icon = s.icon ?? m.icon;
+    if (s.children?.length) groups.push({ label: s.label, tiles: s.children.map((c) => ({ href: c.href, label: c.label, icon })) });
+    else loose.push({ href: s.href, label: s.label, icon });
   }
-  return out.length > 0 ? out : null;
+  return [...(loose.length ? [{ label: null, tiles: loose }] : []), ...groups];
 }
 
 function onRoute(pathname: string, href: string) {
@@ -155,48 +139,6 @@ function moduleOf(pathname: string, modules: NavItem[]): NavItem | undefined {
   return modules
     .filter((m) => onRoute(pathname, m.href))
     .sort((a, b) => b.href.length - a.href.length)[0];
-}
-
-function readMemory(): Record<string, string> {
-  try {
-    return JSON.parse(window.sessionStorage.getItem(MEMORY_KEY) ?? "{}");
-  } catch {
-    return {};
-  }
-}
-
-/** Remember the CURRENT location against its module. `?new=1&a=…` is a
- *  one-shot create intent (`useCreateIntent`), never a place to come back to. */
-function rememberHere(modules: NavItem[]) {
-  const { pathname, search } = window.location;
-  const mod = moduleOf(pathname, modules);
-  if (!mod) return;
-  const params = new URLSearchParams(search);
-  params.delete("new");
-  params.delete("a");
-  const qs = params.toString();
-  try {
-    const memory = readMemory();
-    memory[mod.href] = qs ? `${pathname}?${qs}` : pathname;
-    window.sessionStorage.setItem(MEMORY_KEY, JSON.stringify(memory));
-  } catch {
-    // Private mode / storage blocked: tabs simply open at their root.
-  }
-}
-
-/**
- * Where a tap on a module's tab goes.
- *
- * `activeHref` is the module the operator is in now. Re-tapping it is "pop to
- * root"; any other tab resumes the screen it was left on, if that screen is
- * still inside the module (a stale entry from before a route move falls back
- * to the root rather than 404ing).
- */
-function tabTarget(tabHref: string, activeHref: string | undefined, memory: Record<string, string>) {
-  if (tabHref === activeHref) return tabHref;
-  const saved = memory[tabHref];
-  if (saved && onRoute(saved.split("?")[0], tabHref)) return saved;
-  return tabHref;
 }
 
 /**
@@ -253,13 +195,14 @@ function isPlainClick(e: MouseEvent) {
   return e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
 }
 
-type Sheet = "menu" | null;
+/** Which sheet is up: one module's screen tiles, or More (its module tiles, then
+ *  — once one is picked — that module's screen tiles, with a way back). */
+type Sheet = { more: boolean; module: string | null } | null;
 
 export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
   // EVERY hook sits above the single early return below (AGENTS.md, "Hooks
   // above every early return").
   const pathname = usePathname();
-  const router = useRouter();
   const user = useAppUser();
   // A full-page editor has its own way out (← back, Escape, the platform's
   // Back) and its own bottom row (Save / Next), so the tab bar stands down
@@ -267,15 +210,11 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
   // land on Home, and the form gets the 56px back. Same signal that folds the
   // desktop sidebar away (`components/shell/sidebar.tsx`).
   const editorOpen = useEditorOpen();
+  const router = useRouter();
   const [sheet, setSheet] = useState<Sheet>(null);
   const [query, setQuery] = useState("");
-  const [viewHref, setViewHref] = useState<string | null>(null);
   const [records, setRecords] = useState<SearchResult[]>([]);
   const menuRef = useRef<HTMLDivElement>(null);
-  // A group row in the menu folds open to list its screens — the sidebar's
-  // third level (user 2026-10-03: "people inside child not showing"). One
-  // group open at a time (AGENTS.md "Folds are accordions").
-  const fold = useAccordion();
 
   const modules = useMemo(
     /* 0658: the shared filter — modules AND their screens (navigation-config). */
@@ -284,19 +223,14 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
   );
 
   const dismiss = () => setSheet(null);
-  const menuBack = useBackDismiss(sheet === "menu", dismiss);
-  const closeSheet = () => menuBack.close();
+  const sheetBack = useBackDismiss(sheet !== null, dismiss);
+  const closeSheet = () => sheetBack.close();
 
-  useOverlayFocus(sheet === "menu", closeSheet, menuRef);
+  useOverlayFocus(sheet !== null, closeSheet, menuRef);
   // Hand-rolled overlay → declare it, or a silent deploy reload lands under it.
   useModalGuard(sheet !== null);
 
-  // Every arrival is remembered against its module (see `tabTarget`).
-  useEffect(() => {
-    rememberHere(modules);
-  }, [pathname, modules]);
-
-  // Record hits from the shared search API, debounced.
+  // Record hits from the shared search API, debounced (More's search box).
   useEffect(() => {
     const term = query.trim();
     // A short query shows no record hits — derived below, not cleared here.
@@ -326,120 +260,40 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
   const childrenFor = (moduleHref: string, children?: SubNavItem[]) =>
     moduleHref === "/stores" ? [...storeLinks, ...(children ?? [])] : (children ?? []);
 
-  // ── Compact bar: a small login's own screens as tabs (`COMPACT_MAX`) ──────
-  const compact = compactScreens(modules, childrenFor);
-  if (compact) {
-    const home = modules.find((m) => m.href === "/");
-    const hereHref = compact
-      .filter((t) => onRoute(pathname, t.href))
-      .sort((a, b) => b.href.length - a.href.length)[0]?.href;
-    const go = (e: MouseEvent<HTMLAnchorElement>, href: string) => {
-      if (!isPlainClick(e)) return;
-      e.preventDefault();
-      if (!confirmDiscard()) return;
-      if (href !== pathname) router.push(href);
-    };
-    return (
-      <nav
-        data-mobile-tabbar=""
-        aria-label="Primary"
-        className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] md:hidden print:hidden"
-      >
-        <div className="mx-auto flex h-14 max-w-xl items-stretch">
-          {home && (
-            <TabLink
-              href="/"
-              icon={home.icon}
-              label={TAB_LABEL["/"]}
-              active={pathname === "/"}
-              onClick={(e) => go(e, "/")}
-            />
-          )}
-          {compact.map((t) => (
-            <TabLink
-              key={t.href}
-              href={t.href}
-              icon={t.icon}
-              label={t.label}
-              active={t.href === hereHref}
-              onClick={(e) => go(e, t.href)}
-            />
-          ))}
-        </div>
-      </nav>
-    );
-  }
-
   const activeModule = moduleOf(pathname, modules);
   const homeModule = modules.find((m) => m.href === "/");
-  const others = modules.filter((m) => m.href !== "/");
-  const moduleTabs = [
-    ...PREFERRED.map((href) => others.find((m) => m.href === href)).filter((m): m is NavItem => !!m),
-    ...others.filter((m) => !PREFERRED.includes(m.href)),
-  ]
-    .slice(0, MODULE_SLOTS)
-    .map((m) => {
-      // One screen in the module → the tab IS that screen.
-      const leaves = screensOf(m, childrenFor);
-      const only = leaves.length === 1 ? leaves[0] : undefined;
-      return { mod: m, href: only?.href ?? m.href, label: only?.label ?? TAB_LABEL[m.href] ?? m.label };
-    });
-  const tabbed = new Set<string>(["/", ...moduleTabs.map((t) => t.mod.href)]);
-  const inPinned = !!activeModule && tabbed.has(activeModule.href);
-  // The Menu tab stands in for whichever module has no tab of its own.
-  const menuModule = !inPinned ? activeModule : undefined;
+  const others = [
+    ...PREFERRED.map((href) => modules.find((m) => m.href === href)).filter((m): m is NavItem => !!m),
+    ...modules.filter((m) => m.href !== "/" && !PREFERRED.includes(m.href)),
+  ];
+  const overflow = others.length > MAX_MODULE_TABS;
+  const tabs = overflow ? others.slice(0, MAX_MODULE_TABS - 1) : others;
+  const moreModules = overflow ? others.slice(MAX_MODULE_TABS - 1) : [];
+  const inMore = !!activeModule && moreModules.some((m) => m.href === activeModule.href);
 
-  /** The sidebar row that owns this route. A grouped module's leaves are not
-   *  paths beneath their group, so prefix matching alone lights nothing. */
-  function activeSectionHref(mod: NavItem, sections: SubNavItem[]) {
-    return (
-      owningNavHref(mod.href, pathname) ??
-      sections
-        .filter((s) => onRoute(pathname, s.href))
-        .sort((a, b) => b.href.length - a.href.length)[0]?.href
-    );
+  /** The screen tile the operator stands on — longest match, so a parent never lights too. */
+  const hereHref = (tiles: Tile[]) =>
+    tiles.filter((t) => onRoute(pathname, t.href)).sort((a, b) => b.href.length - a.href.length)[0]?.href;
+
+  function go(href: string) {
+    if (!confirmDiscard()) return;
+    if (href !== pathname) router.push(href);
   }
 
-  // ── Menu sheet ───────────────────────────────────────────────────────────
-  const viewModule = modules.find((m) => m.href === viewHref) ?? activeModule ?? modules[0];
-  const viewSections = childrenFor(viewModule.href, viewModule.children);
-  const viewActive =
-    viewModule.href === activeModule?.href ? activeSectionHref(viewModule, viewSections) : undefined;
-
-  const q = query.trim();
-  const results: NavSearchRow[] = q
-    ? [
-        ...searchNav(query, modules, childrenFor, user),
-        ...(q.length >= 2 ? records : []).map((r) => ({
-          key: `${r.type}:${r.id}`,
-          icon: ENTITY_ICON[r.type],
-          title: r.title,
-          sub: r.subtitle,
-          href: r.href,
-        })),
-      ]
-    : [];
-
-  function openSheet(next: Exclude<Sheet, null>) {
-    if (sheet === next) return closeSheet();
-    setQuery("");
-    setViewHref(activeModule?.href ?? null);
-    // Open on the group holding the current screen, so "where am I" is visible.
-    fold.setOpenKey(
-      activeModule ? (activeSectionHref(activeModule, childrenFor(activeModule.href, activeModule.children)) ?? null) : null,
-    );
-    setSheet(next);
-  }
-
-  function onTab(e: MouseEvent<HTMLAnchorElement>, mod: NavItem, rootHref: string = mod.href) {
+  function onModuleTab(e: MouseEvent<HTMLAnchorElement>, m: NavItem) {
     if (!isPlainClick(e)) return; // long-press / new tab keeps the plain href
     e.preventDefault();
-    if (!confirmDiscard()) return;
-    rememberHere(modules); // capture this screen's latest filters before leaving
-    // A one-screen module's tab goes to that screen; memory cannot improve on it.
-    const target =
-      rootHref !== mod.href ? rootHref : tabTarget(mod.href, activeModule?.href, readMemory());
-    if (target !== pathname + window.location.search) router.push(target);
+    const screens = screensOf(m, childrenFor);
+    // One screen → the tab IS that screen; nothing to choose between.
+    if (screens.length <= 1) return go(screens[0]?.href ?? m.href);
+    setQuery("");
+    setSheet({ more: false, module: m.href });
+  }
+
+  function openMore() {
+    if (sheet?.more) return closeSheet();
+    setQuery("");
+    setSheet({ more: true, module: null });
   }
 
   /** A link inside a sheet: replace the sheet's history entry, see `useBackDismiss`. */
@@ -447,10 +301,29 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
     if (!isPlainClick(e)) return;
     e.preventDefault();
     if (!confirmDiscard()) return;
-    menuBack.go(href);
+    sheetBack.go(href);
   }
 
-  const MenuIcon = menuModule?.icon ?? LayoutGrid;
+  const sheetModule = sheet?.module ? modules.find((m) => m.href === sheet.module) : undefined;
+  const q = query.trim();
+  const results: NavSearchRow[] =
+    sheet?.more && !sheetModule && q
+      ? [
+          ...searchNav(query, modules, childrenFor, user),
+          ...(q.length >= 2 ? records : []).map((r) => ({
+            key: `${r.type}:${r.id}`,
+            icon: ENTITY_ICON[r.type],
+            title: r.title,
+            sub: r.subtitle,
+            href: r.href,
+          })),
+        ]
+      : [];
+
+  const tabLabel = (m: NavItem) => {
+    const screens = screensOf(m, childrenFor);
+    return screens.length === 1 ? screens[0].label : (TAB_LABEL[m.href] ?? m.label);
+  };
 
   return (
     <>
@@ -468,31 +341,37 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
               href="/"
               icon={homeModule.icon}
               label={TAB_LABEL["/"]}
-              active={sheet === null && activeModule?.href === "/"}
-              onClick={(e) => onTab(e, homeModule)}
+              active={sheet === null && pathname === "/"}
+              onClick={(e) => {
+                if (!isPlainClick(e)) return;
+                e.preventDefault();
+                go("/");
+              }}
             />
           )}
-          {moduleTabs.map((t) => (
+          {tabs.map((m) => (
             <TabLink
-              key={t.mod.href}
-              href={t.href}
-              icon={t.mod.icon}
-              label={t.label}
-              active={sheet === null && activeModule?.href === t.mod.href}
-              onClick={(e) => onTab(e, t.mod, t.href)}
+              key={m.href}
+              href={m.href}
+              icon={m.icon}
+              label={tabLabel(m)}
+              active={sheet ? sheet.module === m.href && !sheet.more : activeModule?.href === m.href}
+              onClick={(e) => onModuleTab(e, m)}
             />
           ))}
-          <TabButton
-            icon={MenuIcon}
-            label={menuModule?.label ?? "Menu"}
-            active={sheet === "menu" || (sheet === null && !!menuModule)}
-            onClick={() => openSheet("menu")}
-            ariaLabel={menuModule ? `Menu — in ${menuModule.label}` : "Menu"}
-          />
+          {overflow && (
+            <TabButton
+              icon={LayoutGrid}
+              label="More"
+              active={sheet ? sheet.more : inMore}
+              onClick={openMore}
+              ariaLabel="More modules"
+            />
+          )}
         </div>
       </nav>
 
-      {/* Scrim behind the menu sheet. */}
+      {/* Scrim behind the sheet. */}
       <div
         aria-hidden
         onClick={closeSheet}
@@ -502,34 +381,84 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
         )}
       />
 
-      {/* ── Menu sheet ─────────────────────────────────────────────────── */}
       <BottomSheet
         panelRef={menuRef}
-        open={sheet === "menu"}
-        label="Menu"
+        open={sheet !== null}
+        label={sheetModule?.label ?? "More"}
         header={
-          <div className="flex h-10 items-center gap-2 rounded-md border border-border bg-surface-muted px-2.5 focus-within:border-primary focus-within:ring-2 focus-within:ring-ring">
-            <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <input
-              // caps-input: exempt -- a search query is not a stored value
-              // A raw <input>, so it carries the autofill opt-outs itself
-              // (AGENTS.md "Browser autofill").
-              type="search"
-              autoComplete="off"
-              data-1p-ignore=""
-              data-lpignore="true"
-              data-form-type="other"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search records, screens, actions…"
-              aria-label="Search"
-              className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
-            />
+          <div className="flex min-h-11 items-center gap-1">
+            {sheet?.more && sheetModule && (
+              <button
+                type="button"
+                onClick={() => setSheet({ more: true, module: null })}
+                aria-label="Back to all modules"
+                className="-ml-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground active:bg-surface-muted"
+              >
+                <ChevronLeft className="h-5 w-5" />
+              </button>
+            )}
+            {sheet?.more && !sheetModule ? (
+              <div className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-md border border-border bg-surface-muted px-2.5 focus-within:border-primary focus-within:ring-2 focus-within:ring-ring">
+                <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+                {/* caps-input: exempt -- a search query, not a stored value */}
+                <input
+                  type="search"
+                  autoComplete="off"
+                  data-1p-ignore=""
+                  data-lpignore="true"
+                  data-form-type="other"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search records, screens…"
+                  aria-label="Search"
+                  className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+                />
+              </div>
+            ) : (
+              <h2 className="min-w-0 flex-1 truncate text-base font-bold text-heading">{sheetModule?.label}</h2>
+            )}
             <CloseButton onClick={closeSheet} />
           </div>
         }
       >
-        {q ? (
+        {sheetModule ? (
+          // ONE MODULE'S SCREENS AS BIG TILES — headings are labels, never folds.
+          (() => {
+            const groups = tileGroupsOf(sheetModule, childrenFor);
+            const all = groups.flatMap((g) => g.tiles);
+            const here = hereHref(all);
+            // A small module (a driver's Transport) gets two big columns; a big one
+            // (Orders, ~20 screens) gets three, so it is not a page of scrolling.
+            const wide = all.length <= 6;
+            return groups.map((g, gi) => (
+              <div key={g.label ?? `loose-${gi}`} className={gi > 0 ? "mt-4" : undefined}>
+                {g.label && <SectionLabel>{g.label}</SectionLabel>}
+                <ul className={cn("grid gap-2", wide ? "grid-cols-2" : "grid-cols-3")}>
+                  {g.tiles.map((t) => (
+                    <li key={t.href}>
+                      <Link
+                        href={t.href}
+                        onClick={(e) => sheetLink(e, t.href)}
+                        aria-current={t.href === here ? "page" : undefined}
+                        className={cn(
+                          "flex h-full flex-col items-center justify-center gap-2 rounded-2xl border px-1.5 py-3 text-center [-webkit-tap-highlight-color:transparent] active:scale-[0.97]",
+                          wide ? "min-h-[92px]" : "min-h-[84px]",
+                          t.href === here ? "border-primary/40 bg-primary-soft text-primary" : "border-border bg-surface text-foreground",
+                        )}
+                      >
+                        <span className="grid size-11 place-items-center rounded-[13px] bg-primary-soft text-primary">
+                          <t.icon className="h-5 w-5" />
+                        </span>
+                        {/* truncate-reveal: exempt -- screen names, two lines allowed; the whole name is the link's text */}
+                        <span className={cn("line-clamp-2 font-semibold leading-tight", wide ? "text-[13px]" : "text-[12px]")}>{t.label}</span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ));
+          })()
+        ) : q ? (
           <>
             <SectionLabel>
               {results.length} result{results.length !== 1 ? "s" : ""}
@@ -545,7 +474,9 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
                       <Link href={r.href} onClick={(e) => sheetLink(e, r.href)} className={ROW}>
                         <Icon className={cn("h-4 w-4 shrink-0", r.isAction ? "text-primary" : "text-muted-foreground")} />
                         <span className="min-w-0 flex-1">
+                          {/* truncate-reveal: exempt -- a search result row; the full title is one tap away */}
                           <span className="block truncate">{r.title}</span>
+                          {/* truncate-reveal: exempt -- secondary line of a search result */}
                           <span className="block truncate text-xs font-normal text-muted-foreground">{r.sub}</span>
                         </span>
                         <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -557,118 +488,39 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
             )}
           </>
         ) : (
-          <>
-            <SectionLabel>{viewModule.label}</SectionLabel>
-            <ul className="divide-y divide-border overflow-hidden rounded-md border border-border">
-              <li>
-                <Link
-                  href={viewModule.href}
-                  onClick={(e) => sheetLink(e, viewModule.href)}
-                  aria-current={pathname === viewModule.href ? "page" : undefined}
-                  className={cn(ROW, pathname === viewModule.href && ROW_ON)}
-                >
-                  <viewModule.icon className="h-4 w-4 shrink-0" />
-                  <span className="min-w-0 flex-1 truncate">{viewModule.label} overview</span>
-                  <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                </Link>
-              </li>
-              {viewSections.map((s) => {
-                const on = s.href === viewActive;
-                const leaves = s.children ?? [];
-                if (leaves.length === 0) {
-                  return (
-                    <li key={s.href}>
-                      <Link
-                        href={s.href}
-                        onClick={(e) => sheetLink(e, s.href)}
-                        aria-current={on ? "page" : undefined}
-                        className={cn(ROW, "pl-9", on && ROW_ON)}
-                      >
-                        <span className="min-w-0 flex-1 truncate">{s.label}</span>
-                        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                      </Link>
-                    </li>
-                  );
-                }
-                // A group: the row folds open to its screens instead of
-                // opening the hub page — that is a second tap to reach a screen.
-                const open = fold.isOpen(s.href);
-                const leafOn = on
-                  ? leaves
-                      .filter((c) => onRoute(pathname, c.href))
-                      .sort((a, b) => b.href.length - a.href.length)[0]?.href
-                  : undefined;
-                return (
-                  <li key={s.href}>
-                    <button
-                      type="button"
-                      onClick={() => fold.toggle(s.href)}
-                      aria-expanded={open}
-                      className={cn(ROW, "pl-9", on && !open && ROW_ON)}
-                    >
-                      <span className="min-w-0 flex-1 truncate">{s.label}</span>
-                      <span className="shrink-0 text-xs font-normal text-muted-foreground">{leaves.length}</span>
-                      <ChevronDown
-                        className={cn("h-4 w-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")}
-                      />
-                    </button>
-                    {open && (
-                      <ul className="border-t border-border bg-surface-muted/40">
-                        {leaves.map((c) => {
-                          const here = c.href === leafOn;
-                          return (
-                            <li key={c.href}>
-                              <Link
-                                href={c.href}
-                                onClick={(e) => sheetLink(e, c.href)}
-                                aria-current={here ? "page" : undefined}
-                                className={cn(ROW, "bg-transparent pl-14 font-normal", here && ROW_ON)}
-                              >
-                                <span className="min-w-0 flex-1 truncate">{c.label}</span>
-                                <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
-                              </Link>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-
-            <SectionLabel className="mt-4">Modules</SectionLabel>
-            <div className="grid grid-cols-4 gap-1">
-              {modules.map((m) => {
-                const on = m.href === viewModule.href;
-                const here = m.href === activeModule?.href;
-                return (
-                  // button-shape: exempt -- a 4-column grid of module tiles in the bottom sheet, navigation rather than a word toggle row
+          // MORE: the modules without a tab, as big tiles.
+          <ul className="grid grid-cols-3 gap-2.5">
+            {moreModules.map((m) => {
+              const here = m.href === activeModule?.href;
+              return (
+                <li key={m.href}>
+                  {/* button-shape: exempt -- a grid of module tiles in the bottom sheet, navigation rather than a word toggle row */}
                   <button
-                    key={m.href}
                     type="button"
                     onClick={() => {
-                      setViewHref(m.href);
-                      fold.setOpenKey(null);
+                      const screens = screensOf(m, childrenFor);
+                      if (screens.length <= 1) {
+                        if (!confirmDiscard()) return;
+                        sheetBack.go(screens[0]?.href ?? m.href);
+                        return;
+                      }
+                      setSheet({ more: true, module: m.href });
                     }}
-                    aria-pressed={on}
                     className={cn(
-                      "flex min-h-16 flex-col items-center justify-center gap-1 rounded-md px-1 py-2 text-center [-webkit-tap-highlight-color:transparent] active:bg-surface-muted",
-                      on ? "bg-primary-soft text-primary" : "text-foreground",
+                      "flex h-full min-h-[88px] w-full flex-col items-center justify-center gap-2 rounded-2xl border px-1 py-3 text-center [-webkit-tap-highlight-color:transparent] active:scale-[0.97]",
+                      here ? "border-primary/40 bg-primary-soft text-primary" : "border-border bg-surface text-foreground",
                     )}
                   >
-                    <span className="relative">
+                    <span className="grid size-11 place-items-center rounded-[13px] bg-primary-soft text-primary">
                       <m.icon className="h-5 w-5" />
-                      {here && !on && (
-                        <span aria-hidden className="absolute -right-1 -top-0.5 h-1.5 w-1.5 rounded-full bg-primary" />
-                      )}
                     </span>
-                    <span className="line-clamp-2 text-[11px] font-medium leading-tight">{m.label}</span>
+                    {/* truncate-reveal: exempt -- module names, two lines allowed */}
+                    <span className="line-clamp-2 text-[12px] font-semibold leading-tight">{m.label}</span>
                   </button>
-                );
-              })}
-            </div>
-          </>
+                </li>
+              );
+            })}
+          </ul>
         )}
       </BottomSheet>
     </>
@@ -680,7 +532,6 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
 /** A dense list row: 44px, the minimum comfortable touch target. */
 const ROW =
   "flex min-h-11 w-full items-center gap-3 bg-surface px-3 py-2 text-left text-sm font-medium text-foreground [-webkit-tap-highlight-color:transparent] active:bg-surface-muted";
-const ROW_ON = "bg-primary-soft text-primary";
 
 /** Shared tab chrome. Indicator = a tinted pill behind the icon (Material 3)
  *  plus a coloured, heavier label (iOS) — two signals, so the active tab reads
@@ -690,8 +541,10 @@ function TabInner({ icon: Icon, label, active }: { icon: LucideIcon; label: stri
     <>
       <span
         className={cn(
-          "flex h-7 w-12 items-center justify-center rounded-full transition-colors",
-          active && "bg-primary-soft",
+          // A ROUNDED SQUARE, not a pill (user 2026-11-04, circled on the reference
+          // app's Home tab): taller, so it reads as a tile you are standing on.
+          "flex h-8 w-12 items-center justify-center rounded-xl transition-colors",
+          active && "bg-primary-soft ring-1 ring-inset ring-primary/20",
         )}
       >
         <Icon className="h-5 w-5" strokeWidth={active ? 2.25 : 1.75} />
