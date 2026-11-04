@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
-import { binInput, type BinInput } from "./bin-types";
+import { binInput, binRangeCodes, binRangeInput, type BinInput, type BinRangeInput } from "./bin-types";
 import { checkDuplicateName } from "./dup-guard";
 import { deleteOrDeactivate } from "./delete-guard";
 import { getCurrentLocation } from "@/lib/auth/location";
@@ -47,7 +47,7 @@ export async function createBin(data: BinInput): Promise<CreateResult> {
   const s = await createClient();
   if (!p.data.bin_code.trim()) {
     const next = await nextBinCode(s, p.data.store_id);
-    if (!next) return fail("Enter a bin code, or give this store a Bin Prefix on the Stores master");
+    if (!next) return fail("Enter a bin code");
     p.data.bin_code = next;
   }
   const dup = await checkDuplicateName(s, "bins", p.data.bin_code, { nameColumn: "bin_code" });
@@ -58,15 +58,54 @@ export async function createBin(data: BinInput): Promise<CreateResult> {
   return { ok: true, id: row.id };
 }
 
+/**
+ * THE NEW-BIN FORM'S SAVE (client 2026-11-04): Prefix + From…To → one bin per number, all
+ * in the chosen store with the same description. All or nothing — if any code in the
+ * range is already a bin, nothing is made and the message names them, so a half-made
+ * range never has to be untangled by hand.
+ */
+export async function createBinRange(data: BinRangeInput): Promise<CreateResult & { message?: string }> {
+  if (!(await can("masters", "create"))) return fail("Forbidden");
+  const p = binRangeInput.safeParse(data);
+  if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
+  const codes = binRangeCodes(p.data.prefix, p.data.from_no, p.data.to_no);
+  const s = await createClient();
+  const { data: taken, error: readErr } = await s.from("bins").select("bin_code").in("bin_code", codes);
+  if (readErr) return fail(readErr.message);
+  if (taken && taken.length > 0) {
+    const names = (taken as { bin_code: string }[]).map((t) => t.bin_code).sort();
+    const shown = names.slice(0, 5).join(", ") + (names.length > 5 ? ` and ${names.length - 5} more` : "");
+    return fail(`Already exists: ${shown}. Change the prefix or the From–To range.`);
+  }
+  const description = p.data.description?.trim() || null;
+  const { data: made, error } = await s
+    .from("bins")
+    .insert(codes.map((bin_code) => ({ bin_code, store_id: p.data.store_id, description, inactive: p.data.inactive })))
+    .select("id");
+  if (error) return fail(error.message);
+  rev();
+  return {
+    ok: true,
+    id: (made?.[0] as { id: string } | undefined)?.id ?? "",
+    message: codes.length === 1 ? `Bin ${codes[0]} added.` : `${codes.length} bins added (${codes[0]} – ${codes[codes.length - 1]}).`,
+  };
+}
+
 export async function updateBin(id: string, data: BinInput): Promise<Result> {
   if (!(await can("masters", "edit"))) return fail("Forbidden");
   const p = binInput.safeParse(data);
   if (!p.success) return fail(p.error.issues[0]?.message ?? "Validation failed");
-  if (!p.data.bin_code.trim()) return fail("Bin code is required");
   const s = await createClient();
-  const dup = await checkDuplicateName(s, "bins", p.data.bin_code, { nameColumn: "bin_code", excludeId: id });
-  if (!dup.ok) return fail(dup.error);
-  const { error } = await s.from("bins").update(p.data).eq("id", id);
+  // A blank code means "keep the one it has" — the Bin screen's Edit form no longer asks
+  // for it (2026-11-04). A code that IS sent (an import) is still duplicate-checked.
+  const { bin_code, ...rest } = p.data;
+  const patch: Partial<BinInput> = { ...rest };
+  if (bin_code.trim()) {
+    const dup = await checkDuplicateName(s, "bins", bin_code, { nameColumn: "bin_code", excludeId: id });
+    if (!dup.ok) return fail(dup.error);
+    patch.bin_code = bin_code;
+  }
+  const { error } = await s.from("bins").update(patch).eq("id", id);
   if (error) return fail(error.message);
   rev();
   return { ok: true };

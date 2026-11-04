@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import { SimpleMasterScreen, type SimpleMasterDescriptor } from "@/components/masters/simple-master-screen";
 import { createStore, updateStore, deleteStore } from "@/lib/masters/store-master-actions";
 import type { StoreRow } from "@/lib/masters/store-master-types";
-import { STORE_TYPES, STORE_TYPE_LABELS, SYSTEM_STORE_TYPES, type StoreType } from "@/lib/stores/types";
+import { STORE_TYPE_LABELS } from "@/lib/stores/types";
 import { FIELD_WIDTH } from "@/components/ui/field";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExport?: boolean; isSuperAdmin?: boolean };
@@ -13,8 +13,8 @@ type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExpo
  * STORE MASTER (0800, user 2026-11-03), Materials beside Bins: the store rooms of the
  * unit you are working in.
  *
- *   Code (blank = generated, fixed once saved) · Store Name · Store Type (fixed once
- *   saved) · Bin Prefix · status.
+ *   Store Name · status. (2026-11-04: Store Type, Code and Bin Prefix are no longer
+ *   shown — new stores are Storage, their code is generated, and they carry no prefix.)
  *
  * Material, Purchase, Processing, Rejection, Surplus and In Transit are the SYSTEM types:
  * one each per unit, and the system routes stock into them by type (a GRN's rejected qty
@@ -26,37 +26,22 @@ type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean; canExpo
  */
 export function StoreMasterScreen({ rows, perms }: { rows: StoreRow[]; perms: Perms }) {
   const descriptor = useMemo<SimpleMasterDescriptor<StoreRow>>(() => {
-    // A system type the unit already has is not offered for a NEW store; Storage always is.
-    const held = new Set(rows.map((r) => r.store_type));
-    const typeOptions = STORE_TYPES.filter((t) => t === "storage" || !SYSTEM_STORE_TYPES.includes(t) || !held.has(t)).map(
-      (t) => ({ value: t, label: STORE_TYPE_LABELS[t] }),
-    );
     return {
       entityLabel: "Store",
       status: "active",
-      /* COMPACT: code 144 · name 288 · type 176 · prefix 144 */
+      /* COMPACT: name 288 — the only field left */
+      mobileTitleKey: "name",
       fields: [
-        {
-          key: "code",
-          label: "Code",
-          mono: true,
-          placeholder: "Auto",
-          lockedOnEdit: true,
-          skipTab: true,
-          widthClass: FIELD_WIDTH.code,
-        },
+        // Code column hidden (user 2026-11-04). The code is still generated on save —
+        // blankValues carries no `code`, so toPayload sends "" and the action numbers
+        // it; an edit sends back the row's own code via fromRow, so it never changes.
         { key: "name", label: "Store Name", required: true, widthClass: FIELD_WIDTH.name },
-        {
-          key: "store_type",
-          label: "Store Type",
-          kind: "select",
-          required: true,
-          lockedOnEdit: true,
-          options: typeOptions,
-          optionLabel: (v) => STORE_TYPE_LABELS[v as StoreType] ?? v,
-          widthClass: FIELD_WIDTH.term,
-        },
-        { key: "bin_prefix", label: "Bin Prefix", mono: true, placeholder: "E.g. YARN-", widthClass: FIELD_WIDTH.code },
+        // Store Type removed from the form (user 2026-11-04: "no need"). A new store
+        // saves as Storage (toPayload's default); an edit keeps the type it already has
+        // (fromRow carries it), so a system store is never re-typed by a save.
+        // Bin Prefix hidden (user 2026-11-04). A new store saves with no prefix, so its
+        // bins take a typed code (nextBinCode returns null); an edit sends back the
+        // store's existing prefix via fromRow, so stores that have one keep it.
       ],
       fromRow: (r) => ({
         code: r.code ?? "",
