@@ -23,7 +23,6 @@ import { BinPanel } from "./inventory-bin-panel";
 import {
   AGE_TONE,
   AgeTape,
-  BinHealthBar,
   classColour,
   Dot,
   HeadlineStrip,
@@ -33,8 +32,6 @@ import {
   ValueByClass,
   VizCard,
   YarnCones,
-  type BinCell,
-  type BinHealth,
   type Headline,
 } from "./inventory-visuals";
 
@@ -313,60 +310,17 @@ export function InventoryDashboard({
   }
 
   /* ---------------- figures ---------------- */
-  const binHealth: BinHealth = useMemo(() => {
-    const active = bins.filter((b) => !b.inactive);
-    const used = new Map<string, Row[]>();
-    for (const r of rows) if (r.bin !== NO_BIN) used.set(`${r.store}|${r.bin}`, [...(used.get(`${r.store}|${r.bin}`) ?? []), r]);
-    const mixedBins = [...used.entries()].filter(([, ls]) => mixOf(ls));
-    const storesWithBins = new Set(bins.map((b) => b.store_id));
-    const floorAll = rows.filter((r) => r.bin === NO_BIN && storesWithBins.has(storeByName.get(r.store)?.id ?? ""));
-    const perStore = stores
-      .map((s) => [s.name.replace(/ Store$/, ""), active.filter((b) => b.store_id === s.id).length] as const)
-      .filter(([, n]) => n > 0)
-      .map(([n, c]) => `${n} ${c}`)
-      .join(" · ");
-    const usedNames = [...used.keys()].map((k) => k.split("|")[1]);
-    return {
-      bins: active.length,
-      byStore: perStore,
-      inUse: used.size,
-      inUseHint: usedNames.length ? usedNames.slice(0, 3).join(", ") + (usedNames.length > 3 ? ` +${usedNames.length - 3}` : "") : "No bin holds stock",
-      empty: Math.max(0, active.length - used.size),
-      mixed: mixedBins.length,
-      mixedHint: mixedBins.map(([k]) => k.split("|")[1]).slice(0, 3).join(", "),
-      floorLots: floorAll.length,
-      floorQty: floorAll.reduce((a, r) => a + r.qty, 0),
-    };
-  }, [bins, rows, stores, storeByName]);
+  /* Bins holding stock, per store — read by the store tabs ("Material Store · 1/30"), which are now
+   * the one place the page says how full each store is (user 2026-11-04: the header strip said it a
+   * second time, beside Mixed / Empty / On the floor boxes the rack, the bin panel and the floor tray
+   * already show — removed). */
+  const usedByStore = new Map<string, number>();
+  {
+    const held = new Set(rows.filter((r) => r.bin !== NO_BIN).map((r) => `${r.store}|${r.bin}`));
+    const storeName = new Map(stores.map((st) => [st.id, st.name]));
+    for (const bn of bins) if (held.has(`${storeName.get(bn.store_id) ?? ""}|${bn.bin_code ?? ""}`)) usedByStore.set(bn.store_id, (usedByStore.get(bn.store_id) ?? 0) + 1);
+  }
 
-  /* Every active bin (or one still holding stock) as a cell of the header's occupancy map. */
-  const binCells: BinCell[] = useMemo(() => {
-    const byBin = new Map<string, Row[]>();
-    for (const r of rows) if (r.bin !== NO_BIN) byBin.set(`${r.store}|${r.bin}`, [...(byBin.get(`${r.store}|${r.bin}`) ?? []), r]);
-    const storeName = new Map(stores.map((s) => [s.id, s.name]));
-    return bins
-      .map((b) => {
-        const name = storeName.get(b.store_id) ?? "";
-        const ls = byBin.get(`${name}|${b.bin_code ?? ""}`) ?? [];
-        return { b, name, ls };
-      })
-      .filter(({ b, ls }) => !b.inactive || ls.length > 0)
-      .map(({ b, name, ls }) => ({
-        id: b.id,
-        code: b.bin_code ?? "—",
-        storeId: b.store_id,
-        storeName: name,
-        state: (ls.length ? (mixOf(ls) ? "mixed" : "used") : "empty") as BinCell["state"],
-      }));
-  }, [bins, rows, stores]);
-
-  /** Open a bin from anywhere (the header's map and pills): its store, the rack, the bin. */
-  const openBin = (storeIdOf: string, id: string) => {
-    setStoreId(storeIdOf);
-    setBinId(id);
-    setMoving([]);
-    setTarget(null);
-  };
   /** Start Assign a bin on the first store that has lots on its floor. */
   const putAwayFloor = () => {
     const s = rows.find((r) => r.bin === NO_BIN && binsByStore.has(storeByName.get(r.store)?.id ?? ""));
@@ -436,7 +390,8 @@ export function InventoryDashboard({
         }
         className={cn(
           "relative flex h-full min-w-0 flex-col justify-end overflow-hidden rounded-t-md border border-b-0 border-border bg-surface transition-[box-shadow,border-color,transform,opacity] duration-200 hover:-translate-y-px hover:border-primary motion-reduce:transition-none",
-          has && "border-primary/50 bg-gradient-to-b from-surface to-primary-soft shadow-[0_0_0_1px_rgba(3,123,184,.12),0_6px_16px_-6px_rgba(3,123,184,.55)]",
+          has && "border-primary/40 shadow-[0_4px_12px_-8px_rgba(3,123,184,.55)]",
+          mixed && "border-warning ring-1 ring-warning/40",
           selectedBin?.id === b.id && !picking && "outline outline-2 outline-offset-1 outline-primary shadow-[0_0_0_4px_rgba(3,123,184,.14),0_8px_22px_-4px_rgba(3,123,184,.65)]",
           lighting && !picking && (hit ? "outline outline-2 outline-offset-1 outline-warning shadow-[0_0_0_4px_rgba(250,178,25,.22),0_8px_22px_-4px_rgba(250,178,25,.75)]" : "opacity-25"),
           isSuggestion && "border-dashed border-success shadow-[0_0_0_3px_rgba(84,123,25,.14)]",
@@ -446,19 +401,22 @@ export function InventoryDashboard({
           b.inactive && "opacity-60",
         )}
       >
-        <span className={cn("absolute inset-x-0 top-1 z-10 text-center font-mono text-[11px] font-semibold", has ? "text-foreground" : "text-muted-foreground")}>{label}</span>
-        {mixed ? (
-          <span className="absolute top-[3px] left-[3px] z-10 rounded-[3px] border border-warning/50 bg-warning-soft px-0.5 text-[9px] leading-3 font-bold text-warning">M</span>
-        ) : null}
-        {band ? <Dot colour={AGE_TONE[band].colour} className="absolute top-1.5 right-1 z-10 size-[7px]" /> : null}
+        {/* ONE COMPARTMENT, THREE FACTS, NO OVERLAP (user 2026-11-04, screenshot 195527: an M chip,
+            the number and the age dot were all crammed into the top edge, the M sitting on the
+            number, and the stock drawn as separate bars of uneven height). Now:
+              top    — the bin number on the left, the age dot on the right, nothing else;
+              body   — the stock as ONE load sitting on the shelf, its layers the kinds it holds
+                       (share of lots), so a two-colour load already SAYS "mixed";
+              edge   — a mixed bin's frame turns amber, which reads across a whole rack at a glance
+                       where a 9px letter did not. */}
+        <span className="absolute inset-x-1.5 top-1 z-10 flex items-center justify-between">
+          <span className={cn("font-mono text-[11px] font-semibold", mixed ? "text-warning" : has ? "text-foreground" : "text-muted-foreground")}>{label}</span>
+          {band ? <Dot colour={AGE_TONE[band].colour} className="size-[7px]" /> : null}
+        </span>
         {has ? (
-          <span className="flex flex-col-reverse gap-0.5 px-[3px] pb-[3px]">
+          <span className="mx-[3px] mb-[3px] flex h-[52%] flex-col-reverse overflow-hidden rounded-[4px] ring-1 ring-black/5 ring-inset">
             {[...shares.entries()].map(([cls, n]) => (
-              <span
-                key={cls}
-                className="rounded-[3px] bg-gradient-to-b from-white/35 to-transparent to-55%"
-                style={{ backgroundColor: classColour(cls), height: Math.max(7, Math.round((n / inBin.length) * 26)) }}
-              />
+              <span key={cls} style={{ backgroundColor: classColour(cls), flexGrow: n, flexBasis: 0 }} />
             ))}
           </span>
         ) : null}
@@ -658,30 +616,30 @@ export function InventoryDashboard({
                 { value: "lots", label: `All lots (${shown.length})` },
               ]}
             />
-            <span className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-success">
-              <span className="relative inline-flex size-2">
-                <span className="absolute inline-flex size-full animate-ping rounded-full bg-success opacity-60 motion-reduce:animate-none" />
-                <span className="relative inline-flex size-2 rounded-full bg-success" />
-              </span>
-              {unit}
-            </span>
-            <Input type="date" name="asOf" aria-label="Stock as on" title="Stock as on" max={DATE_MAX} defaultValue={asOf} className="w-40" />
-            <Button type="submit" variant="outline">
-              Show
-            </Button>
+            {/* No unit badge here (user 2026-11-04: "remove it") — the unit switcher at the foot of
+                the sidebar already names it. `unit` still feeds All lots' print heading. */}
+            {/* NO "Show" BUTTON (user 2026-11-04: "remove this too") — a complete date reloads the
+                screen by itself. A year under 1900 is a year still being typed (2 → 0002 → 0020 →
+                0202 → 2026), so only the finished date navigates. */}
+            <Input
+              type="date"
+              name="asOf"
+              aria-label="Stock as on"
+              title="Stock as on"
+              max={DATE_MAX}
+              defaultValue={asOf}
+              className="w-40"
+              onChange={(e) => {
+                const v = e.currentTarget.value;
+                if (v && Number(v.slice(0, 4)) >= 1900 && v !== asOf) e.currentTarget.form?.requestSubmit();
+              }}
+            />
           </form>
         }
       />
 
       {tab === "bins" ? (
         <div ref={fitRef} style={fitHeight ? { height: fitHeight } : undefined} className="flex flex-col gap-2.5">
-          <BinHealthBar
-            h={binHealth}
-            cells={binCells}
-            canMove={canMove}
-            onPickBin={(c) => openBin(c.storeId, c.id)}
-            onPutAway={putAwayFloor}
-          />
           <div className="grid items-start gap-2.5 xl:min-h-0 xl:flex-1 xl:grid-cols-[minmax(0,1.75fr)_minmax(22rem,1fr)] xl:items-stretch">
             <VizCard
               className="xl:flex xl:h-full xl:min-h-0 xl:flex-col"
@@ -693,7 +651,7 @@ export function InventoryDashboard({
                       label="Store"
                       value={storeId}
                       onChange={pickStore}
-                      options={storeTabs.map((s) => ({ value: s.id, label: `${s.name} (${binsByStore.get(s.id)?.length ?? 0})` }))}
+                      options={storeTabs.map((s) => ({ value: s.id, label: `${s.name} · ${usedByStore.get(s.id) ?? 0}/${binsByStore.get(s.id)?.length ?? 0}` }))}
                     />
                   ) : null}
                   {storeBins.length ? (
@@ -738,8 +696,8 @@ export function InventoryDashboard({
                     Empty bin
                   </span>
                   <span className="inline-flex items-center gap-1.5">
-                    <span className="rounded-[3px] border border-warning/50 bg-warning-soft px-0.5 text-[9px] leading-3 font-bold text-warning">M</span>
-                    Mixed
+                    <i className="size-3 rounded-[3px] border-2 border-warning bg-surface" />
+                    Mixed (two kinds in one bin)
                   </span>
                   {(["0-30", "61-90", "90+"] as const).map((b) => (
                     <span key={b} className="inline-flex items-center gap-1.5">
