@@ -36,6 +36,8 @@ import { DropdownMenu, type DropdownItem } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Truncated } from "@/components/ui/truncated";
 import { useToast } from "@/components/ui/toast";
+import { useAppUser } from "@/lib/auth/permission-context";
+import { hasPermission } from "@/lib/auth/types";
 import { joinChannel, leaveConversation, markRead, setChatFlags, setMuted } from "@/lib/comms/actions";
 import { setConversationPrefs } from "@/lib/comms/channel-actions";
 import { loadChannelsToFind, loadPulseFiles } from "@/lib/comms/pulse-actions";
@@ -168,6 +170,7 @@ export function ConversationList({
 }) {
   const router = useRouter();
   const toast = useToast();
+  const canCreateChannel = hasPermission(useAppUser(), "communication", "create");
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<Filter>(activeCommunityId ? "communities" : activeFileId ? "files" : "all");
   const [newCommunity, setNewCommunity] = useState(false);
@@ -641,7 +644,8 @@ export function ConversationList({
             mockup): the filter chips stay, and whatever they show is split by
             kind under its own heading, newest first within it. A heading with
             nothing under it is not drawn, except Channels under All, which
-            always carries Browse channels (it used to be pinned under the list).
+            always carries Browse channels (it used to be pinned under the list;
+            since 2026-11-04 it is an icon on that heading).
             The headings do not fold: a fold here would have to be an accordion
             (one open at a time), which would hide one kind behind the other. */}
         {shown.length > 0 || browseRow ? (
@@ -655,19 +659,34 @@ export function ConversationList({
                   >
                     {s.title}
                     {s.items.length > 0 && <span className="font-medium normal-case tracking-normal text-muted-foreground tabular-nums">{s.items.length}</span>}
+                    {/* BROWSE AND NEW ON THE HEADING, as in the sidebar (user
+                        2026-11-04, screenshot 4034): "Browse channels" was the
+                        last row of the section, so every channel joined pushed
+                        it further down the list. */}
+                    {s.key === "channel" && (
+                      <span className="ml-auto flex items-center gap-0.5 normal-case tracking-normal">
+                        <Link
+                          href="/comms/channels"
+                          title="Browse channels"
+                          aria-label="Browse channels"
+                          className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground"
+                        >
+                          <Search className="h-4 w-4" aria-hidden />
+                        </Link>
+                        {canCreateChannel && (
+                          <Link
+                            href="/comms/channels?create=1"
+                            title="New channel"
+                            aria-label="New channel"
+                            className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground"
+                          >
+                            <Plus className="h-4 w-4" aria-hidden />
+                          </Link>
+                        )}
+                      </span>
+                    )}
                   </h2>
                   {s.items.length > 0 && <ul>{s.items.map((c) => row(c, true))}</ul>}
-                  {s.key === "channel" && browseRow && (
-                    <Link
-                      href="/comms/channels"
-                      className="flex min-h-12 items-center gap-3 py-1.5 pl-1.5 pr-1 text-[13.5px] font-semibold text-foreground hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring md:gap-2"
-                    >
-                      <span aria-hidden className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-xl bg-surface-muted text-muted-foreground max-md:h-10 max-md:w-10">
-                        <Compass className="h-[18px] w-[18px]" />
-                      </span>
-                      Browse channels
-                    </Link>
-                  )}
                 </section>
               ),
             )}
@@ -987,8 +1006,12 @@ function preview(c: ConversationSummary): string {
 function ChatAvatar({ c, size }: { c: ConversationSummary; size: "sm" | "md" | "lg" | "compact" }) {
   const photo = useUserPhoto(c.kind === "direct" ? c.other_user_id : null);
   const channel = c.kind === "channel";
-  const Icon = c.is_announcement ? Megaphone : channel ? (c.visibility === "private" ? Lock : Hash) : c.kind === "group" && !c.name ? Users : null;
-  return (
+  // A CHANNEL SHOWS ITS LETTER, NOT A "#" (user 2026-11-04), the same as the
+  // sidebar's ChannelAvatar; a private one keeps a small lock on the corner.
+  // An announcement channel keeps its megaphone — that says what it is FOR.
+  const Icon = c.is_announcement ? Megaphone : c.kind === "group" && !c.name ? Users : null;
+  const letter = channel ? (c.title.match(/[\p{L}\p{N}]/u)?.[0] ?? "#").toUpperCase() : null;
+  const box = (
     <span
       aria-hidden
       style={avatarStyle(c.title)}
@@ -999,7 +1022,16 @@ function ChatAvatar({ c, size }: { c: ConversationSummary; size: "sm" | "md" | "
         c.kind === "direct" ? "rounded-full" : size === "md" ? "rounded-[15px]" : "rounded-xl",
       )}
     >
-      {photo ? <PhotoImg src={photo} /> : Icon ? <Icon className="h-5 w-5" /> : initials(c.title.replace(/^#/, ""))}
+      {photo ? <PhotoImg src={photo} /> : Icon ? <Icon className="h-5 w-5" /> : (letter ?? initials(c.title.replace(/^#/, "")))}
+    </span>
+  );
+  if (!(channel && c.visibility === "private")) return box;
+  return (
+    <span className="relative inline-flex shrink-0">
+      {box}
+      <span aria-label="Private" className="absolute -bottom-0.5 -right-0.5 grid h-4 w-4 place-items-center rounded-full bg-surface text-muted-foreground ring-2 ring-surface">
+        <Lock className="h-2.5 w-2.5" aria-hidden />
+      </span>
     </span>
   );
 }

@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { can, requirePermission } from "@/lib/auth/server";
 import { getTrip } from "@/lib/logistics/transport/service";
 import { fmtDateTime, fmtMoney } from "@/lib/format";
-import { tripDistanceKm } from "@/lib/logistics/transport/logic";
+import { canCost, tripDistanceKm } from "@/lib/logistics/transport/logic";
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import {
@@ -11,7 +11,8 @@ import {
   type Requisition,
   type TripAllocation,
 } from "@/lib/logistics/transport/types";
-import { Pair, TransportStatusPill, UtilisationBar, fmtKg } from "../../_shared/transport-ui";
+import { DocBackLink, DocFacts } from "@/components/purchase/doc-facts";
+import { TransportStatusPill, UtilisationBar, fmtKg } from "../../_shared/transport-ui";
 import { TripActions } from "./trip-actions";
 import { CompleteTripForm } from "./complete-trip-form";
 
@@ -41,7 +42,8 @@ const allocationColumns: Column<TripAllocation>[] = [
  * Every table here is part of the document, so `paginate={false}` on all three
  * (AGENTS.md "Pagination": a 12-request trip shown as 10 + Next hides lines).
  *
- * THE COMPLETE FORM appears while the trip is unloading, and ALSO on a trip the
+ * THE COMPLETE FORM appears where the trip ends — unloading one way, RETURNING on a
+ * round trip (0808: the costs are known once the truck is home) — and ALSO on a trip the
  * GPS has already completed but nobody has costed — a geofence exit finishes the
  * run, it cannot know what the diesel cost. Once allocations exist the form gives
  * way to the allocation table and the trip is closed.
@@ -53,48 +55,49 @@ export default async function TripPage({ params }: { params: Promise<{ id: strin
   if (!trip) notFound();
 
   const costed = trip.allocations.length > 0;
-  const canComplete = canEdit && !costed && (trip.trip_status === "unloading" || trip.trip_status === "completed");
+  // Where the trip ENDS: unloaded one way, or home again on a round trip (0808).
+  const canComplete = canEdit && !costed && canCost(trip.trip_status, trip.return_trip);
   const distance = tripDistanceKm(trip.start_odometer_km, trip.end_odometer_km);
   const events = [...trip.events].sort((a, b) => b.at.localeCompare(a.at));
 
   return (
     <div className="space-y-4">
-      <PageHeader
-        title={`Trip ${trip.trip_no}`}
-        description={`${trip.vehicle_number} · ${trip.driver_name}`}
-        actions={
-          <div className="flex items-center gap-2">
-            <TransportStatusPill status={trip.trip_status} />
-            {canEdit && <TripActions tripId={trip.id} status={trip.trip_status} />}
-          </div>
-        }
-      />
+      <PageHeader title={`Trip ${trip.trip_no}`} description={`${trip.vehicle_number} · ${trip.driver_name}`} />
 
-      <dl className="flex flex-wrap gap-x-8 gap-y-3 rounded-lg border border-border bg-surface px-4 py-3">
-        <Pair label="Vehicle">{trip.vehicle_number}</Pair>
-        <Pair label="Driver">
-          {trip.driver_name}
-          {trip.driver_phone ? ` · ${trip.driver_phone}` : ""}
-        </Pair>
-        <Pair label="Route">
-          {trip.origin_names.join(", ") || "—"} → {trip.destination_names.join(", ") || "—"}
-        </Pair>
-        <Pair label="Dispatched">{fmtDateTime(trip.planned_at)}</Pair>
-        <Pair label="Completed">{fmtDateTime(trip.completed_at)}</Pair>
-        <Pair label="Odometer">
-          {trip.start_odometer_km ?? "—"} → {trip.end_odometer_km ?? "—"}
-          {distance != null ? ` (${distance} km)` : ""}
-        </Pair>
-        {costed && <Pair label="Trip Cost">{fmtMoney(trip.total_cost)}</Pair>}
-        <div className="min-w-[14rem]">
-          <dt className="text-xs text-muted-foreground">
-            Load {fmtKg(trip.total_loaded_weight_kg)} of {fmtKg(trip.max_payload_kg)}
-          </dt>
-          <dd className="pt-1">
-            <UtilisationBar pct={trip.utilisation_pct} />
-          </dd>
-        </div>
-      </dl>
+      {/* ONE STRIP OF FACTS (doc-facts.tsx, the procurement detail pages' shape): label
+          over value side by side, and the page's own controls — status, the next step,
+          the way out — ending the same row instead of a header band of their own. */}
+      <DocFacts
+        trailing={
+          <>
+            <TransportStatusPill status={trip.trip_status} />
+            {canEdit && <TripActions tripId={trip.id} status={trip.trip_status} roundTrip={trip.return_trip} />}
+            <DocBackLink href="/logistics/transport/board" />
+          </>
+        }
+        facts={[
+          { label: "Trip No", value: trip.trip_no, mono: true },
+          { label: "Vehicle", value: trip.vehicle_number, mono: true },
+          { label: "Driver", value: `${trip.driver_name}${trip.driver_phone ? ` · ${trip.driver_phone}` : ""}` },
+          {
+            label: "Route",
+            value: `${trip.origin_names.join(", ") || "—"} → ${trip.destination_names.join(", ") || "—"}`,
+          },
+          { label: "Return", value: trip.return_trip ? `Round trip → ${trip.return_place_name ?? "—"}` : "One way" },
+          { label: "Dispatched", value: fmtDateTime(trip.planned_at), mono: true },
+          { label: "Completed", value: fmtDateTime(trip.completed_at), mono: true },
+          {
+            label: "Odometer",
+            value: `${trip.start_odometer_km ?? "—"} → ${trip.end_odometer_km ?? "—"}${distance != null ? ` (${distance} km)` : ""}`,
+            mono: true,
+          },
+          costed && { label: "Trip Cost", value: fmtMoney(trip.total_cost), mono: true },
+          {
+            label: `Load ${fmtKg(trip.total_loaded_weight_kg)} of ${fmtKg(trip.max_payload_kg)}`,
+            value: <UtilisationBar pct={trip.utilisation_pct} className="w-56 pt-1" />,
+          },
+        ]}
+      />
 
       <section className="space-y-2">
         <h2 className="text-sm font-semibold text-heading">Requests on this trip</h2>
@@ -103,7 +106,9 @@ export default async function TripPage({ params }: { params: Promise<{ id: strin
 
       {canComplete && (
         <section id="complete" className="space-y-2">
-          <h2 className="text-sm font-semibold text-heading">Complete the trip</h2>
+          <h2 className="text-sm font-semibold text-heading">
+            {trip.trip_status === "returning" ? "Back home — complete the trip" : "Complete the trip"}
+          </h2>
           <CompleteTripForm trip={trip} />
         </section>
       )}

@@ -103,3 +103,16 @@ curl -X POST "https://<your-deployment>/api/transport/telematics" \
 Before a vendor is live, this curl is also how to check a place's coordinates
 and radius: post an `enter` at the place's lat/lng against a vehicle with a
 planned trip, and the Fleet Board should show it Loading.
+
+## Round trips (0808, 2026-11-04)
+
+A trip dispatched with **Return Trip = Yes** carries `return_place_id` and one extra state:
+
+| Trip status | Event | Becomes |
+|---|---|---|
+| `unloading` | exit **destination** | `returning` (round trip) · `completed` (one way) |
+| `returning` | enter **return place** | `completed` — the vehicle is free again |
+
+The payload does not change. The webhook reads the return place as **home** only while the
+trip is `returning`, so a return place that is also the origin still reads as the origin
+before the trip leaves. "Trip delivered" is notified on `returning` for a round trip.

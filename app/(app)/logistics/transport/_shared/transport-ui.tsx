@@ -12,7 +12,8 @@ import { cn } from "@/lib/utils";
  *   has not moved yet — neutral, like a requisition still pending a vehicle.
  * - `loading` / `unloading` are the vehicle standing at a gate — warning, the
  *   two states a dispatcher watches for a truck stuck at a dock.
- * - `en_route` is out of our hands — info, the table's "moving" bucket.
+ * - `en_route` is out of our hands — info, the table's "moving" bucket; so is
+ *   `returning` (0808), a round trip on its way home.
  * - `pooled` is a request picked for a trip not yet dispatched — info, beside
  *   `assigned`.
  * - `idle` is a vehicle free to take a trip — neutral; `maintenance` is one that
@@ -23,6 +24,7 @@ const TRANSPORT_STATUS = {
   loading: "warning",
   unloading: "warning",
   en_route: "info",
+  returning: "info",
   pooled: "info",
   idle: "neutral",
   maintenance: "warning",
@@ -70,16 +72,6 @@ export function UtilisationBar({ pct, className }: { pct: number; className?: st
       <span className={cn("w-12 text-right text-xs tabular-nums", over ? "font-semibold text-danger" : "text-muted-foreground")}>
         {Math.round(pct)}%
       </span>
-    </div>
-  );
-}
-
-/** A label · value pair in a document band — the shape the shipment page draws. */
-export function Pair({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="min-w-[9rem]">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="text-sm font-medium">{children}</dd>
     </div>
   );
 }

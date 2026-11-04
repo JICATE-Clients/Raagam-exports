@@ -1,9 +1,10 @@
 import { requireUser, can } from "@/lib/auth/server";
-import { getMyQueue, getStrandedRuns, canAct, getAllOpenRuns } from "@/lib/approvals/service";
+import { createClient } from "@/lib/supabase/server";
+import { getMyQueue, getStrandedRuns, canAct, getAllOpenRuns, getMyRequests, getMyDecisions } from "@/lib/approvals/service";
 import { WORKFLOWS } from "@/lib/approvals/workflows";
 import { loadOrderApprovalCards } from "@/lib/approvals/order-approval-cards";
 import { loadPoApprovalCards, loadPoChangeCards, type PoApprovalCard, type PoChangeCard } from "@/lib/approvals/po-approval-cards";
-import type { CanActVerdict } from "@/lib/approvals/types";
+import type { CanActVerdict, MyRequestItem } from "@/lib/approvals/types";
 import { withCreators } from "@/lib/created-by";
 import { ifInstalled } from "@/lib/approvals/install";
 import { sweepSlaOpportunistically } from "@/lib/approvals/sla";
@@ -13,6 +14,7 @@ import {
   ApprovalsInboxScreen,
   type BudgetCard,
   type QueueRow,
+  type RequestRow,
 } from "./approvals-inbox-screen";
 
 /**
@@ -100,7 +102,11 @@ export default async function ApprovalsPage({
         pos={await poCards(rows)}
         poChanges={await poChangeCards(rows)}
         verdicts={await queueVerdicts(rows)}
-        viewToggle={<ApprovalsViewToggle view="all" />}
+        codes={await subjectCodes(rows)}
+        /* A `key` because this element is made HERE, on the server, and rendered inside
+           the client's PageHeader beside its other children — React's dev check read it
+           as an unkeyed list child ("Each child in a list should have a unique key"). */
+        viewToggle={<ApprovalsViewToggle key="approvals-view" view="all" />}
       />
     );
   }
@@ -108,11 +114,30 @@ export default async function ApprovalsPage({
   /* Same guard as the flows route — the queue RPC does not exist until 0502 is
      applied, and an inbox that crashes is a worse answer than one that says the
      engine is not installed. */
-  const [queue, viewAll] = await Promise.all([
+  /* MY REQUESTS and DECIDED (0807) ride along with the queue, in parallel — the
+     phone's status tabs. An enrichment: a failure leaves the tab empty, never the
+     inbox broken. */
+  const [queue, viewAll, myRequests, myDecisions] = await Promise.all([
     ifInstalled(() => getMyQueue()),
     can("approvals", "view"),
+    getMyRequests().catch((e) => {
+      console.error("[approvals] my requests:", e instanceof Error ? e.message : e);
+      return [];
+    }),
+    getMyDecisions().catch((e) => {
+      console.error("[approvals] my decisions:", e instanceof Error ? e.message : e);
+      return [];
+    }),
   ]);
   if (queue === null) return <ApprovalsNotInstalled />;
+  /* Who made a request's latest decision, by name — through `withCreators`, the
+     app's one resolver, by handing it the actor as `created_by`. */
+  const requestRows: RequestRow[] = (
+    await withCreators(myRequests.map((q) => ({ ...q, created_by: q.last_actor_id ?? "" })))
+  ).map(({ created_by_name, ...q }: MyRequestItem & { created_by: string; created_by_name?: string | null }) => ({
+    ...q,
+    actor_name: created_by_name ?? null,
+  }));
 
   /**
    * THE STRANDED BANNER IS FOR SUPPORT, NOT FOR APPROVERS.
@@ -162,8 +187,11 @@ export default async function ApprovalsPage({
       pos={await poCards(rows)}
       poChanges={await poChangeCards(rows)}
       verdicts={await queueVerdicts(rows)}
+      codes={await subjectCodes(rows)}
+      requests={requestRows}
+      decisions={myDecisions}
       /* In the header row beside Approval Flows — super admin only. */
-      viewToggle={superAdmin ? <ApprovalsViewToggle view="mine" /> : undefined}
+      viewToggle={superAdmin ? <ApprovalsViewToggle key="approvals-view" view="mine" /> : undefined}
     />
   );
 }
@@ -224,6 +252,33 @@ async function poChangeCards(rows: QueueRow[]): Promise<Record<string, PoChangeC
     console.error("[approvals] PO change cards:", e instanceof Error ? e.message : e);
     return {};
   }
+}
+
+/**
+ * THE DOCUMENT'S OWN NUMBER for a phone card that has no richer card (a leave
+ * request's LV-0002, an indent's code) — read with the caller's own RLS, one query
+ * per subject table, never per row. POs, budgets and PO changes name themselves
+ * through their cards and are skipped. An enrichment: a table with no `code`, or
+ * one the reader may not see, simply leaves the card on its workflow's name.
+ */
+async function subjectCodes(rows: QueueRow[]): Promise<Record<string, string>> {
+  const skip = new Set<string>([WORKFLOWS.purchase_order.key, WORKFLOWS.order_budget.key, "po_rate_amendment", "po_cancellation"]);
+  const byTable = new Map<string, string[]>();
+  for (const r of rows) {
+    if (skip.has(r.workflow_key) || !r.subject_table) continue;
+    byTable.set(r.subject_table, [...(byTable.get(r.subject_table) ?? []), r.subject_id]);
+  }
+  if (!byTable.size) return {};
+  const s = await createClient();
+  const out: Record<string, string> = {};
+  await Promise.all(
+    [...byTable.entries()].map(async ([table, ids]) => {
+      const { data, error } = await s.from(table).select("id, code").in("id", ids);
+      if (error) return;
+      for (const d of (data ?? []) as unknown as { id: string; code: string | null }[]) if (d.code) out[d.id] = d.code;
+    }),
+  );
+  return out;
 }
 
 /**

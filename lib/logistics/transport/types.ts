@@ -48,18 +48,19 @@ export const VEHICLE_TYPE_LABEL: Record<VehicleType, string> = {
   van: "Van",
 };
 
-export const VEHICLE_STATUSES = ["idle", "loading", "en_route", "unloading", "maintenance"] as const;
+export const VEHICLE_STATUSES = ["idle", "loading", "en_route", "unloading", "returning", "maintenance"] as const;
 export type VehicleStatus = (typeof VEHICLE_STATUSES)[number];
-/** The two a person sets by hand; the other three are set by the trip the vehicle is on. */
+/** The two a person sets by hand; the other four are set by the trip the vehicle is on. */
 export const VEHICLE_MANUAL_STATUSES = ["idle", "maintenance"] as const;
 
 export const REQUISITION_STATUSES = ["pending", "pooled", "assigned", "completed", "cancelled"] as const;
 export type RequisitionStatus = (typeof REQUISITION_STATUSES)[number];
 
-export const TRIP_STATUSES = ["planned", "loading", "en_route", "unloading", "completed", "cancelled"] as const;
+/** `returning` (0808): a ROUND trip that has left its destination and is on the way home. */
+export const TRIP_STATUSES = ["planned", "loading", "en_route", "unloading", "returning", "completed", "cancelled"] as const;
 export type TripStatus = (typeof TRIP_STATUSES)[number];
 /** A trip in one of these still holds its vehicle (the board's cards). */
-export const ACTIVE_TRIP_STATUSES = ["planned", "loading", "en_route", "unloading"] as const satisfies readonly TripStatus[];
+export const ACTIVE_TRIP_STATUSES = ["planned", "loading", "en_route", "unloading", "returning"] as const satisfies readonly TripStatus[];
 
 export const PLACE_KINDS = ["unit", "vendor", "other"] as const;
 export type PlaceKind = (typeof PLACE_KINDS)[number];
@@ -73,6 +74,7 @@ export const TRANSPORT_STATUS_LABEL: Record<VehicleStatus | RequisitionStatus | 
   loading: "Loading",
   en_route: "En Route",
   unloading: "Unloading",
+  returning: "Returning",
   maintenance: "Maintenance",
   pending: "Pending",
   pooled: "Pooled",
@@ -88,6 +90,7 @@ export const VEHICLE_STATUS_FOR_TRIP: Record<TripStatus, VehicleStatus> = {
   loading: "loading",
   en_route: "en_route",
   unloading: "unloading",
+  returning: "returning",
   completed: "idle",
   cancelled: "idle",
 };
@@ -162,6 +165,9 @@ export type Trip = {
   /** fuel + allowance + toll + other (a generated column). */
   total_cost: number;
   trip_status: TripStatus;
+  /** Round trip (0808): the vehicle comes back to `return_place_id` and is free only once home. */
+  return_trip: boolean;
+  return_place_id: string | null;
   planned_at: string;
   completed_at: string | null;
   created_at: string;
@@ -174,6 +180,8 @@ export type TripRow = Trip & {
   utilisation_pct: number;
   origin_names: string[];
   destination_names: string[];
+  /** Where a round trip comes home to; NULL one way. */
+  return_place_name: string | null;
   source_nos: string[];
   last_event_at: string | null;
 };
@@ -210,6 +218,18 @@ export type TripDetail = TripRow & {
   requisitions: Requisition[];
   allocations: TripAllocation[];
   events: TripEvent[];
+};
+
+/**
+ * A trip on the Fleet Map. `position` is HONEST about where it came from:
+ *   `gps`   — the last GPS event carrying a fix, at `position_at`;
+ *   `place` — no fix, but the status says where the vehicle is standing
+ *             (Planned / Loading at the origin, Unloading at the destination);
+ *   null    — on the road with no fix (En Route, Returning): listed, not pinned,
+ *             because a pin at either end would be a guess drawn as a fact.
+ */
+export type FleetMapTrip = TripRow & {
+  position: { lat: number; lng: number; source: "gps" | "place"; at: string | null; place_name: string | null } | null;
 };
 
 /** The dispatch pool: pending requests grouped by where they are going (plan D4). */
@@ -315,6 +335,12 @@ export const dispatchInput = z.object({
   driver_phone: plainNullable,
   requisition_ids: z.array(uuid).min(1, "Tick at least one request"),
   start_odometer_km: nullableNumber(0, 10_000_000, "Odometer cannot be negative"),
+  /** Round trip (0808). The server refuses a return to the destination itself. */
+  return_trip: z.boolean().default(false),
+  return_place_id: uuid.nullable().default(null),
+}).superRefine((v, ctx) => {
+  if (v.return_trip && !v.return_place_id)
+    ctx.addIssue({ code: "custom", path: ["return_place_id"], message: "Pick where the vehicle returns to" });
 });
 export type DispatchInput = z.input<typeof dispatchInput>;
 
@@ -339,7 +365,8 @@ export const telematicsEvent = z.object({
 export type TelematicsEvent = z.infer<typeof telematicsEvent>;
 
 /** A geofence event once the webhook has placed it against the trip's own route. */
-export type GeofenceEvent = { kind: "enter" | "exit"; at: "origin" | "destination" };
+/** `home` is a round trip's return place, read only while the trip is returning. */
+export type GeofenceEvent = { kind: "enter" | "exit"; at: "origin" | "destination" | "home" };
 
 /** Server action result — writes return errors, they do not throw them. */
 export type TransportResult<T = undefined> = { ok: true; data: T } | { ok: false; error: string };

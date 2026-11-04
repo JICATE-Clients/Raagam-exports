@@ -12,6 +12,8 @@ import { useUnsavedGuard } from "@/lib/reload-guard";
 import { completeTrip } from "@/lib/logistics/transport/actions";
 import { allocateCost, tripDistanceKm, tripTotalCost } from "@/lib/logistics/transport/logic";
 import { TRANSPORT_SOURCE_KIND_LABEL, type TripDetail } from "@/lib/logistics/transport/types";
+import { cn } from "@/lib/utils";
+import { DENSE, DOC_BOTTOM_BAR, DOC_FRAME, DOC_RULE, DocTotals } from "@/components/purchase/doc-surface";
 import { fmtKg } from "../../_shared/transport-ui";
 
 type Costs = { end_odometer_km: string; fuel_cost: string; driver_allowance: string; toll_cost: string; other_cost: string };
@@ -118,40 +120,51 @@ export function CompleteTripForm({ trip }: { trip: TripDetail }) {
   );
 
   return (
+    // ONE FRAME (doc-surface.tsx): the costs on the first band, the split on a hairline
+    // under them, the total and Complete in the bottom bar.
     // Cap: five range fields 5 × 112 = 560, + 4 × 12px gap = 608, + 2 × 16px padding = 640px → 40rem.
-    <div data-focus-scope className="max-w-[40rem] space-y-3 rounded-lg border border-border bg-surface px-4 py-3">
-      <FieldRow align="start">
-        <Field
-          label="End Odometer (km)"
-          w="range"
-          htmlFor="ct-end_odometer_km"
-          error={errors.end_odometer_km}
-          hint={distance != null ? `${distance} km run` : undefined}
-        >
-          <Input
-            id="ct-end_odometer_km"
-            type="number"
-            inputMode="decimal"
-            min={0}
-            value={c.end_odometer_km}
-            onChange={(e) => set("end_odometer_km", e.target.value)}
-          />
-        </Field>
-        {money("fuel_cost", "Fuel (₹)")}
-        {money("driver_allowance", "Allowance (₹)")}
-        {money("toll_cost", "Toll (₹)")}
-        {money("other_cost", "Other (₹)")}
-      </FieldRow>
-
-      <div className="text-sm">
-        Total <span className="font-semibold tabular-nums">{fmtMoney(total)}</span>
-        <span className="text-muted-foreground"> · split by weight across {preview.length} order line{preview.length === 1 ? "" : "s"}</span>
+    <div data-focus-scope className={cn("max-w-[40rem]", DOC_FRAME)}>
+      <div className="px-4 py-2.5">
+        <FieldRow align="start">
+          <Field
+            label="End Odometer (km)"
+            w="range"
+            htmlFor="ct-end_odometer_km"
+            error={errors.end_odometer_km}
+            hint={distance != null ? `${distance} km run` : undefined}
+          >
+            <Input
+              id="ct-end_odometer_km"
+              type="number"
+              inputMode="decimal"
+              min={0}
+              value={c.end_odometer_km}
+              onChange={(e) => set("end_odometer_km", e.target.value)}
+            />
+          </Field>
+          {money("fuel_cost", "Fuel (₹)")}
+          {money("driver_allowance", "Allowance (₹)")}
+          {money("toll_cost", "Toll (₹)")}
+          {money("other_cost", "Other (₹)")}
+        </FieldRow>
       </div>
-      <DataTable columns={previewColumns} rows={preview} getKey={(r) => r.key} paginate={false} compact />
 
-      <Button size="md" disabled={isPending} onClick={submit}>
-        {isPending ? "Completing…" : "Complete trip"}
-      </Button>
+      <div className={cn(DOC_RULE, "min-w-0 p-2", DENSE)}>
+        <DataTable columns={previewColumns} rows={preview} getKey={(r) => r.key} paginate={false} compact bare />
+      </div>
+
+      <div className={DOC_BOTTOM_BAR} data-focus-region="footer">
+        <DocTotals
+          items={[
+            ["Total", fmtMoney(total)],
+            ["Split by weight", `${preview.length} line${preview.length === 1 ? "" : "s"}`],
+          ]}
+        />
+        <span className="flex-1" />
+        <Button size="md" disabled={isPending} onClick={submit}>
+          {isPending ? "Completing…" : "Complete trip"}
+        </Button>
+      </div>
     </div>
   );
 }

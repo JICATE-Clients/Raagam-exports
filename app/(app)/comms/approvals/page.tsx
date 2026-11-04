@@ -1,5 +1,5 @@
 /**
- * Huddle ▸ My Approvals (doc/slack.md/slack §7, comms phase 5).
+ * Pulse ▸ My Approvals (doc/slack.md/slack §7, comms phase 5).
  *
  * THIS IS THE EXISTING INBOX, NOT A COPY OF IT. The spec's rules — the ERP
  * workflow stays the authority, no second approval engine, every decision

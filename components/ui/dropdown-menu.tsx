@@ -134,7 +134,9 @@ export function DropdownMenu({
   fit?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState<{ top: number; left?: number; right?: number } | null>(null);
+  /* `top` when the menu opens below the trigger, `bottom` when it opens above it — one of
+     the two, never both. `left`, or `right` for a `fit` menu anchored by its right edge. */
+  const [pos, setPos] = useState<{ top?: number; bottom?: number; left?: number; right?: number } | null>(null);
   const [active, setActive] = useState(0);
   const btnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -144,12 +146,29 @@ export function DropdownMenu({
     if (!el) return;
     const r = el.getBoundingClientRect();
     const width = menuWidth;
-    setPos(
-      fit && align === "right"
-        ? { top: r.bottom + 4, right: window.innerWidth - r.right }
-        : { top: r.bottom + 4, left: align === "right" ? r.right - width : r.left },
-    );
-  }, [align, menuWidth, fit]);
+    /* FLIP UP WHEN BELOW HAS NO ROOM (user 2026-11-04, screenshot 4045: the approval
+       sheet's Decision menu sits in a footer at the foot of a phone screen, opened
+       downward, and its three choices were cut off by the screen's edge). The menu's
+       height is a row per item (28px compact, 36px otherwise) plus its padding, capped as
+       its own `max-h` caps it; it opens above the trigger when that does not fit below
+       AND above has more room. */
+    const vh = window.innerHeight;
+    const want = Math.min(items.length * (compact ? 28 : 36) + 8, vh * 0.7, 512);
+    const below = vh - r.bottom - 8;
+    const above = r.top - 8;
+    const up = below < want && above > below;
+    const vertical = up ? { bottom: vh - r.top + 4 } : { top: r.bottom + 4 };
+    /* A `fit` menu is as wide as its labels, so it is anchored by its RIGHT edge and its
+       width never has to be measured (comms, 2026-11-04). Otherwise never off the side of
+       a narrow screen: an `align="right"` menu under a button near the left edge used to
+       start at a negative x. */
+    if (fit && align === "right") {
+      setPos({ ...vertical, right: window.innerWidth - r.right });
+    } else {
+      const rawLeft = align === "right" ? r.right - width : r.left;
+      setPos({ ...vertical, left: Math.max(8, Math.min(rawLeft, window.innerWidth - width - 8)) });
+    }
+  }, [align, menuWidth, items.length, fit, compact]);
 
   useEffect(() => {
     if (!open) return;
@@ -233,7 +252,7 @@ export function DropdownMenu({
             role="menu"
             tabIndex={-1}
             onKeyDown={onMenuKeyDown}
-            style={{ position: "fixed", top: pos.top, left: pos.left, right: pos.right, width: fit ? "max-content" : menuWidth, zIndex: 150 }}
+            style={{ position: "fixed", top: pos.top, bottom: pos.bottom, left: pos.left, right: pos.right, width: fit ? "max-content" : menuWidth, zIndex: 150 }}
             className={cn(
               "max-h-[min(70vh,32rem)] overflow-y-auto rounded-md border border-border bg-surface shadow-lg focus:outline-none",
               compact ? "py-0.5" : "py-1",

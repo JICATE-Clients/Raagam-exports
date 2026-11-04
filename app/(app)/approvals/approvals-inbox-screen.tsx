@@ -1,36 +1,70 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
-import { StatusMark } from "@/components/ui/status-mark";
+import { useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import Link from "next/link";
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { HUG, hugCreated, withCreatedColumns } from "@/components/ui/created-columns";
 import { FilterBar } from "@/components/ui/filter-bar";
-import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
-import { buttonClasses } from "@/components/ui/button";
 import { fmtDate, fmtDateTime, fmtFixed, fmtNumber } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { Sheet } from "@/components/ui/sheet";
 import { FIELD_ROW } from "@/components/ui/field";
 import { FigureCell, HighlightTile, signTone } from "../orders/budgets/budget-general";
-import { MobileCardList, type CardStat } from "@/components/masters/mobile-card-list";
 import { ApprovalActionBar } from "@/components/approvals/approval-action-bar";
 import { WORKFLOWS, WORKFLOW_LIST, workflowLabel } from "@/lib/approvals/workflows";
-import { isRefusal, type Refusal } from "@/lib/orders/material-bom/requirement";
-import type { CanActVerdict, QueueItem, StrandedRun } from "@/lib/approvals/types";
+import type { CanActVerdict, MyDecisionItem, MyRequestItem, QueueItem, StrandedRun } from "@/lib/approvals/types";
+import { ApprovalsPhoneView, FAMILY, faceOf, familyOf } from "@/components/approvals/approvals-phone-view";
+import { PoMoneyChart } from "@/components/approvals/po-money-chart";
+import { CompactTrail, FactGrid, LineCards, PdSheetBody, SheetIdentity, SheetSection } from "@/components/approvals/sheet-parts";
+import { loadPoApprovalSheet } from "@/lib/purchase/po-approval-sheet-actions";
+import { loadRunTimeline } from "@/lib/approvals/status-actions";
+import { loadPdReview } from "@/lib/sales/pd-requests/actions";
+import type { RunTimelineResult } from "@/lib/approvals/types";
 import { RevisionComparePanel } from "@/components/approvals/revision-compare-panel";
 import { revisionCompareAction } from "@/lib/approvals/revision-compare-actions";
 import type { RevisionCompare } from "@/lib/approvals/revision-compare";
 import { BudgetBreakdownChart } from "@/components/orders/budget-breakdown-chart";
 import type { OrderApprovalCard as OrderCardData } from "@/lib/approvals/order-approval-cards";
-import { OrderApprovalCard } from "@/components/approvals/order-approval-card";
 import type { PoApprovalCard, PoChangeCard } from "@/lib/approvals/po-approval-cards";
 import { approvePo, declinePo } from "@/lib/purchase/po-actions";
 import { ClipboardCheck } from "lucide-react";
 import { RowIconAction } from "@/components/ui/row-actions";
+import { BackLink } from "@/components/ui/back-link";
+import { rowActionsColumn } from "@/components/ui/row-actions-column";
+import { ToggleGroup } from "@/components/ui/segmented";
+
+/** Each workflow's own approval page name — the title its sheet opens under. */
+const PAGE_NAME: Record<string, string> = {
+  purchase_order: "PO Approval",
+  order_budget: "Order Approval",
+  iwo_budget: "IWO Budget Approval",
+  order_amendment: "Revision Approval",
+  sample_pd_request: "PD Acknowledge",
+  timeoff_request: "Leave Approval",
+  po_rate_amendment: "Rate Amendment Approval",
+  po_cancellation: "PO Cancellation Approval",
+  hr_fine: "Staff Fine Approval",
+};
+
+/** A request I raised (0807), with the name of whoever made its latest decision. */
+export type RequestRow = MyRequestItem & { actor_name: string | null };
+
+/** A phone, by the same 768px line Tailwind's `md:` draws — a media query is an
+ *  external store (see `useFinePointer` in data-picker.tsx for the reasoning). */
+function useIsPhone(): boolean {
+  return useSyncExternalStore(
+    (onChange) => {
+      const mq = window.matchMedia("(max-width: 767px)");
+      mq.addEventListener("change", onChange);
+      return () => mq.removeEventListener("change", onChange);
+    },
+    () => window.matchMedia("(max-width: 767px)").matches,
+    () => false,
+  );
+}
 
 /** A queue row with the two keys `withCreators` / `withCreatedColumns` read. */
 export type QueueRow = QueueItem & {
@@ -82,14 +116,22 @@ function reOf(b: BudgetCard | undefined): string | null {
 export function ApprovalsInboxScreen({
   rows,
   stranded,
-  canViewAll,
   budgets,
   pos = {},
   poChanges = {},
   verdicts,
   viewToggle,
   allOpen = false,
+  requests = [],
+  decisions = [],
+  codes = {},
 }: {
+  /** My requests (0807) — the phone's status tab. Empty on All open. */
+  requests?: RequestRow[];
+  /** What I decided (0807) — the phone's Decided tab. */
+  decisions?: MyDecisionItem[];
+  /** Document numbers for queue rows with no richer card, keyed by subject id. */
+  codes?: Record<string, string>;
   /**
    * SUPER ADMIN ▸ ALL OPEN (0783) — the SAME screen over every open run, decided
    * here and never by a link out (user 2026-10-31, screenshot 3941: "don't
@@ -100,7 +142,8 @@ export function ApprovalsInboxScreen({
   viewToggle?: ReactNode;
   rows: QueueRow[];
   stranded: StrandedRun[];
-  canViewAll: boolean;
+  /** Accepted and unused since 2026-11-04 — it only gated the removed Approval Flows button. */
+  canViewAll?: boolean;
   /** Keyed by `subject_id`. Empty for every non-budget workflow. */
   budgets: Record<string, BudgetCard>;
   /** Purchase Orders (0764), keyed by `subject_id` — total, variance, profit impact. */
@@ -112,6 +155,7 @@ export function ApprovalsInboxScreen({
 }) {
   const [query, setQuery] = useState("");
   const [workflow, setWorkflow] = useState("");
+  const isPhone = useIsPhone();
   /**
    * WHICH CARD IS OPEN ON THE PHONE. A run id, never a row object — the page
    * re-renders after a decision (`router.refresh()` inside the action bar) and
@@ -125,11 +169,39 @@ export function ApprovalsInboxScreen({
    * is "still working it out".
    */
   const [compare, setCompare] = useState<{ entryId: string; result: RevisionCompare | null } | null>(null);
+  /** The open sheet's approval trail, and a PD request's own content — see `openDecision`. */
+  const [trail, setTrail] = useState<{ runId: string; result: RunTimelineResult | null } | null>(null);
+  const [pdReview, setPdReview] = useState<{ runId: string; data: Awaited<ReturnType<typeof loadPdReview>> | null } | null>(null);
+  const [poSheet, setPoSheet] = useState<{ runId: string; data: Awaited<ReturnType<typeof loadPoApprovalSheet>> | null } | null>(null);
   /* THE COST BREAKDOWN ARRIVES WITH THE CARD (Phase 2, 2026-09-30) —
      `loadOrderApprovalCards` computes it with the queue, so the tap that
      opens the sheet no longer waits on a second action for it. */
   const openDecision = (r: QueueRow) => {
     setDecideOn(r.run_id);
+    /* EVERYTHING IS READ HERE, NOTHING SENDS THE APPROVER AWAY (user 2026-11-04: "we need
+       to open here, no need to redirect the actual module screen"). On open — an event,
+       not an effect — the run's approval trail for every workflow, and a PD request's own
+       content (the Sample screen's `loadPdReview`). Keyed by run, so a late answer never
+       paints the previous request under this one. */
+    if (trail?.runId !== r.run_id) {
+      setTrail({ runId: r.run_id, result: null });
+      loadRunTimeline(r.run_id)
+        .catch((): RunTimelineResult => ({ ok: false, error: "Could not load the approval trail" }))
+        .then((result) => setTrail((t) => (t?.runId === r.run_id ? { runId: r.run_id, result } : t)));
+    }
+    if (r.workflow_key === WORKFLOWS.sample_pd_request.key && pdReview?.runId !== r.run_id) {
+      setPdReview({ runId: r.run_id, data: null });
+      loadPdReview(r.subject_id)
+        .catch(() => null)
+        .then((data) => setPdReview((p) => (p?.runId === r.run_id ? { runId: r.run_id, data } : p)));
+    }
+    /* A PO's own lines for the line cards — PO Approval's loader, read on open. */
+    if (r.workflow_key === WORKFLOWS.purchase_order.key && poSheet?.runId !== r.run_id) {
+      setPoSheet({ runId: r.run_id, data: null });
+      loadPoApprovalSheet(r.subject_id)
+        .catch(() => null)
+        .then((data) => setPoSheet((p) => (p?.runId === r.run_id ? { runId: r.run_id, data } : p)));
+    }
     const rev = budgets[r.subject_id]?.revision;
     if (!rev || compare?.entryId === rev.entryId) return;
     setCompare({ entryId: rev.entryId, result: null });
@@ -178,19 +250,9 @@ export function ApprovalsInboxScreen({
     });
   }, [rows, query, workflow]);
 
-  /**
-   * WHERE A ROW OPENS.
-   *
-   * `WORKFLOWS` knows the route per workflow key; a key it does not know has no
-   * href, and the row renders as plain text rather than as a link to nowhere. A
-   * dead link in a work queue is worse than no link: it reads as a broken screen
-   * rather than as a workflow nobody has finished wiring.
-   */
-  /* `:id` is the subject — the same substitution notify.ts and sla.ts make.
-     Unreplaced, IWO Budget and Staff Fine rows linked to `?open=:id` and
-     opened nothing. */
-  const hrefFor = (r: QueueRow) =>
-    WORKFLOWS[r.workflow_key as keyof typeof WORKFLOWS]?.href.replace(":id", r.subject_id) ?? null;
+  /* NO ROW LINKS OUT (user 2026-11-04: "we need to open here, no need to redirect the
+     actual module screen"). Every row and card opens the decision sheet in place, and
+     the sheet reads the document there — the `hrefFor` that built module links is gone. */
 
   /** "3d 4h" — a queue is read for how LONG something has waited, not for when
    *  it arrived, and the Created Date column already carries the when. */
@@ -203,76 +265,78 @@ export function ApprovalsInboxScreen({
   };
 
   const columns: Column<QueueRow>[] = [
+    /* DOCUMENT AND STEP READ LIKE THE PHONE CARD (user 2026-11-04, screenshots 4040 /
+       4041: "this two field look not good and not better for user"). The Document cell
+       said only the TYPE — "Sample PD Request", "Leave / Permission" — never WHICH one;
+       the Step cell said "1. Managing Director / Raagam Admin" with nothing naming the
+       number or the person. Both now come from the phone card's own `faceOf` / `FAMILY`,
+       so the two layouts describe a request in one set of words: the type's icon and
+       label, the record's own title, its party or requester; then "Step 1 · <role>" and
+       "Waiting on <people>". */
     {
       header: "Document",
-      className: HUG,
+      className: "max-w-0 w-full",
       cell: (r) => {
-        const href = hrefFor(r);
-        const po = pos[r.subject_id];
-        const chg = poChanges[r.subject_id];
-        // A PO names itself and what it costs the order (0764).
-        const label = po?.code ? `PO ${po.code}` : chg ? changeTitle(chg) : workflowLabel(r.workflow_key);
-        /* DECIDED HERE, NOT ON THE DOCUMENT'S PAGE (user 2026-10-31): a row
-           this user may act on opens the decision sheet in place; the sheet
-           still carries the link to the full document. A row with no verdict
-           keeps its link, because there is nothing to decide here. */
-        const link = verdicts[r.run_id] ? (
-          <button
-            type="button"
-            onClick={() => openDecision(r)}
-            className="text-left text-xs font-medium text-primary hover:underline"
-          >
-            {label}
-          </button>
-        ) : href ? (
-          <Link href={href} className="text-xs font-medium text-primary hover:underline">
-            {label}
-          </Link>
-        ) : (
-          <span className="text-xs font-medium">{label}</span>
-        );
-        /* THE DETAIL LINE WRAPS, capped at 22rem (user 2026-10-31: "without
-           scrolling fit compact") — on one line it was the widest thing in the
-           table and pushed every other column off the pane. */
-        const detail = (text: string) => (
-          <span className="block max-w-[22rem] text-[11px] leading-snug text-muted-foreground tabular-nums">{text}</span>
-        );
-        if (chg) {
-          return (
-            <span className="flex flex-col">
-              {link}
-              {detail(changeLine(chg))}
-            </span>
-          );
-        }
-        if (!po) return link;
+        const face = faceOf(r, pos[r.subject_id], poChanges[r.subject_id], budgets[r.subject_id], codes[r.subject_id]);
+        const fam = FAMILY[familyOf(r.workflow_key)];
+        const Icon = fam.icon;
         return (
-          <span className="flex flex-col">
-            {link}
-            {detail([po.vendor, po.total, poImpactLine(po)].filter(Boolean).join(" · "))}
+          <span className="flex min-w-0 items-center gap-2.5">
+            <span className={cn("grid size-8 shrink-0 place-items-center rounded-lg", fam.well)}>
+              <Icon className="size-4" aria-hidden />
+            </span>
+            <span className="flex min-w-0 flex-col">
+              <span className="text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">{workflowLabel(r.workflow_key)}</span>
+              {/* DECIDED HERE, NOT ON THE DOCUMENT'S PAGE (user 2026-10-31; every row since
+                  2026-11-04 — "no need to redirect"): the title opens the sheet in place. */}
+              <button
+                type="button"
+                onClick={() => openDecision(r)}
+                className="min-w-0 text-left text-sm font-semibold text-primary hover:underline"
+              >
+                <Truncated className="block">{face.title}</Truncated>
+              </button>
+              {face.sub || face.amount ? (
+                <Truncated className="block text-xs text-muted-foreground">
+                  {[face.sub, face.amount].filter(Boolean).join(" · ")}
+                </Truncated>
+              ) : null}
+              {/* The card's one fact (within / over budget, margin, rate change) — only where
+                  the document HAS figures; a plain request's fact is its step, which the Step
+                  column already says. */}
+              {face.amount ? (
+                <Truncated
+                  className={cn(
+                    "block text-xs",
+                    face.factTone === "danger" ? "font-medium text-danger" : face.factTone === "warning" ? "text-warning" : "text-muted-foreground",
+                  )}
+                >
+                  {face.fact}
+                </Truncated>
+              ) : null}
+            </span>
           </span>
         );
       },
     },
-    /* STEP AND WHO IT WAITS ON ARE ONE COLUMN (2026-10-31, fit without
-       scrolling): the step's role on the first line, the people holding it under
-       it. On Mine the second line is you, so it is left off. */
     {
-      header: allOpen ? "Step · Waiting on" : "Step",
+      header: "Step",
       className: HUG,
       cell: (r) => (
         <span className="flex flex-col">
-          {/* ONE LINE: "1." and the label used to break apart (screenshot 3943). */}
-          <span className="flex items-baseline gap-1 whitespace-nowrap text-sm">
-            <span className="shrink-0 text-muted-foreground">{r.step_order}.</span>
-            <Truncated>{r.step_label}</Truncated>
+          <span className="whitespace-nowrap text-sm">
+            <span className="text-muted-foreground">Step {r.step_order} · </span>
+            {r.step_label}
           </span>
-          {allOpen &&
-            (r.approver_names?.length ? (
-              <span className="text-[11px] text-muted-foreground">{r.approver_names.join(", ")}</span>
+          {allOpen ? (
+            r.approver_names?.length ? (
+              <span className="text-xs text-muted-foreground">Waiting on {r.approver_names.join(", ")}</span>
             ) : (
-              <span className="text-[11px] font-medium text-danger">Nobody holds this step</span>
-            ))}
+              <span className="text-xs font-medium text-danger">Nobody holds this step</span>
+            )
+          ) : (
+            <span className="text-xs text-muted-foreground">Waiting on you</span>
+          )}
         </span>
       ),
     },
@@ -318,20 +382,47 @@ export function ApprovalsInboxScreen({
        action. EVERY row with a verdict opens it (user 2026-10-31: "approve,
        reject all in same screen") — a workflow with no figures card still gets
        its step, requester and the three buttons, plus the link to the document. */
-    {
-      header: "Decide",
-      className: HUG,
-      cell: (r) =>
-        verdicts[r.run_id] ? (
-          <RowIconAction
-            label="Review & decide"
-            name={pos[r.subject_id]?.code ? `PO ${pos[r.subject_id].code}` : undefined}
-            icon={ClipboardCheck}
-            onClick={() => openDecision(r)}
-          />
-        ) : null,
-    },
+    /* THE ROW'S ICON IS THE TRAILING ACTIONS COLUMN, like every other listing (user
+       2026-11-04, screenshot 4039: "my approval screen look not good comparing the
+       remaining screen"). It was a headed "Decide" column mid-table, which also pushed
+       Created Date / Created User AFTER Status — every other list ends Created · Status
+       · icons, and `withCreatedColumns` now slots them there by itself. */
+    rowActionsColumn<QueueRow>((r) => (
+      <RowIconAction
+        label={verdicts[r.run_id] ? "Review & decide" : "Review"}
+        name={pos[r.subject_id]?.code ? `PO ${pos[r.subject_id].code}` : undefined}
+        icon={ClipboardCheck}
+        onClick={() => openDecision(r)}
+      />
+    )),
   ];
+
+  /**
+   * THE DECISION — one element, mounted in the sheet's HEADER on a desktop (Orders ▸
+   * Approval's place for it) and pinned in its FOOTER on a phone (the thumb's reach).
+   * The same bar the desktop document page mounts — one decision path, one
+   * `lock_version` rule, one set of words; `run` is built from the queue row, which IS
+   * the fresh read that field requires.
+   */
+  const decisionBar =
+    decideRow && decideVerdict ? (
+      <ApprovalActionBar
+        run={{ id: decideRow.run_id, lock_version: decideRow.lock_version, status: "in_progress" }}
+        verdict={decideVerdict}
+        subjectPath="/approvals"
+        /* An order budget and a PO read Approve · Request Rework (client 2026-09-29). */
+        rework={decideRow.workflow_key === WORKFLOWS.order_budget.key || decideRow.workflow_key === WORKFLOWS.purchase_order.key}
+        /* A SAMPLE PD REQUEST IS ANSWERED IN THE SAMPLE DEPARTMENT'S WORDS (client spec
+           2026-10-14) — Acknowledged · Not Acknowledged · File Not Received. */
+        acknowledge={decideRow.workflow_key === WORKFLOWS.sample_pd_request.key}
+        /* EVERY PO IS APPROVED IN ONE CLICK (user 2026-10-31) through `approvePo`; Reject
+           (`declinePo`) closes it for good. Non-PO workflows keep the engine's path. */
+        onApprove={decideRow.workflow_key === WORKFLOWS.purchase_order.key ? () => approvePo(decideRow.subject_id) : undefined}
+        onRejectForGood={
+          decideRow.workflow_key === WORKFLOWS.purchase_order.key ? (reason) => declinePo(decideRow.subject_id, reason) : undefined
+        }
+      />
+    ) : null;
 
   return (
     <div className="space-y-4">
@@ -343,25 +434,12 @@ export function ApprovalsInboxScreen({
             : "Every request across the business that is waiting on your decision."
         }
         actions={
-          /* A LINK, NOT A BUTTON WRAPPING ONE. Raagam's `Button` renders a real
-             <button> and takes no `asChild`, so nesting an <a> inside it is
-             invalid markup — the same nesting rule `MobileCardList` is shaped
-             around. `buttonClasses` gives the link the header row's `md` (h-9)
-             height, which is what the toolbar-size rule asks of every control
-             in this band. */
           /* THE MINE / ALL OPEN SWITCH SITS IN THIS ROW (user 2026-10-31,
              screenshot 3940: on its own row above the search it read as a stray
-             control). Only a super admin is handed one. */
-          viewToggle || canViewAll ? (
-            <div className="flex items-center gap-2">
-              {viewToggle}
-              {canViewAll && (
-                <Link href="/approvals/flows" className={buttonClasses({ variant: "outline", size: "md" })}>
-                  Approval Flows
-                </Link>
-              )}
-            </div>
-          ) : undefined
+             control). Only a super admin is handed one. NO "APPROVAL FLOWS" BUTTON
+             (user 2026-11-04: "remove that approval flow button in that screen") —
+             the flows are set up from their own row, Approvals ▸ Approval Flows. */
+          viewToggle ?? undefined
         }
       />
 
@@ -403,30 +481,32 @@ export function ApprovalsInboxScreen({
         </div>
       )}
 
+      {/* Desktop's search + Document facet. The phone filters by its type chips. */}
+      <div className="hidden md:block">
       <FilterBar
         search={query}
         onSearch={setQuery}
         searchPlaceholder="Search document, step or requester…"
-        activeCount={workflow ? 1 : 0}
-        onReset={workflow ? () => setWorkflow("") : undefined}
-        right={`${filtered.length} of ${rows.length}`}
-      >
-        <div>
-          <Label htmlFor="approval-workflow">Document</Label>
-          <Select
-            id="approval-workflow"
+        /* THE DOCUMENT TYPES ARE WORDS IN THE ROW, with their counts — the Delivery
+           Challans / PO Approval shape (2026-11-04). They were a <Select> behind the
+           Filters button, the one list in the app that hid its type facet. Only types
+           with something waiting are offered (plus the one in view), so the row stays
+           short; a type nobody is waiting on is not a choice anyone needs. */
+        leading={
+          <ToggleGroup<string>
+            label="Document type"
             value={workflow}
-            onChange={(e) => setWorkflow(e.target.value)}
-          >
-            <option value="">All ({rows.length})</option>
-            {workflowCounts.map((w) => (
-              <option key={w.key} value={w.key} disabled={w.count === 0 && w.key !== workflow}>
-                {workflowLabel(w.key)} ({w.count})
-              </option>
-            ))}
-          </Select>
-        </div>
-      </FilterBar>
+            onChange={setWorkflow}
+            options={[
+              { value: "", label: `All (${rows.length})` },
+              ...workflowCounts
+                .filter((w) => w.count > 0 || w.key === workflow)
+                .map((w) => ({ value: w.key, label: `${workflowLabel(w.key)} (${w.count})` })),
+            ]}
+          />
+        }
+      />
+      </div>
 
       {/* The Created pair is the requester and when they raised it — mapped onto
           `created_at` / `created_by` in the page so the app's one helper renders
@@ -474,225 +554,202 @@ export function ApprovalsInboxScreen({
         * `MobileCardList`'s own header asks for that, so a caller wanting cards
         * at every width simply omits the wrapper.
         */}
-      <div className="space-y-3 md:hidden">
-        {/* AN ORDER BUDGET IS AN ORDER CARD, WITH THE DECISION ON IT (client
-            2026-09-29, "MD Approval Screen in Mobile View"): the order, the
-            cost bar, the margin against the 15% line, V0 vs the proposal per
-            piece, and Approve · Request Rework — decided from the queue
-            without opening anything. "View full sheet" still opens the
-            revision detail below. Every other workflow keeps the list card. */}
-        {filtered
-          .filter((r) => budgets[r.subject_id])
-          .map((r) => (
-            <OrderApprovalCard
-              key={r.run_id}
-              card={budgets[r.subject_id]}
-              waited={waited(r.waiting_hours)}
-              overdue={r.is_overdue}
-              onOpenSheet={verdicts[r.run_id] ? () => openDecision(r) : undefined}
-              actions={
-                verdicts[r.run_id] ? (
-                  <ApprovalActionBar
-                    run={{ id: r.run_id, lock_version: r.lock_version, status: "in_progress" }}
-                    verdict={verdicts[r.run_id]}
-                    subjectPath="/approvals"
-                    rework
-                    compact
-                  />
-                ) : undefined
-              }
-            />
-          ))}
-        {(filtered.some((r) => !budgets[r.subject_id]) || filtered.length === 0) && (
-        <MobileCardList<QueueRow>
-          rows={filtered.filter((r) => !budgets[r.subject_id])}
-          getKey={(r) => r.run_id}
-          /* A BUDGET CARD LEADS WITH ITS RE NO (client 2026-09-24) — the number
-             the MD knows the order by — then the customer and style under it.
-             Every other workflow keeps its label. */
-          title={(r) =>
-            pos[r.subject_id]?.code ? (
-              <span className="font-mono">PO {pos[r.subject_id].code}</span>
-            ) : poChanges[r.subject_id] ? (
-              <span className="font-mono">{changeTitle(poChanges[r.subject_id])}</span>
-            ) : budgets[r.subject_id] ? (
-              <span className="font-mono">{reOf(budgets[r.subject_id]) ?? workflowLabel(r.workflow_key)}</span>
-            ) : (
-              workflowLabel(r.workflow_key)
-            )
-          }
-          subtitle={(r) => {
-            const po = pos[r.subject_id];
-            if (po) return po.vendor ? <Truncated>{po.vendor}</Truncated> : null;
-            const chg = poChanges[r.subject_id];
-            if (chg) return <Truncated>{changeLine(chg)}</Truncated>;
-            const b = budgets[r.subject_id];
-            if (!b) return null;
-            const line = [b.customer, b.styles].filter(Boolean).join(" · ");
-            return line ? <Truncated>{line}</Truncated> : b.budgetCode;
-          }}
-          pill={(r) => {
-            /* "REV #2 · PENDING" — a revision says which one, in the pill the
-               queue already reads for state. */
-            const rev = budgets[r.subject_id]?.revision;
-            const word = r.is_overdue ? "Overdue" : rev ? "Pending" : "Awaiting you";
-            // An ICON on the card, the words in its tooltip (components/ui/status-mark.tsx).
-            return <StatusMark word={rev?.revNo ? `Rev #${rev.revNo} · ${word}` : word} mark="todo" tone={r.is_overdue ? "danger" : "warning"} />;
-          }}
-          meta={(r) =>
-            `${budgets[r.subject_id] ? `${workflowLabel(r.workflow_key)} · ` : ""}Step ${r.step_order} · ${r.step_label} · waiting ${waited(r.waiting_hours)}`
-          }
-          stats={(r) =>
-            pos[r.subject_id]
-              ? poStats(pos[r.subject_id])
-              : poChanges[r.subject_id]
-                ? changeStats(poChanges[r.subject_id])
-                : cardStats(budgets[r.subject_id])
-          }
-          /* TAP THE CARD TO DECIDE. `onEdit` is the primitive's tap slot; the
-             word is historical (it opens a record) and this opens the sheet
-             that holds the figures and the three buttons. A card with no
-             verdict is not tappable at all rather than opening a sheet with
-             nothing in it — see `queueVerdicts` in the page for when that
-             happens. */
-          onEdit={(r) => (verdicts[r.run_id] ? openDecision(r) : undefined)}
-          /* WHO RAISED IT, AND WHEN — for a revision, the merchandiser who
-             raised the ENTRY and the time they did; otherwise the requester. */
-          footerNote={(r) => {
-            const rev = budgets[r.subject_id]?.revision;
-            if (rev) return `Raised by ${rev.raisedBy ?? r.created_by_name ?? "—"} · ${fmtDateTime(rev.raisedAt)}`;
-            return r.created_by_name ? `Raised by ${r.created_by_name} · ${fmtDateTime(r.started_at)}` : null;
-          }}
-          empty={allOpen ? "No approval is open anywhere right now." : "Nothing is waiting on you. Requests appear here the moment a step names you as an approver."}
+      {/* THE PHONE (user 2026-11-04, approved mockup "My Approvals Mobile"):
+          To decide · My requests · Decided, type chips, one card shape for every
+          workflow, two-tap Approve on the card, and the decision sheet below for
+          the figures, the charts and Reject / Request Rework. Desktop keeps the
+          table above, untouched. */}
+      <div className="md:hidden">
+        <ApprovalsPhoneView
+          rows={rows}
+          verdicts={verdicts}
+          budgets={budgets}
+          pos={pos}
+          poChanges={poChanges}
+          codes={codes}
+          requests={allOpen ? [] : requests}
+          decisions={allOpen ? [] : decisions}
+          allOpen={allOpen}
+          waited={waited}
+          onOpenDecision={openDecision}
         />
-        )}
       </div>
-
       {/* THE DECISION, WITH THE FIGURES STILL ON SCREEN. */}
-      {decideRow && decideVerdict && (
+      {decideRow && (
         <Sheet
           open
           onClose={() => setDecideOn(null)}
-          /* A CENTRED CARD, NOT A FULL-SCREEN TAKEOVER, now that desktop opens it
-             too ("Review & decide", 2026-10-31). Same shape as the bar's own
-             confirm: figures and three buttons need a card's width, not a page. */
-          size="sm"
+          /* FULL SCREEN ON EVERY DEVICE (it was a centred card on a desktop until this,
+             and a bottom sheet on a phone before the approved phone page) (user 2026-11-04, screenshot 4049: "in desktop open
+             full screen") — Orders ▸ Approval's page: the name and crumb in the header,
+             three columns on a desktop (identity · the document · the trail), stacked on a
+             phone in that same order. `fullBleed` lets the columns take the pane. */
+          size="lg"
+          fullBleed={!isPhone}
           alignToPane
-          title={
-            decideRevision
-              ? `${reOf(decideCard) ?? "Revision"}${decideRevision.revNo ? ` · Rev #${decideRevision.revNo}` : ""}`
-              : decideCard?.budgetCode
-                ? `${workflowLabel(decideRow.workflow_key)} · ${decideCard.budgetCode}`
-                : decidePo?.code
-                  ? `PO ${decidePo.code}`
-                  : decideChange
-                    ? changeTitle(decideChange)
-                    : workflowLabel(decideRow.workflow_key)
-          }
+          /* The decisions: in the HEADER on a desktop, as on Orders ▸ Approval; pinned at
+             the FOOT on a phone (approved plan, the thumb's reach). One `decisionBar`. */
+          headerActions={!isPhone && decisionBar ? decisionBar : undefined}
+          footer={isPhone && decisionBar ? <div className="w-full">{decisionBar}</div> : undefined}
+          /* THE PAGE'S NAME AND WHERE IT SITS — Orders ▸ Approval's header ("Order Approval
+             / Orders / Approval / RE No"): the module's own approval page name, then the
+             crumb ending in the document's number. */
+          title={(() => {
+            const page = PAGE_NAME[decideRow.workflow_key] ?? `${workflowLabel(decideRow.workflow_key)} Approval`;
+            const no =
+              decidePo?.code ??
+              (decideRevision ? `${reOf(decideCard) ?? "Revision"}${decideRevision.revNo ? ` · Rev #${decideRevision.revNo}` : ""}` : null) ??
+              reOf(decideCard) ??
+              (decideChange ? changeTitle(decideChange) : null) ??
+              codes[decideRow.subject_id] ??
+              (pdReview?.runId === decideRow.run_id ? (pdReview.data?.sample?.smp_nos[0] ?? null) : null) ??
+              workflowLabel(decideRow.workflow_key);
+            return (
+              <span className="flex min-w-0 flex-col">
+                <span>{page}</span>
+                <Truncated className="block text-xs font-normal text-muted-foreground">
+                  My Approvals / {page} / <span className="font-mono text-foreground">{no}</span>
+                </Truncated>
+              </span>
+            );
+          })()}
         >
-          <div className="space-y-4 p-4">
-            {/* A REVISION IS DECIDED ON LAST vs LATEST (client 2026-09-24) — who
-                raised it and why, the P&L both ways, and the cost heads that
-                moved. The submitted totals below still follow: they are the
-                figures the run froze, the same ones the push carried. */}
-            {decideRevision && (
-              <>
-                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
-                  <dt className="text-muted-foreground">Customer</dt>
-                  <dd>{decideCard?.customer ?? "—"}</dd>
-                  <dt className="text-muted-foreground">Style</dt>
-                  <dd>{decideCard?.styles ?? "—"}</dd>
-                  <dt className="text-muted-foreground">Revision</dt>
-                  <dd className="font-mono">{decideRevision.entryNo ?? "—"}</dd>
-                  <dt className="text-muted-foreground">Raised by</dt>
-                  <dd>
-                    {decideRevision.raisedBy ?? decideRow.created_by_name ?? "—"} ·{" "}
-                    {fmtDateTime(decideRevision.raisedAt)}
-                  </dd>
-                </dl>
-                <RevisionComparePanel
-                  state={compare?.entryId === decideRevision.entryId ? compare.result : null}
-                />
-                <div className="rounded-md border border-warning/40 bg-warning/5 p-2.5 text-xs">
-                  <span className="font-semibold">Reason for revision: </span>
-                  {decideRevision.reason ?? <span className="text-muted-foreground">None given</span>}
-                </div>
-                <Link
-                  href={`/orders/order-amendments/${decideRevision.entryId}`}
-                  className="text-xs font-medium text-primary hover:underline"
-                >
-                  Open the full revision (every line, Original Budget, what changed)
-                </Link>
-              </>
-            )}
-            {/* THE CHART BEFORE THE FIGURES AND THE BUTTONS (client 2026-09-29):
-                where the sales go, and on a revision how that moved since V0 —
-                read before Approve / Request Rework, not after. */}
-            {decideCard && decideRow && (
-              <div className="rounded-md border border-border bg-surface p-3">
-                {(() => {
-                  const res = decideCard.breakdown;
-                  if (!res.ok) return <p className="text-sm text-warning">Breakdown unavailable — {res.refused}</p>;
-                  return <BudgetBreakdownChart current={res.current} original={res.original} />;
-                })()}
-              </div>
-            )}
-            {/**
-              * THE SAME COMPONENTS THE DESKTOP APPROVAL SCREEN USES.
-              *
-              * `HighlightTile` carries its own comment saying it is exported
-              * "for the approval sheet, which shows the same bottom line and
-              * must read the same way" — this is that sheet, on a phone. Two
-              * renderings of one set of figures is how a profit reads green in
-              * one place and plain in another, and an MD approving from the
-              * phone must be reading exactly what the desktop shows.
-              *
-              * `FIELD_ROW` rather than a `grid-cols-*` of this screen's own:
-              * the layout skill's governing rule, and `--check screen-grid`
-              * flags the alternative.
-              */}
-            {/* A PURCHASE ORDER (0764): the money, the lines above or without a budget,
-                what they cost the order, and the Purchase Manager's reason — then the
-                PO itself, one tap away, for every line. */}
-            {decideChange ? (
-              <PoChangeDetail card={decideChange} href={hrefFor(decideRow)} />
-            ) : decidePo ? (
-              <>
-                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
-                  <dt className="text-muted-foreground">Vendor</dt>
-                  <dd>{decidePo.vendor ?? "—"}</dd>
-                  <dt className="text-muted-foreground">Taxable</dt>
-                  <dd className="tabular-nums">{decidePo.taxable}</dd>
-                  <dt className="text-muted-foreground">GST</dt>
-                  <dd className="tabular-nums">
-                    {decidePo.gst}
-                    {decidePo.gstSplit.length
-                      ? ` (${decidePo.gstSplit.map((g) => `${g.label} ${g.amount}`).join(" · ")})`
-                      : ""}
-                  </dd>
-                  <dt className="text-muted-foreground">Total</dt>
-                  <dd className="font-semibold tabular-nums">{decidePo.total}</dd>
-                  <dt className="text-muted-foreground">Delivery</dt>
-                  <dd className="tabular-nums">{decidePo.deliveryDate ? fmtDate(decidePo.deliveryDate) : "—"}</dd>
-                  <dt className="text-muted-foreground">Lines</dt>
-                  <dd className="tabular-nums">
-                    {decidePo.lineCount}
-                    {decidePo.overCount != null ? ` · ${decidePo.overCount} above budget` : ""}
-                    {decidePo.unbudgetedCount ? ` · ${decidePo.unbudgetedCount} without a budget` : ""}
-                  </dd>
-                  <dt className="text-muted-foreground">Profit impact</dt>
-                  <dd className={decidePo.profitHit ? "font-semibold text-danger tabular-nums" : "tabular-nums"}>
-                    {poImpactLine(decidePo) ?? "—"}
-                  </dd>
-                </dl>
-                {/* EACH LINE OVER ITS BUDGET (user 2026-10-31) — typed rate incl. GST vs
-                    the ceiling, both in rupees, straight from `poBudgetImpact`. Five at
-                    most; the PO page carries every line. */}
-                {decidePo.overLines?.length ? (
-                  <div className="rounded-md border border-danger/30 bg-danger/5 p-2.5 text-xs">
-                    <p className="font-semibold text-danger">
-                      Approving this PO reduces order net profit by ₹ {fmtFixed(decidePo.profitHit ?? 0, 2)}
-                    </p>
+          {(() => {
+            /* THREE COLUMNS, ORDERS ▸ APPROVAL'S (user 2026-11-04, screenshot 4049): WHO AND
+               WHAT on the left, THE DOCUMENT in the middle, THE TRAIL on the right — side by
+               side on a desktop, stacked in that same order on a phone (approved "My Approvals
+               Phone Full Page"). Every piece below is the one the sheet already drew; only
+               where it sits changed. */
+            const initialsOf = (s: string) =>
+              s.split(/[\s/]+/).filter(Boolean).slice(0, 2).map((w) => w[0]!.toUpperCase()).join("");
+            const statePill = (pending = "Pending") => (
+              <StatusPill tone={decideRow.is_overdue ? "danger" : "warning"}>
+                {decideRow.is_overdue ? `Overdue ${waited(decideRow.waiting_hours)}` : pending}
+              </StatusPill>
+            );
+            const left: ReactNode[] = [];
+            const mid: ReactNode[] = [];
+            const right: ReactNode[] = [];
+
+            if (decideCard) {
+              /* ORDER APPROVAL — the order card's identity and facts. */
+              left.push(
+                <SheetIdentity
+                  key="id"
+                  tile={initialsOf(decideCard.customer ?? "RE")}
+                  number={reOf(decideCard) ?? "Budget"}
+                  sub={[decideCard.customer, decideCard.styles].filter(Boolean).join(" · ") || undefined}
+                  pills={
+                    <>
+                      {statePill()}
+                      <StatusPill tone="neutral">{decideRevision?.revNo ? `Rev #${decideRevision.revNo}` : "V0"}</StatusPill>
+                    </>
+                  }
+                />,
+                <FactGrid
+                  key="facts"
+                  facts={[
+                    { label: "Budget", value: decideCard.budgetCode ?? "—", mono: true },
+                    {
+                      label: "Order qty",
+                      value: typeof decideCard.orderQty === "number" ? `${fmtNumber(decideCard.orderQty)} ${decideCard.orderUnit ?? ""}`.trim() : "—",
+                    },
+                    { label: "Ship date", value: decideCard.earliestShipment ? fmtDate(decideCard.earliestShipment) : "—" },
+                    { label: "Merchandiser", value: decideCard.merchandiser ?? "—" },
+                    { label: "Submitted by", value: decideCard.submittedBy ?? decideRow.created_by_name ?? "—", full: true },
+                    ...(decideRevision
+                      ? [
+                          { label: "Revision", value: decideRevision.entryNo ?? "—", mono: true },
+                          { label: "Raised", value: `${decideRevision.raisedBy ?? decideRow.created_by_name ?? "—"} · ${fmtDateTime(decideRevision.raisedAt)}` },
+                        ]
+                      : []),
+                  ]}
+                />,
+              );
+              /* A REVISION IS DECIDED ON LAST vs LATEST (client 2026-09-24). */
+              if (decideRevision) {
+                mid.push(
+                  <RevisionComparePanel key="cmp" state={compare?.entryId === decideRevision.entryId ? compare.result : null} />,
+                  <div key="why" className="rounded-md border border-warning/40 bg-warning/5 p-2.5 text-xs">
+                    <span className="font-semibold">Reason for revision: </span>
+                    {decideRevision.reason ?? <span className="text-muted-foreground">None given</span>}
+                  </div>,
+                );
+              }
+              /* THE CHART BEFORE THE FIGURES (client 2026-09-29). */
+              mid.push(
+                <div key="chart" className="rounded-xl border border-border bg-surface p-3">
+                  {decideCard.breakdown.ok ? (
+                    <BudgetBreakdownChart current={decideCard.breakdown.current} original={decideCard.breakdown.original} />
+                  ) : (
+                    <p className="text-sm text-warning">Breakdown unavailable — {decideCard.breakdown.refused}</p>
+                  )}
+                </div>,
+              );
+            }
+
+            if (decideChange) {
+              left.push(
+                <SheetIdentity key="id" tile="PO" number={changeTitle(decideChange)} sub={decideRow.created_by_name ? `from ${decideRow.created_by_name}` : undefined} pills={statePill()} />,
+              );
+              mid.push(<PoChangeDetail key="chg" card={decideChange} href={null} />);
+            } else if (decidePo) {
+              /* PO APPROVAL — profile card · tiles, ring, lines · summary. */
+              const sheetPo = poSheet?.runId === decideRow.run_id ? poSheet.data?.po : null;
+              const orders = poSheet?.runId === decideRow.run_id ? Object.values(poSheet.data?.sourceNos ?? {}) : [];
+              left.push(
+                <SheetIdentity
+                  key="id"
+                  tile={initialsOf(decidePo.vendor ?? "PO")}
+                  number={decidePo.code ?? "PO"}
+                  sub={decidePo.vendor ?? undefined}
+                  pills={
+                    <>
+                      <StatusPill tone="neutral">{`${decidePo.lineCount} line${decidePo.lineCount === 1 ? "" : "s"}`}</StatusPill>
+                      {statePill("Pending Approval")}
+                    </>
+                  }
+                />,
+                <FactGrid
+                  key="facts"
+                  facts={[
+                    ...(orders.length ? [{ label: "Orders", value: [...new Set(orders)].join(", "), full: true }] : []),
+                    { label: "PO date", value: sheetPo?.order_date ? fmtDate(sheetPo.order_date) : "—" },
+                    { label: "Deliver by", value: decidePo.deliveryDate ? fmtDate(decidePo.deliveryDate) : "—" },
+                    { label: "GST", value: decidePo.gstSplit.length ? decidePo.gstSplit.map((g) => `${g.label} ${g.amount}`).join(" · ") : decidePo.gst },
+                    { label: "Payment", value: sheetPo?.payment_terms ?? "—" },
+                    { label: "Raised by", value: decideRow.created_by_name ?? "—", full: true },
+                  ]}
+                />,
+              );
+              mid.push(<PoMoneyChart key="money" card={decidePo} />);
+              if (sheetPo?.lines?.length) {
+                mid.push(
+                  <SheetSection key="lines" title="PO lines">
+                    <LineCards
+                      lines={(sheetPo.lines as unknown as { description: string; quantity: number; unit_price: number; amount: number; uom_id: string | null }[]).map((l) => {
+                        const uom = poSheet?.data?.uoms.find((u) => u.id === l.uom_id)?.code ?? "";
+                        const over = decidePo.overLines?.find((o) => l.description?.trim().startsWith(o.item));
+                        return {
+                          item: l.description?.trim() || "Item",
+                          amount: fmtFixed(Number(l.amount ?? 0), 2),
+                          meta: [
+                            `${fmtNumber(Number(l.quantity ?? 0))} ${uom}`.trim(),
+                            `Rate ${rateText(Number(l.unit_price ?? 0))}`,
+                            ...(over ? [`Budget ${rateText(over.budget)} · over`] : []),
+                          ],
+                          over: !!over,
+                        };
+                      })}
+                    />
+                  </SheetSection>,
+                );
+              }
+              /* EACH LINE OVER ITS BUDGET (user 2026-10-31) — five at most. */
+              if (decidePo.overLines?.length) {
+                mid.push(
+                  <div key="over" className="rounded-md border border-danger/30 bg-danger/5 p-2.5 text-xs">
+                    <p className="font-semibold text-danger">Approving this PO reduces order net profit by ₹ {fmtFixed(decidePo.profitHit ?? 0, 2)}</p>
                     <ul className="mt-1.5 space-y-1">
                       {decidePo.overLines.slice(0, 5).map((l, i) => (
                         <li key={i} className="flex items-baseline gap-2">
@@ -703,131 +760,149 @@ export function ApprovalsInboxScreen({
                         </li>
                       ))}
                     </ul>
-                    {decidePo.overLines.length > 5 ? (
-                      <p className="mt-1 text-muted-foreground">+{decidePo.overLines.length - 5} more on the PO</p>
-                    ) : null}
-                  </div>
-                ) : null}
-                <div className="rounded-md border border-warning/40 bg-warning/5 p-2.5 text-xs">
-                  <span className="font-semibold">Reason: </span>
-                  {decidePo.reason ?? <span className="text-muted-foreground">None given</span>}
-                </div>
-                {hrefFor(decideRow) ? (
-                  <Link href={hrefFor(decideRow)!} className="text-xs font-medium text-primary hover:underline">
-                    Open the PO (every line, budget vs rate)
-                  </Link>
-                ) : null}
-              </>
-            ) : kpis ? (
-              <>
-                <dl className="flex flex-wrap items-stretch gap-2.5">
+                    {decidePo.overLines.length > 5 ? <p className="mt-1 text-muted-foreground">+{decidePo.overLines.length - 5} more on the PO</p> : null}
+                  </div>,
+                );
+              }
+              /* THE REASON ONLY WHEN THERE IS ONE (screenshot 4042). */
+              if (decidePo.reason) {
+                mid.push(
+                  <div key="reason" className="rounded-md border border-warning/40 bg-warning/5 p-2.5 text-xs">
+                    <span className="font-semibold">Reason: </span>
+                    {decidePo.reason}
+                  </div>,
+                );
+              }
+              right.push(
+                <SheetSection key="sum" title="PO summary">
+                  <FactGrid
+                    facts={[
+                      { label: "Taxable", value: decidePo.taxable },
+                      { label: "GST", value: decidePo.gst },
+                      { label: "Total", value: <span className="font-semibold">{decidePo.total}</span>, full: true },
+                    ]}
+                  />
+                </SheetSection>,
+              );
+            } else if (kpis) {
+              /* THE SAME TILES THE DESKTOP BUDGET SCREEN DRAWS (`HighlightTile`). */
+              mid.push(
+                <dl key="kpi" className="flex flex-wrap items-stretch gap-2.5">
                   <HighlightTile w="code" tone="sales" label="Gross sales" value={kpis.total_income} />
                   <HighlightTile w="code" tone="plain" label="Total expenses" value={kpis.total_expenses} />
-                  <HighlightTile
-                    w="code"
-                    tone={signTone(kpis.profit)}
-                    label="Profit / loss"
-                    value={kpis.profit}
-                  />
-                  <HighlightTile
-                    w="hug"
-                    tone={signTone(kpis.profit)}
-                    label="Profit %"
-                    value={kpis.profit_pct}
-                    suffix="%"
-                  />
-                </dl>
-                <dl className={FIELD_ROW}>
+                  <HighlightTile w="code" tone={signTone(kpis.profit)} label="Profit / loss" value={kpis.profit} />
+                  <HighlightTile w="hug" tone={signTone(kpis.profit)} label="Profit %" value={kpis.profit_pct} suffix="%" />
+                </dl>,
+                <dl key="fig" className={FIELD_ROW}>
                   <FigureCell w="code" label="Order qty" value={kpis.order_qty} />
                   <FigureCell w="code" label="Cost per piece" value={kpis.cost_per_piece} />
                   <FigureCell w="term" label="RE No" value={kpis.re_nos.join(", ")} />
-                  <FigureCell
-                    w="term"
-                    label="Delivery"
-                    value={kpis.delivery_dates.map((d) => fmtDate(d)).join(", ")}
-                  />
-                </dl>
-              </>
-            ) : (
-              /* NO SUMMARY = a budget submitted before the column existed. It
-                 says so rather than showing nothing, because a sheet with three
-                 buttons and no figures reads as a screen that failed to load —
-                 and an approver would be right not to trust it. */
-              <p className="text-xs text-muted-foreground">
-                No submitted summary was stored for this document. Open it on a desktop
-                to read the figures before deciding.
-              </p>
-            )}
+                  <FigureCell w="term" label="Delivery" value={kpis.delivery_dates.map((d) => fmtDate(d)).join(", ")} />
+                </dl>,
+              );
+            } else if (decideRow.workflow_key === WORKFLOWS.order_budget.key) {
+              /* NO SUMMARY = a budget submitted before the column existed. */
+              mid.push(
+                <p key="nosum" className="text-xs text-muted-foreground">
+                  No submitted summary was stored for this budget. Open it on a desktop to read the figures before deciding.
+                </p>,
+              );
+            } else if (decideRow.workflow_key === WORKFLOWS.sample_pd_request.key) {
+              /* PD ACKNOWLEDGE — read in place (no redirect): the SMP, then its sample. */
+              const pd = pdReview?.runId === decideRow.run_id ? pdReview.data : null;
+              if (pd?.sample) {
+                left.push(
+                  <SheetIdentity
+                    key="id"
+                    tile="PD"
+                    number={pd.sample.swo_no ?? pd.sample.smp_nos[0] ?? "PD Request"}
+                    sub={[pd.sample.styles[0]?.name ? `Style ${pd.sample.styles[0].name}` : null, decideRow.created_by_name ? `from ${decideRow.created_by_name}` : null]
+                      .filter(Boolean)
+                      .join(" · ")}
+                    pills={
+                      <>
+                        {decideRow.is_overdue ? statePill() : null}
+                        {pd.sample.styles[0]?.sample_type ? <StatusPill tone="neutral">{pd.sample.styles[0].sample_type}</StatusPill> : null}
+                      </>
+                    }
+                  />,
+                );
+                mid.push(<PdSheetBody key="pd" sample={pd.sample} />);
+              } else {
+                mid.push(
+                  <p key="pdwait" className="text-xs text-muted-foreground">
+                    {pd && !pd.sample ? "This SMP could not be read — it may have been deleted." : "Loading the request…"}
+                  </p>,
+                );
+              }
+            } else if (!decideCard) {
+              /* EVERY OTHER WORKFLOW — who asked and when; the trail says where it stands. */
+              left.push(
+                <SheetIdentity
+                  key="id"
+                  tile={initialsOf(workflowLabel(decideRow.workflow_key))}
+                  number={codes[decideRow.subject_id] ?? workflowLabel(decideRow.workflow_key)}
+                  sub={decideRow.created_by_name ? `from ${decideRow.created_by_name}` : undefined}
+                  pills={statePill()}
+                />,
+              );
+              mid.push(
+                <FactGrid
+                  key="facts"
+                  facts={[
+                    { label: "Raised by", value: decideRow.created_by_name ?? "—" },
+                    { label: "Raised on", value: fmtDateTime(decideRow.started_at) },
+                  ]}
+                />,
+              );
+            }
 
-            <p className="text-xs text-muted-foreground">
-              Step {decideVerdict.step_order} · {decideVerdict.step_label}. Returning
-              for changes and rejecting both need a reason.
-            </p>
+            /* THE APPROVAL TRAIL — the right column, for every workflow (loaded on open). */
+            if (trail?.runId === decideRow.run_id) {
+              right.push(
+                <SheetSection key="trail" title="Approval">
+                  {trail.result === null ? (
+                    <p className="text-xs text-muted-foreground">Loading…</p>
+                  ) : trail.result.ok ? (
+                    <CompactTrail
+                      rows={trail.result.rows}
+                      names={trail.result.names}
+                      submittedBy={decideRow.created_by_name ?? null}
+                      submittedAt={decideRow.started_at}
+                    />
+                  ) : (
+                    <p className="text-xs text-danger">{trail.result.error}</p>
+                  )}
+                </SheetSection>,
+              );
+            }
+            if (!decideVerdict) {
+              /* READ-ONLY: in the list, but this login is not an approver on the step. */
+              right.push(
+                <p key="ro" className="rounded-md border border-border bg-surface-muted p-2.5 text-xs text-muted-foreground">
+                  Waiting on {decideRow.step_label}. You can read it here, but you are not an approver on this step.
+                </p>,
+              );
+            }
 
-            {/* The same bar the desktop document page mounts — one decision
-                path, one `lock_version` rule, one set of words. `run` is built
-                from the queue row: a row IS a fresh read, which is the one
-                thing that field requires (see `ActionBarRun`). */}
-            <ApprovalActionBar
-              run={{
-                id: decideRow.run_id,
-                lock_version: decideRow.lock_version,
-                status: "in_progress",
-              }}
-              verdict={decideVerdict}
-              subjectPath="/approvals"
-              /* An order budget reads Approve · Request Rework (client
-                 2026-09-29); every other workflow keeps its three buttons. */
-              rework={
-                decideRow.workflow_key === WORKFLOWS.order_budget.key ||
-                decideRow.workflow_key === WORKFLOWS.purchase_order.key
-              }
-              /* EVERY PO IS APPROVED IN ONE CLICK (user 2026-10-31, widening the
-                 2026-10-30 within-budget rule) — above budget too, and on an
-                 override: `approvePo` runs the signature / TBA / reopened-budget
-                 gates and ends the run through `actOnSubject`, which writes the
-                 override remark. Request Rework sends it back to draft; Reject
-                 (`declinePo`) closes it for good and reopens the requirement.
-                 Both need a reason. Non-PO workflows keep the engine's path. */
-              onApprove={
-                decideRow.workflow_key === WORKFLOWS.purchase_order.key
-                  ? () => approvePo(decideRow.subject_id)
-                  : undefined
-              }
-              onRejectForGood={
-                decideRow.workflow_key === WORKFLOWS.purchase_order.key
-                  ? (reason) => declinePo(decideRow.subject_id, reason)
-                  : undefined
-              }
-            />
-          </div>
+            return (
+              <div className="space-y-4">
+                {/* THE WAY BACK TO THE LIST (user 2026-11-04: "no back option"). */}
+                <BackLink onBack={() => setDecideOn(null)} label="My Approvals" className="-ml-1 h-7" />
+                <div className="grid items-start gap-4 lg:grid-cols-[minmax(15rem,18rem)_minmax(0,1fr)_minmax(15rem,19rem)]">
+                  <div className="min-w-0 space-y-3.5">{left}</div>
+                  <div className="min-w-0 space-y-3.5">{mid}</div>
+                  <div className="min-w-0 space-y-3.5">{right}</div>
+                </div>
+              </div>
+            );
+          })()}
         </Sheet>
       )}
     </div>
   );
 }
 
-/**
- * THE FIVE FIGURES §2 NAMES, AND NOTHING ELSE.
- *
- * Profit VALUE leads: it is the number an approval is actually about, and the
- * primitive draws a lead stat at ~1.5× the rest so a thumb scrolling the queue
- * lands on it. Profit % rides beside it because a healthy value on a huge order
- * and a thin one read identically without it.
- *
- * A REFUSAL PRINTS ITS SENTENCE. `budgetFiguresOf` returns `{refused}` rather
- * than 0 when a figure cannot be worked out (an unpriced line, a pending
- * percent), and `CardStat.value` is a node precisely so that sentence can go
- * where the number would — never a dash, and never a zero an MD might approve.
- */
-/** "−₹ 12,345.00 profit (8.2% over)" — or null when nothing is above budget / unknown. */
-function poImpactLine(po: PoApprovalCard): string | null {
-  if (po.profitHit == null) return null;
-  if (po.profitHit <= 0) return po.unbudgetedCount ? "No budget to compare" : "Within budget";
-  /* Plain words, money at 2 places and the % at 1 (screenshot 3943: "−₹ 433.26
-     profit (36.889% over)" after a "·" read as a double minus). */
-  return `Profit down ₹ ${fmtFixed(po.profitHit, 2)} (${fmtFixed(po.overPct ?? 0, 1)}% over budget)`;
-}
 
 /** "Rate amendment · PO 123" / "Cancellation · PO 123". */
 function changeTitle(c: PoChangeCard): string {
@@ -840,16 +915,6 @@ function signedMoney(currency: string, v: number): string {
   return `${v >= 0 ? "+" : "−"}${currency} ${fmtFixed(Math.abs(v), 2)}`;
 }
 
-/** The one line under the title: what changes, in money. */
-function changeLine(c: PoChangeCard): string {
-  if (c.kind === "rate") {
-    return [c.item, `${c.currency} ${rateText(c.previousRate)} → ${rateText(c.revisedRate)}`, signedMoney(c.currency, c.valueChange)]
-      .filter(Boolean)
-      .join(" · ");
-  }
-  const n = c.lines.length;
-  return `${c.scope === "whole" ? "Whole PO" : "Part"} · ${n} line${n === 1 ? "" : "s"} · ${c.currency} ${fmtFixed(c.cancelValue, 2)}`;
-}
 
 /** The budget sentence for a rate amendment — the PO card's own words. */
 function rateBudgetLine(c: Extract<PoChangeCard, { kind: "rate" }>): string {
@@ -857,21 +922,6 @@ function rateBudgetLine(c: Extract<PoChangeCard, { kind: "rate" }>): string {
   if (c.budgetRate == null) return "—";
   if (!c.profitHit) return `Within budget (₹ ${rateText(c.budgetRate)} incl. GST)`;
   return `Approving this reduces order net profit by ₹ ${fmtFixed(c.profitHit, 2)}`;
-}
-
-function changeStats(c: PoChangeCard): CardStat[] {
-  if (c.kind === "rate") {
-    return [
-      { label: "Rate", value: `${rateText(c.previousRate)} → ${rateText(c.revisedRate)}` },
-      { label: "Value change", value: signedMoney(c.currency, c.valueChange) },
-      { label: "Budget", value: rateBudgetLine(c), lead: true },
-    ];
-  }
-  return [
-    { label: "Scope", value: c.scope === "whole" ? "Whole PO" : "Part" },
-    { label: "Lines", value: String(c.lines.length) },
-    { label: "Cancelled value", value: `${c.currency} ${fmtFixed(c.cancelValue, 2)}`, lead: true },
-  ];
 }
 
 /** The decision sheet's body for a rate amendment or a cancellation (0785). */
@@ -935,10 +985,12 @@ function PoChangeDetail({ card: c, href }: { card: PoChangeCard; href: string | 
           </ul>
         </>
       )}
-      <div className="rounded-md border border-warning/40 bg-warning/5 p-2.5 text-xs">
-        <span className="font-semibold">Reason: </span>
-        {c.reason ?? <span className="text-muted-foreground">None given</span>}
-      </div>
+      {c.reason ? (
+        <div className="rounded-md border border-warning/40 bg-warning/5 p-2.5 text-xs">
+          <span className="font-semibold">Reason: </span>
+          {c.reason}
+        </div>
+      ) : null}
       {href ? (
         <Link href={href} className="text-xs font-medium text-primary hover:underline">
           Open the {c.kind === "rate" ? "rate amendment" : "cancellation request"}
@@ -951,48 +1003,4 @@ function PoChangeDetail({ card: c, href }: { card: PoChangeCard; href: string | 
 /** A rate: three decimals under ₹10 (a 0.44 label), two above. */
 function rateText(v: number): string {
   return fmtFixed(v, Math.abs(v) < 10 ? 3 : 2);
-}
-
-/** A PO's card stats (0764): the impact leads, as Profit leads on a budget. */
-function poStats(po: PoApprovalCard): CardStat[] {
-  return [
-    { label: "Total", value: po.total },
-    { label: "GST", value: po.gst },
-    { label: "Delivery", value: po.deliveryDate ? fmtDate(po.deliveryDate) : "—" },
-    {
-      label: "Above budget",
-      value: po.overCount == null ? "—" : `${po.overCount} of ${po.lineCount}${po.unbudgetedCount ? ` · ${po.unbudgetedCount} no budget` : ""}`,
-    },
-    { label: "Profit impact", value: poImpactLine(po) ?? "—", lead: true },
-  ];
-}
-
-function cardStats(b: BudgetCard | undefined): CardStat[] {
-  const k = b?.kpis;
-  if (!k) return [];
-  const money = (v: number | Refusal) =>
-    isRefusal(v) ? (
-      <span className="text-xs font-normal text-warning">{v.refused}</span>
-    ) : (
-      fmtNumber(v)
-    );
-
-  return [
-    { label: "Order qty", value: money(k.order_qty) },
-    {
-      label: "Delivery",
-      value: k.delivery_dates.length ? k.delivery_dates.map((d) => fmtDate(d)).join(", ") : "—",
-    },
-    { label: "Gross sales", value: money(k.total_income) },
-    { label: "Expenses", value: money(k.total_expenses) },
-    { label: "Profit", value: money(k.profit), lead: true },
-    {
-      label: "Profit %",
-      value: isRefusal(k.profit_pct) ? (
-        <span className="text-xs font-normal text-warning">{k.profit_pct.refused}</span>
-      ) : (
-        `${fmtNumber(k.profit_pct)}%`
-      ),
-    },
-  ];
 }

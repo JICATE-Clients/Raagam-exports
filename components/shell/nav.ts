@@ -223,24 +223,23 @@ export const NAV: NavItem[] = [
        captioned block; Messages is listed in it because the menu hides the
        module's own root row, which would otherwise leave the conversation list
        reachable only from the rail. */
+    /* THREE HEADINGS, NO HUDDLE FOLD (user 2026-11-04, screenshot 122358):
+       Messages · My Approvals · Channels. The "Huddle" fold held ONE row, and
+       that row was named "Pulse" like the module above it, so the menu said
+       Pulse twice and folded a single screen. Each child is now a link WITH an
+       icon, which ContextSidebar draws as a heading, level with the Channels
+       fold it appends last. /comms/community keeps its route; it was only
+       ever the fold's key here.
+       My Approvals left Huddle the same day: approving a document is not a
+       conversation. It is the EXISTING approval inbox rendered inside the hub
+       (phase 5); /approvals stays where it is for everyone who uses it there.
+       No "Channels" row (user 2026-10-29: duplicate) — the fold lists them and
+       its "Browse channels" opens /comms/channels. Search / Saved /
+       Notifications / People / Settings rows removed (user 2026-11-02); their
+       routes stay. */
     children: [
-      {
-        href: "/comms/community",
-        label: "Huddle",
-        icon: MessagesSquare,
-        children: [
-          { href: "/comms", label: "Pulse" },
-          // No "Channels" row (user 2026-10-29: duplicate) — the Channels fold
-          // ContextSidebar appends below lists them, and its "Browse channels"
-          // opens /comms/channels.
-          // Search / Saved / Notifications rows removed (user 2026-11-02);
-          // their routes stay.
-          // The EXISTING approval inbox, rendered inside the hub (phase 5) —
-          // /approvals stays where it is for everyone who uses it there.
-          { href: "/comms/approvals", label: "My Approvals" },
-          // People / Settings rows removed (user 2026-11-02); routes stay.
-        ],
-      },
+      { href: "/comms", label: "Messages", icon: MessagesSquare },
+      { href: "/comms/approvals", label: "My Approvals", icon: Stamp },
     ],
   },
   {

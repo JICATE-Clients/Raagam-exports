@@ -38,7 +38,8 @@ const isClass = (r: Row, name: string) => r.item_class.toUpperCase().startsWith(
 /** Stock the business owns: rejected and replacement stock is a claim on the vendor. */
 const isAsset = (r: Row) => r.status !== "rejected" && r.status !== "replacement";
 
-function facetGroups(): FacetGroup<Row>[] {
+/** Exported for Purchase ▸ Inventory Dashboard, which filters the same rows the same way (2026-11-04). */
+export function facetGroups(): FacetGroup<Row>[] {
   return [
     {
       title: "Source",

@@ -7,6 +7,7 @@ import { Button, buttonClasses } from "@/components/ui/button";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { FILE_NOT_RECEIVED } from "@/lib/sales/pd-requests/words";
 import { Textarea } from "@/components/ui/textarea";
+import { Truncated } from "@/components/ui/truncated";
 import { Field } from "@/components/ui/field";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
@@ -56,6 +57,16 @@ import type { ApprovalRun, CanActVerdict, RunAction } from "@/lib/approvals/type
  */
 export type ActionBarRun = Pick<ApprovalRun, "id" | "lock_version" | "status">;
 
+/**
+ * THE REMARK AN OVERRIDE APPROVE CARRIES when the approver typed none — the
+ * database demands one on every override. ONE sentence for every place that
+ * approves (this bar, and the phone card's two-tap Approve), so the audit trail
+ * reads the same whichever button was pressed.
+ */
+export function overrideApproveRemark(stepLabel?: string | null): string {
+  return `Approved as an override — not an approver on ${stepLabel ? `the ${stepLabel} step` : "this step"}.`;
+}
+
 /** A document's own decision action (e.g. `approvePo`, `declinePo`). */
 type DocResult = { ok: boolean; error?: string };
 /** The bar's confirmable decisions: the engine's three, plus a document's reject-for-good. */
@@ -73,6 +84,8 @@ export function ApprovalActionBar({
   directApprove = false,
   onApprove,
   onRejectForGood,
+  approveNeedsReason = false,
+  onRework,
 }: {
   run: ActionBarRun;
   verdict: CanActVerdict;
@@ -131,7 +144,19 @@ export function ApprovalActionBar({
    * writes the override remark the database demands. Never pass a function that
    * bypasses the run.
    */
-  onApprove?: () => Promise<DocResult>;
+  onApprove?: (note?: string) => Promise<DocResult>;
+  /**
+   * APPROVE NEEDS A REASON (PO over budget, user 2026-11-03: "remark to approve over
+   * budget"). Approve opens the confirm with a REQUIRED reason, and the reason goes to
+   * `onApprove(note)` — the PO's own action writes it on the run and the audit. Without
+   * `onApprove` it rides on `actOnRun` as the comment.
+   */
+  approveNeedsReason?: boolean;
+  /**
+   * REQUEST REWORK / REJECT THROUGH THE DOCUMENT'S OWN ACTION (PO: `rejectPo` — the run's
+   * reject plus the PO's own audit row and its no-run fallback). The reason is mandatory.
+   */
+  onRework?: (reason: string) => Promise<DocResult>;
   /**
    * A SEPARATE "REJECT" THAT CLOSES THE DOCUMENT FOR GOOD (PO: `declinePo` — the PO
    * is cancelled and its requirement goes back on Raise PO's Pending list). Shown
@@ -163,7 +188,9 @@ export function ApprovalActionBar({
   const COPY: Record<BarAction, { title: string; verb: string; needsComment: boolean }> = {
     approve: acknowledge
       ? { title: "Acknowledge this request?", verb: "Acknowledge", needsComment: false }
-      : { title: "Approve this request?", verb: "Approve", needsComment: false },
+      : approveNeedsReason
+        ? { title: "Approve over budget?", verb: "Approve over budget", needsComment: true }
+        : { title: "Approve this request?", verb: "Approve", needsComment: false },
     return: { title: "Return for changes?", verb: "Return", needsComment: true },
     reject: acknowledge
       ? fileMissing
@@ -218,16 +245,21 @@ export function ApprovalActionBar({
       if (onRejectForGood) runDoc(() => onRejectForGood(note), "Rejected");
       return;
     }
+    if (action === "reject" && onRework) {
+      runDoc(() => onRework(note), rework ? "Sent back for rework" : "Rejected");
+      return;
+    }
+    // Approve with a reason through the document's own action (a PO over budget).
+    if (action === "approve" && onApprove) {
+      runDoc(() => onApprove(note || undefined), "Approved");
+      return;
+    }
     /* FILE NOT RECEIVED leads the remark with the fixed reason — the marker
        `isFileNotReceived` reads back on every PD screen (lib/sales/pd-requests/words.ts). */
     const sent = acknowledge && fileMissing && action === "reject" ? (note ? `${FILE_NOT_RECEIVED} — ${note}` : FILE_NOT_RECEIVED) : note;
     /* The remark the database requires on an override approve, written for the
        approver when they typed none (see `commentRequired`). */
-    const remark =
-      sent ||
-      (action === "approve" && isOverride
-        ? `Approved as an override — not an approver on ${verdict.step_label ? `the ${verdict.step_label} step` : "this step"}.`
-        : "");
+    const remark = sent || (action === "approve" && isOverride ? overrideApproveRemark(verdict.step_label) : "");
     start(async () => {
       const res = await actOnRun({
         runId: run.id,
@@ -273,29 +305,44 @@ export function ApprovalActionBar({
 
   return (
     <>
-      <div className="flex flex-wrap items-center gap-2">
-        {/* THE STEP IS NAMED, not just the buttons offered. "Approve" with no
-            context is a button an operator presses without knowing what they
-            are signing as — the step label is the whole answer to "on whose
-            behalf am I doing this". */}
-        {!compact && (
-          <span className="text-xs text-muted-foreground">
-            Step {verdict.step_order}
-            {verdict.step_label ? ` · ${verdict.step_label}` : ""}
-          </span>
-        )}
+      {/* ONE SHAPE ON A PHONE (user 2026-11-04, screenshot 4042: "unaligned grouped
+          message section … compacted, clean"): the step and the override note on ONE
+          compact line, then the buttons laid out for a thumb — the secondary decisions
+          side by side at equal widths, Approve full width beneath them. From `sm` up it
+          is the one right-aligned row it always was. Every approval screen mounts this
+          bar, so every one of them changes together. */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+        {(!compact || (isOverride && overrideNote)) && (
+          /* ONE LINE: the step on the left, the override flag on the right of the SAME
+             line (approved plan 2026-11-04) — two lines, not four, above the buttons. */
+          <div className="flex min-w-0 items-center justify-between gap-2 sm:justify-start">
+            {/* THE STEP IS NAMED, not just the buttons offered. "Approve" with no
+                context is a button an operator presses without knowing what they
+                are signing as — the step label is the whole answer to "on whose
+                behalf am I doing this". */}
+            {!compact && (
+              <Truncated className="min-w-0 text-xs text-muted-foreground">
+                {verdict.step_label ?? `Step ${verdict.step_order}`}
+              </Truncated>
+            )}
 
-        {/* AN OVERRIDE SAYS SO, LOUDLY AND BEFORE THE CLICK. A super admin acting
-            on a run they were not routed to is recorded `is_override = true` in
-            the event log for ever. Someone who did not realise they were
-            overriding cannot explain it afterwards, and the comment the database
-            demands would be written without knowing what it was for. */}
-        {isOverride && overrideNote && (
-          <span className="inline-flex items-center gap-1 rounded-md border border-warning/40 bg-warning/10 px-2 py-1 text-xs font-medium text-warning">
-            <TriangleAlert className="h-3.5 w-3.5" aria-hidden />
-            You are not an approver on this step — acting here is recorded as an
-            override
-          </span>
+            {/* AN OVERRIDE SAYS SO, LOUDLY AND BEFORE THE CLICK. A super admin acting
+                on a run they were not routed to is recorded `is_override = true` in
+                the event log for ever. Someone who did not realise they were
+                overriding cannot explain it afterwards, and the comment the database
+                demands would be written without knowing what it was for. Shorter
+                words, the same fact — it now fits one line beside the step. */}
+            {isOverride && overrideNote && (
+              <span
+                className="inline-flex shrink-0 items-center gap-1 rounded-md border border-warning/40 bg-warning/10 px-2 py-0.5 text-xs font-semibold text-warning"
+                title="You are not an approver on this step — acting here is recorded as an override"
+              >
+                <TriangleAlert className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                Override
+                <span className="sr-only"> — you are not an approver on this step; acting here is recorded as an override</span>
+              </span>
+            )}
+          </div>
         )}
 
         {/* THE DEPARTMENT'S ANSWER IS ONE DROPDOWN (user 2026-10-16: "acknowledged,
@@ -303,11 +350,14 @@ export function ApprovalActionBar({
             control — each opens the same confirm below. File Not Received is the
             engine's reject with its reason filled in. */}
         {acknowledge ? (
-          <div className="ml-auto">
+          /* Full width on a phone, as Approve is in the other bars (the thumb's button);
+             the menu itself flips up when the footer leaves no room below it. */
+          <div className="w-full sm:ml-auto sm:w-auto">
             <DropdownMenu
               label="Decision"
               align="right"
-              triggerClassName={buttonClasses({ variant: "primary", size: "sm" })}
+              menuWidth={208}
+              triggerClassName={`${buttonClasses({ variant: "primary", size: "sm" })} w-full sm:w-auto`}
               trigger={
                 <>
                   Decision <ChevronDown aria-hidden />
@@ -321,11 +371,14 @@ export function ApprovalActionBar({
             />
           </div>
         ) : (
-        <div className="ml-auto flex items-center gap-2">
+        <div className="grid grid-cols-1 gap-2 sm:ml-auto sm:flex sm:items-center">
+          {/* The secondary decisions share a row at equal widths on a phone. */}
+          <div className="grid auto-cols-fr grid-flow-col gap-2 sm:flex sm:items-center">
           <Button
             type="button"
             variant="outline"
             size="sm"
+            className="w-full sm:w-auto"
             onClick={() => setPending("reject")}
             disabled={isPending}
           >
@@ -337,6 +390,7 @@ export function ApprovalActionBar({
               type="button"
               variant="outline"
               size="sm"
+              className="w-full sm:w-auto"
               onClick={() => setPending("decline")}
               disabled={isPending}
             >
@@ -349,6 +403,7 @@ export function ApprovalActionBar({
               type="button"
               variant="outline"
               size="sm"
+              className="w-full sm:w-auto"
               onClick={() => setPending("return")}
               disabled={isPending}
             >
@@ -356,15 +411,20 @@ export function ApprovalActionBar({
               Return
             </Button>
           )}
+          </div>
+          {/* Approve takes its own full-width row on a phone — the thumb's button. */}
           <Button
             type="button"
             size="sm"
+            className="w-full sm:w-auto"
             onClick={() =>
-              onApprove
-                ? runDoc(onApprove, "Approved")
-                : directApprove
-                  ? submit("approve")
-                  : setPending("approve")
+              approveNeedsReason
+                ? setPending("approve")
+                : onApprove
+                  ? runDoc(() => onApprove(), "Approved")
+                  : directApprove
+                    ? submit("approve")
+                    : setPending("approve")
             }
             disabled={isPending}
           >
@@ -454,6 +514,8 @@ export function ApprovalActionBar({
           <p className="text-xs text-muted-foreground">
             {pending === "decline"
               ? "The document is closed for good, not sent back. The requester sees this reason."
+              : pending === "approve" && approveNeedsReason
+              ? "Say why the excess over budget is accepted — it is recorded on the approval."
               : isOverride
               ? "This is an override, so the reason is recorded against your name in the audit trail."
               : "The requester sees this, and it is what tells them what to change."}

@@ -7,11 +7,10 @@
  * Budget Plan", recommendations accepted: remark required to approve over budget, bulk
  * approve only within / no budget, the detail beside the list).
  *
- *   status box + Any budget / Over budget + search + Filters
- *   ┌ the list ───────────┐ ┌ the selected PO ─────────────────────────────┐
- *   │ ☐ PO No · pill      │ │ facts · budget banner · reason · lines        │
- *   │   vendor · RE · ₹   │ │ remark · Reject · Request Rework · Approve    │
- *   └─────────────────────┘ └ approval trail ──────────────────────────────┘
+ *   status box + Within / Over budget + search + Filters + "n of m"
+ *   the table: ☐ · PO No/date · Vendor · Item · RE No · Value · Created · Status · ⎙ ↺ ✓
+ *   a PO No opens ORDERS ▸ APPROVAL'S FULL PAGE (2026-11-04): title + breadcrumb,
+ *   Reject · Request Rework · Approve in the header, the 3-column overview below.
  *
  * More than Budget Approval (`/purchase/over-budget`) is this screen with "Over budget"
  * selected — its route redirects here and its sidebar row is gone. An over-budget PO is
@@ -27,13 +26,17 @@
  * written — before it is approved. Each PO still goes through `approvePo` on its own, so
  * every gate holds per PO and one refusal never stops the rest.
  *
- * PHONE: the list, then a tapped PO full width with "← PO list" back. Desktop: both,
- * the first PO selected on arrival.
+ * OPENED: a full-page `Sheet` over the table, exactly as Orders ▸ Approval opens a budget —
+ * the decisions in its header through `ApprovalActionBar` (Approve over budget asks for the
+ * remark in its confirm, `approveNeedsReason`). A PO sent before 0764 has no run and keeps
+ * the remark strip under the overview, the budget page's own legacy fallback.
  */
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Ban, CalendarRange, Check, FileText, Layers, RotateCcw, Users } from "lucide-react";
+import { Ban, CalendarRange, Check, FileText, Layers, RotateCcw, Users } from "lucide-react";
+import { Sheet } from "@/components/ui/sheet";
+import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { Button } from "@/components/ui/button";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { createdGroup, useFacetFilter, type FacetGroup } from "@/components/ui/filter-drawer";
@@ -54,6 +57,8 @@ import { fmtDate, fmtFixed } from "@/lib/format";
 import { PO_STATUS_LABELS, type PoStatus } from "@/lib/purchase/types";
 import type { RaisedPo } from "@/lib/purchase/re-po/types";
 import type { PoApprovalCard } from "@/lib/approvals/po-approval-cards";
+import { poBudgetState } from "@/lib/approvals/po-budget-state";
+import { PoDecisionBar } from "./po-decision-bar";
 import { approvePo, declinePo, rejectPo } from "@/lib/purchase/po-actions";
 import { loadPoApprovalSheet } from "@/lib/purchase/po-approval-sheet-actions";
 import { PoApprovalOverview } from "./po-approval-overview";
@@ -80,18 +85,8 @@ const APPROVAL_WORD: Partial<Record<PoStatus, QuickWord>> = {
 };
 const approvalWord = (r: RaisedPo): QuickWord | null => APPROVAL_WORD[r.status as PoStatus] ?? null;
 
-/**
- * A PO's budget state. `over` also covers a reader who may not see figures (a Purchase
- * Manager): the save refuses an above-budget send without a reason, so a reason on the
- * PO means it was sent above budget. `unknown` = no figures and no reason.
- */
-type BudgetState = "over" | "within" | "none" | "unknown";
-function budgetStateOf(c: PoApprovalCard | undefined): BudgetState {
-  if (!c) return "unknown";
-  if (c.overCount == null) return c.reason ? "over" : "unknown";
-  if (c.overCount > 0) return "over";
-  return c.unbudgetedCount && c.unbudgetedCount >= c.lineCount ? "none" : "within";
-}
+/** A PO's budget state — the shared rule (lib/approvals/po-budget-state.ts). */
+const budgetStateOf = poBudgetState;
 /* WITHIN / OVER, NO "ANY" (user 2026-11-03: "Any Budget instead of Within budget, rename the
    label and filter only within budget orders only"). The two words split the queue by the
    PO's budget state; "within" is strictly `within` — a PO whose lines carry no approved
@@ -284,8 +279,10 @@ export function PoApprovalScreen({
   const detailOver = detailRow ? stateOf(detailRow) === "over" : false;
   const note = remark.trim();
 
+  /* THE LEGACY DECIDE STRIP — only for a PO sent before 0764, which has no run and so
+     no header bar (Orders ▸ Approval keeps the same fallback for the same reason). */
   const decision =
-    po && mayDecide ? (
+    po && mayDecide && !sheet?.panel.run ? (
       <div className="space-y-2 rounded-lg border border-border bg-surface-muted/50 p-3">
         <Field
           label={detailOver ? "Remark — needed to approve over budget, and to send back or reject" : "Remark — needed to send back or reject"}
@@ -362,16 +359,17 @@ export function PoApprovalScreen({
             },
           ]
         : []),
+      /* PO NO OVER ITS DATE, one column — Orders ▸ Approval's RE No over Budget. */
       {
         header: "PO No",
         className: HUG,
         cell: (r) => (
-          <button type="button" onClick={() => pick(r.id)} className="font-mono text-xs font-semibold text-primary hover:underline">
-            {r.code ?? "Draft PO"}
+          <button type="button" onClick={() => pick(r.id)} className="text-left">
+            <span className="block font-mono text-xs font-semibold text-primary hover:underline">{r.code ?? "Draft PO"}</span>
+            <span className="block text-[11px] text-muted-foreground">{r.order_date ? fmtDate(r.order_date) : "—"}</span>
           </button>
         ),
       },
-      { header: "PO Date", className: HUG, cell: (r) => (r.order_date ? fmtDate(r.order_date) : "—") },
       // Vendor takes the spare width and WRAPS a long name — never pushes the row past the pane.
       { header: "Vendor", className: "w-full", cell: (r) => r.vendor ?? "—" },
       /* ITEM (user 2026-11-03, screenshot 4019: "item name is missing in table listing").
@@ -393,24 +391,10 @@ export function PoApprovalScreen({
         className: HUG,
         cell: (r) => <span className="tabular-nums">{cards[r.id]?.total ?? `₹ ${fmtFixed(r.total_amount, 2)}`}</span>,
       },
-      // FITS WITHOUT A SIDEWAYS SCROLL (user 2026-11-03, screenshot 4006): the box above already
-      // says Approved, so Status is a column only while a row has moved on from it (Partly
-      // received, Received, Closed — all counted as Approved there).
-      ...(isApprovedView && filtered.some((r) => r.status !== "approved")
-        ? [{ header: "Status", className: HUG, cell: (r: RaisedPo) => <StatusPill tone={poStatusTone(r.status)}>{poStatusText(r.status)}</StatusPill> }]
-        : []),
-      // The report icon (the PO list's shape): an approved PO prints; a draft, pending or
-      // rejected one cannot yet — a column only while some row on screen can print.
-      ...(filtered.some(printable)
-        ? [
-            {
-              header: "",
-              className: HUG,
-              cell: (r: RaisedPo) =>
-                printable(r) ? <RowIconAction label="PO print" name={r.code} icon={FileText} onClick={() => router.push(`/purchase/orders/${r.id}/print`)} /> : null,
-            },
-          ]
-        : []),
+      /* STATUS ON EVERY ROW, as on Orders ▸ Approval (user 2026-11-04, the budget screen's
+         format). It used to appear only on the Approved word, so the table changed shape
+         as the words were clicked. */
+      { header: "Status", className: HUG, cell: (r: RaisedPo) => <StatusPill tone={poStatusTone(r.status)}>{poStatusText(r.status)}</StatusPill> },
       /* THE DECISIONS ON THE ROW (user 2026-11-03, screenshot 4014: "there is no option for
          approving in this listing screen but previously we had it"). The table layout of the
          same day dropped 5810df18's row icons, leaving only the tick box. Drawn on every
@@ -418,42 +402,50 @@ export function PoApprovalScreen({
          why. Approve is ONE CLICK within / no budget; an over-budget PO opens its detail
          instead, because approving it needs the remark. Rework always needs a remark, so it
          opens the detail too. */
-      // A column only while a PENDING PO is on screen (Draft, Under Progress and Approved have
-      // nothing to decide); greyed with the reason for a reader without the permission.
-      ...(filtered.some((r) => r.status === "pending_approval")
-        ? [
-            {
-              header: "",
-              className: HUG,
-              cell: (r: RaisedPo) => {
-                if (r.status !== "pending_approval") return null;
-                const canDecide = decidable(r);
-                const why = !canApprove ? "Needs the Purchase ▸ Approve permission" : "Only a PO pending approval";
-                const over = stateOf(r) === "over";
-                return (
-                  <div className="flex items-center justify-end gap-0.5">
-                    <RowIconAction
-                      label="Request Rework"
-                      name={r.code}
-                      icon={RotateCcw}
-                      className="text-warning"
-                      disabledReason={canDecide ? (isPending ? "Working…" : null) : why}
-                      onClick={() => pick(r.id)}
-                    />
-                    <RowIconAction
-                      label={over ? "Approve over budget — open it and write the remark" : "Approve"}
-                      name={r.code}
-                      icon={Check}
-                      className="text-success"
-                      disabledReason={canDecide ? (isPending ? "Working…" : null) : why}
-                      onClick={() => (over ? pick(r.id) : approveMany([r.id]))}
-                    />
-                  </div>
-                );
-              },
-            },
-          ]
-        : []),
+      /* ONE ACTIONS COLUMN ON EVERY ROW — Orders ▸ Approval's (user 2026-11-04): the
+         REPORT first (the eye's slot, AGENTS.md "Row actions"), then Request Rework in
+         amber and Approve in green. All three are drawn on every row so the column never
+         jitters; one that cannot apply is GREYED and says why — the PO print until the PO
+         is approved, the decisions on anything not pending. It used to be two columns that
+         appeared and vanished with the rows on screen. */
+      rowActionsColumn<RaisedPo>(
+        (r) => {
+          const canDecide = decidable(r);
+          const why =
+            r.status !== "pending_approval" ? "Only a PO pending approval" : !canApprove ? "Needs the Purchase ▸ Approve permission" : null;
+          const over = stateOf(r) === "over";
+          return (
+            <div className="flex items-center justify-end gap-0.5">
+              <RowIconAction
+                label="PO print"
+                name={r.code}
+                icon={FileText}
+                className="text-primary"
+                disabledReason={printable(r) ? null : "Prints once the PO is approved"}
+                onClick={() => router.push(`/purchase/orders/${r.id}/print`)}
+              />
+              <RowIconAction
+                label="Request Rework"
+                name={r.code}
+                icon={RotateCcw}
+                className="text-warning"
+                disabledReason={canDecide ? (isPending ? "Working…" : null) : why}
+                onClick={() => pick(r.id)}
+              />
+              <RowIconAction
+                label={over ? "Approve over budget — open it and write the remark" : "Approve"}
+                name={r.code}
+                icon={Check}
+                className="text-success"
+                disabledReason={canDecide ? (isPending ? "Working…" : null) : why}
+                onClick={() => (over ? pick(r.id) : approveMany([r.id]))}
+              />
+            </div>
+          );
+        },
+        // Three 28px icons, their gaps and the cell padding — the budget queue's width.
+        "w-28",
+      ),
     ],
     filtered,
   );
@@ -527,62 +519,88 @@ export function PoApprovalScreen({
         activeCount={facets.activeCount}
         onReset={facets.activeCount ? facets.reset : undefined}
         panel={facets.panel}
+        right={`${filtered.length} of ${rows.length}`}
       />
 
-      {detailId ? (
-        <div className="rounded-xl border border-border bg-surface p-4">
-          <button
-            type="button"
-            onClick={() => setOpenId(null)}
-            className="mb-3 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-          >
-            <ArrowLeft aria-hidden className="size-4" />
-            PO list
-          </button>
-          {/* THE FULL-WIDTH VIEW IS THE 3-COLUMN PAGE (user 2026-11-03, screenshot 4015: "this
-              screen also previously was … now look collapsed"). Opened in place of the table
-              it has the whole pane, so it draws Orders ▸ Approval's layout it had until this
-              morning — profile card · tiles, ring, lines · trail — not the narrow side-pane
-              detail stretched into one long column. The decisions sit under it. */}
-          {po && sheet ? (
-            <div className="space-y-4">
-              <PoApprovalOverview
-                po={po}
-                uoms={sheet.uoms}
-                sourceNos={sheet.sourceNos}
-                variance={sheet.variance}
-                statusPill={<StatusPill tone={poStatusTone(po.status)}>{poStatusText(po.status)}</StatusPill>}
-                timeline={sheet.panel.run ? sheet.panel.timeline : null}
-                names={sheet.panel.names ?? {}}
-                raisedBy={detailRow ? creatorName(detailRow) : null}
-                override={!!verdict?.can_act && !!verdict.is_override}
-              />
-              {decision}
-            </div>
-          ) : (
-            detailBody
-          )}
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {bulkBar}
-          <DataTable
-            columns={tableColumns}
-            dense="spacing"
-            rows={filtered}
-            getKey={(r) => r.id}
-            empty={
-              budget === "over"
-                ? "No PO over budget here."
-                : budget === "within" && !search.trim() && facets.activeCount === 0
-                  ? "No PO within budget here."
-                : quick.value === "pending" && facets.activeCount === 0 && !search.trim()
-                  ? "No PO is waiting for approval."
-                  : "No PO matches these filters."
-            }
-          />
-        </div>
-      )}
+      {/* THE TABLE STAYS — the PO opens OVER it as a full page, as on Orders ▸ Approval. */}
+      <div className="space-y-2">
+        {bulkBar}
+        <DataTable
+          columns={tableColumns}
+          dense="spacing"
+          rows={filtered}
+          getKey={(r) => r.id}
+          empty={
+            budget === "over"
+              ? "No PO over budget here."
+              : budget === "within" && !search.trim() && facets.activeCount === 0
+                ? "No PO within budget here."
+              : quick.value === "pending" && facets.activeCount === 0 && !search.trim()
+                ? "No PO is waiting for approval."
+                : "No PO matches these filters."
+          }
+        />
+      </div>
+
+      {/* ORDERS ▸ APPROVAL'S FORMAT (user 2026-11-04: "PO approval is not following our
+          approval screen UI format — compare with budget approval"): a FULL PAGE over the
+          list — the page's name and where it sits as the title, the decisions in the
+          HEADER (the same `ApprovalActionBar` the budget page mounts), and the 3-column
+          overview filling the pane. It replaced the in-place card with "← PO list" and the
+          remark strip under it. Over budget, Approve asks for the remark in its confirm
+          (`approveNeedsReason`) — the 11-03 rule, kept. */}
+      <Sheet
+        open={!!detailId}
+        onClose={() => {
+          setOpenId(null);
+          setRemark("");
+        }}
+        title={
+          <span className="flex flex-col">
+            <span>PO Approval</span>
+            <span className="text-xs font-normal text-muted-foreground">
+              Purchase / PO Approval /{" "}
+              <span className="font-mono text-foreground">{detailRow?.code ?? "Draft PO"}</span>
+            </span>
+          </span>
+        }
+        headerActions={
+          po && sheet?.panel.run && verdict ? (
+            <PoDecisionBar
+              run={sheet.panel.run}
+              verdict={verdict}
+              poId={po.id}
+              overBudget={detailOver}
+              subjectPath="/purchase/po-approval"
+              onDone={() => {
+                advance(po.id);
+                router.refresh();
+              }}
+            />
+          ) : undefined
+        }
+        size="lg"
+        fullBleed
+      >
+        {po && sheet ? (
+          <div className="space-y-4">
+            <PoApprovalOverview
+              po={po}
+              uoms={sheet.uoms}
+              sourceNos={sheet.sourceNos}
+              variance={sheet.variance}
+              statusPill={<StatusPill tone={poStatusTone(po.status)}>{poStatusText(po.status)}</StatusPill>}
+              timeline={sheet.panel.run ? sheet.panel.timeline : null}
+              names={sheet.panel.names ?? {}}
+              raisedBy={detailRow ? creatorName(detailRow) : null}
+              override={!!verdict?.can_act && !!verdict.is_override}
+            />
+            {decision}
+          </div>
+        ) : (
+          detailBody
+        )}
+      </Sheet>
     </div>
   );
 }

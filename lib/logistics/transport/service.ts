@@ -7,6 +7,7 @@ import { isInactive } from "@/lib/masters/inactive";
 import { utilisationPct } from "./logic";
 import {
   ACTIVE_TRIP_STATUSES,
+  type FleetMapTrip,
   type OrderSourceOption,
   type PlaceOption,
   type PoolGroup,
@@ -46,7 +47,7 @@ const REQ_COLS =
 const TRIP_COLS =
   "id, trip_no, location_id, vehicle_id, driver_name, driver_phone, total_loaded_weight_kg, start_odometer_km, " +
   "end_odometer_km, fuel_cost, driver_allowance, toll_cost, other_cost, total_cost, trip_status, planned_at, " +
-  "completed_at, created_at, created_by";
+  "completed_at, return_trip, return_place_id, created_at, created_by";
 
 type Raw = Record<string, unknown>;
 
@@ -121,6 +122,8 @@ function toTrip(r: Raw, vehicleNumber: string): Trip {
     other_cost: num(r.other_cost),
     total_cost: num(r.total_cost),
     trip_status: r.trip_status as TripStatus,
+    return_trip: !!r.return_trip,
+    return_place_id: (r.return_place_id as string | null) ?? null,
     planned_at: String(r.planned_at),
     completed_at: (r.completed_at as string | null) ?? null,
     created_at: String(r.created_at),
@@ -416,6 +419,7 @@ async function decorateTrips(rows: Raw[]): Promise<TripRow[]> {
         utilisation_pct: utilisationPct([trip.total_loaded_weight_kg], maxPayload),
         origin_names: [...new Set(tripReqs.map((q) => q.origin_name))],
         destination_names: [...new Set(tripReqs.map((q) => q.destination_name))],
+        return_place_name: trip.return_place_id ? (names.get(trip.return_place_id) ?? "—") : null,
         source_nos: [...new Set(tripReqs.map((q) => q.source_no).filter((n): n is string => !!n))].sort(),
         last_event_at: lastEvent.get(trip.id) ?? null,
       };
@@ -487,4 +491,63 @@ export async function getTrip(id: string): Promise<TripDetail | null> {
   }));
 
   return { ...row, requisitions: reqs, allocations, events };
+}
+
+/**
+ * THE FLEET MAP (user 2026-11-04, OpenStreetMap / Leaflet): every place with its
+ * fence, and every trip still holding its vehicle at the best position the data
+ * can honestly give — see `FleetMapTrip`. Two extra reads beside the trips: the
+ * last GPS fix per trip, and each trip's request places for the status fallback.
+ */
+export async function getFleetMap(): Promise<{ places: TransportPlace[]; trips: FleetMapTrip[] }> {
+  const [places, trips] = await Promise.all([listPlaces(), listTrips({ active: true })]);
+  if (trips.length === 0) return { places, trips: [] };
+  const s = await createClient();
+  const ids = trips.map((t) => t.id);
+  const [evs, reqs] = await Promise.all([
+    s
+      .from("transport_trip_events")
+      .select("trip_id, event_at, lat, lng")
+      .in("trip_id", ids)
+      .not("lat", "is", null)
+      .not("lng", "is", null)
+      .order("event_at", { ascending: false }),
+    s.from("transport_requisitions").select("trip_id, origin_place_id, destination_place_id").in("trip_id", ids),
+  ]);
+  if (evs.error) throw new Error(`Could not read the trip positions: ${evs.error.message}`);
+  if (reqs.error) throw new Error(`Could not read the trip requests: ${reqs.error.message}`);
+
+  const fix = new Map<string, { lat: number; lng: number; at: string }>();
+  for (const e of (evs.data ?? []) as Raw[])
+    if (!fix.has(String(e.trip_id))) fix.set(String(e.trip_id), { lat: Number(e.lat), lng: Number(e.lng), at: String(e.event_at) });
+  const placeById = new Map(places.map((p) => [p.id, p]));
+  const stopsOf = new Map<string, { origins: string[]; dests: string[] }>();
+  for (const r of (reqs.data ?? []) as Raw[]) {
+    const k = String(r.trip_id);
+    const st = stopsOf.get(k) ?? { origins: [], dests: [] };
+    st.origins.push(String(r.origin_place_id));
+    st.dests.push(String(r.destination_place_id));
+    stopsOf.set(k, st);
+  }
+  const firstFenced = (placeIds: string[]) =>
+    placeIds.map((id) => placeById.get(id)).find((p) => p && p.lat != null && p.lng != null) ?? null;
+
+  return {
+    places,
+    trips: trips.map((t) => {
+      const g = fix.get(t.id);
+      if (g) return { ...t, position: { lat: g.lat, lng: g.lng, source: "gps" as const, at: g.at, place_name: null } };
+      const st = stopsOf.get(t.id) ?? { origins: [], dests: [] };
+      const at =
+        t.trip_status === "planned" || t.trip_status === "loading"
+          ? firstFenced(st.origins)
+          : t.trip_status === "unloading"
+            ? firstFenced(st.dests)
+            : null;
+      return {
+        ...t,
+        position: at ? { lat: at.lat!, lng: at.lng!, source: "place" as const, at: null, place_name: at.name } : null,
+      };
+    }),
+  };
 }

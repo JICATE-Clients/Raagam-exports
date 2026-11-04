@@ -4,6 +4,9 @@ import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button, buttonClasses } from "@/components/ui/button";
+import { Truncated } from "@/components/ui/truncated";
+import { DOC_CHIP, DOC_FRAME, DOC_RULE } from "@/components/purchase/doc-surface";
+import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
 import { fmtDateTime } from "@/lib/format";
 import { applyTripEvent } from "@/lib/logistics/transport/actions";
@@ -48,7 +51,7 @@ export function BoardScreen({
   const free = vehicles.filter((v) => !v.inactive && !onTrip.has(v.id));
 
   function advance(t: TripRow) {
-    const to = manualNextStatus(t.trip_status);
+    const to = manualNextStatus(t.trip_status, t.return_trip);
     if (!to) return;
     setBusy(t.id);
     start(async () => {
@@ -70,13 +73,15 @@ export function BoardScreen({
         {trips.length === 0 ? (
           <p className="text-sm text-muted-foreground">No vehicle is on a trip. Dispatch one from the pending pool.</p>
         ) : (
-          <div className="flex flex-wrap gap-3">
+          /* AN EVEN GRID, NOT A WRAP: 20rem tracks share the row's spare width, so the
+             cards line up in columns and every row ends flush with the pane. */
+          <div className="grid gap-3 sm:grid-cols-[repeat(auto-fill,minmax(20rem,1fr))]">
             {trips.map((t) => {
-              const next = manualNextStatus(t.trip_status);
+              const next = manualNextStatus(t.trip_status, t.return_trip);
               const finishing = next === "completed";
               return (
-                <article key={t.id} className="w-full space-y-3 rounded-lg border border-border bg-surface p-4 sm:w-80">
-                  <header className="flex items-start justify-between gap-2">
+                <article key={t.id} className={cn("flex flex-col", DOC_FRAME)}>
+                  <header className="flex items-start justify-between gap-2 px-4 pt-3">
                     <div>
                       <Link
                         href={`/logistics/transport/trips/${t.id}`}
@@ -84,24 +89,29 @@ export function BoardScreen({
                       >
                         {t.vehicle_number}
                       </Link>
-                      <div className="text-xs text-muted-foreground">
-                        {t.trip_no} · {t.driver_name}
-                        {t.driver_phone ? ` · ${t.driver_phone}` : ""}
-                      </div>
+                      <Truncated
+                        className="block text-xs text-muted-foreground"
+                        text={`${t.trip_no} · ${t.driver_name}${t.driver_phone ? ` · ${t.driver_phone}` : ""}`}
+                      />
                     </div>
                     <TransportStatusPill status={t.trip_status} />
                   </header>
-                  <div className="text-sm">
-                    {t.origin_names.join(", ") || "—"} → {t.destination_names.join(", ") || "—"}
-                  </div>
-                  <div className="space-y-1">
+                  {/* One line, revealed on hover: a long route wrapping made one card
+                      taller than its neighbours and pushed its button out of line. */}
+                  <Truncated
+                    className="block px-4 pt-2 text-sm"
+                    text={`${t.origin_names.join(", ") || "—"} → ${t.destination_names.join(", ") || "—"}${
+                      t.return_trip ? ` → ${t.return_place_name ?? "—"}` : ""
+                    }`}
+                  />
+                  <div className="space-y-1 px-4 pt-2 pb-3">
                     <div className="text-xs text-muted-foreground">
                       {fmtKg(t.total_loaded_weight_kg)} of {fmtKg(t.max_payload_kg)}
                     </div>
                     <UtilisationBar pct={t.utilisation_pct} />
                   </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs text-muted-foreground">
+                  <div className={cn("mt-auto flex h-12 items-center justify-between gap-2 rounded-b-xl bg-[#fafbfc] px-4", DOC_RULE)}>
+                    <span className="text-xs tabular-nums text-muted-foreground">
                       Last update {fmtDateTime(t.last_event_at ?? t.planned_at)}
                     </span>
                     {canEdit && next &&
@@ -110,7 +120,8 @@ export function BoardScreen({
                           href={`/logistics/transport/trips/${t.id}#complete`}
                           className={buttonClasses({ variant: "outline", size: "sm" })}
                         >
-                          {MANUAL_ACTION_LABEL.completed}
+                          {/* A round trip's last step is getting home; its costs come with it. */}
+                          {t.trip_status === "returning" ? "Back home" : MANUAL_ACTION_LABEL.completed}
                         </Link>
                       ) : (
                         <Button
@@ -137,9 +148,9 @@ export function BoardScreen({
         ) : (
           <ul className="flex flex-wrap gap-2">
             {free.map((v) => (
-              <li key={v.id} className="flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2">
-                <span className="text-sm font-medium">{v.vehicle_number}</span>
-                <span className="text-xs text-muted-foreground">
+              <li key={v.id} className={cn("flex items-center gap-2 px-3 py-2", DOC_FRAME)}>
+                <span className="font-mono text-sm font-semibold tabular-nums">{v.vehicle_number}</span>
+                <span className={DOC_CHIP}>
                   {VEHICLE_TYPE_LABEL[v.vehicle_type]} · {fmtKg(v.max_payload_kg)}
                 </span>
                 <TransportStatusPill status={v.status} />

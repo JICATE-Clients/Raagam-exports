@@ -272,6 +272,56 @@ export interface OpenRunItem extends QueueItem {
   unit_name: string | null;
 }
 
+/**
+ * A run the caller RAISED (0807 `approval_my_requests`) — My Approvals ▸ My
+ * requests. Open runs first, then the newest finished. `last_*` is the latest
+ * DECISION on it (approve / reject / return / cancel, 0807a), never the SLA clock.
+ */
+export interface MyRequestItem {
+  run_id: string;
+  workflow_key: string;
+  subject_table: string;
+  subject_id: string;
+  /** The document's own number where its table has a `code`; else null. */
+  subject_code: string | null;
+  status: RunStatus;
+  step_order: number;
+  step_count: number;
+  step_label: string | null;
+  started_at: string;
+  completed_at: string | null;
+  /** Hours on the CURRENT step; null once the run has finished. */
+  waiting_hours: number | null;
+  is_overdue: boolean;
+  last_action: EventAction | null;
+  last_comment: string | null;
+  last_actor_id: string | null;
+  last_is_override: boolean;
+  last_at: string | null;
+}
+
+/** A run the caller DECIDED (0807 `approval_my_decisions`) — My Approvals ▸ Decided. */
+export interface MyDecisionItem {
+  run_id: string;
+  workflow_key: string;
+  subject_table: string;
+  subject_id: string;
+  subject_code: string | null;
+  action: 'approve' | 'reject' | 'return';
+  comment: string | null;
+  is_override: boolean;
+  step_order: number;
+  step_label: string | null;
+  acted_at: string;
+  /** Where the run stands now — a step approved can still be rejected further on. */
+  run_status: RunStatus;
+}
+
+/** One run's timeline for a tapped status card, with the actors' names resolved. */
+export type RunTimelineResult =
+  | { ok: true; rows: TimelineRow[]; names: Record<string, string> }
+  | { ok: false; error: string };
+
 export type EventAction =
   | 'submit' | 'approve' | 'reject' | 'return'
   | 'cancel' | 'delegate' | 'sla_breach';

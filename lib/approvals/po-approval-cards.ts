@@ -48,6 +48,15 @@ export type PoApprovalCard = {
   gstSplit: { label: string; amount: string }[];
   /** The PO's expected date, else the latest line delivery date. ISO; format with fmtDate. */
   deliveryDate: string | null;
+  /**
+   * THE SAME MONEY AS NUMBERS, for the phone sheet's ring (2026-11-04) — the text
+   * fields above are for reading, these are for drawing. In the PO's own currency;
+   * `currency` is the prefix the text fields carry ("₹", "USD").
+   */
+  taxableValue: number;
+  gstValue: number;
+  totalValue: number;
+  currency: string;
 };
 
 type Header = {
@@ -167,6 +176,10 @@ export async function loadPoApprovalCards(poIds: readonly string[]): Promise<Rec
       gst: money(gst),
       gstSplit,
       deliveryDate: h.expected_date ?? lineDates[lineDates.length - 1] ?? null,
+      taxableValue: taxable,
+      gstValue: gst,
+      totalValue: Number(h.total_amount ?? 0),
+      currency: cur,
     };
   }
   return out;
