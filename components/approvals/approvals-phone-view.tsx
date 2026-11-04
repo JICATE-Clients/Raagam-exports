@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState, useTransition, type MouseEvent, type ReactNode } from "react";
-import Link from "next/link";
+import { BackLink } from "@/components/ui/back-link";
 import { useRouter } from "next/navigation";
 import { CalendarDays, Check, FileText, PieChart, Shirt, ShoppingCart } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -50,7 +50,8 @@ import type { QueueRow, RequestRow } from "@/app/(app)/approvals/approvals-inbox
 
 type Family = "purchase" | "budget" | "hr" | "sample" | "other";
 
-const FAMILY: Record<Family, { label: string; icon: typeof FileText; well: string }> = {
+/** Exported so the desktop table's Document cell draws the same icon well (2026-11-04). */
+export const FAMILY: Record<Family, { label: string; icon: typeof FileText; well: string }> = {
   purchase: { label: "Purchase", icon: ShoppingCart, well: "bg-primary/10 text-primary" },
   budget: { label: "Budget", icon: PieChart, well: "bg-success/10 text-success" },
   hr: { label: "HR", icon: CalendarDays, well: "bg-warning/10 text-warning" },
@@ -58,7 +59,7 @@ const FAMILY: Record<Family, { label: string; icon: typeof FileText; well: strin
   other: { label: "Other", icon: FileText, well: "bg-surface-muted text-muted-foreground" },
 };
 
-function familyOf(key: string): Family {
+export function familyOf(key: string): Family {
   if (key === "purchase_order" || key.startsWith("po_") || key === "purchase_indent") return "purchase";
   if (key.endsWith("_budget") || key === "order_amendment") return "budget";
   if (key.startsWith("sample_")) return "sample";
@@ -116,19 +117,23 @@ export function RingMeter({
 }
 
 /** What one To-decide card says, assembled once from whichever card data it has. */
-type CardFace = {
+export type CardFace = {
   title: ReactNode;
   sub: string | null;
   amount: string | null;
   amountSub: string | null;
-  fact: string;
+  /** Print the workflow's label above the title (false when the title already is it). */
+  kindLine?: boolean;
+  /** The one key fact; null when the card has nothing the footer does not already say. */
+  fact: string | null;
   factTone: "plain" | "warning" | "danger";
   meter: { pct: number; max: number; tone: "success" | "warning" | "danger"; target?: number } | null;
 };
 
 const MARGIN_LINE = 15;
 
-function faceOf(
+/** ONE description of a request — the phone card's AND the desktop Document cell's (2026-11-04). */
+export function faceOf(
   r: QueueRow,
   po: PoApprovalCard | undefined,
   chg: PoChangeCard | undefined,
@@ -150,7 +155,9 @@ function faceOf(
             ? `${po.lineCount} line${po.lineCount === 1 ? "" : "s"} · ${po.unbudgetedCount} without a budget`
             : `${po.lineCount} line${po.lineCount === 1 ? "" : "s"} · within budget`,
       factTone: over ? "danger" : po.unbudgetedCount ? "warning" : "plain",
-      meter: po.overPct != null && po.overCount != null ? { pct: over ? (po.overPct ?? 0) : 0, max: 50, tone: over ? "danger" : "success" } : null,
+      /* Within budget is a FULL green ring, the desktop tile's own reading — an empty one
+         read as "still loading" (screenshot 4041). Over budget fills to its % of 50. */
+      meter: po.overPct != null && po.overCount != null ? { pct: over ? (po.overPct ?? 0) : 50, max: 50, tone: over ? "danger" : "success" } : null,
     };
   }
   if (chg) {
@@ -190,12 +197,16 @@ function faceOf(
       meter: pct != null ? { pct: Math.max(0, pct), max: 25, tone: below ? (pct < 0 ? "danger" : "warning") : "success", target: MARGIN_LINE } : null,
     };
   }
+  /* NOTHING SAID TWICE (screenshot 4041): with no document number the title IS the
+     workflow's name, so the small label above it is dropped; and the step is already in
+     the card's footer, so there is no fact box repeating it. */
   return {
     title: code ? <span className="font-mono">{code}</span> : workflowLabel(r.workflow_key),
+    kindLine: !!code,
     sub: r.created_by_name ? `Raised by ${r.created_by_name}` : null,
     amount: null,
     amountSub: null,
-    fact: `Step ${r.step_order} · ${r.step_label}`,
+    fact: null,
     factTone: "plain",
     meter: null,
   };
@@ -204,6 +215,9 @@ function faceOf(
 /* ───────────────────────────────────────────── two-tap Approve on a card */
 
 function QuickApprove({ row, verdict }: { row: QueueRow; verdict: CanActVerdict }) {
+  /* A Sample PD Request's approve is "Acknowledge" (client spec 2026-10-14) — the engine's
+     approve under the department's word, as the decision bar's \cknowledge\ reads it. */
+  const verb = row.workflow_key === WORKFLOWS.sample_pd_request.key ? "Acknowledge" : "Approve";
   const router = useRouter();
   const { success, error } = useToast();
   const [armed, setArmed] = useState(false);
@@ -238,7 +252,7 @@ function QuickApprove({ row, verdict }: { row: QueueRow; verdict: CanActVerdict 
         res = { ok: false, error: err instanceof Error ? err.message : "Could not record the decision" };
       }
       if (res.ok) {
-        success("Approved");
+        success(verb === "Acknowledge" ? "Acknowledged" : "Approved");
         router.refresh();
       } else {
         error(res.error ?? "Could not record the decision");
@@ -254,10 +268,10 @@ function QuickApprove({ row, verdict }: { row: QueueRow; verdict: CanActVerdict 
       className={cn(armed && "border-transparent bg-success-solid text-white hover:bg-success-solid-hover")}
       disabled={isPending}
       onClick={tap}
-      aria-label={armed ? "Tap again to approve" : "Approve"}
+      aria-label={armed ? `Tap again to ${verb.toLowerCase()}` : verb}
     >
       <Check className="h-4 w-4" aria-hidden />
-      {isPending ? "Approving…" : armed ? "Tap to confirm" : "Approve"}
+      {isPending ? "Saving…" : armed ? "Tap to confirm" : verb}
     </Button>
   );
 }
@@ -323,28 +337,27 @@ export function ApprovalsPhoneView({
     const face = faceOf(r, pos[r.subject_id], poChanges[r.subject_id], budgets[r.subject_id], codes[r.subject_id]);
     const fam = FAMILY[familyOf(r.workflow_key)];
     const Icon = fam.icon;
-    const href = hrefOf(r.workflow_key, r.subject_id);
-    const open = () => (verdict ? onOpenDecision(r) : undefined);
+    /* EVERY CARD OPENS THE SHEET IN PLACE (user 2026-11-04, Pulse ▸ My Approvals: no
+       jumping to the requesting module) — read-only when this login cannot decide it. */
+    const open = () => onOpenDecision(r);
     return (
       <article
         key={r.run_id}
-        className={cn("grid gap-2 rounded-xl border border-border bg-surface p-3", verdict && "cursor-pointer active:bg-surface-muted")}
+        /* `min-w-0` + one shrinkable column: a card is never wider than the phone
+           (screenshot 4041, 320px — the Approve button and the amount ran off the edge). */
+        className="grid min-w-0 cursor-pointer grid-cols-1 gap-2 rounded-xl border border-border bg-surface p-3 active:bg-surface-muted"
         onClick={open}
       >
-        <div className="flex items-start gap-2.5">
+        <div className="flex min-w-0 items-start gap-2.5">
           <span className={cn("grid size-9 shrink-0 place-items-center rounded-lg", fam.well)}>
             <Icon className="size-[18px]" aria-hidden />
           </span>
           <div className="min-w-0 flex-1">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{workflowLabel(r.workflow_key)}</div>
-            <div className="text-[15px] font-semibold">
-              {verdict || !href ? (
-                face.title
-              ) : (
-                <Link href={href} className="text-primary" onClick={(e) => e.stopPropagation()}>
-                  {face.title}
-                </Link>
-              )}
+            {face.kindLine !== false && (
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{workflowLabel(r.workflow_key)}</div>
+            )}
+            <div className="break-words text-[15px] font-semibold">
+              {face.title}
             </div>
             {face.sub && <Truncated className="block text-[13px] text-muted-foreground">{face.sub}</Truncated>}
           </div>
@@ -355,7 +368,12 @@ export function ApprovalsPhoneView({
             </div>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        {/* ONLY A FACT THAT FLAGS SOMETHING (user 2026-11-04, screenshot 4043: "1 line,
+            step 1 and all no need"). A plain fact — "1 line · within budget" — told the
+            approver nothing to act on and cost the card a row; an amber or red one (over
+            budget, margin under the line) is exactly what they must read before Approve. */}
+        {face.fact && face.factTone !== "plain" && (
+        <div className="flex min-w-0 items-center gap-2">
           {face.meter && <RingMeter {...face.meter} />}
           <p
             className={cn(
@@ -370,14 +388,13 @@ export function ApprovalsPhoneView({
             {face.fact}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="min-w-0 flex-1 text-xs text-muted-foreground">
-            Step {r.step_order} · {r.step_label} ·{" "}
-            {r.is_overdue ? (
-              <span className="font-semibold text-danger">Overdue {waited(r.waiting_hours)}</span>
-            ) : (
-              <>waiting {waited(r.waiting_hours)}</>
-            )}
+        )}
+        <div className="flex min-w-0 items-center gap-2">
+          {/* HOW LONG IT HAS WAITED, AND NOTHING ELSE — the step ("Step 1 · Managing
+              Director") is who the card is FOR, which on My Approvals is the reader; the
+              decision sheet still names it beside the buttons. */}
+          <span className={cn("min-w-0 flex-1 text-xs", r.is_overdue ? "font-semibold text-danger" : "text-muted-foreground")}>
+            {r.is_overdue ? `Overdue ${waited(r.waiting_hours)}` : waited(r.waiting_hours)}
           </span>
           {verdict && <QuickApprove row={r} verdict={verdict} />}
         </div>
@@ -499,7 +516,7 @@ export function ApprovalsPhoneView({
   const stillWaiting = requests.filter((q) => q.status === "in_progress").length;
 
   return (
-    <div className="space-y-3">
+    <div className="min-w-0 space-y-3">
       {!allOpen && (
         <ToggleGroup<Tab>
           label="Approvals"
@@ -536,7 +553,7 @@ export function ApprovalsPhoneView({
       )}
 
       {tab === "decide" && (
-        <div className="grid gap-2">
+        <div className="grid grid-cols-1 gap-2">
           {overdue.length > 0 && <h3 className="px-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-danger">Overdue</h3>}
           {overdue.map(card)}
           {waiting.length > 0 && (
@@ -554,7 +571,7 @@ export function ApprovalsPhoneView({
       )}
 
       {tab === "sent" && (
-        <div className="grid gap-2">
+        <div className="grid grid-cols-1 gap-2">
           {sentList.map(requestCard)}
           {sentList.length === 0 && (
             <p className="rounded-xl border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">
@@ -565,7 +582,7 @@ export function ApprovalsPhoneView({
       )}
 
       {tab === "decided" && (
-        <div className="grid gap-2">
+        <div className="grid grid-cols-1 gap-2">
           {decidedList.map(decisionCard)}
           {decidedList.length === 0 && (
             <p className="rounded-xl border border-border bg-surface px-4 py-10 text-center text-sm text-muted-foreground">
@@ -580,6 +597,8 @@ export function ApprovalsPhoneView({
       <Sheet open={!!timeline} onClose={() => setTimeline(null)} title={timeline?.title ?? ""} fullScreen={false} size="sm">
         {timeline && (
           <div className="space-y-3 pb-2">
+            {/* Back to the list, as on the decision sheet (user 2026-11-04: "no back option"). */}
+            <BackLink onBack={() => setTimeline(null)} label="My Approvals" className="-ml-1 h-7" />
             {timeline.result === null ? (
               <p className="text-sm text-muted-foreground">Loading the history…</p>
             ) : timeline.result.ok ? (
@@ -590,11 +609,7 @@ export function ApprovalsPhoneView({
             ) : (
               <p className="text-sm text-danger">{timeline.result.error}</p>
             )}
-            {timeline.href && (
-              <Link href={timeline.href} className="text-sm font-medium text-primary">
-                Open the document ›
-              </Link>
-            )}
+            {/* No "Open the document" link out (user 2026-11-04: everything opens here). */}
           </div>
         )}
       </Sheet>

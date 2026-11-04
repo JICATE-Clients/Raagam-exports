@@ -103,7 +103,10 @@ export default async function ApprovalsPage({
         poChanges={await poChangeCards(rows)}
         verdicts={await queueVerdicts(rows)}
         codes={await subjectCodes(rows)}
-        viewToggle={<ApprovalsViewToggle view="all" />}
+        /* A `key` because this element is made HERE, on the server, and rendered inside
+           the client's PageHeader beside its other children — React's dev check read it
+           as an unkeyed list child ("Each child in a list should have a unique key"). */
+        viewToggle={<ApprovalsViewToggle key="approvals-view" view="all" />}
       />
     );
   }
@@ -188,7 +191,7 @@ export default async function ApprovalsPage({
       requests={requestRows}
       decisions={myDecisions}
       /* In the header row beside Approval Flows — super admin only. */
-      viewToggle={superAdmin ? <ApprovalsViewToggle view="mine" /> : undefined}
+      viewToggle={superAdmin ? <ApprovalsViewToggle key="approvals-view" view="mine" /> : undefined}
     />
   );
 }
