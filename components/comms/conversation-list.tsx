@@ -249,7 +249,14 @@ export function ConversationList({
   const shown = searching
     ? all.filter((c) => c.title.toLowerCase().includes(lower) || (c.last_body ?? "").toLowerCase().includes(lower))
     : active.filter(tests[filter]);
-  const favourites = !searching && filter === "all" ? active.filter((c) => c.favorite) : [];
+  // Announcements and community groups go under Groups: anything that is not a
+  // person-to-person chat or a channel.
+  const sections: { key: "direct" | "group" | "channel"; title: string; items: ConversationSummary[] }[] = [
+    { key: "direct", title: "Direct messages", items: shown.filter((c) => c.kind === "direct") },
+    { key: "group", title: "Groups", items: shown.filter((c) => c.kind !== "direct" && c.kind !== "channel") },
+    { key: "channel", title: "Channels", items: shown.filter((c) => c.kind === "channel") },
+  ];
+  const browseRow = !searching && filter === "all";
   const msgHits = term.length >= 2 ? hits : [];
 
   function when(iso: string | null): string {
@@ -341,10 +348,11 @@ export function ConversationList({
       : []),
   ];
 
-  const row = (c: ConversationSummary) => (
+  const row = (c: ConversationSummary, sectioned = false) => (
     <Row
       key={c.id}
       c={c}
+      sectioned={sectioned}
       when={when(c.last_message_at)}
       active={c.id === activeId}
       community={c.community_id ? communityName.get(c.community_id) ?? null : null}
@@ -397,7 +405,7 @@ export function ConversationList({
           {archived.length === 0 ? (
             <p className="px-3 py-8 text-center text-sm text-muted-foreground">No archived chats.</p>
           ) : (
-            <ul className="space-y-0.5">{archived.map(row)}</ul>
+            <ul className="space-y-0.5">{archived.map((c) => row(c))}</ul>
           )}
         </nav>
         {leaveDialog}
@@ -522,7 +530,7 @@ export function ConversationList({
         <nav className="min-h-0 flex-1 overflow-y-auto border-t border-border px-2 pb-2 pt-1" aria-label="Channels">
           <Caption>Channels you are in</Caption>
           {active.some((c) => c.kind === "channel") ? (
-            <ul className="space-y-0.5">{active.filter((c) => c.kind === "channel").map(row)}</ul>
+            <ul className="space-y-0.5">{active.filter((c) => c.kind === "channel").map((c) => row(c))}</ul>
           ) : (
             <p className="px-3 py-2 text-[13px] text-muted-foreground">{EMPTY.channels[0]}. {EMPTY.channels[1]}</p>
           )}
@@ -610,19 +618,8 @@ export function ConversationList({
         </nav>
       ) : (
         <>
-      {favourites.length > 0 && (
-        <section aria-label="Favourites" className="border-b border-border px-3 pb-2">
-          <p className="mb-1.5 text-xs font-bold uppercase tracking-[0.08em] text-muted-foreground">Favourites</p>
-          <ul className="flex gap-2.5 overflow-x-auto pb-1">
-            {favourites.map((c) => (
-              <li key={c.id}>
-                <Story c={c} unread={c.id !== activeId && c.unread_count > 0} />
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
+      {/* No Favourites strip above the list (user 2026-11-04, the mockup has
+          none); a favourite still wears its star on the row. */}
       <nav className="scrollbar-none min-h-0 flex-1 overflow-y-auto pb-2" aria-label="Chats">
         {!searching && filter === "all" && archived.length > 0 && (
           <button
@@ -640,9 +637,41 @@ export function ConversationList({
           </button>
         )}
 
-        {searching && shown.length > 0 && <Caption>Chats</Caption>}
-        {shown.length > 0 ? (
-          <ul>{shown.map(row)}</ul>
+        {/* DIRECT MESSAGES · GROUPS · CHANNELS (user 2026-11-04, the Pulse mobile
+            mockup): the filter chips stay, and whatever they show is split by
+            kind under its own heading, newest first within it. A heading with
+            nothing under it is not drawn, except Channels under All, which
+            always carries Browse channels (it used to be pinned under the list).
+            The headings do not fold: a fold here would have to be an accordion
+            (one open at a time), which would hide one kind behind the other. */}
+        {shown.length > 0 || browseRow ? (
+          <>
+            {sections.map((s) =>
+              s.items.length === 0 && !(s.key === "channel" && browseRow) ? null : (
+                <section key={s.key} aria-labelledby={`pulse-sec-${s.key}`}>
+                  <h2
+                    id={`pulse-sec-${s.key}`}
+                    className="flex items-center gap-2 border-t border-border px-3 pb-1 pt-3 text-xs font-bold uppercase tracking-[0.06em] text-primary first-of-type:border-t-0"
+                  >
+                    {s.title}
+                    {s.items.length > 0 && <span className="font-medium normal-case tracking-normal text-muted-foreground tabular-nums">{s.items.length}</span>}
+                  </h2>
+                  {s.items.length > 0 && <ul>{s.items.map((c) => row(c, true))}</ul>}
+                  {s.key === "channel" && browseRow && (
+                    <Link
+                      href="/comms/channels"
+                      className="flex min-h-12 items-center gap-3 py-1.5 pl-1.5 pr-1 text-[13.5px] font-semibold text-foreground hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring md:gap-2"
+                    >
+                      <span aria-hidden className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-xl bg-surface-muted text-muted-foreground max-md:h-10 max-md:w-10">
+                        <Compass className="h-[18px] w-[18px]" />
+                      </span>
+                      Browse channels
+                    </Link>
+                  )}
+                </section>
+              ),
+            )}
+          </>
         ) : (
           <div className="mx-4 my-8 flex flex-col items-center gap-2 text-center">
             <span aria-hidden className="flex h-[52px] w-[52px] items-center justify-center rounded-2xl bg-primary-soft text-primary">
@@ -682,16 +711,6 @@ export function ConversationList({
         )}
 
       </nav>
-      {/* A 44px row pinned under the list (user 2026-11-02), not text floating
-          after the last chat. */}
-      {!searching && filter === "all" && (
-        <Link
-          href="/comms/channels"
-          className="flex h-11 shrink-0 items-center gap-2.5 border-t border-border px-4 text-[13.5px] font-semibold text-foreground hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-        >
-          <Compass className="h-4 w-4 text-muted-foreground" aria-hidden /> Browse channels
-        </Link>
-      )}
         </>
       )}
       {communities !== null && communities !== undefined && (
@@ -985,30 +1004,6 @@ function ChatAvatar({ c, size }: { c: ConversationSummary; size: "sm" | "md" | "
   );
 }
 
-/** A favourite in the row above the list: a ringed avatar and a first name. */
-function Story({ c, unread }: { c: ConversationSummary; unread: boolean }) {
-  const label = c.title.replace(/^#/, "");
-  return (
-    <Link
-      href={`/comms/c/${c.id}`}
-      aria-label={`Open ${label}${unread ? `, ${c.unread_count} unread` : ""}`}
-      className="flex w-16 flex-col items-center gap-1.5 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      <span
-        style={avatarStyle(c.title)}
-        className={cn(
-          "border-2 p-[3px]",
-          c.kind === "direct" ? "rounded-full" : "rounded-[18px]",
-          unread ? "border-[#f0705a]" : "border-[var(--glow)]",
-        )}
-      >
-        <ChatAvatar c={c} size="md" />
-      </span>
-      <span className="max-w-16 truncate text-xs font-semibold text-foreground">{label.split(/[\s.]+/)[0]}</span>
-    </Link>
-  );
-}
-
 /**
  * One chat card: avatar, name and time, a Group / Channel tag, the last
  * message, the star and the unread count. No star / archive buttons on the
@@ -1020,10 +1015,13 @@ function Row({
   active,
   community,
   menu,
+  sectioned = false,
 }: {
   c: ConversationSummary;
   when: string;
   active: boolean;
+  /** Under a Groups / Channels heading: the heading says the kind, so the row drops its Group / Channel tag. */
+  sectioned?: boolean;
   /** 0775: the community this group is in — its name replaces the Group tag. */
   community: string | null;
   /** The ⌄ menu's items (ConversationList's `rowMenu`). */
@@ -1035,11 +1033,13 @@ function Row({
     ? "Announcements"
     : community
       ? community
-      : c.kind === "group"
-        ? "Group"
-        : c.kind === "channel"
-          ? "Channel"
-          : null;
+      : sectioned
+        ? null
+        : c.kind === "group"
+          ? "Group"
+          : c.kind === "channel"
+            ? "Channel"
+            : null;
   return (
     <li className="group/row relative flex items-center">
       <Link

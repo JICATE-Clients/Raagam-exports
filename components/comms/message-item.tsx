@@ -68,7 +68,6 @@ export function MessageItem({
   names,
   meId,
   canAct,
-  canDelete,
   actions,
   highlight = false,
   bubble = null,
@@ -80,7 +79,6 @@ export function MessageItem({
   meId: string;
   /** Active member: may react, pin, reply. */
   canAct: boolean;
-  canDelete: boolean;
   actions: MessageActions;
   /** 0762: the message a search result or saved item opened — flashed once. */
   highlight?: boolean;
@@ -148,7 +146,10 @@ export function MessageItem({
             ? [{ label: m.saved ? "Unsave" : "Save", icon: m.saved ? BookmarkCheck : Bookmark, onClick: () => actions.onSave!(m) }]
             : []),
           ...(mine && canAct && actions.onEdit && !card ? [{ label: "Edit", icon: Pencil, onClick: () => setEditing(true) }] : []),
-          ...(canDelete && actions.onDelete
+          // Delete is on EVERY message (user 2026-11-04): anyone may Delete for
+          // me; `mayDelete` decides only whether the dialog also offers Delete
+          // for everyone (conversation-view.tsx, DeleteMessageDialog).
+          ...(actions.onDelete
             ? [{ label: "Delete", icon: Trash2, danger: true, separatorBefore: true, onClick: () => actions.onDelete!(m) }]
             : []),
         ];

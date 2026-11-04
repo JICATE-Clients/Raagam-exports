@@ -395,6 +395,23 @@ export async function deleteMessage(messageId: string): Promise<Result> {
 }
 
 /**
+ * "Delete for me" (0807): the message leaves the caller's own view and nobody
+ * else's. Allowed on any message the caller can read, theirs or not. Nothing is
+ * cleared and no file is removed — that is Delete for everyone (deleteMessage).
+ */
+export async function hideMessage(messageId: string): Promise<Result> {
+  const s = await createClient();
+  const { error } = await s.rpc("comm_hide_message", { p_message: messageId });
+  if (error) {
+    if (error.code === "PGRST202" || error.code === "42883") {
+      return fail("Delete for me is not set up in this database yet. Ask your administrator to apply migration 0807.");
+    }
+    return fail(commErrorText(error, "The message could not be deleted for you."));
+  }
+  return { ok: true };
+}
+
+/**
  * Put the caller's reaction into the state they asked for (0760). Idempotent,
  * so a double click or a retry cannot flip it back; the answer carries the
  * message's reactions as the DATABASE now holds them, so the optimistic chip

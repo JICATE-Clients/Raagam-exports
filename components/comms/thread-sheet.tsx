@@ -157,7 +157,6 @@ export function ThreadSheet({
                 names={names}
                 meId={meId}
                 canAct={canPost}
-                canDelete={false}
                 actions={threadActions}
               />
               <p className="px-3 py-1 text-xs font-semibold text-muted-foreground">
@@ -173,7 +172,6 @@ export function ThreadSheet({
                   names={names}
                   meId={meId}
                   canAct={canPost}
-                  canDelete={false}
                   actions={threadActions}
                   highlight={m.id === flash}
                 />

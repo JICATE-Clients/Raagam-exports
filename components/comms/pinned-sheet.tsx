@@ -69,7 +69,6 @@ export function PinnedSheet({
               names={names}
               meId={meId}
               canAct={false}
-              canDelete={false}
               actions={{ onOpenFile }}
             />
           ))}

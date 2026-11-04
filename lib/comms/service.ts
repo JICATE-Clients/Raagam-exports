@@ -423,17 +423,33 @@ type RawMessage = Omit<CommMessage, "author_name" | "pinned" | "saved" | "attach
   comm_pins: { message_id: string } | { message_id: string }[] | null;
 };
 
-/** Raw rows → screen rows: names, reactions folded, pins and saves marked. */
-async function hydrate(s: Sb, rows: RawMessage[], me: string | null): Promise<CommMessage[]> {
+/**
+ * Raw rows → screen rows: names, reactions folded, pins and saves marked.
+ *
+ * 0807: a message the caller chose "Delete for me" on is DROPPED here, so every
+ * list that hydrates (the chat, threads, search, saved) stops showing it to that
+ * one person. `keep` names a row that must survive anyway — a thread's parent,
+ * which getThread destructures. Before 0807 is applied the table is missing and
+ * nothing is hidden.
+ */
+async function hydrate(s: Sb, rows: RawMessage[], me: string | null, keep?: string): Promise<CommMessage[]> {
   if (rows.length === 0) return [];
-  const [names, savedR] = await Promise.all([
+  const ids = rows.map((r) => r.id);
+  const [names, savedR, hiddenR] = await Promise.all([
     resolveNames(s, rows.map((r) => r.author_id)),
     me
-      ? s.from("comm_saved").select("message_id").eq("user_id", me).in("message_id", rows.map((r) => r.id))
+      ? s.from("comm_saved").select("message_id").eq("user_id", me).in("message_id", ids)
+      : Promise.resolve({ data: [], error: null }),
+    me
+      ? s.from("comm_hidden").select("message_id").eq("user_id", me).in("message_id", ids)
       : Promise.resolve({ data: [], error: null }),
   ]);
   if (savedR.error) fail("saved messages", savedR.error);
+  const hiddenMissing = !!hiddenR.error && (hiddenR.error.code === "42P01" || hiddenR.error.code === "PGRST205");
+  if (hiddenR.error && !hiddenMissing) fail("hidden messages", hiddenR.error);
   const saved = new Set(((savedR.data ?? []) as { message_id: string }[]).map((r) => r.message_id));
+  const hidden = new Set((hiddenMissing ? [] : ((hiddenR.data ?? []) as { message_id: string }[])).map((r) => r.message_id));
+  if (hidden.size > 0) rows = rows.filter((r) => r.id === keep || !hidden.has(r.id));
   const cards = await cardData(s, rows, me);
 
   return rows.map((r) => {
@@ -613,6 +629,7 @@ export async function getThread(parentId: string): Promise<{ parent: CommMessage
     s,
     [pR.data as unknown as RawMessage, ...((rR.data ?? []) as unknown as RawMessage[])],
     me,
+    parentId,
   );
   return { parent, replies };
 }

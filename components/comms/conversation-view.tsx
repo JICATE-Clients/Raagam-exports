@@ -17,6 +17,7 @@ import {
   attachmentUrl,
   deleteMessage,
   editMessage,
+  hideMessage,
   joinChannel,
   loadMessages,
   markRead,
@@ -31,6 +32,7 @@ import {
 } from "@/lib/comms/actions";
 import type { AttachmentInput, CommAttachment, CommMessage, ConversationDetail, MessagePage } from "@/lib/comms/types";
 import { Composer } from "./composer";
+import { DeleteMessageDialog } from "./delete-message-dialog";
 import { DetailsSheet } from "./details-sheet";
 import { ChannelDetailsSheet } from "./channel-details-sheet";
 import { announceChannelsChanged } from "./sidebar-channels";
@@ -140,7 +142,6 @@ export function ConversationView({
   // and the chat's own settings.
   const [searchOpen, setSearchOpen] = useState(false);
   const [mutedNow, setMutedNow] = useState<boolean>(!!conversation.me?.muted);
-  const [favNow, setFavNow] = useState<boolean>(!!conversation.me?.favorite);
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [menuBusy, startMenu] = useTransition();
   const [confirmDelete, setConfirmDelete] = useState<CommMessage | null>(null);
@@ -443,6 +444,7 @@ export function ConversationView({
     onDelete: (m) => setConfirmDelete(m),
   };
 
+  // Delete for everyone: the soft delete every member sees.
   async function doDelete() {
     const m = confirmDelete;
     if (!m) return;
@@ -450,6 +452,16 @@ export function ConversationView({
     const r = await deleteMessage(m.id);
     if (!r.ok) toastError(r.error);
     else setMessages((prev) => prev.map((x) => (x.id === m.id ? { ...x, deleted_at: new Date().toISOString(), body: null, attachments: [], reactions: [] } : x)));
+  }
+
+  // Delete for me (0807): gone from this person's view only.
+  async function doHide() {
+    const m = confirmDelete;
+    if (!m) return;
+    setConfirmDelete(null);
+    const r = await hideMessage(m.id);
+    if (!r.ok) toastError(r.error);
+    else setMessages((prev) => prev.filter((x) => x.id !== m.id));
   }
 
   // TWO BLUE TICKS (user 2026-11-03, WhatsApp): a message I sent is "seen" once
@@ -497,6 +509,9 @@ export function ConversationView({
           onClick: () => setDetailsOpen(true),
         },
     { label: "Search", onClick: () => setSearchOpen(true) },
+    // Add to favourites left this menu (user 2026-11-04); it stays on the list
+    // row's own ⌄ menu. Saved messages stays here: the list header's bookmark
+    // icon was removed the same day, and this is the one way to /comms/saved.
     { label: "Pinned messages", onClick: () => setPinnedOpen(true) },
     { label: "Saved messages", onClick: () => router.push("/comms/saved") },
     ...(me?.active
@@ -510,18 +525,6 @@ export function ConversationView({
                 const r = await setMuted(id, next);
                 if (!r.ok) return toastError(r.error);
                 setMutedNow(next);
-              }),
-          },
-          {
-            label: favNow ? "Remove from favourites" : "Add to favourites",
-            disabled: menuBusy,
-            onClick: () =>
-              startMenu(async () => {
-                const next = !favNow;
-                const r = await setChatFlags({ conversation_id: id, favorite: next });
-                if (!r.ok) return toastError(r.error);
-                setFavNow(next);
-                router.refresh();
               }),
           },
           {
@@ -733,7 +736,6 @@ export function ConversationView({
                 names={names}
                 meId={meId}
                 canAct={canPost}
-                canDelete={mayDelete(m)}
                 actions={actions}
                 highlight={m.id === flashId}
                 seen={isSeen(m)}
@@ -897,11 +899,11 @@ export function ConversationView({
           })
         }
       />
-      <ConfirmDialog
+      <DeleteMessageDialog
         open={!!confirmDelete}
-        title="Delete this message?"
-        body="It is replaced by “This message was deleted.” for everyone, and its files are removed. This cannot be undone."
-        onConfirm={() => void doDelete()}
+        canEveryone={!!confirmDelete && mayDelete(confirmDelete)}
+        onEveryone={() => void doDelete()}
+        onForMe={() => void doHide()}
         onCancel={() => setConfirmDelete(null)}
       />
     </div>
