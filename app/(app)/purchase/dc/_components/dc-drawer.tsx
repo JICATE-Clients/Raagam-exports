@@ -18,7 +18,7 @@ import { RecordTabTitle } from "@/components/shell/record-tab-title";
  * Cancel / Dispatch go back to the register on the same type tab. The name is kept so the
  * page's call sites read as before.
  */
-export type NewType = "process" | "production" | "general" | "rejection" | "replacement";
+export type NewType = "process" | "production" | "general" | "department" | "rejection" | "replacement";
 
 export function DcDrawer({
   title,
@@ -55,9 +55,10 @@ export function DcDrawer({
               value={chooser}
               onChange={(t) => router.replace(`/purchase/dc?new=${t}&type=${t}`)}
               options={[
-                { value: "process", label: "Process DC" },
-                { value: "production", label: "Production DC" },
+                { value: "process", label: "Job Work DC" },
+                { value: "production", label: "Inter-Unit DC" },
                 { value: "general", label: "General DC" },
+                { value: "department", label: "Department Delivery" },
                 { value: "rejection", label: "Rejection DC" },
                 { value: "replacement", label: "Replacement DC" },
               ]}

@@ -1201,10 +1201,10 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
              production, and the Rejection / Replacement DCs a GRN raises — so the list's
              Rejection, Replacement, Jobwork and Processing Delivery / Receipt rows all open
              here. /purchase/vendor-returns redirects to its Rejection tab. */
-          { href: "/purchase/dc", label: "Delivery Challan", description: "Job-work, production, rejection and replacement DCs — send, then receive back" },
-          { href: "/purchase/interdept", label: "Department Delivery", description: "Move material between departments" },
-          // GENERAL DC (0796) — a kind of the one DC; this row opens the hub's General tab.
-          { href: "/purchase/general-delivery", label: "General Delivery", description: "Send material out for repair, sample, loan or gift — returnable or not" },
+          // General Delivery's and Department Delivery's own rows came OUT 2026-11-04 (user: every
+          // outward dispatch in ONE Delivery Challan workspace) — each is a tab here;
+          // /purchase/general-delivery and /purchase/interdept redirect.
+          { href: "/purchase/dc", label: "Delivery Challan", description: "Job work, inter-unit, general, department, rejection and replacement DCs — send, then receive back" },
           { href: "/purchase/delivery-returns", label: "Delivery Return", description: "Receive back goods sent on a returnable General DC" },
           { href: "/purchase/department-returns", label: "Department Return", description: "Unused or excess material a department gives back, against an issued MRS" },
           { href: "/purchase/opening-stock", label: "Opening Stock", description: "Set a store's initial balances" },

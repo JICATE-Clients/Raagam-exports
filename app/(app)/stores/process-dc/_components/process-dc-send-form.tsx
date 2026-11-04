@@ -276,7 +276,7 @@ export function ProcessDcSendForm({
       <div className={cn("max-w-[88rem]", DOC_FRAME)}>
         {/* TITLE ROW: the DC, its number (given on save), its date, and who it goes to. */}
         <div className="flex flex-wrap items-center gap-x-2 gap-y-2 px-4 py-2.5">
-          <h2 className="text-base font-bold">Process DC</h2>
+          <h2 className="text-base font-bold">Job Work DC</h2>
           <span className={DOC_CHIP} title={existing?.code ? "DC No" : "The DC No is given when it is saved"}>
             {existing?.code ?? "DC No · on save"}
           </span>
