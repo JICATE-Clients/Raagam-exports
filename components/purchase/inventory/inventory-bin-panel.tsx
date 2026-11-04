@@ -11,7 +11,6 @@ import { updateBin } from "@/lib/masters/bin-actions";
 import type { BinMove } from "@/lib/stores/bin-history-actions";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { fmtDate, fmtMoney, fmtNumber } from "@/lib/format";
-import { cn } from "@/lib/utils";
 import type { Row } from "./inventory-table";
 import { AGE_TONE, classColour, Dot, titleCase, VizCard } from "./inventory-visuals";
 
@@ -92,7 +91,6 @@ export function BinPanel({
 
 function BinPanelBody({
   bin,
-  storeName,
   place,
   lots,
   history,
@@ -115,7 +113,6 @@ function BinPanelBody({
 
   const value = lots.reduce((a, r) => a + (r.value ?? 0), 0);
   const oldest = lots.length ? Math.max(...lots.map((r) => r.age_days)) : null;
-  const last = history?.[0]?.date ?? null;
 
   function saveDesc() {
     start(async () => {
@@ -129,7 +126,7 @@ function BinPanelBody({
   }
 
   const fact = (label: string, v: string) => (
-    <div className="min-w-0 border-l border-border px-3.5 py-1.5 first:border-l-0">
+    <div className="flex items-baseline gap-1.5 whitespace-nowrap">
       <dt className="text-[10.5px] tracking-wide text-muted-foreground uppercase">{label}</dt>
       <dd className="text-sm font-bold tabular-nums">{v}</dd>
     </div>
@@ -139,38 +136,26 @@ function BinPanelBody({
 
   return (
     <section className="min-w-0 rounded-xl border border-border bg-surface shadow-[0_1px_2px_rgba(16,24,40,.04),0_8px_24px_-16px_rgba(3,123,184,.25)] xl:flex xl:h-full xl:min-h-0 xl:flex-col">
-      {/* identity */}
-      <div className="px-3.5 pt-2.5 pb-2">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="font-mono text-xl font-bold">{bin.bin_code}</span>
-          <span className="flex items-center gap-1.5">
-            {lots.length ? (
-              mixed ? (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-warning-soft px-2 py-0.5 text-[11px] font-semibold text-warning">
-                  <Dot colour="var(--warning)" className="size-1.5" />
-                  Mixed
-                </span>
-              ) : (
-                <span className="rounded-full bg-success-soft px-2 py-0.5 text-[11px] font-semibold text-success">In use</span>
-              )
-            ) : (
-              <span className="rounded-full bg-surface-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">Empty</span>
-            )}
-            <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", bin.inactive ? "bg-surface-muted text-muted-foreground" : "bg-success-soft text-success")}>
-              {bin.inactive ? "Inactive" : "Active"}
-            </span>
-          </span>
-        </div>
-        <div className="text-xs text-muted-foreground">
-          {storeName} · {place}
-        </div>
+      {/* identity — ONE STATEMENT OF EACH FACT (user 2026-11-04, screenshot 4056). The header used
+          to repeat what the panel already says below it: a Mixed chip over the mixed warning, an
+          In use / Empty chip over the lot list (or its "nothing is booked" line), an Active chip on
+          every bin, the store name the store tab already shows, a Lots count of the cards beneath,
+          and a Last move that is History's first row. What is left is the bin, where it is, and the
+          two figures no row below adds up for you. Only the EXCEPTION is a chip: Inactive.
+          All of it on ONE ROW (user, same day): the bin and where it is on the left, its figures on
+          the right. It NEVER wraps (screenshot 193801 showed the figures dropping to a second line):
+          the place shortens to an ellipsis instead, and its whole text shows on hover. */}
+      <div className="flex items-baseline gap-x-2.5 px-3.5 py-2">
+        <span className="shrink-0 font-mono text-xl font-bold">{bin.bin_code}</span>
+        <Truncated className="min-w-0 flex-1 text-xs text-muted-foreground">{place}</Truncated>
+        {bin.inactive ? <span className="shrink-0 rounded-full bg-surface-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">Inactive</span> : null}
+        {lots.length ? (
+          <dl className="flex shrink-0 items-baseline gap-x-3">
+            {fact(withValue ? "Value" : "Qty", withValue ? fmtMoney(value) : fmtNumber(lots.reduce((a, r) => a + r.qty, 0)))}
+            {fact("Oldest", oldest != null ? `${oldest} d` : "—")}
+          </dl>
+        ) : null}
       </div>
-      <dl className="grid grid-cols-4 border-t border-border">
-        {fact("Lots", lots.length ? fmtNumber(lots.length) : "—")}
-        {fact(withValue ? "Value" : "Qty", lots.length ? (withValue ? fmtMoney(value) : fmtNumber(lots.reduce((a, r) => a + r.qty, 0))) : "—")}
-        {fact("Oldest", oldest != null ? `${oldest} d` : "—")}
-        {fact("Last move", history === null ? "…" : last ? fmtDate(last) : "—")}
-      </dl>
 
       {/* EVERYTHING UNDER THE FACTS SCROLLS INSIDE THE PANEL on a wide screen (screen-fit layout,
           screenshot 4051): the bin's name and figures stay put while its lots and history scroll. */}
@@ -204,7 +189,7 @@ function BinPanelBody({
       {/* contents */}
       <div className={section}>
         <div className={heading}>
-          <span>What is in it</span>
+          <span>What is in it{lots.length ? ` (${fmtNumber(lots.length)})` : ""}</span>
           {canMove && lots.length > 1 ? (
             <button type="button" onClick={() => onMove(lots.map((r) => r.key))} className="text-[11.5px] font-semibold tracking-normal text-primary normal-case hover:underline">
               Move whole bin →
@@ -318,8 +303,6 @@ function BinPanelBody({
           <dl className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-x-2.5 gap-y-1 text-[12px]">
             <dt className="text-muted-foreground">Description</dt>
             <dd className="min-w-0">{bin.description ? <Truncated>{bin.description}</Truncated> : <span className="text-muted-foreground">—</span>}</dd>
-            <dt className="text-muted-foreground">Store</dt>
-            <dd>{storeName}</dd>
           </dl>
         )}
       </div>
