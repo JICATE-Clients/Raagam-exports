@@ -61,14 +61,21 @@ function ShiftBanner({ s, onDismiss }: { s: ShiftSummary; onDismiss: () => void 
     s.new_since_last_shift ? `${s.new_since_last_shift} new since your last shift` : null,
   ].filter(Boolean);
   return (
-    <div className="flex items-center gap-2 rounded-xl bg-warning-soft py-1.5 pl-3 pr-1.5 text-sm" role="status">
+    // ONE SLIM STRIP (user 2026-11-04, Give Out IT Jobs compact): 28px, not a 46px box.
+    <div className="flex min-h-7 items-center gap-2 rounded-lg bg-warning-soft py-0.5 pl-2.5 pr-1 text-[12.5px]" role="status">
       <p className="min-w-0 flex-1">
         <span className="font-semibold">Start of shift:</span>{" "}
         {parts.length ? parts.join(" · ") : "nothing carried over — a clean start."}
       </p>
-      <Button size="icon" variant="ghost" onClick={onDismiss} aria-label="Dismiss start of shift">
-        <X aria-hidden />
-      </Button>
+      {/* button-shape: exempt -- a 22px dismiss chip inside the slim shift strip; an icon Button is 36px */}
+      <button
+        type="button"
+        onClick={onDismiss}
+        aria-label="Dismiss start of shift"
+        className="flex size-8 flex-none items-center justify-center rounded-md md:size-[22px] hover:bg-black/5 focus-visible:outline-2 focus-visible:outline-ring"
+      >
+        <X className="size-3.5" aria-hidden />
+      </button>
     </div>
   );
 }
@@ -165,14 +172,24 @@ export function DeskQueueScreen({
   const breaching = lists.breaching.length;
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2">
+    <div className="space-y-2">
+      {/* ONE CONTROL ROW (user 2026-11-04, Give Out IT Jobs compact): the tabs
+          lead the FilterBar's own row and Live / Select end it, so the search
+          and Filters no longer take a line of their own. The shift strip now
+          sits under the row instead of between the tabs and the search. */}
+      <FilterBar
+        search={query}
+        onSearch={setQuery}
+        searchPlaceholder="Search ref, request, category, team or person…"
+        activeCount={moreTab ? 1 : 0}
+        onReset={moreTab ? () => changeTab("mine") : undefined}
+        leading={
         <ToggleGroup
           label="Desk queue"
           role="tablist"
           value={moreTab ? null : tab}
           onChange={changeTab}
-          className="min-w-0 flex-1 overflow-x-auto"
+          className="min-w-0 max-w-full overflow-x-auto"
           options={CHIP_TABS.map((t) => ({
             value: t,
             label: CHIP_LABEL[t],
@@ -192,16 +209,13 @@ export function DeskQueueScreen({
               ) : undefined,
           }))}
         />
-        <LiveBadge status={live} />
-        {assignable && <SelectToggle on={selecting} onChange={changeSelecting} />}
-      </div>
-      {shift && shiftShown && <ShiftBanner s={shift} onDismiss={() => setShiftShown(false)} />}
-      <FilterBar
-        search={query}
-        onSearch={setQuery}
-        searchPlaceholder="Search ref, request, category, team or person…"
-        activeCount={moreTab ? 1 : 0}
-        onReset={moreTab ? () => changeTab("mine") : undefined}
+        }
+        trailing={
+          <span className="ml-auto flex items-center gap-2">
+            <LiveBadge status={live} />
+            {assignable && <SelectToggle on={selecting} onChange={changeSelecting} />}
+          </span>
+        }
         panel={
           <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface p-2">
             <span className="text-xs font-semibold text-muted-foreground">Show</span>
@@ -220,6 +234,7 @@ export function DeskQueueScreen({
           </div>
         }
       />
+      {shift && shiftShown && <ShiftBanner s={shift} onDismiss={() => setShiftShown(false)} />}
       {moreTab && (
         <div className="flex flex-wrap gap-1.5">
           <Button size="sm" variant="outline" onClick={() => changeTab("mine")} aria-label={`Remove filter ${CHIP_LABEL[tab]}`}>
@@ -231,6 +246,7 @@ export function DeskQueueScreen({
       <QueueList
         key={tab}
         label="Desk queue"
+        fit
         rows={filtered}
         getKey={(r) => r.id}
         empty={rows.length ? "No request matches this search." : EMPTY[tab]}
@@ -253,6 +269,7 @@ export function DeskQueueScreen({
             selecting={ticking}
             selected={selected.has(r.id)}
             onToggle={toggle}
+            compact
             action={assignable ? <AssignButton onClick={() => setAssigning([r.id])} /> : undefined}
           />
         )}

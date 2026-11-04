@@ -496,7 +496,7 @@ export function UnitSettingsScreen({
         </div>,
       )}
 
-      <div className="sticky bottom-0 z-10 flex items-center justify-end gap-2 rounded-xl border border-border bg-surface px-3 py-2 shadow-sm">
+      <div className="sticky bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-10 flex items-center justify-end gap-2 rounded-xl border border-border bg-surface px-3 py-2 shadow-sm md:bottom-0">
         <span className="mr-auto text-sm text-muted-foreground">
           {!anyDirty || changes === 0 ? "No changes" : `${changes} ${changes === 1 ? "change" : "changes"}`}
         </span>

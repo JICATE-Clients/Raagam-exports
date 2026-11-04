@@ -103,6 +103,8 @@ export function DropdownMenu({
   align = "right",
   triggerClassName,
   menuWidth = 176,
+  compact = false,
+  fit = false,
 }: {
   items: DropdownItem[];
   label?: string;
@@ -117,11 +119,24 @@ export function DropdownMenu({
   /** The open menu's width in px. 176 (w-44) unless a menu's labels need more —
    *  Pulse's chat-row menu ("Remove from favourites" beside an icon). */
   menuWidth?: number;
+  /**
+   * A tighter menu: 28px rows, 13px labels, 15px icons (user 2026-11-04, the
+   * Pulse compact-popups board). Opt-in, so the ~40 menus already open are
+   * unchanged; Pulse's message and chat-row menus pass it.
+   */
+  compact?: boolean;
+  /**
+   * The menu is as wide as its longest label, with 9px each side, instead of a
+   * fixed `menuWidth` (user 2026-11-04: Pulse's chat ⋮ menu, "right side white
+   * space remove"). Anchored by its RIGHT edge when `align="right"`, so the
+   * unknown width never has to be measured.
+   */
+  fit?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  /* `top` when the menu opens below the trigger, `bottom` when it opens above it —
-     one of the two, never both. */
-  const [pos, setPos] = useState<{ top?: number; bottom?: number; left: number } | null>(null);
+  /* `top` when the menu opens below the trigger, `bottom` when it opens above it — one of
+     the two, never both. `left`, or `right` for a `fit` menu anchored by its right edge. */
+  const [pos, setPos] = useState<{ top?: number; bottom?: number; left?: number; right?: number } | null>(null);
   const [active, setActive] = useState(0);
   const btnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -134,19 +149,26 @@ export function DropdownMenu({
     /* FLIP UP WHEN BELOW HAS NO ROOM (user 2026-11-04, screenshot 4045: the approval
        sheet's Decision menu sits in a footer at the foot of a phone screen, opened
        downward, and its three choices were cut off by the screen's edge). The menu's
-       height is ~36px a row plus its padding, capped as its own `max-h` caps it; it
-       opens above the trigger when that does not fit below AND above has more room. */
+       height is a row per item (28px compact, 36px otherwise) plus its padding, capped as
+       its own `max-h` caps it; it opens above the trigger when that does not fit below
+       AND above has more room. */
     const vh = window.innerHeight;
-    const want = Math.min(items.length * 36 + 8, vh * 0.7, 512);
+    const want = Math.min(items.length * (compact ? 28 : 36) + 8, vh * 0.7, 512);
     const below = vh - r.bottom - 8;
     const above = r.top - 8;
     const up = below < want && above > below;
-    /* And never off the side of a narrow screen: an `align="right"` menu under a button
-       near the left edge used to start at a negative x. */
-    const rawLeft = align === "right" ? r.right - width : r.left;
-    const left = Math.max(8, Math.min(rawLeft, window.innerWidth - width - 8));
-    setPos(up ? { bottom: vh - r.top + 4, left } : { top: r.bottom + 4, left });
-  }, [align, menuWidth, items.length]);
+    const vertical = up ? { bottom: vh - r.top + 4 } : { top: r.bottom + 4 };
+    /* A `fit` menu is as wide as its labels, so it is anchored by its RIGHT edge and its
+       width never has to be measured (comms, 2026-11-04). Otherwise never off the side of
+       a narrow screen: an `align="right"` menu under a button near the left edge used to
+       start at a negative x. */
+    if (fit && align === "right") {
+      setPos({ ...vertical, right: window.innerWidth - r.right });
+    } else {
+      const rawLeft = align === "right" ? r.right - width : r.left;
+      setPos({ ...vertical, left: Math.max(8, Math.min(rawLeft, window.innerWidth - width - 8)) });
+    }
+  }, [align, menuWidth, items.length, fit, compact]);
 
   useEffect(() => {
     if (!open) return;
@@ -230,8 +252,11 @@ export function DropdownMenu({
             role="menu"
             tabIndex={-1}
             onKeyDown={onMenuKeyDown}
-            style={{ position: "fixed", top: pos.top, bottom: pos.bottom, left: pos.left, width: menuWidth, zIndex: 150 }}
-            className="max-h-[min(70vh,32rem)] overflow-y-auto rounded-md border border-border bg-surface py-1 shadow-lg focus:outline-none"
+            style={{ position: "fixed", top: pos.top, bottom: pos.bottom, left: pos.left, right: pos.right, width: fit ? "max-content" : menuWidth, zIndex: 150 }}
+            className={cn(
+              "max-h-[min(70vh,32rem)] overflow-y-auto rounded-md border border-border bg-surface shadow-lg focus:outline-none",
+              compact ? "py-0.5" : "py-1",
+            )}
           >
             {items.map((item, i) => {
               const Icon = item.icon;
@@ -250,7 +275,7 @@ export function DropdownMenu({
                   {/* Skipped at index 0 - a rule there would only thicken the
                       menu's own top border. Same reasoning as the heading. */}
                   {item.separatorBefore && i > 0 && (
-                    <div role="separator" className="my-1 border-t border-border" />
+                    <div role="separator" className={cn("border-t border-border", compact ? "my-0.5" : "my-1")} />
                   )}
                   {heading && (
                     <div
@@ -274,7 +299,9 @@ export function DropdownMenu({
                   onClick={() => activate(item)}
                   onMouseEnter={() => setActive(i)}
                   className={cn(
-                    "flex w-full items-center gap-2 px-3 py-2 text-left text-sm disabled:opacity-50",
+                    "flex w-full items-center text-left disabled:opacity-50",
+                    compact ? "min-h-7 gap-[9px] py-1 text-[13px] leading-5" : "gap-2 py-2 text-sm",
+                    fit ? "px-[9px]" : "px-3",
                     i === active && "bg-surface-muted",
                     item.danger ? "text-danger" : "text-foreground",
                   )}
@@ -283,7 +310,7 @@ export function DropdownMenu({
                       glyphs, and every existing menu passes an icon. The dot is
                       boxed to an icon's width so a mixed menu still aligns. */}
                   {Icon ? (
-                    <Icon className="h-4 w-4 shrink-0" />
+                    <Icon className={cn("shrink-0", compact ? "h-[15px] w-[15px]" : "h-4 w-4")} />
                   ) : item.swatch ? (
                     <span
                       aria-hidden

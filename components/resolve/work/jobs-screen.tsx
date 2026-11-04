@@ -177,7 +177,7 @@ export function JobsScreen({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       <PageHeader
         title="All Jobs"
         description="Every broken report in this unit, oldest first"
@@ -190,12 +190,22 @@ export function JobsScreen({
           ) : undefined
         }
       />
-      <div className="flex items-center gap-2">
+      {/* ONE CONTROL ROW (user 2026-11-04, All Jobs compact): the status tabs
+          lead the FilterBar's own row and Live ends it, so the search and
+          Filters no longer take a line of their own. */}
+      <FilterBar
+        search={query}
+        onSearch={setQuery}
+        searchPlaceholder="Search ref, problem, place, trade or person…"
+        activeCount={facets.activeCount}
+        onReset={facets.activeCount ? facets.reset : undefined}
+        panel={facets.panel}
+        leading={
         <ToggleGroup
           label="Job status"
           value={bucket}
           onChange={(b) => setBucket((cur) => (cur === b ? null : b))}
-          className="min-w-0 flex-1 overflow-x-auto"
+          className="min-w-0 max-w-full overflow-x-auto"
           options={[
             { value: "open" as Bucket, label: "Open", count: counts.open, tooltip: "Still owed — open, in progress, blocked or awaiting a check" },
             {
@@ -212,15 +222,12 @@ export function JobsScreen({
             { value: "done" as Bucket, label: "Done", count: counts.completed30, tooltip: "Closed in the last 30 days" },
           ]}
         />
-        <LiveBadge status={live} />
-      </div>
-      <FilterBar
-        search={query}
-        onSearch={setQuery}
-        searchPlaceholder="Search ref, problem, place, trade or person…"
-        activeCount={facets.activeCount}
-        onReset={facets.activeCount ? facets.reset : undefined}
-        panel={facets.panel}
+        }
+        trailing={
+          <span className="ml-auto flex items-center">
+            <LiveBadge status={live} />
+          </span>
+        }
       />
       {activeChips.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
@@ -234,6 +241,7 @@ export function JobsScreen({
       )}
       <QueueList
         label="All jobs"
+        fit
         rows={filtered}
         getKey={(r) => r.id}
         empty={rows.length ? "No job matches these filters." : "No jobs reported in this unit yet."}
@@ -246,6 +254,7 @@ export function JobsScreen({
             refNo={r.ref_no}
             meta={ticketLine(r)}
             clock={ticketClock(r, nowMs)}
+            compact
             action={canAssign ? <AssignButton onClick={() => setAssigning(r)} /> : undefined}
           />
         )}

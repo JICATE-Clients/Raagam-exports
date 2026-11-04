@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { createPortal } from "react-dom";
 import { useModalGuard } from "@/lib/reload-guard";
 import { cn } from "@/lib/utils";
 
@@ -15,8 +14,13 @@ import { cn } from "@/lib/utils";
  *   `mayDelete`). Everyone else gets Delete for me and Cancel.
  * - **Delete for me** is offered on every message (0807, `hideMessage`).
  *
- * Built like ConfirmDialog (components/ui/confirm-dialog.tsx), and for the same
- * reasons: portal + `useModalGuard`, `role="dialog"` so Tab stays inside, Escape
+ * INSIDE THE CHAT, NOT OVER THE APP (user 2026-11-04: "chatting page-a vittu
+ * veliya pogakudathu"): no portal. It is `absolute inset-0` in the chat page
+ * (conversation-view.tsx, `data-chat-page`, which is `relative`), so the dim
+ * covers the open conversation only and the chat list beside it stays clear.
+ *
+ * Otherwise built like ConfirmDialog (components/ui/confirm-dialog.tsx), and for
+ * the same reasons: `useModalGuard`, `role="dialog"` so Tab stays inside, Escape
  * closes and stops there, and focus lands on CANCEL so a stray Enter deletes
  * nothing.
  */
@@ -45,17 +49,15 @@ export function DeleteMessageDialog({
     return () => window.clearTimeout(t);
   }, [open]);
 
-  // Opened only by a click, so it is never open on the server render; the
-  // `document` test just keeps the portal call SSR-safe without a mounted flag.
-  if (!open || typeof document === "undefined") return null;
+  if (!open) return null;
 
   // button-shape: exempt -- the client's WhatsApp delete dialog (screenshot 105236): full-width outlined pills, which Button's 8px corners cannot draw
   const PILL =
-    "flex h-11 w-full items-center justify-center rounded-full border border-border bg-surface text-[14.5px] font-medium transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60";
+    "flex h-[30px] w-full items-center justify-center rounded-full border border-border bg-surface text-[12.5px] font-medium transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60";
 
-  return createPortal(
+  return (
     <div
-      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/40 p-6"
+      className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onCancel();
       }}
@@ -71,12 +73,12 @@ export function DeleteMessageDialog({
           e.stopPropagation();
           onCancel();
         }}
-        className="w-full max-w-[19rem] rounded-3xl bg-surface px-5 pb-2.5 pt-6 text-center shadow-xl focus:outline-none"
+        className="w-full max-w-[13rem] rounded-[14px] bg-surface px-2.5 pb-1 pt-3 text-center shadow-xl focus:outline-none"
       >
-        <h2 id="delete-message-title" className="mb-5 text-xl text-foreground">
+        <h2 id="delete-message-title" className="mb-2.5 text-sm font-medium text-foreground">
           Delete message?
         </h2>
-        <div className="grid gap-2.5">
+        <div className="grid gap-1">
           {canEveryone && (
             // button-shape: exempt -- see PILL above
             <button type="button" disabled={isPending} onClick={onEveryone} className={cn(PILL, "text-danger")}>
@@ -92,13 +94,12 @@ export function DeleteMessageDialog({
             ref={cancelRef}
             type="button"
             onClick={onCancel}
-            className="flex h-11 w-full items-center justify-center rounded-full text-[14.5px] font-medium text-primary transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex h-[30px] w-full items-center justify-center rounded-full text-[12.5px] font-medium text-primary transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             Cancel
           </button>
         </div>
       </div>
-    </div>,
-    document.body,
+    </div>
   );
 }

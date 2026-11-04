@@ -12,6 +12,7 @@ import {
   Pencil,
   Pin,
   PinOff,
+  Smile,
   SmilePlus,
   Trash2,
 } from "lucide-react";
@@ -100,6 +101,21 @@ export function MessageItem({
   // (user 2026-11-03, the mobile reactions artifact). There is no hover on touch.
   const [sheet, setSheet] = useState(false);
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const holdFired = useRef(false);
+  const holdStart = useRef<{ x: number; y: number } | null>(null);
+  // PHONE TAP (user 2026-11-04, the Pulse hover-react board): a short tap on a
+  // bubble shows its ⌄ and smiley, the touch stand-in for hover; a tap anywhere
+  // else hides them again. Press and hold still opens the sheet.
+  const [tapped, setTapped] = useState(false);
+  const rowRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!tapped) return;
+    const onDown = (e: PointerEvent) => {
+      if (!rowRef.current?.contains(e.target as Node)) setTapped(false);
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, [tapped]);
   useModalGuard(sheet);
   useEffect(() => {
     if (!sheet) return;
@@ -161,7 +177,10 @@ export function MessageItem({
         ref={setPickerAnchor}
         className={cn(
           "inline-flex shrink-0 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100",
-          "has-[[aria-expanded=true]]:opacity-100 [@media(hover:none)]:opacity-100",
+          // A channel row keeps its ⌄ always visible on touch; a bubble shows it
+          // only once tapped (the touch stand-in for hover).
+          "has-[[aria-expanded=true]]:opacity-100",
+          bubble ? tapped && "opacity-100" : "[@media(hover:none)]:opacity-100",
           reacting && "opacity-100",
         )}
       >
@@ -170,7 +189,9 @@ export function MessageItem({
           trigger={<ChevronDown className="h-[18px] w-[18px]" strokeWidth={2.2} aria-hidden />}
           triggerClassName="inline-flex h-[18px] w-5 items-center justify-center rounded text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           items={menuItems}
-          menuWidth={200}
+          // Compact (user 2026-11-04, the Pulse compact-popups board).
+          compact
+          menuWidth={156}
         />
         {reacting && actions.onReact && (
           <EmojiPicker
@@ -192,7 +213,7 @@ export function MessageItem({
   // the last line, so a short message is one slim line; anything that follows
   // the text (files, reactions, a poll) puts it on its own line at the bottom.
   const timeInText =
-    !!bubble && !deleted && !editing && !card && !!m.body && m.attachments.length === 0 && m.reactions.length === 0 && m.reply_count === 0;
+    !!bubble && !deleted && !editing && !card && !!m.body && m.attachments.length === 0 && m.reply_count === 0;
   function metaLine(inText: boolean) {
     return (
       <span
@@ -213,7 +234,10 @@ export function MessageItem({
             <Check className="h-[14px] w-[14px]" aria-label="Sent" />
           )
         )}
-        {menu}
+        {/* THE ⌄ AFTER THE TIME (user 2026-11-04, the Pulse compact-bubbles board):
+            a 20px slot that is ALWAYS there, so the ⌄ only fades in on hover and
+            nothing in the bubble moves or is covered. */}
+        {menu && <span className="inline-flex w-5 shrink-0 justify-center">{menu}</span>}
       </span>
     );
   }
@@ -264,7 +288,7 @@ export function MessageItem({
         <ul
           className={cn(
             bubble ? "absolute -bottom-3.5 z-10 flex gap-0.5" : "mt-1 flex flex-wrap gap-1",
-            bubble && (mine ? "right-2" : "left-2"),
+            bubble && (mine ? "right-1.5" : "left-1.5"),
           )}
           aria-label="Reactions"
         >
@@ -282,15 +306,17 @@ export function MessageItem({
                 aria-label={`${emojiName(r.emoji)}, ${r.count} ${r.count === 1 ? "reaction" : "reactions"}: ${who}${r.mine ? ". Press to remove yours" : ""}`}
                 className={cn(
                   "flex items-center gap-1 rounded-full border text-xs",
-                  bubble ? "h-6 border-2 border-surface px-1.5 text-[14px] shadow-[0_1px_2px_rgba(13,15,19,.2)]" : "px-2 py-0.5",
+                  // A bubble's chip: 22px, one line, a soft shadow and no thick ring
+                  // (user 2026-11-04, the Pulse compact-bubbles board).
+                  bubble ? "h-[22px] gap-0.5 whitespace-nowrap px-[5px] text-[13px] leading-none shadow-[0_1px_2px_rgba(11,20,26,.18)]" : "px-2 py-0.5",
                   r.mine ? "border-primary bg-primary-soft text-primary" : "border-border bg-surface text-foreground",
-                  bubble && !r.mine && "border-surface",
+                  bubble && !r.mine && "border-transparent",
                   canAct && "hover:border-primary",
                 )}
               >
                 <span aria-hidden>{r.emoji}</span>
                 {(!bubble || r.count > 1) && (
-                  <span className="text-xs tabular-nums" aria-hidden>
+                  <span className={cn("tabular-nums", bubble ? "text-[11px] text-muted-foreground" : "text-xs")} aria-hidden>
                     {r.count}
                   </span>
                 )}
@@ -332,6 +358,7 @@ export function MessageItem({
     const showWho = bubble === "group" && !mine;
     return (
       <div
+        ref={rowRef}
         id={`msg-${m.id}`}
         className={cn(
           "group relative flex scroll-mt-16 items-end gap-2 px-3",
@@ -368,18 +395,42 @@ export function MessageItem({
             sticker
               ? "bg-transparent px-0 shadow-none [&_.text-muted-foreground]:text-muted-foreground"
               : mine
-              ? "border border-[color-mix(in_srgb,var(--primary)_28%,var(--surface))] bg-[color-mix(in_srgb,var(--primary)_14%,var(--surface))] text-[color-mix(in_srgb,var(--primary)_35%,var(--foreground))] shadow-[0_1px_2px_rgba(13,15,19,.06)] [&_.text-foreground]:text-[color-mix(in_srgb,var(--primary)_35%,var(--foreground))] [&_.text-muted-foreground]:text-[color-mix(in_srgb,var(--primary)_55%,var(--muted-foreground))]"
+              ? // SOFT PEACH SANDAL (user 2026-11-04, the Pulse bubble-colour
+                // board): a sent bubble is #FFF8F1 with a #F3E3D3 hairline in the
+                // light theme, whatever the topbar colour; replies stay white.
+                // Dark keeps the theme-colour mix above, since a near-white
+                // bubble would glare on the dark wall.
+                "border border-[#f3e3d3] bg-[#fff8f1] text-foreground shadow-[0_1px_2px_rgba(13,15,19,.06)] dark:border-[color-mix(in_srgb,var(--primary)_28%,var(--surface))] dark:bg-[color-mix(in_srgb,var(--primary)_14%,var(--surface))] dark:text-[color-mix(in_srgb,var(--primary)_35%,var(--foreground))] dark:[&_.text-foreground]:text-[color-mix(in_srgb,var(--primary)_35%,var(--foreground))] dark:[&_.text-muted-foreground]:text-[color-mix(in_srgb,var(--primary)_55%,var(--muted-foreground))]"
               : "border border-border bg-surface shadow-[0_1px_2px_rgba(13,15,19,.06)]",
             // The first bubble of a run points at its sender.
             !sticker && !grouped && (mine ? "rounded-br-[4px]" : "rounded-bl-[4px]"),
           )}
           onPointerDown={(e) => {
             if (e.pointerType !== "touch" || !canAct || menuItems.length === 0 || deleted || editing) return;
-            holdTimer.current = setTimeout(() => setSheet(true), 400);
+            holdFired.current = false;
+            holdStart.current = { x: e.clientX, y: e.clientY };
+            holdTimer.current = setTimeout(() => {
+              holdFired.current = true;
+              setSheet(true);
+            }, 400);
           }}
-          onPointerUp={() => holdTimer.current && clearTimeout(holdTimer.current)}
-          onPointerCancel={() => holdTimer.current && clearTimeout(holdTimer.current)}
-          onPointerMove={() => holdTimer.current && clearTimeout(holdTimer.current)}
+          onPointerUp={(e) => {
+            if (holdTimer.current) clearTimeout(holdTimer.current);
+            // A short tap (the hold never fired) shows the ⌄ and smiley.
+            if (e.pointerType === "touch" && holdTimer.current && !holdFired.current) setTapped((v) => !v);
+            holdTimer.current = null;
+          }}
+          onPointerCancel={() => {
+            if (holdTimer.current) clearTimeout(holdTimer.current);
+            holdTimer.current = null;
+          }}
+          onPointerMove={(e) => {
+            // A scroll is not a tap or a hold; a finger's few-pixel wobble is.
+            const s = holdStart.current;
+            if (!holdTimer.current || !s || Math.hypot(e.clientX - s.x, e.clientY - s.y) < 8) return;
+            clearTimeout(holdTimer.current);
+            holdTimer.current = null;
+          }}
           onContextMenu={(e) => {
             if (sheet || holdTimer.current) e.preventDefault();
           }}
@@ -394,7 +445,8 @@ export function MessageItem({
         </div>
         {canAct && actions.onReact && !deleted && !editing && !sticker && (
           <>
-            {/* button-shape: exempt -- WhatsApp's round hover smiley beside a bubble (user 2026-11-03), an icon chip rather than an action button */}
+            {/* button-shape: exempt -- WhatsApp's round hover smiley beside a bubble (user 2026-11-03), an icon chip rather than an action button.
+                THE CLIENT'S ICON (2026-11-04, screenshot 122815): a 32px white circle, a plain grey smiley, no border; on a phone it shows once the bubble is tapped. */}
             <button
               type="button"
               aria-label="React"
@@ -402,12 +454,12 @@ export function MessageItem({
               onClick={() => setQuick((o) => !o)}
               aria-expanded={quick}
               className={cn(
-                "mb-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border bg-surface text-muted-foreground shadow-sm transition-opacity hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                "mb-1 flex h-7 w-7 shrink-0 items-center justify-center self-center rounded-full bg-surface/85 text-[#8696a0] shadow-[0_1px_2px_rgba(11,20,26,.12)] transition-opacity hover:text-[#54656f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:text-muted-foreground",
                 mine ? "order-first" : "order-last",
-                quick || hoverReact ? "opacity-100" : "opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 max-md:hidden",
+                quick || hoverReact || tapped ? "opacity-100" : "opacity-0 group-focus-within:opacity-100 group-hover:opacity-100",
               )}
             >
-              <SmilePlus className="h-4 w-4" aria-hidden />
+              <Smile className="h-[19px] w-[19px]" strokeWidth={1.6} aria-hidden />
             </button>
             {quick && (
               <div
@@ -458,12 +510,12 @@ export function MessageItem({
             )}
             {sheet && (
               <div
-                className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-black/45 px-4"
+                className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-2 bg-black/45 px-4"
                 onClick={(e) => {
                   if (e.target === e.currentTarget) setSheet(false);
                 }}
               >
-                <div role="menu" aria-label="Quick reactions" className="flex items-center gap-0.5 rounded-full bg-surface px-2 py-1.5 shadow-xl">
+                <div role="menu" aria-label="Quick reactions" className="flex items-center rounded-full bg-surface px-1.5 py-1 shadow-xl">
                   {QUICK_REACTIONS.map((e) => {
                     const wearing = m.reactions.some((r) => r.emoji === e && r.mine);
                     return (
@@ -477,7 +529,7 @@ export function MessageItem({
                           setSheet(false);
                           actions.onReact?.(m, e, !wearing);
                         }}
-                        className={cn("flex h-11 w-11 items-center justify-center rounded-full text-[26px] active:scale-125", wearing && "bg-primary-soft")}
+                        className={cn("flex h-8 w-8 items-center justify-center rounded-full text-xl active:scale-125", wearing && "bg-primary-soft")}
                       >
                         {e}
                       </button>
@@ -491,15 +543,16 @@ export function MessageItem({
                       const btn = ev.currentTarget;
                       setHoverReact((cur) => (cur ? null : btn));
                     }}
-                    className="ml-0.5 flex h-10 w-10 items-center justify-center rounded-full bg-surface-muted text-xl text-muted-foreground"
+                    className="ml-0.5 flex h-7 w-7 items-center justify-center rounded-full bg-surface-muted text-base text-muted-foreground"
                   >
                     +
                   </button>
                 </div>
                 {m.body && (
-                  <p className="max-h-32 max-w-sm overflow-hidden rounded-xl bg-surface px-3 py-2 text-[14.5px] shadow-lg">{plainText(m.body, names)}</p>
+                  <p className="max-h-32 max-w-sm overflow-hidden rounded-[10px] bg-surface px-2.5 py-1.5 text-[13.5px] shadow-lg">{plainText(m.body, names)}</p>
                 )}
-                <ul className="w-60 overflow-hidden rounded-2xl bg-surface shadow-xl">
+                {/* COMPACT (user 2026-11-04): 38px rows, still a thumb's target. */}
+                <ul className="w-44 overflow-hidden rounded-xl bg-surface shadow-xl">
                   {menuItems
                     .filter((it) => it.label !== "React")
                     .map((it) => {
@@ -512,7 +565,7 @@ export function MessageItem({
                               setSheet(false);
                               it.onClick?.();
                             }}
-                            className={cn("flex w-full items-center gap-3 px-4 py-3 text-left text-[15px]", it.danger ? "text-danger" : "text-foreground")}
+                            className={cn("flex h-[38px] w-full items-center gap-2.5 px-3.5 text-left text-[13.5px]", it.danger ? "text-danger" : "text-foreground")}
                           >
                             {Icon && <Icon className="h-4 w-4" aria-hidden />}
                             {it.label}
@@ -545,31 +598,37 @@ export function MessageItem({
     );
   }
 
+  // CHANNEL ROWS, COMPACT (user 2026-11-04, the Pulse channel-page board): a
+  // 30px avatar in the person's own colour (their photo when they have one),
+  // a 13px name, 13.5px text and 9px between them. On a laptop React, Reply in
+  // thread and the ⌄ float as a small toolbar over the row under the mouse; on
+  // a touch screen the ⌄ stays at the row's end, as before.
   return (
     <div
       id={`msg-${m.id}`}
       className={cn(
-        "group relative flex scroll-mt-16 gap-3 rounded-md px-3 hover:bg-surface-muted/60 focus-within:bg-surface-muted/60",
-        grouped ? "py-0.5" : "pt-2 pb-0.5",
+        "group relative flex scroll-mt-16 gap-[9px] px-3 hover:bg-surface-muted/60 focus-within:bg-surface-muted/60 [&_.text-sm]:text-[13.5px] [&_.text-sm]:leading-[1.45]",
+        grouped ? "py-px" : "pb-px pt-1.5",
         highlight && "bg-warning-soft ring-2 ring-warning/60 transition-colors",
       )}
     >
-      <div className="w-8 shrink-0">
+      <div className="w-[30px] shrink-0">
         {!grouped && (
           <span
             aria-hidden
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-soft text-xs font-semibold text-primary"
+            style={avatarStyle(author)}
+            className={cn("mt-0.5 flex h-[30px] w-[30px] items-center justify-center overflow-hidden rounded-full text-[11px] font-bold", AVATAR_TINT)}
           >
-            {initials(author)}
+            {authorPhoto ? <PhotoImg src={authorPhoto} /> : initials(author)}
           </span>
         )}
       </div>
 
       <div className="min-w-0 flex-1">
         {!grouped && (
-          <div className="flex items-baseline gap-2">
-            <span className="text-sm font-semibold text-foreground">{author}</span>
-            <time dateTime={m.created_at} className="text-xs text-muted-foreground">
+          <div className="flex items-baseline gap-[7px]">
+            <span className="text-[13px] font-bold text-foreground">{author}</span>
+            <time dateTime={m.created_at} className="text-[11px] tabular-nums text-muted-foreground">
               {clockTime(m.created_at)}
             </time>
             {m.pinned && (
@@ -583,7 +642,42 @@ export function MessageItem({
         {content}
       </div>
 
-      {menu && <div className="shrink-0 pt-1">{menu}</div>}
+      {menu && (
+        <div
+          className={cn(
+            "flex shrink-0 items-center gap-0.5 self-start pt-1",
+            "md:absolute md:-top-3 md:right-2 md:z-10 md:rounded-lg md:border md:border-border md:bg-surface md:p-0.5 md:shadow-sm",
+            "md:opacity-0 md:transition-opacity md:group-hover:opacity-100 md:group-focus-within:opacity-100 md:has-[[aria-expanded=true]]:opacity-100",
+            reacting && "md:opacity-100",
+          )}
+        >
+          {canAct && actions.onReact && !deleted && !editing && (
+            // button-shape: exempt -- an icon square in the row's hover toolbar
+            <button
+              type="button"
+              aria-label="React"
+              title="React"
+              onClick={() => setReacting(true)}
+              className="hidden h-[26px] w-[26px] items-center justify-center rounded-md text-muted-foreground hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:inline-flex"
+            >
+              <Smile className="h-[15px] w-[15px]" aria-hidden />
+            </button>
+          )}
+          {canAct && actions.onReply && !m.parent_id && !deleted && !editing && (
+            // button-shape: exempt -- an icon square in the row's hover toolbar
+            <button
+              type="button"
+              aria-label="Reply in thread"
+              title="Reply in thread"
+              onClick={() => actions.onReply!(m)}
+              className="hidden h-[26px] w-[26px] items-center justify-center rounded-md text-muted-foreground hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:inline-flex"
+            >
+              <MessageSquareReply className="h-[15px] w-[15px]" aria-hidden />
+            </button>
+          )}
+          <span className="md:flex md:h-[26px] md:w-[26px] md:items-center md:justify-center">{menu}</span>
+        </div>
+      )}
     </div>
   );
 }

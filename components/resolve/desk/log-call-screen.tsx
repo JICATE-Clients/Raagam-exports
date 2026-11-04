@@ -206,7 +206,7 @@ export function LogCallScreen({
   // ONE return, branching inside it — every hook sits above this line
   // (AGENTS "Hooks above every early return").
   return (
-    <div className="w-full max-w-[40rem]">
+    <div className="w-full max-w-[44rem]">
       {logged ? (
         <Receipt r={logged} onNext={() => setLogged(null)} />
       ) : solved ? (
@@ -232,8 +232,21 @@ export function LogCallScreen({
           onSubmit={submit}
           // ONE MARKER, NEVER A HANDLER — a page form joins the Tab/Enter contract.
           data-focus-scope
-          className="space-y-4"
+          // ONE COMPACT CARD (user 2026-11-04, the Note a Phone Call board): a
+          // header, the questions packed two to a row where they fit, and a
+          // footer that reads back what will be saved beside Log the call.
+          className="overflow-clip rounded-xl border border-border bg-surface shadow-sm"
         >
+          <header className="flex items-center gap-2.5 border-b border-border px-3 py-2">
+            <span className={cn("flex size-7 flex-none items-center justify-center rounded-lg", IT.tile)} aria-hidden="true">
+              <PhoneCall className="size-3.5" />
+            </span>
+            <span className="text-sm font-bold text-foreground">Note a phone call</span>
+            <span className="ml-auto text-xs text-muted-foreground">Goes to the IT desk queue</span>
+          </header>
+          <div className="space-y-2.5 px-3 pb-3 pt-2.5">
+          {/* Caller and channel share the first row from md up. */}
+          <div className="grid gap-2.5 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
           <Field
             label="Who is calling?"
             required
@@ -243,15 +256,16 @@ export function LogCallScreen({
             <Combobox options={peopleOptions} value={requesterId} onChange={setRequesterId} />
           </Field>
 
-          <Field label="Came in by" className="w-full">
+          <Field label="Came in by">
             <ToggleGroup<DeskChannel>
               label="Came in by"
               value={channel}
               onChange={setChannel}
-              className="w-full [&>button]:flex-1 [&>button]:justify-center"
+              className="max-md:w-full max-md:[&>button]:flex-1 max-md:[&>button]:justify-center"
               options={DESK_CHANNELS.map((c) => ({ value: c, label: SOURCE_LABEL[c], icon: CHANNEL_ICON[c] }))}
             />
           </Field>
+          </div>
 
           {catalog ? (
             <Field
@@ -335,10 +349,11 @@ export function LogCallScreen({
             />
           ) : null}
 
+          {/* Impact and the note share a row from md up. */}
+          <div className="grid gap-2.5 md:grid-cols-[auto_minmax(0,1fr)] md:items-start">
           <Field
             label="How much does it stop them?"
             required
-            className="w-full"
             error={attempted && missing.impact ? "Ask how much this stops them working." : undefined}
           >
             <Segmented<Impact | "">
@@ -347,7 +362,7 @@ export function LogCallScreen({
               onChange={setImpact}
               options={IMPACT_OPTIONS}
               disabled={isPending}
-              className="w-full [&>label]:flex-1 [&>label]:justify-center"
+              className="max-md:w-full max-md:[&>label]:flex-1 max-md:[&>label]:justify-center"
             />
           </Field>
 
@@ -356,15 +371,29 @@ export function LogCallScreen({
             className="w-full"
             error={attempted && missing.description ? "Say what happened, or what they need." : undefined}
           >
-            <Textarea value={note} maxLength={4000} rows={2} onChange={(e) => setNote(e.target.value)} />
+            {/* One line until it is used; it grows as the agent types. */}
+            <Textarea value={note} maxLength={4000} rows={1} onChange={(e) => setNote(e.target.value)} className="min-h-9 focus:min-h-14" />
           </Field>
+          </div>
 
           {serverError ? <FieldError>{serverError}</FieldError> : null}
+          </div>
 
           {/* DOCKED ON A PHONE, above the bottom tab bar — the same offset the
               Raagam Assist answer bar uses — so the one action is always under
               the thumb. From md up it is the form's ordinary footer. */}
-          <div className="sticky bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-10 -mx-3 border-t border-border bg-surface px-3 py-2.5 md:static md:mx-0 md:flex md:justify-end md:px-0 md:pb-0 md:pt-3">
+          <div className="sticky bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-10 border-t border-border bg-surface-muted px-3 py-2 md:static md:flex md:items-center md:gap-3">
+            {/* PHONE: the docked bar holds only the button (user 2026-11-04, screenshot
+                153443: a two-line bar covered the Note field while scrolling); the
+                fields' own "Pick…" messages say what is missing there.
+                WHAT WILL BE SAVED, read back before the click; a blank answer
+                says what is still missing, in the same words the hold uses. */}
+            <p className="hidden min-w-0 flex-1 flex-wrap items-center gap-1 text-xs md:flex" aria-live="polite">
+              <SumChip value={people.find((p) => p.id === requesterId)?.name} missing="caller?" />
+              <SumChip value={SOURCE_LABEL[channel]} />
+              <SumChip value={title || area?.label} missing="topic?" />
+              <SumChip value={IMPACT_OPTIONS.find((o) => o.value === impact)?.label} missing="impact?" />
+            </p>
             <Button type="submit" disabled={isPending} className="w-full md:w-auto">
               <PhoneCall className="h-4 w-4" aria-hidden />
               {isPending ? "Logging…" : "Log the call"}
@@ -396,17 +425,18 @@ function PickGrid({
 }) {
   return (
     <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+      {/* COMPACT CHIPS (user 2026-11-04): 32px, a 20px icon tile, 12.5px text. */}
       {options.map((o) => {
         const Glyph = o.danger ? TriangleAlert : o.icon;
         return (
           <label
             key={o.value}
             className={cn(
-              "flex min-h-10 w-full min-w-0 cursor-pointer items-center gap-2 rounded-xl border border-border bg-surface py-1.5 pr-2.5 text-left text-[13px] font-medium leading-4 shadow-sm",
-              "transition duration-150 hover:-translate-y-px hover:shadow-md active:translate-y-0 active:scale-[0.97]",
+              "flex min-h-8 w-full min-w-0 cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-surface py-1 pr-2 text-left text-[12.5px] font-medium leading-4",
+              "transition-colors duration-150 active:scale-[0.98]",
               "has-focus-visible:outline-2 has-focus-visible:outline-ring",
               "has-checked:border-sky-500 has-checked:bg-sky-50 has-checked:ring-1 has-checked:ring-sky-500 dark:has-checked:bg-sky-400/10",
-              Glyph ? "pl-1.5" : "pl-3",
+              Glyph ? "pl-1.5" : "pl-2.5",
               o.danger ? "border-red-200 hover:border-red-400 dark:border-red-500/30" : IT.ring,
             )}
           >
@@ -421,12 +451,12 @@ function PickGrid({
             {Glyph && (
               <span
                 className={cn(
-                  "flex size-7 flex-none items-center justify-center rounded-lg",
+                  "flex size-5 flex-none items-center justify-center rounded-[5px]",
                   o.danger ? "bg-red-100 text-red-700 dark:bg-red-400/15 dark:text-red-300" : IT.tile,
                 )}
                 aria-hidden="true"
               >
-                <Glyph className="size-3.5" />
+                <Glyph className="size-3" />
               </span>
             )}
             <span className="min-w-0">{o.label}</span>
@@ -434,6 +464,16 @@ function PickGrid({
         );
       })}
     </div>
+  );
+}
+
+/** One answer in the footer's read-back: the value, or what is still missing. */
+function SumChip({ value, missing }: { value?: string | null; missing?: string }) {
+  if (!value && !missing) return null;
+  return value ? (
+    <span className="rounded-md border border-border bg-surface px-1.5 py-px font-medium text-foreground">{value}</span>
+  ) : (
+    <span className="rounded-md border border-dashed border-danger/50 px-1.5 py-px text-danger">{missing}</span>
   );
 }
 

@@ -371,7 +371,7 @@ export function PlacesScreen({
         <div
           role="region"
           aria-label="Print stickers"
-          className="sticky bottom-0 z-10 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2 shadow-sm"
+          className="sticky bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-10 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2 shadow-sm md:bottom-0"
         >
           <span className="mr-auto text-sm font-semibold">
             {selecting

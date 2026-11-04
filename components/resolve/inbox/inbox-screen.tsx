@@ -149,7 +149,7 @@ export function InboxScreen(props: InboxScreenProps) {
   const lateMine = resolverLists?.mine.filter((r) => r.group === "late").length ?? 0;
 
   return (
-    <div className="grid h-[calc(100dvh-8.5rem)] min-h-[34rem] overflow-hidden rounded-xl border border-border bg-surface md:grid-cols-[22rem_minmax(0,1fr)]">
+    <div className="grid h-[calc(100dvh-11rem-env(safe-area-inset-bottom))] min-h-[26rem] overflow-hidden md:h-[calc(100dvh-10.5rem)] md:min-h-[34rem] rounded-xl border border-border bg-surface md:grid-cols-[22rem_minmax(0,1fr)]">
       {/* ---- the list ---- */}
       <section
         aria-label={mode === "resolver" ? "Inbox" : "My requests"}
@@ -264,14 +264,14 @@ export function InboxScreen(props: InboxScreenProps) {
                           {r.sub && <Truncated text={`· ${r.sub}`} className="min-w-0" />}
                         </span>
                       </span>
-                      <span className={cn(mode === "resolver" && tab === "take" && "md:group-hover:hidden")}>
+                      <span className={cn(mode === "resolver" && tab === "take" && "[@media(hover:hover)]:md:group-hover:hidden")}>
                         {r.yourTurn ? <Clock tone="ok">Your turn</Clock> : <Clock tone={r.clockTone}>{r.clock}</Clock>}
                       </span>
                     </button>
                     {mode === "resolver" && tab === "take" && (
                       <Button
                         size="sm"
-                        className="mr-2 flex-none md:hidden md:group-hover:inline-flex"
+                        className="mr-2 flex-none [@media(hover:hover)]:md:hidden [@media(hover:hover)]:md:group-hover:inline-flex"
                         onClick={() => take(r)}
                         disabled={isPending}
                       >
