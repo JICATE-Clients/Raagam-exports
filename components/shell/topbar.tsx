@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Bug, Check, ChevronDown, ChevronRight, LogOut, MapPin, Monitor, Moon, Search, Sun, Type, UserRound } from "lucide-react";
 import { signOut } from "@/lib/auth/actions";
 import { setCurrentLocation } from "@/lib/auth/location-actions";
@@ -75,6 +75,12 @@ export function Topbar({
   const user = useAppUser();
   const search = useSearch();
   const router = useRouter();
+  // THE PHONE HOME IS A BLUE BAND (user 2026-11-04, mock-up
+  // https://claude.ai/artifact/1wBnFsT36NUb6LBasuGSxm v2, "this is only for mobile view").
+  // On "/" this bar becomes the top of that band: "Hi, <name>!", the unit, and white
+  // Search / bell / account. The band continues into the page (`MobileHome`'s first
+  // element) and the order-book card overlaps it. Every other route keeps the white bar.
+  const home = usePathname() === "/";
   const [menuOpen, setMenuOpen] = useState(false);
   const { theme, setTheme } = useTheme();
   const appearance = useAppearanceItems();
@@ -187,7 +193,13 @@ export function Topbar({
     // the sidebar; search, appearance and the bell to the end of
     // `WorkspaceTabsBar`, which is now the work panel's first row. The
     // Location row above the tabs was the "orphaned" strip the user reported.
-    <header data-topbar="" className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-surface px-4 md:hidden">
+    <header
+      data-topbar=""
+      className={cn(
+        "flex shrink-0 items-center justify-between px-4 md:hidden",
+        home ? "h-16 bg-[#0a2e4d] text-white" : "h-14 border-b border-border bg-surface",
+      )}
+    >
       {/* `BAR_CONTROL` (top of file) is the ONE size every control in this bar
           takes — Location, the role preview, Search. See its own note. */}
       {/* Location switcher (two GST entities) */}
@@ -195,7 +207,20 @@ export function Topbar({
           and cannot give a pixel back, which is half of why the bar had a hard
           378px floor (see the Select's own note). */}
       <div className="flex min-w-0 items-center gap-2">
-        <span className="hidden text-xs text-muted-foreground sm:inline">
+        {home && (
+          <div className="flex min-w-0 items-center gap-2.5">
+            <span className="grid size-10 shrink-0 place-items-center rounded-full border-2 border-white/70 bg-gradient-to-br from-brand-green to-[#5aa61b] text-base font-extrabold text-white">
+              {(user.fullName ?? user.email ?? "?").charAt(0).toUpperCase()}
+            </span>
+            <span className="min-w-0">
+              <span className="block truncate text-lg font-bold leading-tight">
+                Hi, {user.fullName?.split(" ")[0] ?? "there"}!
+              </span>
+              {current && <span className="block truncate text-xs text-[#b9d6ec]">{current.name}</span>}
+            </span>
+          </div>
+        )}
+        <span className={cn("hidden text-xs text-muted-foreground", !home && "sm:inline")}>
           Location
         </span>
         {/* `className` IS THE WRAPPER'S WIDTH AND NOTHING ELSE. On a desktop
@@ -324,22 +349,42 @@ export function Topbar({
         )}
       </div>
 
-      <div className="flex items-center gap-1">
-        <NotificationsBell />
+      <div className="flex items-center gap-1.5">
+        {home && (
+          <button
+            type="button"
+            onClick={() => search.open()}
+            aria-label="Search"
+            className="grid size-9 place-items-center rounded-control bg-white/12 text-white hover:bg-white/20"
+          >
+            <Search className="h-[18px] w-[18px]" />
+          </button>
+        )}
+        <NotificationsBell onDark={home} />
 
         <div className="relative">
+          {/* On the home band the avatar is already the greeting's, so the menu
+              trigger is a plain chevron — same menu, one face on screen. */}
           <button
             type="button"
             onClick={() => setMenuOpen((o) => !o)}
-            className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-surface-muted"
+            aria-label="Account menu"
+            className={cn(
+              "flex items-center gap-2 rounded-md text-sm",
+              home ? "grid size-9 place-items-center bg-white/12 text-white hover:bg-white/20" : "px-2 py-1.5 hover:bg-surface-muted",
+            )}
           >
-            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-              {(user.fullName ?? user.email ?? "?").charAt(0).toUpperCase()}
-            </span>
-            <span className="hidden max-w-[10rem] truncate sm:inline">
-              {user.fullName ?? user.email}
-            </span>
-            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+            {!home && (
+              <>
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                  {(user.fullName ?? user.email ?? "?").charAt(0).toUpperCase()}
+                </span>
+                <span className="hidden max-w-[10rem] truncate sm:inline">
+                  {user.fullName ?? user.email}
+                </span>
+              </>
+            )}
+            <ChevronDown className={cn("h-3.5 w-3.5", home ? "text-white" : "text-muted-foreground")} />
           </button>
 
           {menuOpen && (

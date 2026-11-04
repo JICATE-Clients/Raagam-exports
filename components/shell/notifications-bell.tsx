@@ -19,7 +19,8 @@ const TONE: Record<NotificationType, StatusTone> = {
   danger: "danger",
 };
 
-export function NotificationsBell() {
+/** `onDark`: the trigger sits on the phone home's blue band (2026-11-04), so it is white. */
+export function NotificationsBell({ onDark = false }: { onDark?: boolean } = {}) {
   const { items, unreadCount, loading, markRead, markAllRead } = useNotifications();
   const [open, setOpen] = useState(false);
   // Module grain on purpose: the bell sits on every screen, and the screen in
@@ -52,12 +53,15 @@ export function NotificationsBell() {
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="relative flex h-9 w-9 items-center justify-center rounded-control text-muted-foreground hover:bg-surface-muted"
+        className={cn(
+          "relative flex h-9 w-9 items-center justify-center rounded-control",
+          onDark ? "bg-white/12 text-white hover:bg-white/20" : "text-muted-foreground hover:bg-surface-muted",
+        )}
         aria-label={`Notifications${unreadCount ? ` (${unreadCount} unread)` : ""}`}
       >
-        <Bell className="h-4 w-4" />
+        <Bell className={onDark ? "h-[18px] w-[18px]" : "h-4 w-4"} />
         {unreadCount > 0 && (
-          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-semibold leading-none text-white">
+          <span className={cn("absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-semibold leading-none text-white", onDark && "ring-2 ring-[#0a2e4d]")}>
             {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}
