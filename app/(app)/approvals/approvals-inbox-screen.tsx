@@ -1,7 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
-import { StatusMark } from "@/components/ui/status-mark";
+import { useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import Link from "next/link";
 import { PageHeader } from "@/components/ui/page-header";
 import { DataTable, type Column } from "@/components/ui/data-table";
@@ -16,21 +15,37 @@ import { fmtDate, fmtDateTime, fmtFixed, fmtNumber } from "@/lib/format";
 import { Sheet } from "@/components/ui/sheet";
 import { FIELD_ROW } from "@/components/ui/field";
 import { FigureCell, HighlightTile, signTone } from "../orders/budgets/budget-general";
-import { MobileCardList, type CardStat } from "@/components/masters/mobile-card-list";
 import { ApprovalActionBar } from "@/components/approvals/approval-action-bar";
 import { WORKFLOWS, WORKFLOW_LIST, workflowLabel } from "@/lib/approvals/workflows";
-import { isRefusal, type Refusal } from "@/lib/orders/material-bom/requirement";
-import type { CanActVerdict, QueueItem, StrandedRun } from "@/lib/approvals/types";
+import type { CanActVerdict, MyDecisionItem, MyRequestItem, QueueItem, StrandedRun } from "@/lib/approvals/types";
+import { ApprovalsPhoneView } from "@/components/approvals/approvals-phone-view";
+import { PoMoneyChart } from "@/components/approvals/po-money-chart";
 import { RevisionComparePanel } from "@/components/approvals/revision-compare-panel";
 import { revisionCompareAction } from "@/lib/approvals/revision-compare-actions";
 import type { RevisionCompare } from "@/lib/approvals/revision-compare";
 import { BudgetBreakdownChart } from "@/components/orders/budget-breakdown-chart";
 import type { OrderApprovalCard as OrderCardData } from "@/lib/approvals/order-approval-cards";
-import { OrderApprovalCard } from "@/components/approvals/order-approval-card";
 import type { PoApprovalCard, PoChangeCard } from "@/lib/approvals/po-approval-cards";
 import { approvePo, declinePo } from "@/lib/purchase/po-actions";
 import { ClipboardCheck } from "lucide-react";
 import { RowIconAction } from "@/components/ui/row-actions";
+
+/** A request I raised (0807), with the name of whoever made its latest decision. */
+export type RequestRow = MyRequestItem & { actor_name: string | null };
+
+/** A phone, by the same 768px line Tailwind's `md:` draws — a media query is an
+ *  external store (see `useFinePointer` in data-picker.tsx for the reasoning). */
+function useIsPhone(): boolean {
+  return useSyncExternalStore(
+    (onChange) => {
+      const mq = window.matchMedia("(max-width: 767px)");
+      mq.addEventListener("change", onChange);
+      return () => mq.removeEventListener("change", onChange);
+    },
+    () => window.matchMedia("(max-width: 767px)").matches,
+    () => false,
+  );
+}
 
 /** A queue row with the two keys `withCreators` / `withCreatedColumns` read. */
 export type QueueRow = QueueItem & {
@@ -89,7 +104,16 @@ export function ApprovalsInboxScreen({
   verdicts,
   viewToggle,
   allOpen = false,
+  requests = [],
+  decisions = [],
+  codes = {},
 }: {
+  /** My requests (0807) — the phone's status tab. Empty on All open. */
+  requests?: RequestRow[];
+  /** What I decided (0807) — the phone's Decided tab. */
+  decisions?: MyDecisionItem[];
+  /** Document numbers for queue rows with no richer card, keyed by subject id. */
+  codes?: Record<string, string>;
   /**
    * SUPER ADMIN ▸ ALL OPEN (0783) — the SAME screen over every open run, decided
    * here and never by a link out (user 2026-10-31, screenshot 3941: "don't
@@ -112,6 +136,7 @@ export function ApprovalsInboxScreen({
 }) {
   const [query, setQuery] = useState("");
   const [workflow, setWorkflow] = useState("");
+  const isPhone = useIsPhone();
   /**
    * WHICH CARD IS OPEN ON THE PHONE. A run id, never a row object — the page
    * re-renders after a decision (`router.refresh()` inside the action bar) and
@@ -403,6 +428,8 @@ export function ApprovalsInboxScreen({
         </div>
       )}
 
+      {/* Desktop's search + Document facet. The phone filters by its type chips. */}
+      <div className="hidden md:block">
       <FilterBar
         search={query}
         onSearch={setQuery}
@@ -427,6 +454,7 @@ export function ApprovalsInboxScreen({
           </Select>
         </div>
       </FilterBar>
+      </div>
 
       {/* The Created pair is the requester and when they raised it — mapped onto
           `created_at` / `created_by` in the page so the app's one helper renders
@@ -474,100 +502,26 @@ export function ApprovalsInboxScreen({
         * `MobileCardList`'s own header asks for that, so a caller wanting cards
         * at every width simply omits the wrapper.
         */}
-      <div className="space-y-3 md:hidden">
-        {/* AN ORDER BUDGET IS AN ORDER CARD, WITH THE DECISION ON IT (client
-            2026-09-29, "MD Approval Screen in Mobile View"): the order, the
-            cost bar, the margin against the 15% line, V0 vs the proposal per
-            piece, and Approve · Request Rework — decided from the queue
-            without opening anything. "View full sheet" still opens the
-            revision detail below. Every other workflow keeps the list card. */}
-        {filtered
-          .filter((r) => budgets[r.subject_id])
-          .map((r) => (
-            <OrderApprovalCard
-              key={r.run_id}
-              card={budgets[r.subject_id]}
-              waited={waited(r.waiting_hours)}
-              overdue={r.is_overdue}
-              onOpenSheet={verdicts[r.run_id] ? () => openDecision(r) : undefined}
-              actions={
-                verdicts[r.run_id] ? (
-                  <ApprovalActionBar
-                    run={{ id: r.run_id, lock_version: r.lock_version, status: "in_progress" }}
-                    verdict={verdicts[r.run_id]}
-                    subjectPath="/approvals"
-                    rework
-                    compact
-                  />
-                ) : undefined
-              }
-            />
-          ))}
-        {(filtered.some((r) => !budgets[r.subject_id]) || filtered.length === 0) && (
-        <MobileCardList<QueueRow>
-          rows={filtered.filter((r) => !budgets[r.subject_id])}
-          getKey={(r) => r.run_id}
-          /* A BUDGET CARD LEADS WITH ITS RE NO (client 2026-09-24) — the number
-             the MD knows the order by — then the customer and style under it.
-             Every other workflow keeps its label. */
-          title={(r) =>
-            pos[r.subject_id]?.code ? (
-              <span className="font-mono">PO {pos[r.subject_id].code}</span>
-            ) : poChanges[r.subject_id] ? (
-              <span className="font-mono">{changeTitle(poChanges[r.subject_id])}</span>
-            ) : budgets[r.subject_id] ? (
-              <span className="font-mono">{reOf(budgets[r.subject_id]) ?? workflowLabel(r.workflow_key)}</span>
-            ) : (
-              workflowLabel(r.workflow_key)
-            )
-          }
-          subtitle={(r) => {
-            const po = pos[r.subject_id];
-            if (po) return po.vendor ? <Truncated>{po.vendor}</Truncated> : null;
-            const chg = poChanges[r.subject_id];
-            if (chg) return <Truncated>{changeLine(chg)}</Truncated>;
-            const b = budgets[r.subject_id];
-            if (!b) return null;
-            const line = [b.customer, b.styles].filter(Boolean).join(" · ");
-            return line ? <Truncated>{line}</Truncated> : b.budgetCode;
-          }}
-          pill={(r) => {
-            /* "REV #2 · PENDING" — a revision says which one, in the pill the
-               queue already reads for state. */
-            const rev = budgets[r.subject_id]?.revision;
-            const word = r.is_overdue ? "Overdue" : rev ? "Pending" : "Awaiting you";
-            // An ICON on the card, the words in its tooltip (components/ui/status-mark.tsx).
-            return <StatusMark word={rev?.revNo ? `Rev #${rev.revNo} · ${word}` : word} mark="todo" tone={r.is_overdue ? "danger" : "warning"} />;
-          }}
-          meta={(r) =>
-            `${budgets[r.subject_id] ? `${workflowLabel(r.workflow_key)} · ` : ""}Step ${r.step_order} · ${r.step_label} · waiting ${waited(r.waiting_hours)}`
-          }
-          stats={(r) =>
-            pos[r.subject_id]
-              ? poStats(pos[r.subject_id])
-              : poChanges[r.subject_id]
-                ? changeStats(poChanges[r.subject_id])
-                : cardStats(budgets[r.subject_id])
-          }
-          /* TAP THE CARD TO DECIDE. `onEdit` is the primitive's tap slot; the
-             word is historical (it opens a record) and this opens the sheet
-             that holds the figures and the three buttons. A card with no
-             verdict is not tappable at all rather than opening a sheet with
-             nothing in it — see `queueVerdicts` in the page for when that
-             happens. */
-          onEdit={(r) => (verdicts[r.run_id] ? openDecision(r) : undefined)}
-          /* WHO RAISED IT, AND WHEN — for a revision, the merchandiser who
-             raised the ENTRY and the time they did; otherwise the requester. */
-          footerNote={(r) => {
-            const rev = budgets[r.subject_id]?.revision;
-            if (rev) return `Raised by ${rev.raisedBy ?? r.created_by_name ?? "—"} · ${fmtDateTime(rev.raisedAt)}`;
-            return r.created_by_name ? `Raised by ${r.created_by_name} · ${fmtDateTime(r.started_at)}` : null;
-          }}
-          empty={allOpen ? "No approval is open anywhere right now." : "Nothing is waiting on you. Requests appear here the moment a step names you as an approver."}
+      {/* THE PHONE (user 2026-11-04, approved mockup "My Approvals Mobile"):
+          To decide · My requests · Decided, type chips, one card shape for every
+          workflow, two-tap Approve on the card, and the decision sheet below for
+          the figures, the charts and Reject / Request Rework. Desktop keeps the
+          table above, untouched. */}
+      <div className="md:hidden">
+        <ApprovalsPhoneView
+          rows={rows}
+          verdicts={verdicts}
+          budgets={budgets}
+          pos={pos}
+          poChanges={poChanges}
+          codes={codes}
+          requests={allOpen ? [] : requests}
+          decisions={allOpen ? [] : decisions}
+          allOpen={allOpen}
+          waited={waited}
+          onOpenDecision={openDecision}
         />
-        )}
       </div>
-
       {/* THE DECISION, WITH THE FIGURES STILL ON SCREEN. */}
       {decideRow && decideVerdict && (
         <Sheet
@@ -575,8 +529,11 @@ export function ApprovalsInboxScreen({
           onClose={() => setDecideOn(null)}
           /* A CENTRED CARD, NOT A FULL-SCREEN TAKEOVER, now that desktop opens it
              too ("Review & decide", 2026-10-31). Same shape as the bar's own
-             confirm: figures and three buttons need a card's width, not a page. */
+             confirm: figures and three buttons need a card's width, not a page.
+             ON A PHONE IT SLIDES UP FROM THE BOTTOM (2026-11-04) — Sheet's own
+             bottom sheet, the thumb's reach, with the buttons at the foot. */
           size="sm"
+          fullScreen={!isPhone}
           alignToPane
           title={
             decideRevision
@@ -658,6 +615,9 @@ export function ApprovalsInboxScreen({
               <PoChangeDetail card={decideChange} href={hrefFor(decideRow)} />
             ) : decidePo ? (
               <>
+                {/* THE DESKTOP PO OVERVIEW'S PICTURE, sheet-sized (user 2026-11-04:
+                    "desktop shows charts … expecting that in mobile"). */}
+                <PoMoneyChart card={decidePo} />
                 <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
                   <dt className="text-muted-foreground">Vendor</dt>
                   <dd>{decidePo.vendor ?? "—"}</dd>
@@ -807,19 +767,6 @@ export function ApprovalsInboxScreen({
   );
 }
 
-/**
- * THE FIVE FIGURES §2 NAMES, AND NOTHING ELSE.
- *
- * Profit VALUE leads: it is the number an approval is actually about, and the
- * primitive draws a lead stat at ~1.5× the rest so a thumb scrolling the queue
- * lands on it. Profit % rides beside it because a healthy value on a huge order
- * and a thin one read identically without it.
- *
- * A REFUSAL PRINTS ITS SENTENCE. `budgetFiguresOf` returns `{refused}` rather
- * than 0 when a figure cannot be worked out (an unpriced line, a pending
- * percent), and `CardStat.value` is a node precisely so that sentence can go
- * where the number would — never a dash, and never a zero an MD might approve.
- */
 /** "−₹ 12,345.00 profit (8.2% over)" — or null when nothing is above budget / unknown. */
 function poImpactLine(po: PoApprovalCard): string | null {
   if (po.profitHit == null) return null;
@@ -857,21 +804,6 @@ function rateBudgetLine(c: Extract<PoChangeCard, { kind: "rate" }>): string {
   if (c.budgetRate == null) return "—";
   if (!c.profitHit) return `Within budget (₹ ${rateText(c.budgetRate)} incl. GST)`;
   return `Approving this reduces order net profit by ₹ ${fmtFixed(c.profitHit, 2)}`;
-}
-
-function changeStats(c: PoChangeCard): CardStat[] {
-  if (c.kind === "rate") {
-    return [
-      { label: "Rate", value: `${rateText(c.previousRate)} → ${rateText(c.revisedRate)}` },
-      { label: "Value change", value: signedMoney(c.currency, c.valueChange) },
-      { label: "Budget", value: rateBudgetLine(c), lead: true },
-    ];
-  }
-  return [
-    { label: "Scope", value: c.scope === "whole" ? "Whole PO" : "Part" },
-    { label: "Lines", value: String(c.lines.length) },
-    { label: "Cancelled value", value: `${c.currency} ${fmtFixed(c.cancelValue, 2)}`, lead: true },
-  ];
 }
 
 /** The decision sheet's body for a rate amendment or a cancellation (0785). */
@@ -951,48 +883,4 @@ function PoChangeDetail({ card: c, href }: { card: PoChangeCard; href: string | 
 /** A rate: three decimals under ₹10 (a 0.44 label), two above. */
 function rateText(v: number): string {
   return fmtFixed(v, Math.abs(v) < 10 ? 3 : 2);
-}
-
-/** A PO's card stats (0764): the impact leads, as Profit leads on a budget. */
-function poStats(po: PoApprovalCard): CardStat[] {
-  return [
-    { label: "Total", value: po.total },
-    { label: "GST", value: po.gst },
-    { label: "Delivery", value: po.deliveryDate ? fmtDate(po.deliveryDate) : "—" },
-    {
-      label: "Above budget",
-      value: po.overCount == null ? "—" : `${po.overCount} of ${po.lineCount}${po.unbudgetedCount ? ` · ${po.unbudgetedCount} no budget` : ""}`,
-    },
-    { label: "Profit impact", value: poImpactLine(po) ?? "—", lead: true },
-  ];
-}
-
-function cardStats(b: BudgetCard | undefined): CardStat[] {
-  const k = b?.kpis;
-  if (!k) return [];
-  const money = (v: number | Refusal) =>
-    isRefusal(v) ? (
-      <span className="text-xs font-normal text-warning">{v.refused}</span>
-    ) : (
-      fmtNumber(v)
-    );
-
-  return [
-    { label: "Order qty", value: money(k.order_qty) },
-    {
-      label: "Delivery",
-      value: k.delivery_dates.length ? k.delivery_dates.map((d) => fmtDate(d)).join(", ") : "—",
-    },
-    { label: "Gross sales", value: money(k.total_income) },
-    { label: "Expenses", value: money(k.total_expenses) },
-    { label: "Profit", value: money(k.profit), lead: true },
-    {
-      label: "Profit %",
-      value: isRefusal(k.profit_pct) ? (
-        <span className="text-xs font-normal text-warning">{k.profit_pct.refused}</span>
-      ) : (
-        `${fmtNumber(k.profit_pct)}%`
-      ),
-    },
-  ];
 }

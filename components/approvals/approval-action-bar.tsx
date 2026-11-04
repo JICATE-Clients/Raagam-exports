@@ -56,6 +56,16 @@ import type { ApprovalRun, CanActVerdict, RunAction } from "@/lib/approvals/type
  */
 export type ActionBarRun = Pick<ApprovalRun, "id" | "lock_version" | "status">;
 
+/**
+ * THE REMARK AN OVERRIDE APPROVE CARRIES when the approver typed none — the
+ * database demands one on every override. ONE sentence for every place that
+ * approves (this bar, and the phone card's two-tap Approve), so the audit trail
+ * reads the same whichever button was pressed.
+ */
+export function overrideApproveRemark(stepLabel?: string | null): string {
+  return `Approved as an override — not an approver on ${stepLabel ? `the ${stepLabel} step` : "this step"}.`;
+}
+
 /** A document's own decision action (e.g. `approvePo`, `declinePo`). */
 type DocResult = { ok: boolean; error?: string };
 /** The bar's confirmable decisions: the engine's three, plus a document's reject-for-good. */
@@ -223,11 +233,7 @@ export function ApprovalActionBar({
     const sent = acknowledge && fileMissing && action === "reject" ? (note ? `${FILE_NOT_RECEIVED} — ${note}` : FILE_NOT_RECEIVED) : note;
     /* The remark the database requires on an override approve, written for the
        approver when they typed none (see `commentRequired`). */
-    const remark =
-      sent ||
-      (action === "approve" && isOverride
-        ? `Approved as an override — not an approver on ${verdict.step_label ? `the ${verdict.step_label} step` : "this step"}.`
-        : "");
+    const remark = sent || (action === "approve" && isOverride ? overrideApproveRemark(verdict.step_label) : "");
     start(async () => {
       const res = await actOnRun({
         runId: run.id,

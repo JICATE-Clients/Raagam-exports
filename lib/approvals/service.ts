@@ -36,6 +36,8 @@ import type {
   CanActVerdict,
   QueueItem,
   OpenRunItem,
+  MyRequestItem,
+  MyDecisionItem,
   RunAction,
   StrandedRun,
   TimelineRow,
@@ -250,6 +252,25 @@ export async function getAllOpenRuns(): Promise<OpenRunItem[]> {
   const { data, error } = await supabase.rpc('approval_open_runs');
   if (error) throw toApprovalError(error, 'Could not load open approvals');
   return (data ?? []) as OpenRunItem[];
+}
+
+/**
+ * WHAT I SENT, AND WHERE IT STANDS (0807) — My Approvals ▸ My requests. The caller's
+ * own runs only (`requested_by = auth.uid()` in SQL); open ones first.
+ */
+export async function getMyRequests(limit = 60): Promise<MyRequestItem[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('approval_my_requests', { p_limit: limit });
+  if (error) throw toApprovalError(error, 'Could not load your requests');
+  return (data ?? []) as MyRequestItem[];
+}
+
+/** WHAT I DECIDED (0807) — My Approvals ▸ Decided: my latest decision per run. */
+export async function getMyDecisions(limit = 60): Promise<MyDecisionItem[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc('approval_my_decisions', { p_limit: limit });
+  if (error) throw toApprovalError(error, 'Could not load your decisions');
+  return (data ?? []) as MyDecisionItem[];
 }
 
 /** Should always be empty. A non-empty result is an incident, not a report. */
