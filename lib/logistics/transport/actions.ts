@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { checkDuplicateName } from "@/lib/masters/dup-guard";
 import { notify } from "@/lib/notifications/notify";
-import { allocateCost, canTransition, tripTotalCost } from "./logic";
+import { allocateCost, canCost, canTransition, tripTotalCost } from "./logic";
 import { applyTripEvent as applyTripEventWith } from "./trip-events";
 import { orderSourceOptions } from "./service";
 import {
@@ -265,6 +265,8 @@ export async function dispatchTrip(raw: DispatchInput): Promise<TransportResult<
     p_driver_phone: d.driver_phone ?? null,
     p_requisition_ids: d.requisition_ids,
     p_start_odometer_km: d.start_odometer_km,
+    p_return_trip: d.return_trip,
+    p_return_place_id: d.return_trip ? d.return_place_id : null,
   });
   if (error) return { ok: false, error: friendly(error.message) };
   const tripId = String(data);
@@ -287,16 +289,24 @@ export async function applyTripEvent(
   if (!(await can("logistics", "edit"))) return forbidden;
   if (source !== "manual") return { ok: false, error: "Only a manual move can come from the screen" };
   const s = await createClient();
-  const { data: cur, error: readErr } = await s.from("transport_trips").select("trip_status").eq("id", tripId).maybeSingle();
+  const { data: cur, error: readErr } = await s
+    .from("transport_trips")
+    .select("trip_status, return_trip")
+    .eq("id", tripId)
+    .maybeSingle();
   if (readErr) return { ok: false, error: readErr.message };
   if (!cur) return { ok: false, error: "Trip not found" };
   const from = cur.trip_status as TripStatus;
-  if (from !== toStatus && !canTransition(from, toStatus))
+  const roundTrip = !!cur.return_trip;
+  if (from !== toStatus && !canTransition(from, toStatus, roundTrip))
     return { ok: false, error: `A trip cannot move from ${from.replace("_", " ")} to ${toStatus.replace("_", " ")}` };
 
   const res = await applyTripEventWith(s, tripId, toStatus, source, { note: meta.note ?? null });
   if (res.error) return { ok: false, error: res.error };
-  if (!res.ignored && toStatus === "completed") await notifyRequesters("transport.trip_completed", tripId);
+  // "Delivered" is said when the goods are off: a round trip's `returning`, a one-way trip's
+  // `completed` (the dedupe key in notifyRequesters keeps it to once either way).
+  if (!res.ignored && (toStatus === "returning" || (toStatus === "completed" && !roundTrip)))
+    await notifyRequesters("transport.trip_completed", tripId);
   revalidatePath(ROOT, "layout");
   return { ok: true, data: { ignored: !!res.ignored } };
 }
@@ -318,14 +328,19 @@ export async function completeTrip(
   const s = await createClient();
 
   const [{ data: trip, error: tErr }, { data: reqs, error: rErr }] = await Promise.all([
-    s.from("transport_trips").select("trip_status, start_odometer_km").eq("id", tripId).maybeSingle(),
+    s.from("transport_trips").select("trip_status, start_odometer_km, return_trip").eq("id", tripId).maybeSingle(),
     s.from("transport_requisitions").select("id, material_weight_kg").eq("trip_id", tripId),
   ]);
   if (tErr) return { ok: false, error: tErr.message };
   if (rErr) return { ok: false, error: rErr.message };
   if (!trip) return { ok: false, error: "Trip not found" };
-  if (trip.trip_status !== "unloading" && trip.trip_status !== "completed")
-    return { ok: false, error: "The trip has not reached its destination yet" };
+  if (!canCost(trip.trip_status as TripStatus, !!trip.return_trip))
+    return {
+      ok: false,
+      error: trip.return_trip && trip.trip_status === "unloading"
+        ? "This is a round trip — start the return first, and complete it when the vehicle is home"
+        : "The trip has not reached its destination yet",
+    };
   if (c.end_odometer_km != null && trip.start_odometer_km != null && c.end_odometer_km < Number(trip.start_odometer_km))
     return { ok: false, error: "End odometer is below the start reading" };
 

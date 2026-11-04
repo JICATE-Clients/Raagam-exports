@@ -67,45 +67,58 @@ export function allocateCost<K>(
 }
 
 /**
- * The geofence state machine (spec §3B). `null` means the event does not apply
- * to a trip in this state and is IGNORED — a GPS unit re-reporting "inside the
- * factory" on a trip already en route must not drag it back to Loading.
+ * The geofence state machine (spec §3B, + the return journey 0808). `null` means
+ * the event does not apply to a trip in this state and is IGNORED — a GPS unit
+ * re-reporting "inside the factory" on a trip already en route must not drag it
+ * back to Loading.
  *
  *   planned   + enter origin       → loading
  *   planned   + exit origin        → en_route   (the tracker came on inside the fence)
  *   loading   + exit origin        → en_route
  *   en_route  + enter destination  → unloading
- *   unloading + exit destination   → completed
+ *   unloading + exit destination   → completed  (one way — the vehicle is free)
+ *                                  → returning  (round trip — it heads home)
+ *   returning + enter home         → completed  (back inside the home fence)
  */
-export function nextTripStatus(current: TripStatus, event: GeofenceEvent): TripStatus | null {
+export function nextTripStatus(current: TripStatus, event: GeofenceEvent, roundTrip = false): TripStatus | null {
+  if (event.at === "home") return current === "returning" && event.kind === "enter" ? "completed" : null;
   if (event.at === "origin") {
     if (event.kind === "enter") return current === "planned" ? "loading" : null;
     return current === "planned" || current === "loading" ? "en_route" : null;
   }
   if (event.kind === "enter") return current === "en_route" ? "unloading" : null;
-  return current === "unloading" ? "completed" : null;
+  if (current !== "unloading") return null;
+  return roundTrip ? "returning" : "completed";
 }
 
 /**
- * Every move `applyTripEvent` accepts, GPS or manual. Forward only; a trip may
- * be cancelled until it has left its origin, never after (the goods are on the
- * road). Nothing leaves `completed` or `cancelled`.
+ * Every move `applyTripEvent` accepts, GPS or manual — the mirror of
+ * `transport_trips_guard` (0808). Forward only; a trip may be cancelled until it
+ * has left its origin, never after (the goods are on the road). Nothing leaves
+ * `completed` or `cancelled`.
+ *
+ * THE ONE FORK IS UNLOADING, and the trip decides it: a ROUND trip must go home
+ * first (`returning`), because its vehicle is not free until it is back; a
+ * one-way trip completes where it unloads.
  */
 const ALLOWED: Record<TripStatus, readonly TripStatus[]> = {
   planned: ["loading", "en_route", "cancelled"],
   loading: ["en_route", "cancelled"],
   en_route: ["unloading"],
   unloading: ["completed"],
+  returning: ["completed"],
   completed: [],
   cancelled: [],
 };
 
-export function canTransition(from: TripStatus, to: TripStatus): boolean {
+export function canTransition(from: TripStatus, to: TripStatus, roundTrip = false): boolean {
+  if (from === "unloading") return to === (roundTrip ? "returning" : "completed");
+  if (from === "returning") return roundTrip && to === "completed";
   return ALLOWED[from].includes(to);
 }
 
-/** The one step the board's manual button offers next (Start loading · Left origin · Reached · Complete). */
-export function manualNextStatus(current: TripStatus): TripStatus | null {
+/** The one step the board's manual button offers next (Start loading · Left origin · Reached · Start return · Complete). */
+export function manualNextStatus(current: TripStatus, roundTrip = false): TripStatus | null {
   switch (current) {
     case "planned":
       return "loading";
@@ -114,6 +127,8 @@ export function manualNextStatus(current: TripStatus): TripStatus | null {
     case "en_route":
       return "unloading";
     case "unloading":
+      return roundTrip ? "returning" : "completed";
+    case "returning":
       return "completed";
     default:
       return null;
@@ -125,9 +140,16 @@ export const MANUAL_ACTION_LABEL: Partial<Record<TripStatus, string>> = {
   loading: "Start loading",
   en_route: "Left origin",
   unloading: "Reached",
+  returning: "Start return",
   completed: "Complete",
   cancelled: "Cancel trip",
 };
+
+/** Costs are entered (the Complete form) once the trip is where it ends: unloaded one way, or home again. */
+export function canCost(status: TripStatus, roundTrip: boolean): boolean {
+  if (status === "completed") return true;
+  return roundTrip ? status === "returning" : status === "unloading";
+}
 
 /** Distance from the two odometer readings; NULL while either is missing or it runs backwards. */
 export function tripDistanceKm(startKm: number | null, endKm: number | null): number | null {

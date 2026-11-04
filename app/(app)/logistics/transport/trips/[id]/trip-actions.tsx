@@ -16,13 +16,13 @@ import type { TripStatus } from "@/lib/logistics/transport/types";
  * form on the page. Cancel stays only while the goods have not left the origin
  * (`canTransition` — the same table the server enforces).
  */
-export function TripActions({ tripId, status }: { tripId: string; status: TripStatus }) {
+export function TripActions({ tripId, status, roundTrip }: { tripId: string; status: TripStatus; roundTrip: boolean }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, start] = useTransition();
-  const next = manualNextStatus(status);
+  const next = manualNextStatus(status, roundTrip);
   const step = next && next !== "completed" ? next : null;
-  const cancellable = canTransition(status, "cancelled");
+  const cancellable = canTransition(status, "cancelled", roundTrip);
 
   function go(to: TripStatus) {
     if (to === "cancelled" && !window.confirm("Cancel this trip? Its requests go back to the pending pool.")) return;

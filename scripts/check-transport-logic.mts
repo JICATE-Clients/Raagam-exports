@@ -24,14 +24,14 @@
 //      Σ weight_pct === 100, on awkward splits (1/3s, primes, one paisa);
 //      the rounding remainder lands on the LARGEST line; zero weights split
 //      equally; an empty list is empty.
-//   3. nextTripStatus — every one of the 6 × 4 (status × event) pairs, so an
+//   3. nextTripStatus — every one of the 7 × 6 (status × event) pairs, one way and round trip, so an
 //      ignored event (null) is asserted as deliberately as a transition.
 //   4. canTransition — forward only; cancel only before leaving origin;
 //      nothing leaves completed / cancelled; every GPS transition is allowed
 //      by the manual door too (both go through applyTripEvent).
 
 type Logic = typeof import("../lib/logistics/transport/logic");
-type TripStatus = "planned" | "loading" | "en_route" | "unloading" | "completed" | "cancelled";
+type TripStatus = "planned" | "loading" | "en_route" | "unloading" | "returning" | "completed" | "cancelled";
 
 const target = process.env.TRANSPORT_LOGIC
   ? new URL(`file:///${process.env.TRANSPORT_LOGIC.replace(/\\/g, "/").replace(/^\/+/, "")}`).href
@@ -104,44 +104,71 @@ eq("spec 30%", L.allocateCost(1500, [{ key: 1, weight_kg: 300 }, { key: 2, weigh
 eq("zero weights split equally", L.allocateCost(10, [{ key: 1, weight_kg: 0 }, { key: 2, weight_kg: 0 }]).map((r) => r.allocated_cost), [5, 5]);
 eq("empty", L.allocateCost(500, []), []);
 
-// ---------- 3. nextTripStatus: the whole table ----------
-const S: TripStatus[] = ["planned", "loading", "en_route", "unloading", "completed", "cancelled"];
+// ---------- 3. nextTripStatus: the whole table, ONE WAY and ROUND TRIP (0808) ----------
+const S: TripStatus[] = ["planned", "loading", "en_route", "unloading", "returning", "completed", "cancelled"];
 const E = [
   { kind: "enter", at: "origin" },
   { kind: "exit", at: "origin" },
   { kind: "enter", at: "destination" },
   { kind: "exit", at: "destination" },
+  { kind: "enter", at: "home" },
+  { kind: "exit", at: "home" },
 ] as const;
-const want: Record<TripStatus, (TripStatus | null)[]> = {
-  //          enter-o     exit-o      enter-d      exit-d
-  planned: ["loading", "en_route", null, null],
-  loading: [null, "en_route", null, null],
-  en_route: [null, null, "unloading", null],
-  unloading: [null, null, null, "completed"],
-  completed: [null, null, null, null],
-  cancelled: [null, null, null, null],
+const want: Record<"oneWay" | "round", Record<TripStatus, (TripStatus | null)[]>> = {
+  oneWay: {
+    //          enter-o     exit-o      enter-d      exit-d       enter-h  exit-h
+    planned: ["loading", "en_route", null, null, null, null],
+    loading: [null, "en_route", null, null, null, null],
+    en_route: [null, null, "unloading", null, null, null],
+    unloading: [null, null, null, "completed", null, null],
+    returning: [null, null, null, null, "completed", null],
+    completed: [null, null, null, null, null, null],
+    cancelled: [null, null, null, null, null, null],
+  },
+  round: {
+    planned: ["loading", "en_route", null, null, null, null],
+    loading: [null, "en_route", null, null, null, null],
+    en_route: [null, null, "unloading", null, null, null],
+    // The round trip's whole difference: leaving the vendor heads HOME, it does not finish.
+    unloading: [null, null, null, "returning", null, null],
+    returning: [null, null, null, null, "completed", null],
+    completed: [null, null, null, null, null, null],
+    cancelled: [null, null, null, null, null, null],
+  },
 };
-for (const s of S)
-  E.forEach((e, i) => eq(`next(${s}, ${e.kind} ${e.at})`, L.nextTripStatus(s, e), want[s][i]));
+for (const [mode, round] of [["oneWay", false], ["round", true]] as const)
+  for (const s of S)
+    E.forEach((e, i) => eq(`${mode} next(${s}, ${e.kind} ${e.at})`, L.nextTripStatus(s, e, round), want[mode][s][i]));
 
 // ---------- 4. canTransition ----------
-for (const s of S)
-  E.forEach((e) => {
-    const to = L.nextTripStatus(s, e);
-    if (to && !L.canTransition(s, to)) fail(`GPS move ${s} → ${to} refused by canTransition`);
-  });
+for (const round of [false, true])
+  for (const s of S) {
+    if (!round && s === "returning") continue; // a one-way trip never reaches it
+    E.forEach((e) => {
+      const to = L.nextTripStatus(s, e, round);
+      if (to && !L.canTransition(s, to, round)) fail(`GPS move ${s} → ${to} refused by canTransition (round=${round})`);
+    });
+    const n = L.manualNextStatus(s, round);
+    if (n && !L.canTransition(s, n, round)) fail(`manual button ${s} → ${n} refused by canTransition (round=${round})`);
+  }
 eq("cancel planned", L.canTransition("planned", "cancelled"), true);
 eq("cancel loading", L.canTransition("loading", "cancelled"), true);
 eq("cancel en_route", L.canTransition("en_route", "cancelled"), false);
 eq("backwards", L.canTransition("en_route", "loading"), false);
+// The guard's fork (0808 transport_trips_guard): a round trip cannot skip going home.
+eq("round trip unloading → completed refused", L.canTransition("unloading", "completed", true), false);
+eq("round trip unloading → returning", L.canTransition("unloading", "returning", true), true);
+eq("one way unloading → returning refused", L.canTransition("unloading", "returning", false), false);
+eq("cancel returning", L.canTransition("returning", "cancelled", true), false);
 for (const t of S) {
   eq(`completed → ${t}`, L.canTransition("completed", t), false);
   eq(`cancelled → ${t}`, L.canTransition("cancelled", t), false);
 }
-for (const s of S) {
-  const n = L.manualNextStatus(s);
-  if (n && !L.canTransition(s, n)) fail(`manual button ${s} → ${n} refused by canTransition`);
-}
+// Costs are entered where the trip ENDS.
+eq("cost one way unloading", L.canCost("unloading", false), true);
+eq("cost round trip unloading", L.canCost("unloading", true), false);
+eq("cost round trip returning", L.canCost("returning", true), true);
+eq("cost completed", L.canCost("completed", true), true);
 
 if (failures) {
   console.error(`\ncheck:transport — ${failures} failure(s)`);

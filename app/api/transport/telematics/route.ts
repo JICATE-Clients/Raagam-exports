@@ -96,13 +96,15 @@ export async function POST(request: NextRequest) {
   // ---- its open trip ------------------------------------------------------------
   const { data: trips, error: tErr } = await db
     .from("transport_trips")
-    .select("id, trip_no, trip_status, location_id")
+    .select("id, trip_no, trip_status, location_id, return_trip, return_place_id")
     .eq("vehicle_id", vehicle.id)
     .in("trip_status", [...ACTIVE_TRIP_STATUSES])
     .order("created_at", { ascending: false })
     .limit(1);
   if (tErr) return failed(tErr.message);
-  const trip = trips?.[0] as { id: string; trip_no: string; trip_status: TripStatus; location_id: string } | undefined;
+  const trip = trips?.[0] as
+    | { id: string; trip_no: string; trip_status: TripStatus; location_id: string; return_trip: boolean; return_place_id: string | null }
+    | undefined;
   if (!trip) return ignored("no_open_trip");
 
   // ---- the place -------------------------------------------------------------
@@ -137,13 +139,21 @@ export async function POST(request: NextRequest) {
   if (rErr) return failed(rErr.message);
   const isOrigin = (reqs ?? []).some((r) => r.origin_place_id === placeId);
   const isDest = (reqs ?? []).some((r) => r.destination_place_id === placeId);
-  if (!isOrigin && !isDest) return ignored("place_not_on_trip");
+  /* THE RETURN PLACE IS "HOME" ONLY ON THE WAY BACK (0808). It is usually the
+     origin too, and before the trip leaves it must still read as the origin —
+     so `home` is decided by the trip's state, not by the place alone. */
+  const isHome = trip.return_trip && trip.trip_status === "returning" && trip.return_place_id === placeId;
+  if (!isOrigin && !isDest && !isHome) return ignored("place_not_on_trip");
   /* A place that is both (one request's drop is another's pickup) reads by
      where the trip is: before it has left, it is the origin. */
   const beforeLeaving = trip.trip_status === "planned" || trip.trip_status === "loading";
-  const at: "origin" | "destination" = isOrigin && (!isDest || beforeLeaving) ? "origin" : "destination";
+  const at: "origin" | "destination" | "home" = isHome
+    ? "home"
+    : isOrigin && (!isDest || beforeLeaving)
+      ? "origin"
+      : "destination";
 
-  const to = nextTripStatus(trip.trip_status, { kind: ev.event, at });
+  const to = nextTripStatus(trip.trip_status, { kind: ev.event, at }, trip.return_trip);
   if (!to) return ignored("no_transition");
 
   const res = await applyTripEvent(db, trip.id, to, "gps", {
@@ -162,7 +172,8 @@ export async function POST(request: NextRequest) {
      tells nobody — the manual path notifies in its action. Same event, same
      words and the same dedupe key as `notifyRequesters` (actions.ts), so a
      later Complete-with-costs on this trip cannot tell the requesters twice. */
-  if (to === "completed") {
+  // Delivered = the goods are off: a round trip says it on leaving the vendor, not on getting home.
+  if (to === (trip.return_trip ? "returning" : "completed")) {
     const userIds = [...new Set((reqs ?? []).map((r) => r.created_by as string | null).filter((u): u is string => !!u))];
     if (userIds.length) {
       await notify(

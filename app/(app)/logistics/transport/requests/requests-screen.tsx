@@ -435,7 +435,14 @@ export function RequestsScreen({
                 />
               </Field>
             </FieldRow>
-            <Field label="Remarks" htmlFor="tr-remarks">
+            {/* SPANS THE ROW, NOT FOUR TRACKS (screenshot 4035). Field's default
+                `size="md"` is `@lg/section:col-span-4`, and this section's track
+                declares no columns — so a 4-track span made the grid grow 4
+                implicit columns, and the two FieldRows above were auto-placed into
+                tracks 1 and 2 at ~124px each: From/To and Leaves By/Material/Weight
+                stacked into two thin columns and the date read "dd-mm-yyy".
+                `col-span-full` spans the explicit grid only, so no track is made. */}
+            <Field label="Remarks" htmlFor="tr-remarks" className="col-span-full @lg/section:col-span-full">
               <Textarea id="tr-remarks" rows={2} value={form.remarks} onChange={(e) => set("remarks", e.target.value)} />
             </Field>
           </DetailSection>
