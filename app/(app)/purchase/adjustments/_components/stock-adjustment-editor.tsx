@@ -6,16 +6,14 @@ import { useRouter } from "next/navigation";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
-import { ToggleGroup } from "@/components/ui/segmented";
 import { Field, FieldRow, FIELD_WIDTH_CSS } from "@/components/ui/field";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusPill } from "@/components/ui/status-pill";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
-import { DOC_BOTTOM_BAR, DOC_FRAME } from "@/components/purchase/doc-surface";
+import { DENSE, DOC_BOTTOM_BAR, DOC_FRAME, DocRemarksLine, GRID_HEAD } from "@/components/purchase/doc-surface";
 import { fmtDate, fmtMoney, fmtNumber } from "@/lib/format";
 import { statusTone } from "@/lib/ui/status-tone";
 import { useUnsavedGuard } from "@/lib/reload-guard";
@@ -266,14 +264,15 @@ export function StockAdjustmentEditor({
   }));
 
   /*
-   * 200 + 176 + 88 + 112 + 112 + 72 + 112 + 112 = 984, + 72 chrome (`#` and ✕)
-   * = 1056 <= 1155 -> tableFrom="5xl". Item class and UOM ride in the lot picker's sub-line,
-   * the store is the header's (one store per adjustment), Rate sits under Value.
+   * COMPACTED (user 2026-11-05, Opening Stock's table): Item · Lot 200 → 176, Lot · Bin ·
+   * Age 176 → 144. 176 + 144 + 88 + 112 + 112 + 72 + 112 + 112 = 928, + 72 chrome (`#`
+   * and ✕) = 1000 <= 1155 -> tableFrom="5xl". Item class and UOM ride in the lot picker's
+   * sub-line, the store is the header's (one store per adjustment), Rate sits under Value.
    */
   const adjustmentLineColumns: ChildGridColumn<Row>[] = [
     {
       header: "Item · Lot",
-      width: FIELD_WIDTH_CSS.party,
+      width: FIELD_WIDTH_CSS.term,
       required: true,
       unique: (r) => r.layerId || null,
       cell: (r) => {
@@ -297,7 +296,7 @@ export function StockAdjustmentEditor({
     },
     {
       header: "Lot · Bin · Age",
-      width: FIELD_WIDTH_CSS.term,
+      width: FIELD_WIDTH_CSS.code,
       cell: (r) => {
         const l = layerById.get(r.layerId);
         const saved = savedById.get(r.layerId);
@@ -462,30 +461,31 @@ export function StockAdjustmentEditor({
         }}
       >
         <div className="space-y-4 p-4">
-          <FieldRow>
+          {/*
+           * ONE ROW, COMPACT (user 2026-11-05: "stock adjustment too … details into single row,
+           * compact with field widths" — Opening Stock's header). Was two rows, Stock Type a
+           * three-button toggle. Now:
+           *   Date 144 · Stock Type 144 · Store 144 · Group No 176 · Customer 144 · Entry No 112
+           *   = 864 + 5 x 10 nowrap gap = 914px, inside the 1120px the 72rem frame leaves.
+           */}
+          <FieldRow nowrap>
             <Field label="Date" required w="code">
               <Input type="date" value={date} max={today || undefined} readOnly={readOnly} onChange={(e) => pickDate(e.target.value)} required />
             </Field>
-            <Field label="Stock Type" required>
+            <Field label="Stock Type" required w="code">
               {readOnly ? (
                 <Input readOnly value={ADJ_STOCK_TYPES.find((t) => t.value === stockType)?.label ?? ""} />
               ) : (
-                <ToggleGroup<AdjStockType>
-                  label="Stock type"
-                  value={stockType}
-                  onChange={pickType}
-                  options={ADJ_STOCK_TYPES.map((t) => ({ value: t.value, label: t.label }))}
-                />
+                <Select aria-label="Stock Type" value={stockType} onChange={(e) => pickType(e.target.value as AdjStockType)} required>
+                  {ADJ_STOCK_TYPES.map((t) => (
+                    <option key={t.value} value={t.value}>
+                      {t.label}
+                    </option>
+                  ))}
+                </Select>
               )}
             </Field>
-            <Field label="Entry No" w="code">
-              <Input readOnly value={doc?.code ?? "(auto)"} />
-            </Field>
-          </FieldRow>
-
-          {/* 200 + 288 + 200 + 2 × 12 gap = 712px. */}
-          <FieldRow>
-            <Field label="Store" required w="party">
+            <Field label="Store" required w="code">
               {readOnly ? (
                 <Input readOnly value={stores.find((s) => s.id === storeId)?.name ?? "—"} />
               ) : (
@@ -499,15 +499,18 @@ export function StockAdjustmentEditor({
                 </Select>
               )}
             </Field>
-            <Field label="Group No" required w="name">
+            <Field label="Group No" required w="term">
               {readOnly ? (
                 <Input readOnly value={groupName} />
               ) : (
                 <Combobox options={groupOptions} value={group} onChange={pickGroup} placeholder="General Stock or an order" required />
               )}
             </Field>
-            <Field label="Customer" w="party">
+            <Field label="Customer" w="code">
               <Input readOnly value={groupOrder?.customer ?? "—"} />
+            </Field>
+            <Field label="Entry No" w="range">
+              <Input readOnly value={doc?.code ?? "(auto)"} />
             </Field>
           </FieldRow>
 
@@ -516,36 +519,32 @@ export function StockAdjustmentEditor({
           ) : null}
 
           {/* default-row: exempt -- a blank tail row stands in for the seeded row (tailRow); the save drops it */}
-          <ChildGrid<Row>
-            label={readOnly ? "Adjusted" : "Lots to adjust"}
-            columns={adjustmentLineColumns}
-            rows={rows}
-            tableFrom="5xl"
-            flatRows
-            hideAdd={readOnly}
-            lockExisting={readOnly}
-            keepOne={false}
-            tailRow={readOnly ? undefined : isBlank}
-            onAdd={() => {
-              setRows((rs) => [...rs, blankRow()]);
-            }}
-            onRemove={(r) => setRows((rs) => rs.filter((x) => x.key !== r.key))}
-          />
+          {/* EXCEL-STYLE, CELL BY CELL — Opening Stock's table (user 2026-11-05): every cell
+              ruled, the control borderless so the gridline is the box, `flat` cells, 12px type. */}
+          <div className={`${DENSE} [&_table]:table-fixed`} data-grid-style="sheet" data-grid-cells="flat">
+            <ChildGrid<Row>
+              label={readOnly ? "Adjusted" : "Lots to adjust"}
+              columns={adjustmentLineColumns}
+              rows={rows}
+              tableFrom="5xl"
+              flatRows
+              headerClassName={GRID_HEAD}
+              hideAdd={readOnly}
+              lockExisting={readOnly}
+              keepOne={false}
+              tailRow={readOnly ? undefined : isBlank}
+              onAdd={() => {
+                setRows((rs) => [...rs, blankRow()]);
+              }}
+              onRemove={(r) => setRows((rs) => rs.filter((x) => x.key !== r.key))}
+            />
+          </div>
           {anyOver ? <p className="text-sm text-destructive">A decrease is more than that lot holds on the adjustment date.</p> : null}
           {anyGone ? <p className="text-sm text-destructive">A line&apos;s lot is no longer on hand — remove it or pick another lot.</p> : null}
 
-          <FieldRow>
-            <Field label="Remarks" required w="name">
-              <Textarea
-                rows={2}
-                value={remarks}
-                readOnly={readOnly}
-                placeholder="e.g. Rainy season moisture gain — weighment audit"
-                onChange={(e) => setRemarks(e.target.value)}
-                required
-              />
-            </Field>
-          </FieldRow>
+          {/* Remarks, the closing line as wide as the grid (1000px) — still mandatory: Post
+              needs the reason the scale and the book disagreed. */}
+          <DocRemarksLine maxWidthClass="max-w-[62.5rem]" value={remarks} readOnly={readOnly} required onChange={setRemarks} />
 
           {doc?.posted_at ? <p className="text-xs text-muted-foreground">Posted {fmtDate(doc.posted_at)} — stock and value are adjusted. A posted adjustment cannot be changed.</p> : null}
         </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { Fragment, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { ChevronRight, FileText, TriangleAlert } from "lucide-react";
 import { Card, CardBody } from "@/components/ui/card";
@@ -48,13 +48,13 @@ const initialsOf = (s: string | null | undefined) =>
     .join("");
 
 /* The budget page's compact tile (`TILE` in approval-overview.tsx). */
-const TILE = "min-w-0 rounded-xl border border-border bg-surface px-3 py-2";
+const TILE = "min-w-0 rounded-xl border border-border bg-surface px-2.5 py-1.5";
 
 function Tile({ label, value, sub, tone }: { label: string; value: string; sub: string; tone?: string }) {
   return (
     <div className={TILE}>
-      <div className="text-[11px] font-semibold text-muted-foreground">{label}</div>
-      <Truncated text={value} className={cn("block text-base font-bold leading-6 tabular-nums", tone)} />
+      <div className="whitespace-nowrap text-[11px] font-semibold text-muted-foreground">{label}</div>
+      <Truncated text={value} className={cn("block text-[15px] font-bold leading-5 tabular-nums", tone)} />
       <Truncated text={sub} className="block text-[11px] text-muted-foreground" />
     </div>
   );
@@ -67,8 +67,10 @@ function OverTile({ pct, known }: { pct: number; known: boolean }) {
   const over = known && pct > 0;
   const frac = Math.max(0, Math.min(1, pct / 50));
   return (
-    <div className={cn(TILE, "flex items-center gap-2.5")}>
-      <svg viewBox="0 0 64 64" className="size-10 shrink-0 -rotate-90" aria-hidden>
+    /* COMPACT (2026-11-05): a smaller meter, and no third line — "every bu…" was cut,
+       and the big ring below already says "every budgeted line". */
+    <div className={cn(TILE, "flex items-center gap-2")}>
+      <svg viewBox="0 0 64 64" className="size-8 shrink-0 -rotate-90" aria-hidden>
         <circle cx="32" cy="32" r={R} fill="none" strokeWidth="9" className="stroke-surface-muted" />
         <circle
           cx="32"
@@ -82,14 +84,10 @@ function OverTile({ pct, known }: { pct: number; known: boolean }) {
         />
       </svg>
       <div className="min-w-0">
-        <div className="text-[11px] font-semibold text-muted-foreground">Over budget</div>
-        <div className={cn("text-base font-bold leading-6 tabular-nums", !known ? "text-muted-foreground" : over ? "text-danger" : "text-success")}>
+        <div className="whitespace-nowrap text-[11px] font-semibold text-muted-foreground">Over budget</div>
+        <div className={cn("text-[15px] font-bold leading-5 tabular-nums", !known ? "text-muted-foreground" : over ? "text-danger" : "text-success")}>
           {!known ? "—" : over ? `${fmtFixed(pct, 1)}%` : "Within"}
         </div>
-        <Truncated
-          text={!known ? "no budget figure" : over ? "on the lines above" : "every budgeted line"}
-          className={cn("block text-[11px]", over ? "text-danger" : "text-muted-foreground")}
-        />
       </div>
     </div>
   );
@@ -300,25 +298,30 @@ export function PoApprovalOverview({
           <span aria-hidden className="pointer-events-none absolute -left-16 -top-10 size-60 rounded-full blur-[40px]" style={{ background: "var(--glass-blob-a)" }} />
           <span aria-hidden className="pointer-events-none absolute -right-16 top-40 size-56 rounded-full blur-[44px]" style={{ background: "var(--glass-blob-b)" }} />
           <span aria-hidden className="pointer-events-none absolute -bottom-20 left-10 h-52 w-64 rounded-full blur-[48px]" style={{ background: "var(--glass-blob-c)" }} />
+          {/* COMPACT (user 2026-11-05: "can compact this, give space for items"): the ring
+              7rem not 9.5rem, the heading moved into the legend's column, 8px less inset —
+              the panel is about half its old height, and PO Lines rises into the fold. */}
           <div
-            className="relative m-3 flex flex-col gap-3.5 rounded-[18px] p-4 backdrop-blur-[22px] backdrop-saturate-[1.7]"
+            className="relative m-2 flex flex-col gap-3 rounded-[18px] px-3 py-2.5 backdrop-blur-[22px] backdrop-saturate-[1.7] sm:flex-row sm:items-center sm:gap-5"
             style={{ background: "var(--glass)", border: "1px solid var(--glass-edge)", boxShadow: "var(--glass-shadow)" }}
           >
-            <div className="flex items-baseline justify-between gap-2">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">Where the PO money goes</span>
-              <span className="text-[11px] text-muted-foreground">% of PO total</span>
-            </div>
-            <div className="flex flex-col gap-3.5 sm:flex-row sm:items-center sm:gap-6">
-              <GlassRing
-                className="size-[11rem] sm:size-[9.5rem]"
-                slices={slices.map((s) => ({ key: s.key, amount: s.amount, color: COLOR[s.key] }))}
-                base={base}
-                active={active}
-                onHover={(k) => setHover(k as SliceKey | null)}
-                onPick={(k) => pick(k as SliceKey)}
-                centre={centre}
-              />
-              <ul className="grid min-w-0 gap-1.5 sm:flex-1 sm:gap-1">
+            <GlassRing
+              className="size-[7rem]"
+              discClassName="size-[4.75rem]"
+              dense
+              slices={slices.map((s) => ({ key: s.key, amount: s.amount, color: COLOR[s.key] }))}
+              base={base}
+              active={active}
+              onHover={(k) => setHover(k as SliceKey | null)}
+              onPick={(k) => pick(k as SliceKey)}
+              centre={centre}
+            />
+            <div className="min-w-0 space-y-1.5 sm:flex-1">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">Where the PO money goes</span>
+                <span className="whitespace-nowrap text-[11px] text-muted-foreground">% of PO total</span>
+              </div>
+              <ul className="grid min-w-0 gap-1">
                 {slices.map((s) => (
                   <LegendRow
                     key={s.key}
@@ -351,19 +354,19 @@ export function PoApprovalOverview({
                 33.60" broke over four lines and the Budget header over three. Now Qty 96 +
                 Rate 88 + Budget 88 + Over by 72 + Amount 96 = 440px with 8px cell padding,
                 every figure `whitespace-nowrap`, and the first / last cell of EVERY row
-                (Taxable included) share one 8px inset so the totals line up under the lines. */}
+                (Taxable included) share one 8px inset so the totals line up under the lines.
+                ITEM GETS THE ROOM (user 2026-11-05, screenshot 4062: "SEWING T…" and
+                "HO/RE/26-…" cut to ~100px). The figures compact instead: Over by is now the
+                Budget cell's second line (Within / +diff · %), the UOM sits under Qty, so
+                Qty 64 + Rate 88 + Budget 88 + Amount 96 = 336px — ~100px back to Item, and
+                the item name and its RE No WRAP rather than cut, so nothing is hidden. */}
             <div>
               <table className="w-full table-fixed text-sm">
                 <colgroup>
                   <col />
-                  <col className="w-24" />
+                  <col className="w-16" />
                   <col className="w-[5.5rem]" />
-                  {known ? (
-                    <>
-                      <col className="w-[5.5rem]" />
-                      <col className="w-[4.5rem]" />
-                    </>
-                  ) : null}
+                  {known ? <col className="w-[5.5rem]" /> : null}
                   <col className="w-24" />
                 </colgroup>
                 <thead>
@@ -372,14 +375,11 @@ export function PoApprovalOverview({
                     <th scope="col" className="whitespace-nowrap px-2 py-1.5 text-right font-semibold">Qty</th>
                     <th scope="col" className="whitespace-nowrap px-2 py-1.5 text-right font-semibold">Rate</th>
                     {known ? (
-                      <>
-                        {/* "incl. GST" as a second, smaller line — the header stays two lines at most. */}
-                        <th scope="col" className="whitespace-nowrap px-2 py-1.5 text-right font-semibold">
-                          Budget
-                          <span className="block text-[10px] font-normal normal-case tracking-normal">incl. GST</span>
-                        </th>
-                        <th scope="col" className="whitespace-nowrap px-2 py-1.5 text-right font-semibold">Over by</th>
-                      </>
+                      /* "incl. GST" as a second, smaller line — the header stays two lines at most. */
+                      <th scope="col" className="whitespace-nowrap px-2 py-1.5 text-right font-semibold">
+                        Budget
+                        <span className="block text-[10px] font-normal normal-case tracking-normal">incl. GST</span>
+                      </th>
                     ) : null}
                     <th scope="col" className="whitespace-nowrap py-1.5 pr-2 pl-2 text-right font-semibold">Amount</th>
                   </tr>
@@ -391,47 +391,60 @@ export function PoApprovalOverview({
                     const diff = bRate == null ? 0 : impact.netRateOf(l) - bRate;
                     const over = diff > 1e-9;
                     const src = l.garment_order_id ?? l.iwo_id;
+                    /* TWO ROWS PER LINE (user 2026-11-05, screenshot 4063): a fabric name
+                       ("SOLID 1X1 LYCRA RIB (24'S BCI COTTON 95% …) · DIA 30") wrapped to four
+                       lines inside the Item column and left the figures floating beside a tall
+                       ragged cell. The name now spans the WHOLE table on its own row, and the
+                       figures row carries the RE No · delivery under the Item header. */
                     return (
-                      <tr key={l.id} className="border-b border-border/60">
-                        <th scope="row" className="min-w-0 py-1.5 pr-2 pl-2 text-left font-normal">
-                          <Truncated className="block">{l.description}</Truncated>
-                          <Truncated
-                            text={[src ? sourceNos[src] : null, l.delivery_date ? `deliver ${fmtDate(l.delivery_date)}` : null].filter(Boolean).join(" · ")}
-                            className="block text-[11px] text-muted-foreground"
-                          />
+                      <Fragment key={l.id}>
+                      <tr>
+                        <th
+                          scope="row"
+                          colSpan={known ? 5 : 4}
+                          className="pt-2 pr-2 pl-2 pb-0.5 text-left font-medium text-foreground break-words"
+                        >
+                          {l.description}
                         </th>
-                        <td className="whitespace-nowrap px-2 py-1.5 text-right">
-                          {fmtNumber(l.quantity)} <span className="text-[11px] text-muted-foreground">{(l.uom_id && uomCode[l.uom_id]) || ""}</span>
+                      </tr>
+                      <tr className="border-b border-border/60">
+                        <td className="min-w-0 pt-0 pb-2 pr-2 pl-2 align-top text-[11px] text-muted-foreground break-words">
+                          {[src ? sourceNos[src] : null, l.delivery_date ? `deliver ${fmtDate(l.delivery_date)}` : null].filter(Boolean).join(" · ") || "—"}
                         </td>
-                        <td className={cn("whitespace-nowrap px-2 py-1.5 text-right", over && "font-semibold text-danger")}>
+                        <td className="whitespace-nowrap px-2 pt-0 pb-2 text-right align-top">
+                          {fmtNumber(l.quantity)}
+                          <span className="block text-[11px] text-muted-foreground">{(l.uom_id && uomCode[l.uom_id]) || ""}</span>
+                        </td>
+                        <td className={cn("whitespace-nowrap px-2 pt-0 pb-2 text-right align-top", over && "font-semibold text-danger")}>
                           {fmtFixed(l.unit_price, 2)}
                           {known ? <span className="block text-[11px] font-normal text-muted-foreground">incl. {fmtFixed(impact.netRateOf(l), 2)}</span> : null}
                         </td>
                         {known ? (
-                          <>
-                            <td className="whitespace-nowrap px-2 py-1.5 text-right text-muted-foreground">
-                              {bRate == null ? <span className="text-xs font-semibold text-warning">No budget</span> : fmtFixed(bRate, 2)}
-                            </td>
-                            <td className="whitespace-nowrap px-2 py-1.5 text-right">
-                              {bRate == null ? (
-                                <span className="text-muted-foreground">—</span>
-                              ) : over ? (
-                                <span className="block font-semibold text-danger">
-                                  +{fmtFixed(diff, 2)}
-                                  <span className="block text-[11px] font-normal">{fmtFixed((diff / bRate) * 100, 1)}%</span>
-                                </span>
-                              ) : (
-                                <span className="text-xs text-success">Within</span>
-                              )}
-                            </td>
-                          </>
+                          /* Budget rate, and under it what was "Over by": Within, or +diff · %. */
+                          <td className="whitespace-nowrap px-2 pt-0 pb-2 text-right align-top">
+                            {bRate == null ? (
+                              <span className="text-xs font-semibold text-warning">No budget</span>
+                            ) : (
+                              <>
+                                <span className="text-muted-foreground">{fmtFixed(bRate, 2)}</span>
+                                {over ? (
+                                  <span className="block text-[11px] font-semibold text-danger">
+                                    +{fmtFixed(diff, 2)} · {fmtFixed((diff / bRate) * 100, 1)}%
+                                  </span>
+                                ) : (
+                                  <span className="block text-[11px] text-success">Within</span>
+                                )}
+                              </>
+                            )}
+                          </td>
                         ) : null}
-                        <td className="whitespace-nowrap py-1.5 pr-2 pl-2 text-right">{fmtFixed(l.amount, 2)}</td>
+                        <td className="whitespace-nowrap pt-0 pb-2 pr-2 pl-2 text-right align-top">{fmtFixed(l.amount, 2)}</td>
                       </tr>
+                      </Fragment>
                     );
                   })}
                   <tr className="bg-surface-muted font-semibold">
-                    <th scope="row" colSpan={known ? 5 : 3} className="py-1.5 pr-2 pl-2 text-left">
+                    <th scope="row" colSpan={known ? 4 : 3} className="py-1.5 pr-2 pl-2 text-left">
                       Taxable
                     </th>
                     <td className="whitespace-nowrap py-1.5 pr-2 pl-2 text-right">{fmtFixed(taxable, 2)}</td>

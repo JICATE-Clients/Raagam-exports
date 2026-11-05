@@ -7,6 +7,8 @@ import type {
   OpeningBinOption,
   OpeningGroupOption,
   OpeningItemOption,
+  OpeningOrderPlan,
+  OpeningPlanItem,
   OpeningStock,
   OpeningStockLine,
   OpeningStoreOption,
@@ -171,4 +173,27 @@ export async function getOpeningStoresAndBins(): Promise<{ stores: OpeningStoreO
       (b) => ({ id: b.id, code: b.bin_code, description: b.description, inactive: !!b.inactive, store_id: b.store_id }),
     ),
   };
+}
+
+/**
+ * An order's planned items (2026-11-05). `orderId` is the id the Order No picker holds —
+ * `garment_order_amendments.id` for an RE, `internal_work_orders.id` for IWO / SWO — which is
+ * exactly `po_requirement_lines.source_id`, so no mapping. A FAILED QUERY IS AN ERROR, NOT AN
+ * EMPTY PLAN: an empty plan tells the operator to build the BOM, and that would be a lie.
+ */
+export async function getOpeningOrderPlan(orderId: string): Promise<OpeningOrderPlan> {
+  const s = await createClient();
+  const { data, error } = await s.rpc("po_requirement_lines", { p_source_ids: [orderId] });
+  if (error) return { orderId, error: `Could not read the order's requirement plan: ${error.message}` };
+  type Raw = { source_id: string; item_id: string | null; required_qty: number | null; balance_qty: number | null; uom_code: string | null };
+  const byItem = new Map<string, OpeningPlanItem>();
+  for (const r of (data ?? []) as Raw[]) {
+    if (!r.item_id || r.source_id !== orderId) continue;
+    const cur = byItem.get(r.item_id) ?? { item_id: r.item_id, required_qty: 0, balance_qty: 0, uom_code: r.uom_code };
+    cur.required_qty += Number(r.required_qty) || 0;
+    cur.balance_qty += Number(r.balance_qty) || 0;
+    cur.uom_code ??= r.uom_code;
+    byItem.set(r.item_id, cur);
+  }
+  return { orderId, items: [...byItem.values()] };
 }

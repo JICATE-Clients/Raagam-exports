@@ -7,7 +7,7 @@ import {
   getTransferOrderOptions,
   getTransferStoresAndBins,
 } from "@/lib/stores/stock-transfer-service";
-import { loadTransferLayers, loadTransferReqLines } from "@/lib/stores/stock-transfer-actions";
+import { loadStoreStockOwners, loadTransferLayers, loadTransferReqLines } from "@/lib/stores/stock-transfer-actions";
 import { StockTransferEditor } from "../_components/stock-transfer-editor";
 
 export default async function StockTransferPage({ params }: { params: Promise<{ transferId: string }> }) {
@@ -18,7 +18,7 @@ export default async function StockTransferPage({ params }: { params: Promise<{ 
   const { doc } = found;
   const toOrder = doc.to_garment_order_id ?? doc.to_iwo_id;
 
-  const [{ stores, bins, unitName }, orders, money, canEdit, layers, reqLines] = await Promise.all([
+  const [{ stores, bins, unitName }, orders, money, canEdit, layers, reqLines, owners] = await Promise.all([
     getTransferStoresAndBins(),
     getTransferOrderOptions(),
     canSeeStockValue(),
@@ -28,6 +28,8 @@ export default async function StockTransferPage({ params }: { params: Promise<{ 
       ? loadTransferLayers(doc.from_store_id, doc.from_garment_order_id, doc.from_iwo_id, doc.transfer_date)
       : Promise.resolve({ ok: true as const, layers: [] }),
     loadTransferReqLines(toOrder),
+    // Who holds stock in the From store — a draft's From Stock Of lists only those.
+    doc.status === "draft" ? loadStoreStockOwners(doc.from_store_id) : Promise.resolve(null),
   ]);
 
   return (
@@ -39,6 +41,7 @@ export default async function StockTransferPage({ params }: { params: Promise<{ 
       orders={orders}
       initialLayers={layers.ok ? layers.layers : []}
       initialReqLines={reqLines.ok ? reqLines.lines : []}
+      initialStoreOwners={owners && owners.ok ? { orderIds: owners.orderIds, general: owners.general } : null}
       canSeeMoney={money}
       unitName={unitName}
       today={today()}

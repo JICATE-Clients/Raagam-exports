@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 import { writeAudit } from "@/lib/audit";
-import { openingStockInput, type OpeningStockInput } from "./types";
+import { openingStockInput, type OpeningOrderPlan, type OpeningStockInput } from "./types";
+import { getOpeningOrderPlan } from "./service";
 
 type Err = { ok: false; error: string };
 
@@ -58,4 +59,10 @@ export async function deleteOpeningStock(id: string): Promise<{ ok: true } | Err
   if (!data?.length) return bad("Only a draft can be deleted — a posted opening stock is already in the ledger");
   revalidate();
   return { ok: true };
+}
+
+/** The Order No picker changed: fetch that order's plan for the line's Item list. */
+export async function loadOpeningOrderPlan(orderId: string): Promise<OpeningOrderPlan> {
+  if (!(await can("stores", "view"))) return { orderId, error: "Forbidden" };
+  return getOpeningOrderPlan(orderId);
 }

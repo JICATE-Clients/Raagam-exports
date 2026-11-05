@@ -10,6 +10,7 @@ import { Truncated } from "@/components/ui/truncated";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { StatusPill } from "@/components/ui/status-pill";
 import { ValidatedInput } from "@/components/ui/validated-input";
 import { PaginationBar } from "@/components/ui/pagination";
@@ -49,7 +50,18 @@ import type { ActiveEntityKey } from "@/lib/masters/active-registry";
 
 /* ------------------------------------------------------------------ types */
 
-export type SimpleFieldKind = "text" | "select" | "checkbox";
+/**
+ * `multi` picks several of `options` (MultiSelect). Its value travels through the
+ * string-only `SimpleValues` record as the ids joined by "," — `multiValues()`
+ * reads it back — so `toPayload`, the trim pass and the required gate need no
+ * second shape. First caller: Store master's Units (create in several units).
+ */
+export type SimpleFieldKind = "text" | "select" | "checkbox" | "multi";
+
+/** A `multi` field's value as ids. */
+export function multiValues(v: string | boolean | undefined): string[] {
+  return typeof v === "string" ? v.split(",").map((x) => x.trim()).filter(Boolean) : [];
+}
 
 export type SimpleField = {
   /** Key into the form-values record. */
@@ -60,7 +72,7 @@ export type SimpleField = {
   required?: boolean;
   /** ValidatedInput format for text fields. */
   format?: FormatKind;
-  /** Options for kind:"select". */
+  /** Options for kind:"select" / "multi". */
   options?: { value: string; label: string }[];
   /** Read-cell label for a select value (defaults to matching option label). */
   optionLabel?: (value: string) => ReactNode;
@@ -76,6 +88,8 @@ export type SimpleField = {
   /** Auto-generated / derived value — omit from Tab order (tabIndex=-1) so Tab
    *  skips it. Field stays clickable/editable. Global rule for auto fields. */
   skipTab?: boolean;
+  /** Value a NEW row opens with (default "" / false). */
+  initial?: string;
 };
 
 export type SimpleValues = Record<string, string | boolean>;
@@ -351,7 +365,7 @@ export function SimpleMasterScreen<Row>({
 
   const blankValues = useMemo(() => {
     const v: SimpleValues = {};
-    for (const f of d.fields) v[f.key] = f.kind === "checkbox" ? false : "";
+    for (const f of d.fields) v[f.key] = f.initial ?? (f.kind === "checkbox" ? false : "");
     return v;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -657,6 +671,10 @@ export function SimpleMasterScreen<Row>({
     }
     const v = String(raw ?? "");
     if (!v) return <span className="text-sm text-muted-foreground">—</span>;
+    if (f.kind === "multi") {
+      const labels = multiValues(v).map((id) => f.optionLabel?.(id) ?? f.options?.find((o) => o.value === id)?.label ?? id);
+      return <span className="text-sm">{labels.join(", ")}</span>;
+    }
     if (f.kind === "select") {
       const label = f.optionLabel?.(v) ?? f.options?.find((o) => o.value === v)?.label ?? v;
       return <span className="text-sm">{label}</span>;
@@ -676,8 +694,9 @@ export function SimpleMasterScreen<Row>({
     if (!editing) return null;
     const v = editing.values[f.key];
     if (f.lockedOnEdit && editing.id !== null) {
-      // Immutable on existing rows (e.g. a code that is the PK).
-      return <span className={cn(f.mono ? "font-mono text-xs" : "text-sm")}>{String(v ?? "")}</span>;
+      // Immutable on existing rows (e.g. a code that is the PK). Through readCell, so a
+      // select / multi shows its LABEL, not the stored id.
+      return readCell(f, editing.values);
     }
     const setV = (nv: string | boolean) => setFieldValue(f.key, nv);
 
@@ -685,6 +704,21 @@ export function SimpleMasterScreen<Row>({
       // A SWITCH, not a tick box (client 2026-09-09, every boolean field). The
       // column header names it on screen, so `ariaLabel` rather than `label`.
       return <Toggle ariaLabel={f.label} checked={!!v} onChange={(nv) => setV(nv)} />;
+    }
+    if (f.kind === "multi") {
+      return (
+        <MultiSelect
+          compact
+          label={f.label}
+          options={(f.options ?? []).map((o) => ({ id: o.value, label: o.label }))}
+          values={multiValues(v)}
+          onChange={(ids) => setV(ids.join(","))}
+          required={f.required}
+          summarizeLabels
+          hideChips
+          className={cn(dense && f.widthClass)}
+        />
+      );
     }
     if (f.kind === "select") {
       return (

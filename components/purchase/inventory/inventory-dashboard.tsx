@@ -114,7 +114,6 @@ export function InventoryDashboard({
   unit,
   withValue,
   canMove,
-  canEditBin,
 }: {
   rows: Row[];
   bins: DashBin[];
@@ -123,7 +122,6 @@ export function InventoryDashboard({
   unit: string;
   withValue: boolean;
   canMove: boolean;
-  canEditBin: boolean;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -461,35 +459,65 @@ export function InventoryDashboard({
     );
   };
 
-  const moveBar = picking ? (
-    <div className="flex flex-wrap items-center gap-2 border-b border-border bg-primary-soft px-3.5 py-2 text-xs">
-      <ArrowRightLeft className="size-4 text-primary" aria-hidden />
-      {target ? (
-        <>
-          <span>
-            Move <b>{movingRows.length} lot{movingRows.length === 1 ? "" : "s"}</b> ({movingRows.map((r) => `${fmtNumber(r.qty)} ${r.uom}`).join(" + ")}) into{" "}
-            <b className="font-mono">{target.bin_code}</b>? Posts a Bin → Bin Stock Transfer; GRN, rate and age stay with the stock.
-          </span>
-          <span className="ml-auto flex gap-2">
+  /*
+   * THE MOVE STEP lives at the head of the RIGHT column, above the bin panel (user 2026-11-05:
+   * "the bin movement showing top look not good fit"). It used to open as a strip across the
+   * top of the rack, which pushed every shelf down the moment Move was pressed — the rack the
+   * operator is about to click jumped away from the pointer. Here the rack stays still, and
+   * the step sits beside the panel whose Move button started it.
+   */
+  /*
+   * Laid out as the move itself, in two lines (user 2026-11-05: "show clearly", then "compact
+   * it"): Move [FROM] → [TO] ✕, then what is going and, once a bin is clicked, Change · Move.
+   * The TO chip is dashed until a bin on the rack is clicked.
+   */
+  const fromBins = [...new Set(movingRows.map((r) => (!r.bin || r.bin === NO_BIN ? "Floor" : r.bin)))];
+  const chip = (code: string | null, tone: "from" | "to") => (
+    <span
+      className={cn(
+        "inline-flex h-7 max-w-[9rem] items-center rounded-md border px-2 font-mono text-[12.5px] font-bold",
+        tone === "from" && "border-border bg-surface",
+        tone === "to" && code && "border-primary bg-surface text-primary ring-2 ring-primary/20",
+        tone === "to" && !code && "border-dashed border-primary/60 font-sans text-[11.5px] font-medium text-primary",
+      )}
+    >
+      <span className="truncate">{code ?? "click a bin"}</span>
+    </span>
+  );
+  // One line for what is going: the item when there is one lot, else a count.
+  const goingText =
+    movingRows.length === 1
+      ? `${movingRows[0].item} · ${fmtNumber(movingRows[0].qty)} ${movingRows[0].uom}`
+      : `${movingRows.length} lots · ${movingRows.map((r) => `${fmtNumber(r.qty)} ${r.uom}`).join(" + ")}`;
+  const moveCard = picking ? (
+    <div className="shrink-0 rounded-xl border border-primary/40 bg-primary-soft px-3 py-2 text-xs">
+      <div className="flex items-center gap-2">
+        <ArrowRightLeft className="size-3.5 shrink-0 text-primary" aria-hidden />
+        <span className="font-semibold text-primary">Move</span>
+        {chip(fromBins.join(", "), "from")}
+        <span className="text-primary" aria-hidden>→</span>
+        {chip(target?.bin_code ?? null, "to")}
+        <button type="button" onClick={cancelMove} disabled={isPending} aria-label="Cancel move" title="Cancel (Esc)" className="ml-auto text-muted-foreground hover:text-foreground">
+          <X className="size-4" aria-hidden />
+        </button>
+      </div>
+      <div className="mt-1.5 flex items-center gap-2">
+        {movingRows.length ? (
+          <Truncated className="min-w-0 flex-1 text-foreground">{goingText}</Truncated>
+        ) : (
+          <span className="min-w-0 flex-1 text-muted-foreground">Pick the lots, then a bin on the rack</span>
+        )}
+        {target ? (
+          <>
             <Button variant="ghost" size="sm" onClick={() => setTarget(null)} disabled={isPending}>
-              Pick another bin
+              Change
             </Button>
             <Button size="sm" onClick={move} disabled={isPending}>
-              {isPending ? "Moving…" : `Move into ${target.bin_code}`}
+              {isPending ? "Moving…" : "Move"}
             </Button>
-          </span>
-        </>
-      ) : (
-        <>
-          <span>
-            {movingRows.length ? `Click the bin for ${movingRows.length} lot${movingRows.length === 1 ? "" : "s"} — Esc to cancel` : "Pick the lots to move below, then click a bin"}
-          </span>
-          <button type="button" onClick={cancelMove} className="ml-auto inline-flex items-center gap-1 text-muted-foreground hover:text-foreground">
-            <X className="size-3.5" aria-hidden />
-            Cancel
-          </button>
-        </>
-      )}
+          </>
+        ) : null}
+      </div>
     </div>
   ) : null;
 
@@ -668,7 +696,6 @@ export function InventoryDashboard({
                 </span>
               }
             >
-              {moveBar}
               {/* The rack (or list) scrolls inside the card; the floor tray stays at its foot. */}
               <div className="xl:flex xl:min-h-0 xl:flex-1 xl:flex-col xl:overflow-y-auto">
               {view === "rack" || !storeBins.length ? rackView : listView}
@@ -684,24 +711,27 @@ export function InventoryDashboard({
               ) : null}
 
               {view === "rack" && storeBins.length ? (
-                <div className="flex flex-wrap gap-3 px-3.5 pb-2 text-[11.5px] text-muted-foreground">
+                /* ONE ROW, ONE RHYTHM (user 2026-11-05: "look un aligned"): every marker sits in the
+                   same 12px box, so a square and a dot centre on one line and every label starts
+                   the same distance after its marker. The row starts under the first bin
+                   (px-3.5 + 2.25rem shelf column + gap-x-2.5 + the frame's px-3 + px-1 = 4.75rem),
+                   not under the shelf numbers. */
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 pr-3.5 pb-2 pl-[4.75rem] text-[11.5px] leading-4 text-muted-foreground">
                   {[...new Set(storeRows.map((r) => r.item_class))].map((c) => (
                     <span key={c} className="inline-flex items-center gap-1.5">
-                      <i className="size-3 rounded-[3px]" style={{ background: classColour(c) }} />
+                      <span aria-hidden className="grid size-3 shrink-0 place-items-center">
+                        <i className="size-3 rounded-[3px]" style={{ background: classColour(c) }} />
+                      </span>
                       {titleCase(c)}
                     </span>
                   ))}
-                  <span className="inline-flex items-center gap-1.5">
-                    <i className="size-3 rounded-[3px] border border-border bg-surface" />
-                    Empty bin
-                  </span>
-                  <span className="inline-flex items-center gap-1.5">
-                    <i className="size-3 rounded-[3px] border-2 border-warning bg-surface" />
-                    Mixed (two kinds in one bin)
-                  </span>
+                  {/* Kinds of stock, then a rule, then age — two different keys (user 2026-11-05: "look merged"). */}
+                  <span aria-hidden className="h-3.5 w-px bg-border" />
                   {(["0-30", "61-90", "90+"] as const).map((b) => (
                     <span key={b} className="inline-flex items-center gap-1.5">
-                      <Dot colour={AGE_TONE[b].colour} />
+                      <span aria-hidden className="grid size-3 shrink-0 place-items-center">
+                        <Dot colour={AGE_TONE[b].colour} />
+                      </span>
                       {AGE_TONE[b].word}
                     </span>
                   ))}
@@ -737,6 +767,8 @@ export function InventoryDashboard({
               ) : null}
             </VizCard>
 
+            <div className="flex min-w-0 flex-col gap-2.5 xl:min-h-0">
+            {moveCard}
             <BinPanel
               bin={selectedBin}
               storeName={store?.name ?? ""}
@@ -745,7 +777,6 @@ export function InventoryDashboard({
               history={selectedBin ? (history[selectedBin.id] ?? null) : []}
               withValue={withValue}
               canMove={canMove}
-              canEditBin={canEditBin}
               mixed={selectedMix}
               suggestion={suggestion?.bin_code ?? null}
               floorCount={floor.length}
@@ -771,6 +802,7 @@ export function InventoryDashboard({
                 setTarget(selectedBin);
               }}
             />
+            </div>
           </div>
         </div>
       ) : tab === "stock" ? (

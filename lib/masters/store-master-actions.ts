@@ -47,12 +47,32 @@ export async function createStore(data: StoreInput): Promise<CreateResult> {
   const { location } = await getCurrentLocation();
   if (!location) return fail("Pick your working unit in the top bar first");
   const s = await createClient();
+  const units = [...new Set(p.data.location_ids)];
+  // Another unit ticked: the stores insert policy only admits the CURRENT unit, so the
+  // definer function (0811) re-checks the Stores grant and each unit's allocation and
+  // makes one Storage store per unit, all or nothing.
+  if (units.length > 0 && !(units.length === 1 && units[0] === location.id)) {
+    if (p.data.store_type !== "storage") return fail("Only Storage stores can be made in several units");
+    const { data: ids, error } = await s.rpc("create_store_in_units", {
+      p_name: p.data.name,
+      p_location_ids: units,
+      p_bin_prefix: p.data.bin_prefix ?? null,
+      p_is_active: p.data.is_active,
+    });
+    if (error) return fail(friendly(error.message));
+    rev();
+    // The function makes them in unit-code order, so pick the current unit's row by
+    // reading back through RLS (which only shows the current unit), not by position.
+    const list = (ids ?? []) as string[];
+    const { data: here } = await s.from("stores").select("id").in("id", list).maybeSingle();
+    return { ok: true, id: (here as { id: string } | null)?.id ?? list[0] };
+  }
   const dup = await checkDuplicateName(s, "stores", p.data.name, { scope: { location_id: location.id } });
   if (!dup.ok) return fail(dup.error);
   const code = p.data.code || (await generateUniqueCode(s, "stores", `${location.code ?? ""} ${p.data.name}`, { maxLen: 12 }));
   const { data: row, error } = await s
     .from("stores")
-    .insert({ ...p.data, code, location_id: location.id })
+    .insert({ code, name: p.data.name, store_type: p.data.store_type, bin_prefix: p.data.bin_prefix, is_active: p.data.is_active, location_id: location.id })
     .select("id")
     .single();
   if (error) return fail(friendly(error.message));

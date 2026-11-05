@@ -3,7 +3,49 @@
 import type { ReactNode } from "react";
 import { Check } from "lucide-react";
 import { Truncated } from "@/components/ui/truncated";
+import { Field } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+
+/**
+ * REMARKS, THE DOCUMENT'S CLOSING LINE (user 2026-11-05, Opening Stock screenshot 4072:
+ * a 288px box under the table "looks orphaned"; then "the stock transfer and stock
+ * adjustment screen too"). One line under the lines grid, its label BESIDE the box, as
+ * wide as the grid — pass the grid's width as `maxWidthClass` so the line ends where the
+ * table does. A real `<Field>`, so `required` still draws the star AND holds the cursor
+ * (Mandatory fields) — a hand-rolled label here would show a star with nothing behind it.
+ */
+export function DocRemarksLine({
+  value,
+  onChange,
+  readOnly = false,
+  required = false,
+  maxWidthClass,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  readOnly?: boolean;
+  required?: boolean;
+  /** The lines grid's width, e.g. `max-w-[69.5rem]`. */
+  maxWidthClass: string;
+}) {
+  return (
+    <Field
+      label="Remarks"
+      required={required && !readOnly}
+      className={cn("flex items-center gap-3 [&>[data-field-label]]:mb-0 [&>[data-field-label]]:shrink-0", maxWidthClass)}
+    >
+      <Input
+        aria-label="Remarks"
+        className="min-w-0 flex-1"
+        value={value}
+        readOnly={readOnly}
+        required={required && !readOnly}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </Field>
+  );
+}
 
 /**
  * THE PURCHASE DOCUMENT SURFACE — Raise PO's look, shared (user 2026-11-02: "check raise

@@ -57,6 +57,35 @@ export async function loadTransferLayers(
 }
 
 /**
+ * WHO HOLDS STOCK IN THIS STORE (user 2026-11-05, "Strict Store & Order Filtering"): the
+ * orders — and whether General Stock — with a positive balance in the From store, so the
+ * From Stock Of box lists only owners a line could actually draw from. Read from 0802's
+ * `stock_owner_balances` (security_invoker, so the unit's RLS on the ledger applies).
+ */
+export async function loadStoreStockOwners(
+  storeId: string,
+): Promise<{ ok: true; orderIds: string[]; general: boolean } | Err> {
+  if (!(await can("stores", "view"))) return bad("Forbidden");
+  if (!storeId) return { ok: true, orderIds: [], general: false };
+  const s = await createClient();
+  const { data, error } = await s
+    .from("stock_owner_balances")
+    .select("garment_order_id, iwo_id")
+    .eq("store_id", storeId)
+    .gt("quantity", 0);
+  // A FAILED QUERY IS AN ERROR, NOT AN EMPTY LIST — an empty list here would read "no order holds stock".
+  if (error) return bad(`Stock owners: ${error.message}`);
+  const ids = new Set<string>();
+  let general = false;
+  for (const r of (data ?? []) as { garment_order_id: string | null; iwo_id: string | null }[]) {
+    const id = r.garment_order_id ?? r.iwo_id;
+    if (id) ids.add(id);
+    else general = true;
+  }
+  return { ok: true, orderIds: [...ids], general };
+}
+
+/**
  * The target order's requirement lines (what Raise PO lists), so a line can say which need the
  * stock answers. Empty for a role without Materials Purchase view — the line is then saved with
  * no requirement, and the transfer still moves the stock.
