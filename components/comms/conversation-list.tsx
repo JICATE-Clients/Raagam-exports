@@ -74,6 +74,7 @@ import { clockTime, fileSize, initials } from "./message-body";
 import { CommunityAvatar } from "./community-avatar";
 import { NewCommunitySheet } from "./new-community-sheet";
 import { PhotoImg, useUserPhoto } from "./person-photo";
+import { ShortScrollbar } from "./short-scrollbar";
 import { nameCase } from "@/lib/comms/name-case";
 
 type Filter = "all" | "unread" | "favorites" | "groups" | "communities" | "channels" | "files";
@@ -911,6 +912,10 @@ export function ConversationList({
       {/* No Favourites strip above the list (user 2026-11-04, the mockup has
           none); a favourite still wears its star on the row. */}
       <div className="relative flex min-h-0 flex-1 flex-col">
+      {/* A SHORT HANDLE (user 2026-11-05, "intha scroll bar hight a korai"):
+          the native bar is hidden and ShortScrollbar draws a fixed 56px one;
+          scrolling itself stays native. It replaced the 4px hairline here. */}
+      <ShortScrollbar target={listRef} />
       <nav ref={listRef} className="scrollbar-none min-h-0 flex-1 overflow-y-auto px-1 pb-12" aria-label="Chats">
         {/* SHORTCUTS (user 2026-11-05, the chat-app mockup): Home, Mentions and
             Saved above the chats. Flat since 2026-11-05 (user: "card mari

@@ -369,7 +369,7 @@ export function MessageItem({
         </ul>
       )}
 
-      {m.reply_count > 0 && actions.onReply && (
+      {!bubble && m.reply_count > 0 && actions.onReply && (
         <button
           type="button"
           onClick={() => actions.onReply!(m)}
@@ -381,6 +381,21 @@ export function MessageItem({
       )}
     </>
   );
+
+  // THE THREAD LINK SHARES THE TIME LINE in a bubble (user 2026-11-05, option B
+  // of the compact-thread-reply board): "1 reply" on the left, the time on the
+  // right — one line instead of two. "last 2:22 pm" moves to the tooltip.
+  const bubbleReply =
+    bubble && m.reply_count > 0 && actions.onReply ? (
+      <button
+        type="button"
+        onClick={() => actions.onReply!(m)}
+        title={m.last_reply_at ? `Last reply ${clockTime(m.last_reply_at)}` : undefined}
+        className="whitespace-nowrap text-xs font-semibold leading-[15px] text-primary hover:underline"
+      >
+        {m.reply_count === 1 ? "1 reply" : `${m.reply_count} replies`}
+      </button>
+    ) : null;
 
   // BUBBLES (the Pulse redesign, 2026-10-29) for direct and group chats: yours
   // on the right in the primary colour, everyone else's on the left on white,
@@ -483,7 +498,12 @@ export function MessageItem({
             </p>
           )}
           {content}
-          {!timeInText && <p className="mt-0.5 flex justify-end">{metaLine(false)}</p>}
+          {!timeInText && (
+            <p className={cn("mt-0.5 flex items-center gap-2.5", bubbleReply ? "justify-between" : "justify-end")}>
+              {bubbleReply}
+              {metaLine(false)}
+            </p>
+          )}
         </div>
         {canAct && actions.onReact && !deleted && !editing && !sticker && (
           <>

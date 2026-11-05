@@ -841,6 +841,77 @@ input[type="checkbox"][data-enter-pending]:not([data-enter-timed]) {
 }
 
 /*
+ * A HAIRLINE SCROLLBAR, as a utility — the HR module's 4px faint line (above),
+ * for one element elsewhere. First use: Pulse's chat list (user 2026-11-05,
+ * option C of the chat-list-scrollbar board), which had `scrollbar-none` and so
+ * gave no sign there was more below. Same Chrome 121+ trap as `scrollbar-slim`:
+ * the standard property goes only to browsers without the pseudo-element.
+ */
+@utility scrollbar-hairline {
+  &::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+  &::-webkit-scrollbar-track,
+  &::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background-color: color-mix(in srgb, var(--muted-foreground) 35%, transparent);
+    border-radius: 9999px;
+  }
+  &::-webkit-scrollbar-thumb:hover {
+    background-color: color-mix(in srgb, var(--muted-foreground) 65%, transparent);
+  }
+  &::-webkit-scrollbar-button {
+    display: none;
+  }
+  @supports not selector(::-webkit-scrollbar) {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--muted-foreground) 35%, transparent) transparent;
+  }
+}
+
+/*
+ * A LONG, SLIM SCROLLBAR — Pulse's message panes (user 2026-11-05, screenshot
+ * 150712 and the "slim scrollbar" artifact: "this height but slim"). The
+ * browser default there was ~17px with arrow buttons. This is 6px, fully
+ * rounded, no buttons, no track — and the handle never shrinks below 140px,
+ * so a long chat still has something easy to see and grab. Same Chrome 121+
+ * trap as `scrollbar-slim`: the standard property only where the
+ * pseudo-element is missing. Touch screens draw their own overlay bar.
+ */
+@utility scrollbar-pulse {
+  &::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  &::-webkit-scrollbar-button {
+    display: none;
+    height: 0;
+  }
+  &::-webkit-scrollbar-track,
+  &::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-track {
+    margin: 4px 0;
+  }
+  &::-webkit-scrollbar-thumb {
+    min-height: 140px;
+    background-color: color-mix(in srgb, var(--muted-foreground) 55%, transparent);
+    border-radius: 9999px;
+  }
+  &::-webkit-scrollbar-thumb:hover {
+    background-color: var(--muted-foreground);
+  }
+  @supports not selector(::-webkit-scrollbar) {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--muted-foreground) 55%, transparent) transparent;
+  }
+}
+
+/*
  * THE APP SHELL OWNS SCROLLING — THE DOCUMENT NEVER DOES.
  *
  * `app/(app)/layout.tsx` is `h-screen overflow-hidden` and scrolls inside

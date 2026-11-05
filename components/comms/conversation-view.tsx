@@ -703,7 +703,7 @@ export function ConversationView({
       <div
         ref={listRef}
         onScroll={onScroll}
-        className={cn("min-h-0 flex-1 overflow-y-auto py-3", chat && "@3xl/comms:px-[7%]")}
+        className={cn("scrollbar-pulse min-h-0 flex-1 overflow-y-auto py-3", chat && "@3xl/comms:px-[7%]")}
         role="log"
         aria-live="polite"
         aria-label={`Messages in ${conversation.title}`}

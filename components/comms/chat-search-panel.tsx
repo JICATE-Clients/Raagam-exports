@@ -104,7 +104,7 @@ export function ChatSearchPanel({
           className="h-10 rounded-full border-2 border-transparent bg-surface-muted pl-11 pr-4 focus-visible:border-primary focus-visible:bg-surface focus-visible:ring-0 [&::-webkit-search-cancel-button]:appearance-none"
         />
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto" role="list" aria-label="Results">
+      <div className="scrollbar-pulse min-h-0 flex-1 overflow-y-auto" role="list" aria-label="Results">
         {term.length < 2 ? (
           <p className="px-5 py-8 text-center text-sm text-muted-foreground">Search for messages in this chat.</p>
         ) : error ? (

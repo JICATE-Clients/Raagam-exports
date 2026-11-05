@@ -272,7 +272,7 @@ export function ThreadPanel({
           <X className="h-5 w-5" aria-hidden />
         </button>
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto pb-2">
+      <div className="scrollbar-pulse min-h-0 flex-1 overflow-y-auto pb-2">
         {error ? (
           <p className="flex items-center gap-2 p-3 text-sm text-danger" role="alert">
             {error}
