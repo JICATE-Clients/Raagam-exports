@@ -8,6 +8,7 @@ import {
   CheckCheck,
   ChevronDown,
   Copy,
+  Forward,
   MessageSquareReply,
   Pencil,
   Pin,
@@ -42,6 +43,8 @@ export type MessageActions = {
   onEdit?: (m: CommMessage, body: string) => Promise<boolean>;
   onDelete?: (m: CommMessage) => void;
   onOpenFile: (a: CommAttachment) => void;
+  /** 0812: forward this message's photos to other chats (the forward sheet). */
+  onForward?: (m: CommMessage) => void;
   /** 0776: a poll / event the server just re-read (a vote, an answer) replaces the one on screen. */
   onReplace?: (m: CommMessage) => void;
 };
@@ -62,6 +65,10 @@ export type MessageActions = {
  */
 /** WhatsApp's six quick reactions; the ＋ opens the full list. All six are in ALLOWED_EMOJI. */
 const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
+
+function isImage(mime: string): boolean {
+  return mime.toLowerCase().startsWith("image/");
+}
 
 export function MessageItem({
   message: m,
@@ -166,6 +173,9 @@ export function MessageItem({
   const author = m.author_name ?? (m.author_id ? "Former user" : "System");
 
   const canEdit = mine && canAct && !!actions.onEdit && !card && !deleted;
+  // FORWARD, PHOTOS ONLY (user 2026-11-05, the "forward an image" board): a
+  // message carrying at least one image can send those images on to other chats.
+  const canForward = !deleted && !editing && !!actions.onForward && m.attachments.some((a) => isImage(a.mime_type));
   const menuItems: DropdownItem[] =
     deleted || editing
       ? []
@@ -175,6 +185,7 @@ export function MessageItem({
             ? [{ label: "Reply in thread", icon: MessageSquareReply, onClick: () => actions.onReply!(m) }]
             : []),
           ...(m.body ? [{ label: "Copy", icon: Copy, onClick: copy }] : []),
+          ...(canForward ? [{ label: "Forward", icon: Forward, onClick: () => actions.onForward!(m) }] : []),
           ...(canAct && actions.onReact ? [{ label: "React", icon: SmilePlus, onClick: () => setReacting(true) }] : []),
           ...(canAct && actions.onPin
             ? [{ label: m.pinned ? "Unpin" : "Pin", icon: m.pinned ? PinOff : Pin, onClick: () => actions.onPin!(m) }]
@@ -281,6 +292,12 @@ export function MessageItem({
   // The message's own pieces, drawn in both layouts below.
   const content = (
     <>
+      {/* 0812: a message sent on from another chat says so, WhatsApp's way. */}
+      {m.forwarded && !deleted && (
+        <p className="mb-0.5 flex items-center gap-1 px-0.5 text-[11px] italic text-muted-foreground">
+          <Forward className="h-3 w-3" aria-hidden /> Forwarded
+        </p>
+      )}
       {deleted ? (
         <p className="text-sm italic text-muted-foreground">This message was deleted.</p>
       ) : editing && actions.onEdit ? (
@@ -505,6 +522,23 @@ export function MessageItem({
             </p>
           )}
         </div>
+        {canForward && (
+          // button-shape: exempt -- WhatsApp's round hover Forward beside a photo bubble (user 2026-11-05), the smiley's twin
+          <button
+            type="button"
+            aria-label="Forward"
+            title="Forward"
+            onClick={() => actions.onForward!(m)}
+            className={cn(
+              "mb-1 flex h-7 w-7 shrink-0 items-center justify-center self-center rounded-full bg-surface/85 text-[#8696a0] shadow-[0_1px_2px_rgba(11,20,26,.12)] transition-opacity hover:text-[#54656f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:text-muted-foreground",
+              // Next to the bubble, the smiley beyond it: bubble · ↪ · ☺ (and mirrored for mine).
+              mine ? "order-[-1]" : "order-[1]",
+              tapped ? "opacity-100" : "opacity-0 group-focus-within:opacity-100 group-hover:opacity-100",
+            )}
+          >
+            <Forward className="h-[17px] w-[17px]" strokeWidth={1.8} aria-hidden />
+          </button>
+        )}
         {canAct && actions.onReact && !deleted && !editing && !sticker && (
           <>
             {/* button-shape: exempt -- WhatsApp's round hover smiley beside a bubble (user 2026-11-03), an icon chip rather than an action button.

@@ -44,6 +44,7 @@ import { MessageBody, dayKey, initials } from "./message-body";
 import { AVATAR_TINT, avatarStyle } from "./conversation-list";
 import { PinnedSheet } from "./pinned-sheet";
 import { ThreadPanel } from "./thread-panel";
+import { ForwardSheet } from "./forward-sheet";
 import { ChatSearchPanel } from "./chat-search-panel";
 import { suggestReplies } from "@/lib/comms/smart-reply-actions";
 import { PhotoImg, useUserPhoto } from "./person-photo";
@@ -135,6 +136,8 @@ export function ConversationView({
   const [liveError, setLiveError] = useState<string | null>(null);
   const [connected, setConnected] = useState(true);
   const [threadOf, setThreadOf] = useState<CommMessage | null>(null);
+  // 0812: the message whose photos the Forward sheet is sending on.
+  const [forwardOf, setForwardOf] = useState<CommMessage | null>(null);
   const [threadVersion, setThreadVersion] = useState(0);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [pinnedOpen, setPinnedOpen] = useState(false);
@@ -399,6 +402,7 @@ export function ConversationView({
 
   const actions: MessageActions = {
     onOpenFile: (a) => void openFile(a),
+    onForward: (m) => setForwardOf(m),
     // 0776: a vote / an answer comes back as the message with fresh counts.
     onReplace: (fresh) => setMessages((prev) => prev.map((x) => (x.id === fresh.id ? fresh : x))),
     // One side panel at a time: a thread replaces Search messages.
@@ -935,6 +939,13 @@ export function ConversationView({
       />
       </div>
 
+      <ForwardSheet
+        message={forwardOf}
+        onClose={() => {
+          setForwardOf(null);
+          void refreshLatest();
+        }}
+      />
       <PinnedSheet
         open={pinnedOpen}
         conversationId={id}

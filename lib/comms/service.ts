@@ -463,7 +463,7 @@ type RawMessage = Omit<CommMessage, "author_name" | "pinned" | "saved" | "attach
 async function hydrate(s: Sb, rows: RawMessage[], me: string | null, keep?: string): Promise<CommMessage[]> {
   if (rows.length === 0) return [];
   const ids = rows.map((r) => r.id);
-  const [names, savedR, hiddenR] = await Promise.all([
+  const [names, savedR, hiddenR, fwdR] = await Promise.all([
     resolveNames(s, rows.map((r) => r.author_id)),
     me
       ? s.from("comm_saved").select("message_id").eq("user_id", me).in("message_id", ids)
@@ -471,7 +471,11 @@ async function hydrate(s: Sb, rows: RawMessage[], me: string | null, keep?: stri
     me
       ? s.from("comm_hidden").select("message_id").eq("user_id", me).in("message_id", ids)
       : Promise.resolve({ data: [], error: null }),
+    // 0812's mark, asked separately rather than in MESSAGE_SELECT so that every
+    // message list keeps loading before the column exists (42703 → none marked).
+    s.from("comm_messages").select("id").in("id", ids).eq("forwarded", true),
   ]);
+  const forwarded = new Set(fwdR.error ? [] : ((fwdR.data ?? []) as { id: string }[]).map((r) => r.id));
   if (savedR.error) fail("saved messages", savedR.error);
   const hiddenMissing = !!hiddenR.error && (hiddenR.error.code === "42P01" || hiddenR.error.code === "PGRST205");
   if (hiddenR.error && !hiddenMissing) fail("hidden messages", hiddenR.error);
@@ -498,6 +502,7 @@ async function hydrate(s: Sb, rows: RawMessage[], me: string | null, keep?: stri
       pinned: Array.isArray(pins) ? pins.length > 0 : !!pins,
       saved: saved.has(r.id),
       attachments: r.comm_attachments ?? [],
+      forwarded: forwarded.has(r.id),
       reactions: foldReactions(r.comm_reactions ?? [], me),
       poll: cards.polls.get(r.id) ?? null,
       event: cards.events.get(r.id) ?? null,

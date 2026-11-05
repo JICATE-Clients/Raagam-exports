@@ -293,6 +293,8 @@ export interface CommMessage {
   saved: boolean;
   attachments: CommAttachment[];
   reactions: CommReaction[];
+  /** 0812: sent on from another chat (Forward). Absent before 0812 is applied. */
+  forwarded?: boolean;
   /** 0776: the poll / event this message carries (lib/comms/cards.ts). */
   poll?: PollData | null;
   event?: EventData | null;
