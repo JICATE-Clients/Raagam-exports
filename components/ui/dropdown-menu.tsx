@@ -87,6 +87,12 @@ export interface DropdownItem {
    * that is a list of commands.
    */
   count?: number;
+  /**
+   * A muted second line under the label — what the item is set to now (Pulse's
+   * person-chat menu: Mute · "Pause notifications", Notifications · "All").
+   * Omitted by every other menu.
+   */
+  hint?: string;
 }
 
 /**
@@ -330,6 +336,7 @@ export function DropdownMenu({
                       text node here did before it was wrapped in a span. */}
                   <span className="min-w-0 flex-1" style={item.labelStyle}>
                     {item.label}
+                    {item.hint && <span className="block text-[11.5px] leading-4 text-muted-foreground">{item.hint}</span>}
                   </span>
                   {item.count !== undefined && item.count > 0 && (
                     <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{item.count}</span>

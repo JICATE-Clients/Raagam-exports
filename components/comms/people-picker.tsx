@@ -65,7 +65,11 @@ export function PeoplePicker({
   }
 
   return (
-    <div className="flex min-h-0 flex-col gap-2">
+    // h-full + flex-1: fill whatever height the caller gives — a plain `h-56`
+    // box (h-full) or a flex column with a line above (flex-1). Without it the
+    // root sized to its content, the list's overflow-y-auto never engaged, and
+    // the names spilled out of the box over the hint below it (New channel).
+    <div className="flex h-full min-h-0 flex-1 flex-col gap-2">
       {selected.length > 0 && (
         <ul className="flex flex-wrap gap-1.5" aria-label="Selected people">
           {selected.map((p) => (

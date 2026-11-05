@@ -289,6 +289,37 @@ export async function markRead(conversationId: string, until?: string | null): P
   return { ok: true };
 }
 
+/** 0810: move the read marker back so the chat shows unread again (person chat ⌄ menu). */
+export async function markUnread(conversationId: string): Promise<Result> {
+  if (typeof conversationId !== "string" || !UUID_RE.test(conversationId)) return fail("Unknown conversation.");
+  const s = await createClient();
+  const { error } = await s.rpc("comm_mark_unread", { p_conv: conversationId });
+  if (error) return fail(commErrorText(error, "The chat could not be marked unread."));
+  revHub();
+  return { ok: true };
+}
+
+/** 0810: block / unblock one person in direct chats. The caller's own list. */
+export async function setBlocked(userId: string, blocked: boolean): Promise<Result> {
+  if (typeof userId !== "string" || !UUID_RE.test(userId)) return fail("Unknown person.");
+  const s = await createClient();
+  const { error } = await s.rpc("comm_set_blocked", { p_user: userId, p_blocked: !!blocked });
+  if (error) return fail(commErrorText(error, blocked ? "That person could not be blocked." : "That person could not be unblocked."));
+  await writeAudit({ action: blocked ? "comm.blocked" : "comm.unblocked", entityType: "profile", entityId: userId });
+  revHub();
+  return { ok: true };
+}
+
+/** 0810: remove a chat and its messages from the caller's Pulse only. */
+export async function deleteChatForMe(conversationId: string): Promise<Result> {
+  if (typeof conversationId !== "string" || !UUID_RE.test(conversationId)) return fail("Unknown conversation.");
+  const s = await createClient();
+  const { error } = await s.rpc("comm_delete_chat_for_me", { p_conv: conversationId });
+  if (error) return fail(commErrorText(error, "The conversation could not be deleted."));
+  revHub();
+  return { ok: true };
+}
+
 // ---------------------------------------------------------------------------
 // Messages
 // ---------------------------------------------------------------------------

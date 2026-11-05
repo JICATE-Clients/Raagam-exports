@@ -21,9 +21,20 @@ import { NewCommunitySheet } from "./new-community-sheet";
  * A group is the one case that needs a pick-several-then-confirm step, so it
  * is its own mode behind "New group", and only that mode has a create button.
  */
-export function NewConversationSheet({ open, meId, onClose }: { open: boolean; meId: string; onClose: () => void }) {
+export function NewConversationSheet({
+  open,
+  meId,
+  onClose,
+  startGroup = false,
+}: {
+  open: boolean;
+  meId: string;
+  onClose: () => void;
+  /** Open in group mode (a section's ⋮ ▸ New group). */
+  startGroup?: boolean;
+}) {
   const router = useRouter();
-  const [group, setGroup] = useState(false);
+  const [group, setGroup] = useState(startGroup);
   const [people, setPeople] = useState<DirectoryPerson[]>([]);
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -31,7 +42,7 @@ export function NewConversationSheet({ open, meId, onClose }: { open: boolean; m
   const [community, setCommunity] = useState(false);
 
   function close() {
-    setGroup(false);
+    setGroup(startGroup);
     setPeople([]);
     setName("");
     setError(null);

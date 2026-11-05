@@ -335,7 +335,10 @@ export function UnitSettingsScreen({
         "People",
         Users,
         // 200 head + 200 estate + 288 directors + 2 × 12px gap = 712px → 46rem.
-        <FieldRow className="max-w-[46rem]">
+        // align="start": every label is one line but the hints wrap unevenly
+        // (Estate Office's runs to two), and bottom alignment let that hint
+        // lift its box above the other two.
+        <FieldRow className="max-w-[46rem]" align="start">
           <Field label="Unit Head" w="party" htmlFor="rh-us-head" hint="3 days late, and every 2nd dispute">
             <Combobox id="rh-us-head" options={personOptions} value={form.unit_head_id} onChange={(v) => patch({ unit_head_id: v })} clearable />
           </Field>
@@ -346,6 +349,7 @@ export function UnitSettingsScreen({
             <MultiSelect
               id="rh-us-directors"
               label="Directors"
+              compact
               options={directorOptions}
               values={form.director_ids}
               onChange={(v) => patch({ director_ids: v })}

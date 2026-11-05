@@ -172,7 +172,7 @@ export const listMyConversations = cache(async function listMyConversations(
   if (error) fail("conversations", error);
   const rows = (data ?? []) as MyConversationRow[];
 
-  const [titles, depts, authors, communityOf, pinned] = await Promise.all([
+  const [titles, depts, authors, communityOf, prefs] = await Promise.all([
     titlesFor(s, rows, me),
     departmentNames(s, rows.map((r) => r.department_id)),
     // Authors of the last messages and everyone those messages @mention, in one call.
@@ -181,11 +181,19 @@ export const listMyConversations = cache(async function listMyConversations(
       ...rows.flatMap((r) => mentionIds(r.last_body)),
     ]),
     communityLinks(s, rows.filter((r) => r.kind === "group").map((r) => r.id)),
-    pinnedChats(s, me),
+    myChatPrefs(s, me),
   ]);
-  return rows.map((r) => ({
+  // 0810 Delete conversation: a chat the caller deleted stays out of their list
+  // until someone writes in it again.
+  const live = rows.filter((r) => {
+    const cleared = prefs.cleared.get(r.id);
+    return !cleared || (!!r.last_message_at && Date.parse(r.last_message_at) > Date.parse(cleared));
+  });
+  return live.map((r) => ({
     ...r,
-    pinned: pinned.has(r.id),
+    pinned: prefs.pinned.has(r.id),
+    notify_level: prefs.notify.get(r.id) ?? (r.muted ? "mentions" : "all"),
+    blocked: !!r.other_user_id && prefs.blocked.has(r.other_user_id),
     community_id: communityOf.get(r.id)?.community_id ?? null,
     is_announcement: communityOf.get(r.id)?.is_announcement ?? false,
     // `?? false` / `?? null`: before 0764 is applied the RPC has no such columns.
@@ -209,23 +217,42 @@ export const listMyConversations = cache(async function listMyConversations(
  * (42703) and every group simply belongs to no community.
  */
 /**
- * The chats the caller pinned (0751's comm_members.pinned_at — the column the
- * channel sidebar already sorts by). Read from the caller's own membership
- * rows; before 0751 the column is missing and nothing is pinned.
+ * The caller's own per-chat settings, read from their membership rows: which
+ * chats are pinned (0751 pinned_at), the notification level (0751), and when
+ * they deleted a chat for themselves (0810 cleared_at). Each column is optional
+ * so the list still loads before the migration that adds it.
  */
-async function pinnedChats(s: Sb, me: string | null): Promise<Set<string>> {
-  if (!me) return new Set();
-  const { data, error } = await s
-    .from("comm_members")
-    .select("conversation_id")
-    .eq("user_id", me)
-    .is("removed_at", null)
-    .not("pinned_at", "is", null);
-  if (error) {
-    if (error.code === "42703") return new Set();
-    fail("pinned chats", error);
+type MyChatPrefs = {
+  pinned: Set<string>;
+  notify: Map<string, "all" | "mentions" | "none">;
+  cleared: Map<string, string>;
+  blocked: Set<string>;
+};
+
+async function myChatPrefs(s: Sb, me: string | null): Promise<MyChatPrefs> {
+  const out: MyChatPrefs = { pinned: new Set(), notify: new Map(), cleared: new Map(), blocked: new Set() };
+  if (!me) return out;
+  type Row = { conversation_id: string; pinned_at?: string | null; notify_level?: "all" | "mentions" | "none" | null; cleared_at?: string | null };
+  const read = (cols: string) => s.from("comm_members").select(cols).eq("user_id", me).is("removed_at", null);
+  let rows: Row[] = [];
+  for (const cols of ["conversation_id, pinned_at, notify_level, cleared_at", "conversation_id, pinned_at, notify_level", "conversation_id"]) {
+    const { data, error } = await read(cols);
+    if (!error) {
+      rows = (data ?? []) as unknown as Row[];
+      break;
+    }
+    if (error.code !== "42703") fail("chat settings", error);
   }
-  return new Set(((data ?? []) as { conversation_id: string }[]).map((r) => r.conversation_id));
+  for (const r of rows) {
+    if (r.pinned_at) out.pinned.add(r.conversation_id);
+    if (r.notify_level) out.notify.set(r.conversation_id, r.notify_level);
+    if (r.cleared_at) out.cleared.set(r.conversation_id, r.cleared_at);
+  }
+  // 0810: who the caller blocked. Missing table → nobody.
+  const b = await s.from("comm_blocks").select("blocked_id").eq("blocker_id", me);
+  if (b.error && b.error.code !== "42P01" && b.error.code !== "PGRST205") fail("blocked people", b.error);
+  for (const r of (b.data ?? []) as { blocked_id: string }[]) out.blocked.add(r.blocked_id);
+  return out;
 }
 
 async function communityLinks(

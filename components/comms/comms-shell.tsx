@@ -71,7 +71,14 @@ export function CommsShell({
   const [composing, setComposing] = useState(false);
   // Chats' New button and the mobile ＋ (SECTION_ACTIONS "/comms") both land
   // as ?new=1, so the one sheet lives here on every hub route.
-  useCreateIntent(() => setComposing(true));
+  // `a=group` (the Groups heading's ⋮ ▸ New group, user 2026-11-05) opens
+  // the sheet straight in group mode. Read from the live URL: the intent runs
+  // before it strips `new` and `a`.
+  const [composeGroup, setComposeGroup] = useState(false);
+  useCreateIntent(() => {
+    setComposeGroup(new URLSearchParams(window.location.search).get("a") === "group");
+    setComposing(true);
+  });
 
   useEffect(() => {
     const supabase = createClient();
@@ -107,6 +114,9 @@ export function CommsShell({
 
   const openId = /^\/comms\/c\/([0-9a-f-]{36})/i.exec(pathname)?.[1]?.toLowerCase() ?? null;
   const isHome = pathname === "/comms";
+  // /comms/new: the New message screen (moved off /comms on 2026-11-05, when
+  // /comms became the Home feed). A pane like a conversation.
+  const isNew = pathname === "/comms/new";
   // 0775: a community's page is part of Pulse too — the list stays beside it.
   const communityId = /^\/comms\/community\/([0-9a-f-]{36})/i.exec(pathname)?.[1]?.toLowerCase() ?? null;
   // Pulse ▸ Files opens a file beside the list too (user 2026-10-31).
@@ -114,7 +124,7 @@ export function CommsShell({
   // Every conversation opens beside the list since Pulse ▸ Channels (user
   // 2026-10-31): a public channel read before joining is one tap from the
   // list, as a WhatsApp channel is.
-  const pulse = !!chats && (isHome || !!communityId || !!fileId || !!openId);
+  const pulse = !!chats && (isHome || isNew || !!communityId || !!fileId || !!openId);
 
   return (
     <PhotosProvider photos={photos ?? {}}>
@@ -142,7 +152,8 @@ export function CommsShell({
             <ConversationList
               conversations={chats}
               activeId={openId}
-              composing={isHome}
+              composing={isNew}
+              home={isHome}
               communities={communities}
               activeCommunityId={communityId}
               activeFileId={fileId}
@@ -157,7 +168,7 @@ export function CommsShell({
       ) : (
         children
       )}
-      <NewConversationSheet open={composing} meId={user.id} onClose={() => setComposing(false)} />
+      <NewConversationSheet key={composeGroup ? "group" : "direct"} startGroup={composeGroup} open={composing} meId={user.id} onClose={() => setComposing(false)} />
     </div>
     </PhotosProvider>
   );

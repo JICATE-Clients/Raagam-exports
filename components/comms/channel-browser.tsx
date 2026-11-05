@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { Archive, ArrowLeft, Hash, Loader2, Lock, Plus, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Field } from "@/components/ui/field";
+import { Field, FieldRow } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Segmented, ToggleGroup } from "@/components/ui/segmented";
 import { Select } from "@/components/ui/select";
@@ -304,54 +304,74 @@ function CreateChannelSheet({
         </div>
       }
     >
+      {/* Compact (user 2026-11-05): the sm sheet scrolled with one field per
+          line. Paired rows fit its ~408px body: party 200 + 12 gap + term 176
+          = 388px. align="start" because the paired hints wrap unevenly. */}
       <div className="space-y-3">
-        <Field
-          label="Name"
-          required
-          hint={problem ?? (slug ? `Will be created as #${slug}. You will be its owner.` : "Lowercase letters, numbers, - and _.")}
-        >
-          {/* caps-input: exempt -- a channel name is stored lowercase by rule (0751); capitals would be refused */}
-          <Input
-            uppercase={false}
-            value={name}
-            maxLength={CHANNEL_NAME_MAX + 20}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. cutting-room"
-            aria-invalid={!!problem}
-            autoFocus
-          />
-        </Field>
-        <Field label="Who can see it" hint={visibility === "public" ? "Anyone with Messages can find, read and join it." : "Only the people you add can see it. This cannot be made public later."}>
-          <Segmented
-            name="channel-visibility"
-            value={visibility}
-            onChange={setVisibility}
-            options={[
-              { value: "public", label: "Public" },
-              { value: "private", label: "Private" },
-            ]}
-          />
-        </Field>
-        <Field label="Description" hint="What the channel is for. Shown in discovery.">
+        <FieldRow align="start">
+          <Field
+            label="Name"
+            required
+            w="party"
+            hint={problem ?? (slug ? `Created as #${slug}; you own it.` : "Lowercase, numbers, - and _")}
+          >
+            {/* caps-input: exempt -- a channel name is stored lowercase by rule (0751); capitals would be refused */}
+            <Input
+              uppercase={false}
+              value={name}
+              maxLength={CHANNEL_NAME_MAX + 20}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. cutting-room"
+              aria-invalid={!!problem}
+              autoFocus
+            />
+          </Field>
+          <Field label="Who can see it" w="term" hint={visibility === "public" ? "Anyone can find & join" : "Only people you add · can't go public later"}>
+            <Segmented
+              name="channel-visibility"
+              value={visibility}
+              onChange={setVisibility}
+              options={[
+                { value: "public", label: "Public" },
+                { value: "private", label: "Private" },
+              ]}
+            />
+          </Field>
+        </FieldRow>
+        <Field label="Description">
           {/* caps-input: exempt -- display text read by people, like a chat message; nothing matches on it */}
-          <Textarea uppercase={false} rows={2} value={description} maxLength={CHANNEL_DESC_MAX} onChange={(e) => setDescription(e.target.value)} />
+          <Textarea
+            uppercase={false}
+            rows={2}
+            value={description}
+            maxLength={CHANNEL_DESC_MAX}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="What it's for — shown in discovery"
+          />
         </Field>
-        <Field label="Topic" hint="What is being discussed now. Easy to change later.">
-          {/* caps-input: exempt -- display text read by people (a conversation name or topic), like a chat message; nothing matches on it */}
-          <Input uppercase={false} value={topic} maxLength={CHANNEL_TOPIC_MAX} onChange={(e) => setTopic(e.target.value)} />
-        </Field>
-        <Field label="Department" hint="Optional. A department channel can add that department's logins in one step.">
-          <Select value={departmentId} onChange={(e) => setDepartmentId(e.target.value)}>
-            <option value="">None</option>
-            {departments.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Add people" hint="Optional. You can add more later.">
-          <div className="h-56 rounded-md border border-border">
+        <FieldRow align="start">
+          <Field label="Topic" w="party">
+            {/* caps-input: exempt -- display text read by people (a conversation name or topic), like a chat message; nothing matches on it */}
+            <Input uppercase={false} value={topic} maxLength={CHANNEL_TOPIC_MAX} onChange={(e) => setTopic(e.target.value)} placeholder="What's being discussed now" />
+          </Field>
+          <Field label="Department" w="term">
+            <Select
+              value={departmentId}
+              onChange={(e) => setDepartmentId(e.target.value)}
+              title="Optional. A department channel can add that department's logins in one step."
+            >
+              <option value="">None</option>
+              {departments.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </FieldRow>
+        <Field label="Add people (optional)">
+          {/* No border here: the picker's list draws its own, and two made a box in a box. */}
+          <div className="h-44">
             <PeoplePicker selected={members} onChange={setMembers} />
           </div>
         </Field>

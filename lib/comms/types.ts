@@ -98,6 +98,11 @@ export interface ConversationSummary {
   /** 0751's pinned_at on the caller's own membership: the chat sits at the top
    *  of Pulse (user 2026-11-02, the row ⌄ menu's "Pin chat"). */
   pinned?: boolean;
+  /** 0751's notify_level on the caller's own membership — the person-chat ⌄
+   *  menu's "Notifications" line (user 2026-11-05). */
+  notify_level?: "all" | "mentions" | "none";
+  /** 0810: the caller blocked the other person of this direct chat. */
+  blocked?: boolean;
   /** 0764: the newest top-level message the caller may read, for the row's
    *  preview. `last_body` is null when it was deleted or file-only. */
   last_body: string | null;
