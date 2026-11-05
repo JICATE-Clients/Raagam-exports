@@ -191,6 +191,18 @@ export const NAV: NavItem[] = [
     label: "Analytics",
     module: "reports",
     icon: ChartNoAxesCombined,
+    /* ONE BOARD PER QUESTION (Phase 1, user 2026-11-05). The module row opens the
+       Overview, so it is not repeated as a child. Each board also needs the screen
+       its figures come from (lib/analytics/sources.ts). */
+    children: [
+      { href: "/analytics/orders", label: "Orders & Buyers" },
+      { href: "/analytics/profitability", label: "Profitability" },
+      { href: "/analytics/purchase", label: "Purchase & Vendors" },
+      { href: "/analytics/stock", label: "Stock" },
+      { href: "/analytics/delivery", label: "Delivery & T&A" },
+      { href: "/analytics/samples", label: "Samples & Enquiries" },
+      { href: "/analytics/people", label: "People & Workplace" },
+    ],
   },
   {
     /* APPROVALS — the engine's own two screens (0500–0503).

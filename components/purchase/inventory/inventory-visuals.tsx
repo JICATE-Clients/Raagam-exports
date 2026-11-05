@@ -1,11 +1,14 @@
 "use client";
 
 import type { ReactNode } from "react";
-import Link from "next/link";
 import { Truncated } from "@/components/ui/truncated";
 import { fmtMoney, fmtNumber } from "@/lib/format";
 import { AGE_BANDS, type AgeBand } from "@/lib/reports/stock-statement-types";
-import { cn } from "@/lib/utils";
+import { classColour, Dot, NeedsDoing as NeedsDoingCard, Strip, VizCard } from "@/components/viz/kit";
+
+/* The strip, card, dot, colour and needs-doing pieces live in the shared Overview kit since
+   2026-11-05 (components/viz/kit.tsx), so Analytics draws exactly what this screen draws. */
+export { classColour, Dot, VizCard };
 import { isAsset, type Row } from "./inventory-table";
 
 /**
@@ -14,19 +17,6 @@ import { isAsset, type Row } from "./inventory-table";
  * and draws only from the stock layers the page was handed — nothing here is a second figure.
  */
 
-/* ITEM CLASS → COLOUR, FIXED BY THE CLASS, never by its rank on screen (a filter that drops Yarn
-   must not repaint Sewing). Blue is the app's primary; the rest are the dataviz reference
-   palette's categorical slots, validated against white (all checks pass, 2026-11-04). */
-const CLASS_COLOURS: [prefix: string, colour: string][] = [
-  ["YARN", "#037bb8"],
-  ["FABRIC", "#1baf7a"],
-  ["SEWING", "#eb6834"],
-  ["PACK", "#6250d6"],
-];
-export function classColour(itemClass: string): string {
-  const u = itemClass.toUpperCase();
-  return CLASS_COLOURS.find(([p]) => u.startsWith(p))?.[1] ?? "#8a94a3";
-}
 export const titleCase = (s: string) => s.toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase());
 
 /* AGE IS A STATE, so it wears the status tokens — always with a word beside it, never colour alone. */
@@ -40,32 +30,6 @@ const BAND_ORDER = (b: AgeBand) => AGE_BANDS.indexOf(b);
 export const oldestBand = (rows: Row[]): AgeBand =>
   rows.reduce<AgeBand>((a, r) => (BAND_ORDER(r.band) > BAND_ORDER(a) ? r.band : a), "0-30");
 
-/** A glowing status dot — the colour lights its own halo (`currentColor`). */
-export function Dot({ colour, className }: { colour: string; className?: string }) {
-  return (
-    <i
-      aria-hidden
-      className={cn("inline-block size-2 shrink-0 rounded-full shadow-[0_0_6px_1px_currentColor]", className)}
-      style={{ background: colour, color: colour }}
-    />
-  );
-}
-
-/** One card: a white ground, a hairline head saying the question. */
-export function VizCard({ title, question, right, children, className }: { title: string; question?: string; right?: ReactNode; children: ReactNode; className?: string }) {
-  return (
-    <section className={cn("min-w-0 rounded-xl border border-border bg-surface shadow-[0_1px_2px_rgba(16,24,40,.04),0_8px_24px_-16px_rgba(3,123,184,.25)]", className)}>
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-3.5 py-2">
-        <div className="min-w-0">
-          <h2 className="text-[13px] font-semibold">{title}</h2>
-          {question ? <p className="text-xs text-muted-foreground">{question}</p> : null}
-        </div>
-        {right}
-      </div>
-      {children}
-    </section>
-  );
-}
 
 /* --------------------------------------------------------------------------- headline */
 
@@ -132,22 +96,7 @@ export function HeadlineStrip({ h }: { h: Headline }) {
       accent: h.idleLots ? "var(--danger)" : "var(--success)",
     },
   ];
-  return (
-    <dl className="grid grid-cols-2 rounded-xl border border-border bg-surface shadow-[0_1px_2px_rgba(16,24,40,.04),0_8px_24px_-16px_rgba(3,123,184,.25)] md:grid-cols-5">
-      {tiles.map((t, i) => (
-        <div key={t.label} className={cn("relative min-w-0 px-3.5 py-2.5", i > 0 && "md:border-l md:border-border")}>
-          <span
-            aria-hidden
-            className="absolute inset-x-3.5 top-0 h-0.5 rounded-b-sm"
-            style={{ background: t.accent, boxShadow: `0 0 10px 1px ${t.accent}` }}
-          />
-          <dt className="text-xs text-muted-foreground">{t.label}</dt>
-          <dd className="mt-0.5 text-xl font-bold tabular-nums tracking-tight">{t.value}</dd>
-          <div className="mt-0.5 text-[11.5px] text-muted-foreground">{t.hint}</div>
-        </div>
-      ))}
-    </dl>
-  );
+  return <Strip cells={tiles.map((t) => ({ label: t.label, value: t.value, hint: t.hint, accent: t.accent }))} />;
 }
 
 /* --------------------------------------------------------------------------- yarn cones */
@@ -334,45 +283,31 @@ export function NeedsDoing({
   idleLots: number;
   idleText: string;
 }) {
-  const cell = "min-w-0 border-border px-3.5 py-2.5 md:border-l md:first:border-l-0";
   return (
-    <VizCard title="What needs doing?" question="Each line opens the screen that clears it">
-      <div className="grid md:grid-cols-3">
-        <div className={cell}>
-          <span className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-warning">
-            <Dot colour="var(--warning)" />
-            Put away
-          </span>
-          <div className="text-lg font-bold">{floorLots ? `${fmtNumber(floorLots)} lot${floorLots === 1 ? "" : "s"}` : "None"}</div>
-          <Truncated className="block text-xs text-muted-foreground">{floorText}</Truncated>
-          {floorLots && canMove ? (
-            <button type="button" onClick={onPutAway} className="mt-1 text-xs font-semibold text-primary hover:underline">
-              Assign a bin →
-            </button>
-          ) : null}
-        </div>
-        <div className={cell}>
-          <span className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-danger">
-            <Dot colour="var(--danger)" />
-            Owed by vendor
-          </span>
-          <div className="text-lg font-bold">{owedQty ?? "None"}</div>
-          <Truncated className="block text-xs text-muted-foreground">{owedText}</Truncated>
-          {owedQty ? (
-            <Link href="/purchase/dc?type=replacement" className="mt-1 inline-block text-xs font-semibold text-primary hover:underline">
-              Open Delivery Challans →
-            </Link>
-          ) : null}
-        </div>
-        <div className={cell}>
-          <span className={cn("inline-flex items-center gap-1.5 text-[11.5px] font-semibold", idleLots ? "text-danger" : "text-success")}>
-            <Dot colour={idleLots ? "var(--danger)" : "var(--success)"} />
-            Idle stock
-          </span>
-          <div className="text-lg font-bold">{idleLots ? `${fmtNumber(idleLots)} lots` : "None"}</div>
-          <Truncated className="block text-xs text-muted-foreground">{idleText}</Truncated>
-        </div>
-      </div>
-    </VizCard>
+    <NeedsDoingCard
+      cells={[
+        {
+          title: "Put away",
+          mood: "look",
+          count: floorLots ? `${fmtNumber(floorLots)} lot${floorLots === 1 ? "" : "s"}` : "None",
+          text: floorText,
+          action:
+            floorLots && canMove ? (
+              <button type="button" onClick={onPutAway} className="mt-1 text-xs font-semibold text-primary hover:underline">
+                Assign a bin →
+              </button>
+            ) : undefined,
+        },
+        {
+          title: "Owed by vendor",
+          mood: "problem",
+          count: owedQty ?? "None",
+          text: owedText,
+          href: owedQty ? "/purchase/dc?type=replacement" : undefined,
+          linkText: "Open Delivery Challans",
+        },
+        { title: "Idle stock", mood: idleLots ? "problem" : "good", count: idleLots ? `${fmtNumber(idleLots)} lots` : "None", text: idleText },
+      ]}
+    />
   );
 }
