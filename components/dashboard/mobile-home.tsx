@@ -6,13 +6,9 @@ import {
   CheckCheck,
   CircleCheck,
   ClipboardCheck,
-  ClipboardList,
   Clock,
   Flag,
   IndianRupee,
-  PackageOpen,
-  Plus,
-  ShoppingCart,
   type LucideIcon,
 } from "lucide-react";
 import { getBoard } from "@/lib/dashboard/board";
@@ -23,8 +19,9 @@ import { fmtMoneyShort } from "@/components/dashboard/board";
 import { iconFor } from "@/components/dashboard/icon";
 import { addDays, today } from "@/lib/calendar";
 import { getCalendar, type CalEvent } from "@/lib/my-calendar/data";
-import { hasPermission, type Action, type AppUser, type Module } from "@/lib/auth/types";
-import { screenOfPath } from "@/lib/permissions/screen-catalog";
+import type { AppUser } from "@/lib/auth/types";
+import { getMyFavorites } from "@/lib/favorites/service";
+import { FavoritesBar } from "@/components/favorites/favorites-bar";
 import { Truncated } from "@/components/ui/truncated";
 import { cn } from "@/lib/utils";
 
@@ -610,45 +607,19 @@ export async function MobileInsights({ caps }: { caps: DashboardCaps }) {
   );
 }
 
-/* ───────────────────────── 7 · quick start ───────────────────────── */
-
-const SHORTCUTS: { href: string; label: string; icon: LucideIcon; tone: DashboardTone; module: Module; action: Action }[] = [
-  { href: "/orders/garment-orders", label: "Order Entry", icon: Plus, tone: "primary", module: "orders", action: "create" },
-  { href: "/purchase/requirement-po", label: "Raise PO", icon: ShoppingCart, tone: "success", module: "materials_purchase", action: "create" },
-  { href: "/purchase/grn", label: "GRN", icon: PackageOpen, tone: "warning", module: "materials_purchase", action: "view" },
-  { href: "/approvals", label: "Approvals", icon: ClipboardList, tone: "accent", module: "dashboard", action: "view" },
-];
+/* ───────────────────────── 7 · favourites ───────────────────────── */
 
 /**
- * The phone has no sidebar and no Ctrl+K, so the four screens most often opened from a
- * phone sit here (reference: My Favourites). A shortcut the viewer may not open is left
- * out rather than greyed. Approvals needs no permission — your own queue is always yours.
+ * FAVOURITES REPLACED QUICK START (0812, user 2026-11-05). Quick start was four fixed tiles —
+ * Order Entry, Raise PO, GRN, Approvals — the same for everyone. The bar is now the person's:
+ * admin defaults for everyone and per role, plus their own pins, filtered by what they may
+ * open. It leads the phone home, straight under the band, because the ask was "on Home upon
+ * logging in". Order Entry, Raise PO and GRN live on as role defaults (MERCHANDISING,
+ * Store Keeper); Approvals is an everyone default.
  */
-export function MobileQuickStart({ user }: { user: AppUser }) {
-  const shown = SHORTCUTS.filter(
-    (s) => s.href === "/approvals" || hasPermission(user, s.module, s.action, screenOfPath(s.href)),
-  );
-  if (shown.length === 0) return null;
-  return (
-    <section aria-label="Quick start">
-      <SectionHead title="Quick start" />
-      <ul className="grid grid-cols-4 gap-2.5">
-        {shown.map((s) => (
-          <li key={s.href}>
-            <Link
-              href={s.href}
-              className="flex h-full flex-col items-center gap-1.5 rounded-2xl border-[1.5px] border-border bg-surface px-1 pb-2.5 pt-3 text-center active:scale-[0.97]"
-            >
-              <span className={cn("grid size-11 place-items-center rounded-[13px]", SOFT[s.tone])}>
-                <TwoTone icon={s.icon} className="size-[22px]" />
-              </span>
-              <span className="text-[11.5px] font-semibold leading-tight">{s.label}</span>
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
+export async function MobileFavorites({ user }: { user: AppUser }) {
+  const items = await getMyFavorites(user);
+  return <FavoritesBar items={items} variant="phone" />;
 }
 
 /** Streaming placeholder for any one phone section. */

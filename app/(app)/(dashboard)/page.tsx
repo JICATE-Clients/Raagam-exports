@@ -25,8 +25,8 @@ import {
   MobileDay,
   MobileGlance,
   MobileHero,
+  MobileFavorites,
   MobileInsights,
-  MobileQuickStart,
   MobileSkeleton,
   MobileWaiting,
   MobileWeek,
@@ -134,6 +134,11 @@ export default async function DashboardPage({
       <Suspense fallback={<div className="-mx-4 -mt-4 h-14 bg-[#0a2e4d]" />}>
         <MobileHero caps={caps} />
       </Suspense>
+      {/* FAVOURITES LEAD THE PHONE HOME (0812, user 2026-11-05): one tap to the form, first
+          thing under the band. Replaces Quick start, which closed the page. */}
+      <Suspense fallback={<MobileSkeleton h="h-24" />}>
+        <MobileFavorites user={user} />
+      </Suspense>
       <Suspense fallback={<MobileSkeleton h="h-28" />}>
         <MobileDay user={user} />
       </Suspense>
@@ -149,7 +154,6 @@ export default async function DashboardPage({
       <Suspense fallback={<MobileSkeleton h="h-48" />}>
         <MobileInsights caps={caps} />
       </Suspense>
-      <MobileQuickStart user={user} />
     </div>
 
     {/* THE DESKTOP DASHBOARD — from md up only. */}

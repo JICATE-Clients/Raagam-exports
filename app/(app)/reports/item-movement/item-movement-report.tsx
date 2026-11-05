@@ -3,13 +3,7 @@
 import { ReportView } from "@/components/reports/report-view";
 import { columnsFromFields, type FactRow } from "@/lib/reports/columns";
 import { rollup } from "@/lib/reports/rollup";
-import {
-  attributeName,
-  fieldByKey,
-  isAttributeKey,
-  ITEM_MEASURES,
-  defaultMeasures,
-} from "@/lib/reports/registry";
+import { fieldByKey, defaultMeasures } from "@/lib/reports/registry";
 import type { ReportConfig } from "@/lib/reports/types";
 import type { ItemMovementRow } from "@/lib/reports/item-types";
 
@@ -59,12 +53,6 @@ export function ItemMovementReport({
     },
   };
 
-  // Caveats attached to the measures actually on screen — an ERP number without
-  // its provenance is worse than no number.
-  const caveats = ITEM_MEASURES.filter(
-    (m) => measureKeys.includes(m.key) && m.caveat,
-  );
-
   return (
     <div className="space-y-3">
       <ReportView
@@ -72,21 +60,6 @@ export function ItemMovementReport({
         getKey={(_row, i) => `row-${i}`}
         empty="No material movement in this period."
       />
-      {caveats.length > 0 && (
-        <ul className="space-y-0.5 text-xs text-muted-foreground print:block">
-          {caveats.map((m) => (
-            <li key={m.key}>
-              <span className="font-medium">{m.label}:</span> {m.caveat}
-            </li>
-          ))}
-        </ul>
-      )}
-      {isAttributeKey(groupBy) && (
-        <p className="text-xs text-muted-foreground">
-          Grouped by the material attribute “{attributeName(groupBy)}”. Items that
-          have no answer for it are grouped under “—”.
-        </p>
-      )}
     </div>
   );
 }

@@ -72,7 +72,8 @@ export type CatalogModule = {
  * it), and Messages (the Communication Hub's conversation list, 0737). Every
  * other module root renders cards and falls back to the module grant.
  */
-const ROOT_SCREENS = new Set(["/", "/analytics", "/approvals", "/comms"]);
+// "/favourites" = the Favourites module (0812a, user 2026-11-05): the person's tiles page.
+const ROOT_SCREENS = new Set(["/", "/favourites", "/analytics", "/approvals", "/comms"]);
 
 /** Build the tree. Pure; cheap enough to call per render, memoised below. */
 export function buildScreenCatalog(): CatalogModule[] {

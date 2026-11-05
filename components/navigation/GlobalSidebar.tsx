@@ -9,7 +9,7 @@ import { useAppUser } from "@/lib/auth/permission-context";
 import { useOpenModule } from "@/lib/workspace-tabs";
 import { cn } from "@/lib/utils";
 import { activeModule, isPlainLeftClick, visibleModules, type NavItem } from "./navigation-config";
-import { SIDEBAR_HUE } from "./module-hue";
+import { SIDEBAR_HUE, moduleHue, moduleWellStyle } from "./module-hue";
 import { setMenuCollapsed } from "./menu-collapse";
 
 /**
@@ -27,7 +27,8 @@ import { setMenuCollapsed } from "./menu-collapse";
  * and the rail has no scrollbar (see the nav's spacing note below).
  */
 const RAIL_BANDS: { label?: string; hrefs: string[] }[] = [
-  { hrefs: ["/", "/approvals"] },
+  // Favourites under Home (user 2026-11-05): the day starts on one of those two.
+  { hrefs: ["/", "/favourites", "/approvals"] },
   { label: "Sampling & Orders", hrefs: ["/sales", "/orders"] },
   { label: "Bulk Production", hrefs: ["/planning", "/purchase", "/stores", "/production", "/logistics", "/logistics/transport"] },
   { label: "People & Accounts", hrefs: ["/hr", "/finance"] },
@@ -147,13 +148,21 @@ function RailItem({ item, active, onOpen }: { item: NavItem; active: boolean; on
            edge to edge and clipped. Now: an 84px rail, 8px either side of the tile,
            4px inside it (60px for the name), 8px over the icon, 4px icon to name,
            6px under it, and the lit name SEMIBOLD so selecting it does not widen it. */
-        "grid justify-items-center gap-1 rounded-[10px] px-1 pb-1.5 pt-2 text-center text-[10.5px] leading-[1.2] transition-colors",
+        // 6px over the icon since the 28px well (2026-11-05, was 8px over a bare 19px glyph):
+        // the well adds 9px a row, the padding gives 2 back, and the work list still scrolls.
+        "grid justify-items-center gap-1 rounded-[10px] px-1 pb-1.5 pt-1.5 text-center text-[10.5px] leading-[1.2] transition-colors",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         active ? RAIL_ACTIVE : "text-muted-foreground hover:bg-white/55 hover:text-foreground dark:hover:bg-white/10",
       )}
       style={{ "--hue": SIDEBAR_HUE } as CSSProperties}
     >
-      <Icon aria-hidden className={cn("h-[19px] w-[19px]", active && "text-[var(--hue)]")} strokeWidth={2} />
+      {/* EACH MODULE IN ITS OWN COLOUR (user 2026-11-05, option C): a 28px glossy well in the
+          module's hue with a white glyph — the same well as its Favourites tiles (module-hue.ts
+          says why this reverses 2026-10-28's single colour). The lit module keeps its white
+          pill around the well, so "you are here" still reads without a second colour. */}
+      <span aria-hidden className="grid size-7 place-items-center rounded-[9px]" style={moduleWellStyle(moduleHue(item.href))}>
+        <Icon className="h-4 w-4" strokeWidth={2.1} />
+      </span>
       <span className="max-w-full truncate">{SHORT[item.label] ?? item.label}</span>
     </Link>
   );

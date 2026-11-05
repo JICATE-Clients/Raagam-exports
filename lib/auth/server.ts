@@ -117,6 +117,7 @@ async function loadAppUser(): Promise<AppUser | null> {
     defaultLocationId: profile?.default_location_id ?? null,
     currentLocationId: profile?.current_location_id ?? null,
     roleNames: ((roles ?? []) as { name: string }[]).map((r) => r.name),
+    roleIds: ((roles ?? []) as { id: string }[]).map((r) => r.id),
     permissions,
     ...screenFactsOf(screenFacts),
   };
@@ -136,6 +137,7 @@ async function loadAppUser(): Promise<AppUser | null> {
     ...base,
     isSuperAdmin: false,
     simulatedRoleIds: preview.ids,
+    roleIds: preview.ids,
     roleNames: preview.names,
     permissions: preview.permissions,
     moduleMode: preview.moduleMode,

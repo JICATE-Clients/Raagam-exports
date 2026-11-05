@@ -1745,6 +1745,9 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
             label: "User Permissions",
             description: "Access given to one person by email, on top of their roles",
           },
+          // 0812 (user 2026-11-05): the tiles each role starts with on Home — "Everyone"
+          // first, because self-service staff sign in with no role at all.
+          { href: "/admin/home-favourites", label: "Home Favourites", description: "The tiles each role starts with on Home" },
           { href: "/admin/audit", label: "Audit Log", description: "Who changed what, and when" },
         ],
       },

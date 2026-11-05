@@ -17,6 +17,8 @@ import { ShortcutsProvider } from "@/components/shell/shortcuts-provider";
 import { KeyboardNavProvider } from "@/components/shell/keyboard-nav-provider";
 import { listStoreNavLinks } from "@/lib/stores/service";
 import { getMyStaffPhotoUrl } from "@/lib/hr/my-profile";
+import { getMyShownKeys } from "@/lib/favorites/service";
+import { FavoritesProvider } from "@/components/favorites/favorites-provider";
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const user = await requireUser();
@@ -41,15 +43,18 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
   //
   // Roles are only fetched for a real Super Admin — `realIsSuperAdmin`, not
   // `isSuperAdmin`, so the switcher stays reachable while already previewing.
-  const [{ location, allowed, source }, stores, photoUrl, previewableRoles] = await Promise.all([
+  const [{ location, allowed, source }, stores, photoUrl, previewableRoles, favoriteKeys] = await Promise.all([
     getCurrentLocation(),
     listStoreNavLinks(),
     getMyStaffPhotoUrl(),
     user.realIsSuperAdmin ? listPreviewableRoles() : Promise.resolve([]),
+    // 0812: which tiles are on this person's Home, for the top bar's ☆ — in the same round.
+    getMyShownKeys(user),
   ]);
 
   return (
     <PermissionProvider user={user}>
+      <FavoritesProvider initial={favoriteKeys}>
       <LocationProvider value={{ current: location, allowed, source }}>
         <SearchProvider>
           <ShortcutsProvider>
@@ -140,6 +145,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
           </ShortcutsProvider>
         </SearchProvider>
       </LocationProvider>
+      </FavoritesProvider>
     </PermissionProvider>
   );
 }

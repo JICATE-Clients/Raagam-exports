@@ -167,6 +167,12 @@ export interface AppUser {
    */
   currentLocationId: string | null;
   roleNames: string[];
+  /**
+   * The ids behind `roleNames` (0812, Home Favourites reads its role defaults by
+   * them). The previewed roles while a Role Preview is active. Optional so an
+   * older shape (a test double) still type-checks; absent = no role defaults.
+   */
+  roleIds?: string[];
   /** Effective permission keys, e.g. "orders:approve". */
   permissions: PermissionKey[];
   /**

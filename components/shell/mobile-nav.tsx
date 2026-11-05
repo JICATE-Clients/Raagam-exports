@@ -119,7 +119,11 @@ function tileGroupsOf(
   const loose: Tile[] = [];
   const groups: TileGroup[] = [];
   const hasLeaves = sections.length > 0;
-  if (!hasLeaves || !isHubRoute(m.href)) loose.push({ href: m.href, label: hasLeaves ? "Overview" : m.label, icon: m.icon });
+  // A child that IS the module root (Pulse ▸ Messages → /comms) already gives the
+  // root a tile under its own name; an "Overview" beside it was a second tile to the
+  // same screen, and a duplicate React key.
+  const rootListed = sections.some((s) => s.href === m.href);
+  if ((!hasLeaves || !isHubRoute(m.href)) && !rootListed) loose.push({ href: m.href, label: hasLeaves ? "Overview" : m.label, icon: m.icon });
   for (const s of sections) {
     const icon = s.icon ?? m.icon;
     if (s.children?.length) groups.push({ label: s.label, tiles: s.children.map((c) => ({ href: c.href, label: c.label, icon })) });

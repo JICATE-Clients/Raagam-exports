@@ -1,40 +1,28 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useMemo } from "react";
+import { useFavoritesApi } from "@/components/favorites/favorites-provider";
+import { SCREEN_PREFIX, screenKey } from "@/lib/favorites/registry";
 
 /**
- * Pinned-module favorites (checklist "Favorites & Recent Items"), stored in
- * localStorage by href. Surfaced in the search palette's default view so the
- * user's most-used modules are one keystroke away. `reloadKey` lets a host
- * re-read storage when it becomes visible (e.g. pass the palette's `isOpen`).
+ * The search palette's pins, now THE SAME LIST AS HOME (0812).
+ *
+ * This used to keep its own list of hrefs in localStorage (`raagam:favorites`), which followed
+ * the machine rather than the person and was seen nowhere but the palette. It now reads the
+ * person's Home Favourites, so pinning a module here puts a tile on Home and the ☆ in the top
+ * bar agrees. `FavoritesProvider` moves an old browser list across once, on first load.
+ *
+ * Same shape as before so its one caller did not change; `reloadKey` is accepted and unused —
+ * the provider is already live.
  */
-const KEY = "raagam:favorites";
-
 export function useFavorites(reloadKey?: unknown) {
-  const [favorites, setFavorites] = useState<string[]>([]);
-
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(KEY);
-      setFavorites(raw ? (JSON.parse(raw) as string[]) : []);
-    } catch {
-      setFavorites([]);
-    }
-  }, [reloadKey]);
-
-  const toggle = useCallback((href: string) => {
-    setFavorites((prev) => {
-      const next = prev.includes(href) ? prev.filter((h) => h !== href) : [...prev, href];
-      try {
-        window.localStorage.setItem(KEY, JSON.stringify(next));
-      } catch {
-        /* ignore */
-      }
-      return next;
-    });
-  }, []);
-
-  const isFavorite = useCallback((href: string) => favorites.includes(href), [favorites]);
-
+  void reloadKey;
+  const fav = useFavoritesApi();
+  const favorites = useMemo(
+    () => (fav ? [...fav.shown].filter((k) => k.startsWith(SCREEN_PREFIX)).map((k) => k.slice(SCREEN_PREFIX.length)) : []),
+    [fav],
+  );
+  const toggle = useCallback((href: string) => void fav?.toggleScreen(href), [fav]);
+  const isFavorite = useCallback((href: string) => !!fav?.shown.has(screenKey(href)), [fav]);
   return { favorites, toggle, isFavorite };
 }
