@@ -45,6 +45,7 @@ import { AVATAR_TINT, avatarStyle } from "./conversation-list";
 import { PinnedSheet } from "./pinned-sheet";
 import { ThreadPanel } from "./thread-panel";
 import { ForwardSheet } from "./forward-sheet";
+import { ChannelHeaderPeople } from "./add-channel-people";
 import { ChatSearchPanel } from "./chat-search-panel";
 import { suggestReplies } from "@/lib/comms/smart-reply-actions";
 import { PhotoImg, useUserPhoto } from "./person-photo";
@@ -658,6 +659,17 @@ export function ConversationView({
           <span className="flex items-center gap-1 text-xs text-warning" role="status">
             <WifiOff className="h-3.5 w-3.5" aria-hidden /> Reconnecting…
           </span>
+        )}
+        {/* Option A of the "add members to a channel" board (user 2026-11-05):
+            the member faces (→ Channel info) and 👤+ Add, for those who may add. */}
+        {conversation.kind === "channel" && !announcement && (
+          <ChannelHeaderPeople
+            conversationId={conversation.id}
+            channelName={conversation.title.replace(/^#/, "")}
+            members={conversation.members}
+            canAdd={!!abilities?.add_members && !conversation.is_archived}
+            onOpenInfo={() => setDetailsOpen(true)}
+          />
         )}
         {/* No magnifier in the header (user 2026-11-02) — Search is in the ⋮ menu. */}
         <DropdownMenu

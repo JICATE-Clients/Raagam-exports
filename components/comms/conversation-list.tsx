@@ -389,8 +389,11 @@ export function ConversationList({
   const loose = shown.filter((c) => !placed.has(c.id));
   const sections: { key: string; title: string; items: ConversationSummary[]; mine?: MySection }[] = [
     ...mySections.map((ms) => ({ key: `my-${ms.id}`, title: ms.name, items: shown.filter((c) => placed.get(c.id) === ms.id), mine: ms })),
-    { key: "direct", title: "Direct messages", items: loose.filter((c) => c.kind === "direct") },
-    { key: "group", title: "Groups", items: loose.filter((c) => c.kind !== "direct" && c.kind !== "channel") },
+    // NO GROUPS HEADING (user 2026-11-05, screenshot 160050: "remove this
+    // groups field"). Group chats, announcements and community groups now sit
+    // with the person chats under Direct messages, in the same newest-first
+    // order — the heading went, the chats did not.
+    { key: "direct", title: "Direct messages", items: loose.filter((c) => c.kind !== "channel") },
     { key: "channel", title: "Channels", items: loose.filter((c) => c.kind === "channel") },
   ];
   const takenNames = new Set(["DIRECT MESSAGES", "GROUPS", "CHANNELS", ...mySections.map((ms) => ms.name.toUpperCase())]);
@@ -402,10 +405,12 @@ export function ConversationList({
     ...(s.mine
       ? [{ label: "Delete section", icon: Trash2, danger: true, onClick: () => saveSections(mySections.filter((x) => x.id !== s.mine?.id)) }]
       : s.key === "direct"
-        ? [{ label: "Start direct message", icon: MessageCircle, onClick: () => router.push("/comms?new=1") }]
-        : s.key === "group"
-          ? [{ label: "New group", icon: Users, onClick: () => router.push("/comms?new=1&a=group") }]
-          : // Channels ⋮ (user 2026-11-05, artifact "Channels ⋮ menu"): Create a
+        ? [
+            { label: "Start direct message", icon: MessageCircle, onClick: () => router.push("/comms?new=1") },
+            // New group moved here with the group chats when Groups lost its heading.
+            { label: "New group", icon: Users, onClick: () => router.push("/comms?new=1&a=group") },
+          ]
+        : // Channels ⋮ (user 2026-11-05, artifact "Channels ⋮ menu"): Create a
             // channel · Create new section. Browse channels was removed the same
             // day at the user's request; the heading's 🔍 ＋ icons left it too.
             [
