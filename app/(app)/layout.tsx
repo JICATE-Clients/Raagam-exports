@@ -127,7 +127,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
                   edge on a phone, so the padding goes to 0 there and the
                   editor supplies its own 16px gutter (globals.css, "PHONE
                   EDITOR"). */}
-                  <main className="ty-workspace flex flex-1 flex-col overflow-y-auto p-4 pb-[calc(4.5rem+env(safe-area-inset-bottom))] *:w-full max-md:has-[[data-editor-page]]:p-0 md:pb-6">
+                  <main className="ty-workspace flex flex-1 flex-col overflow-y-auto p-4 pb-[calc(4.5rem+env(safe-area-inset-bottom))] *:w-full max-md:has-[[data-editor-page]]:p-0 md:pb-6 has-[[data-comms-frame]]:px-0 has-[[data-comms-frame]]:pt-0 md:has-[[data-comms-frame]]:pb-0">
                     {children}
                   </main>
                   </div>

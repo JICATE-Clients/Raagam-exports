@@ -68,7 +68,7 @@ check(/router\.push\(qs \? `\$\{pathname\}\?\$\{qs\}` : pathname\)/.test(view), 
 check(/if \(removing\.has\(id\)\) return;/.test(view) && /!seen\.has\(x\.message_id\)/.test(view), "Remove cannot double-fire; Load more never repeats an item");
 check(/This message is no longer available to you\./.test(view) && /This message was deleted\./.test(view), "unavailable and deleted messages each say so, with Remove");
 check(/href=\{messageHref\(it\.hit\.message\)\}/.test(view) && /thread reply/.test(view) && /Paperclip/.test(view) && /Saved \{fmtDateTime\(it\.saved_at\)\}/.test(view), "items open at the message and show thread, files and when they were saved");
-const thread = read("components/comms/thread-sheet.tsx");
+const thread = read("components/comms/thread-panel.tsx");
 check(/onSave: \(m: CommMessage\) => void save\(m\)/.test(thread) && /if \(saving\.current\.has\(m\.id\)\) return;/.test(thread), "thread replies can be saved, one request at a time");
 const cv = read("components/comms/conversation-view.tsx");
 check(/if \(savingIds\.current\.has\(m\.id\)\) return;/.test(cv) && /const want = !m\.saved;/.test(cv), "a double click cannot save and then unsave");

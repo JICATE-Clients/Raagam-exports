@@ -43,7 +43,7 @@ import { MessageItem, type MessageActions } from "./message-item";
 import { MessageBody, dayKey, initials } from "./message-body";
 import { AVATAR_TINT, avatarStyle } from "./conversation-list";
 import { PinnedSheet } from "./pinned-sheet";
-import { ThreadSheet } from "./thread-sheet";
+import { ThreadPanel } from "./thread-panel";
 import { ChatSearchPanel } from "./chat-search-panel";
 import { suggestReplies } from "@/lib/comms/smart-reply-actions";
 import { PhotoImg, useUserPhoto } from "./person-photo";
@@ -401,7 +401,11 @@ export function ConversationView({
     onOpenFile: (a) => void openFile(a),
     // 0776: a vote / an answer comes back as the message with fresh counts.
     onReplace: (fresh) => setMessages((prev) => prev.map((x) => (x.id === fresh.id ? fresh : x))),
-    onReply: (m) => setThreadOf(m),
+    // One side panel at a time: a thread replaces Search messages.
+    onReply: (m) => {
+      setSearchOpen(false);
+      setThreadOf(m);
+    },
     // OPTIMISTIC, THEN THE TRUTH: the chip moves at once; the server's answer
     // (the message's reactions as stored) replaces it either way, and a refusal
     // puts back exactly what was there. A set, never a flip, so a double click
@@ -518,7 +522,13 @@ export function ConversationView({
           label: conversation.kind === "direct" ? "Contact info" : conversation.kind === "channel" ? "Channel info" : "Group info",
           onClick: () => setDetailsOpen(true),
         },
-    { label: "Search", onClick: () => setSearchOpen(true) },
+    {
+      label: "Search",
+      onClick: () => {
+        setThreadOf(null);
+        setSearchOpen(true);
+      },
+    },
     // Add to favourites left this menu (user 2026-11-04); it stays on the list
     // row's own ⌄ menu. Saved messages stays here: the list header's bookmark
     // icon was removed the same day, and this is the one way to /comms/saved.
@@ -908,9 +918,8 @@ export function ConversationView({
           onPick={(m) => void jumpTo(m)}
         />
       )}
-      </div>
-
-      <ThreadSheet
+      {/* The thread docks here too, beside the chat (thread-panel.tsx). */}
+      <ThreadPanel
         parent={threadOf}
         version={threadVersion}
         conversation={conversation}
@@ -921,7 +930,11 @@ export function ConversationView({
         onChanged={() => void refreshLatest()}
         highlightId={focus?.threadParentId ? focus.messageId : null}
         onOpenFile={(a) => void openFile(a)}
+        bubble={chat ?? "group"}
+        mayDelete={mayDelete}
       />
+      </div>
+
       <PinnedSheet
         open={pinnedOpen}
         conversationId={id}

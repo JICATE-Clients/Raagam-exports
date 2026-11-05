@@ -114,7 +114,7 @@ check(/aria-pressed=\{r\.mine\}/.test(item) && /aria-label=\{`\$\{emojiName\(r\.
 const view = read("components/comms/conversation-view.tsx");
 check(/applyReaction\(x\.reactions, emoji, on, meId\)/.test(view) && /reactions: before/.test(view) && /reactions: truth/.test(view), "optimistic, restored on refusal, replaced by the server's answer");
 check(/loadMessagesById\(id, ids\)/.test(view) && /"UPDATE"[\s\S]{0,120}onUpdate/.test(view), "a Realtime UPDATE re-reads the message it names (reactions on older messages update too)");
-check(/onReact: \(m: CommMessage, e: string, on: boolean\) => void react\(m, e, on\)/.test(read("components/comms/thread-sheet.tsx")), "thread replies can be reacted to");
+check(/onReact: \(m: CommMessage, e: string, on: boolean\) => void react\(m, e, on\)/.test(read("components/comms/thread-panel.tsx")), "thread replies can be reacted to");
 const picker = read("components/comms/emoji-picker.tsx");
 check(/role="dialog"/.test(picker) && /e\.key === "Escape"/.test(picker) && /ArrowDown: COLS/.test(picker), "the picker is a labelled dialog: Escape closes, the arrows walk the grid");
 

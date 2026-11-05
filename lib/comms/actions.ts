@@ -575,6 +575,23 @@ export async function loadThread(
   }
 }
 
+/**
+ * 0811: the caller opened this thread -- its replies stop reading unread in
+ * Pulse's Threads section. Quiet before 0811 is applied: a missing function is
+ * a missing dot, never an error over a thread that opened fine.
+ */
+export async function markThreadSeen(parentId: string): Promise<Result> {
+  if (typeof parentId !== "string" || !UUID_RE.test(parentId)) return fail("Unknown thread.");
+  const s = await createClient();
+  const { error } = await s.rpc("comm_mark_thread_seen", { p_parent: parentId });
+  if (error) {
+    if (error.code === "PGRST202" || error.code === "42883") return { ok: true };
+    return fail(commErrorText(error, "The thread could not be marked read."));
+  }
+  revHub();
+  return { ok: true };
+}
+
 export async function loadPinned(conversationId: string): Promise<{ ok: true; messages: CommMessage[] } | Fail> {
   try {
     return { ok: true, messages: await getPinned(conversationId) };

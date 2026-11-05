@@ -5,7 +5,7 @@ import { useEffect, useId, useState, type ReactNode } from "react";
 import { useAppUser } from "@/lib/auth/permission-context";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { createClient } from "@/lib/supabase/client";
-import type { CommunitySummary, ConversationSummary } from "@/lib/comms/types";
+import type { CommunitySummary, ConversationSummary, ThreadSummary } from "@/lib/comms/types";
 import { cn } from "@/lib/utils";
 import { ConversationList } from "./conversation-list";
 import { NewConversationSheet } from "./new-conversation-sheet";
@@ -44,15 +44,16 @@ import { PhotosProvider } from "./person-photo";
  *
  * `top` is the workspace bar (0750), drawn by the server layout above every view.
  */
-/** One Pulse pane: a white card with a soft shadow once the hub is wide. */
-const PANE =
-  "min-h-0 min-w-0 flex-col overflow-hidden @3xl/comms:rounded-xl @3xl/comms:shadow-[0_1px_2px_rgba(26,34,51,.05),0_8px_24px_rgba(26,34,51,.06)]";
+/** One Pulse pane. Flat since 2026-11-05 (user: "card mari irukkathalma
+ *  remove pannu") — no corners, no shadow; a hairline divides the two. */
+const PANE = "min-h-0 min-w-0 flex-col overflow-hidden";
 
 export function CommsShell({
   children,
   top,
   chats,
   communities,
+  threads,
   photos,
 }: {
   children: ReactNode;
@@ -61,6 +62,8 @@ export function CommsShell({
   chats?: ConversationSummary[];
   /** 0775: the caller's communities; null before 0775 is applied. */
   communities?: CommunitySummary[] | null;
+  /** 0811: threads the caller is in, for the list's Threads section. */
+  threads?: ThreadSummary[];
   /** userId → HR photo URL (lib/comms/photos.ts). */
   photos?: Record<string, string>;
 }) {
@@ -126,31 +129,37 @@ export function CommsShell({
   // list, as a WhatsApp channel is.
   const pulse = !!chats && (isHome || isNew || !!communityId || !!fileId || !!openId);
 
+  // NO OUTER CARD (user 2026-11-05, "remove this card based"): the frame has
+  // no border or corners, and <main> drops its padding around it — sides and
+  // top always, bottom from md up, so a phone keeps its tab-bar room
+  // (app/(app)/layout.tsx). Pulse runs edge to edge under the tab strip, as
+  // WhatsApp Web does.
   return (
     <PhotosProvider photos={photos ?? {}}>
     <div
       data-focus-scope="off"
       data-comms-frame=""
-      className="@container/comms flex min-h-[22rem] flex-1 flex-col overflow-hidden rounded-lg border border-border bg-surface max-md:rounded-none max-md:border-0 md:min-h-[30rem]"
+      className="@container/comms flex min-h-[22rem] flex-1 flex-col overflow-hidden bg-surface md:min-h-[30rem]"
     >
       {top}
       {pulse && chats ? (
-        // THE COLOURFUL REDESIGN (2026-10-29): wide, the two panes are white
-        // cards on a muted ground with a gap between them; narrow, one pane
-        // fills the frame with no card around it.
-        <div className="flex min-h-0 flex-1 @3xl/comms:gap-2 @3xl/comms:bg-surface-muted @3xl/comms:p-2">
+        // FLAT (user 2026-11-05): wide, the two panes share one white surface
+        // with a hairline between them — the 2026-10-29 cards-on-a-muted-ground
+        // look is withdrawn. Narrow, one pane fills the frame.
+        <div className="flex min-h-0 flex-1">
           <aside
             aria-label="Chats"
             className={cn(
               PANE,
               // WhatsApp's width (user 2026-10-31, screenshot 122843): 460px wide fits
               // All · Unread · Favourites · Groups · ▾ on one line.
-              "@3xl/comms:flex @3xl/comms:w-[18rem] @3xl/comms:shrink-0",
+              "@3xl/comms:flex @3xl/comms:w-[18rem] @3xl/comms:shrink-0 @3xl/comms:border-r @3xl/comms:border-border",
               isHome ? "flex w-full" : "hidden",
             )}
           >
             <ConversationList
               conversations={chats}
+              threads={threads ?? []}
               activeId={openId}
               composing={isNew}
               home={isHome}

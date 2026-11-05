@@ -73,6 +73,9 @@ export function MessageItem({
   highlight = false,
   bubble = null,
   seen = false,
+  quickEdit = false,
+  editRequest = 0,
+  onEditDone,
 }: {
   message: CommMessage;
   grouped: boolean;
@@ -87,9 +90,25 @@ export function MessageItem({
   bubble?: "direct" | "group" | null;
   /** On a message the viewer sent: every other member has read it (two blue ticks). */
   seen?: boolean;
+  /** THE THREAD'S EDIT (user 2026-11-05, the "Edit and Delete in a thread"
+   *  artifact): a ✎ beside the time on the viewer's own message (shown on
+   *  hover, like the ⌄), and "Edit message" first in the ⌄ menu. */
+  quickEdit?: boolean;
+  /** Bump to open this message's edit box from outside (↑ in an empty box). */
+  editRequest?: number;
+  /** The edit box closed — saved or cancelled — so the caller can put the
+   *  cursor back in its own box. */
+  onEditDone?: () => void;
 }) {
   const toast = useToast();
   const [editing, setEditing] = useState(false);
+  // A new `editRequest` opens the box. Adjusted during render (React's
+  // "storing information from previous renders"), not in an effect.
+  const [seenRequest, setSeenRequest] = useState(editRequest);
+  if (editRequest !== seenRequest) {
+    setSeenRequest(editRequest);
+    if (editRequest > 0) setEditing(true);
+  }
   const [reacting, setReacting] = useState(false);
   const [pickerAnchor, setPickerAnchor] = useState<HTMLSpanElement | null>(null);
   // WhatsApp's smiley beside the bubble on hover: its own picker, anchored to it.
@@ -146,10 +165,12 @@ export function MessageItem({
   const sticker = card === "sticker";
   const author = m.author_name ?? (m.author_id ? "Former user" : "System");
 
+  const canEdit = mine && canAct && !!actions.onEdit && !card && !deleted;
   const menuItems: DropdownItem[] =
     deleted || editing
       ? []
       : [
+          ...(quickEdit && canEdit ? [{ label: "Edit message", icon: Pencil, onClick: () => setEditing(true) }] : []),
           ...(canAct && actions.onReply && !m.parent_id
             ? [{ label: "Reply in thread", icon: MessageSquareReply, onClick: () => actions.onReply!(m) }]
             : []),
@@ -161,7 +182,7 @@ export function MessageItem({
           ...(actions.onSave
             ? [{ label: m.saved ? "Unsave" : "Save", icon: m.saved ? BookmarkCheck : Bookmark, onClick: () => actions.onSave!(m) }]
             : []),
-          ...(mine && canAct && actions.onEdit && !card ? [{ label: "Edit", icon: Pencil, onClick: () => setEditing(true) }] : []),
+          ...(!quickEdit && canEdit ? [{ label: "Edit", icon: Pencil, onClick: () => setEditing(true) }] : []),
           // Delete is on EVERY message (user 2026-11-04): anyone may Delete for
           // me; `mayDelete` decides only whether the dialog also offers Delete
           // for everyone (conversation-view.tsx, DeleteMessageDialog).
@@ -237,6 +258,21 @@ export function MessageItem({
         {/* THE ⌄ AFTER THE TIME (user 2026-11-04, the Pulse compact-bubbles board):
             a 20px slot that is ALWAYS there, so the ⌄ only fades in on hover and
             nothing in the bubble moves or is covered. */}
+        {quickEdit && canEdit && !editing && (
+          // button-shape: exempt -- a 20px glyph beside the time, the ⌄'s twin
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            aria-label="Edit message"
+            title="Edit message"
+            className={cn(
+              "inline-flex h-[18px] w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-focus-within:opacity-100 group-hover:opacity-100",
+              bubble ? tapped && "opacity-100" : "[@media(hover:none)]:opacity-100",
+            )}
+          >
+            <Pencil className="h-3.5 w-3.5" aria-hidden />
+          </button>
+        )}
         {menu && <span className="inline-flex w-5 shrink-0 justify-center">{menu}</span>}
       </span>
     );
@@ -251,10 +287,16 @@ export function MessageItem({
         <EditBox
           message={m}
           names={names}
-          onCancel={() => setEditing(false)}
+          onCancel={() => {
+            setEditing(false);
+            onEditDone?.();
+          }}
           onSave={async (body) => {
             const ok = await actions.onEdit!(m, body);
-            if (ok) setEditing(false);
+            if (ok) {
+              setEditing(false);
+              onEditDone?.();
+            }
             return ok;
           }}
         />

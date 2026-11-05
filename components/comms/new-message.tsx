@@ -34,7 +34,9 @@ export type ChannelOption = { id: string; name: string; visibility: "public" | "
  * - one #channel → posted there;
  * - one person   → their direct chat, found or opened (the database keeps one
  *   per pair, so this never makes a second);
- * - two or more people → a new group with them;
+ * - two or more people → a new group with them (no longer reachable from this
+ *   box: since 2026-11-05 one pick hides the search, so groups start from New
+ *   group — the branch stays for any caller that seeds `to` with several);
  * - a channel AND people together is refused with a sentence — a message goes
  *   to one place.
  *
@@ -56,6 +58,7 @@ export function NewMessage({
 }) {
   const router = useRouter();
   const toRef = useRef<HTMLInputElement>(null);
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
   const [to, setTo] = useState<Target[]>([]);
   const [query, setQuery] = useState("");
   const [people, setPeople] = useState<DirectoryPerson[]>([]);
@@ -111,7 +114,15 @@ export function NewMessage({
     setPeople([]);
     setHi(0);
     setError(null);
-    toRef.current?.focus();
+    // ONE PICK CLOSES THE SEARCH (user 2026-11-05: a direct chat needs no
+    // search box beside the chosen person). The To box unmounts below, so the
+    // cursor goes straight to the message; the chip's ✕ brings the search back.
+    requestAnimationFrame(() => bodyRef.current?.focus());
+  }
+
+  function remove(i: number) {
+    setTo((prev) => prev.filter((_, j) => j !== i));
+    requestAnimationFrame(() => toRef.current?.focus());
   }
 
   function onToKey(e: KeyboardEvent<HTMLInputElement>) {
@@ -195,7 +206,7 @@ export function NewMessage({
               {t.label}
               <button
                 type="button"
-                onClick={() => setTo((prev) => prev.filter((_, j) => j !== i))}
+                onClick={() => remove(i)}
                 aria-label={`Remove ${t.label}`}
                 className="rounded p-1.5 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [@media(hover:hover)]:p-0.5"
               >
@@ -205,6 +216,7 @@ export function NewMessage({
           ))}
           {/* caps-input: exempt -- a search for a person or channel, not a stored value */}
           {/* autofill: exempt -- the attributes are set by hand below */}
+          {to.length === 0 && (
           <input
             ref={toRef}
             id="pulse-to"
@@ -227,7 +239,8 @@ export function NewMessage({
             placeholder={to.length ? "" : "#a-channel, or a colleague’s name"}
             className="h-9 min-w-[10rem] flex-1 rounded-lg bg-surface-muted px-3 text-base text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring md:text-sm"
           />
-          {suggestions.length > 0 && (
+          )}
+          {to.length === 0 && suggestions.length > 0 && (
             <ul
               id="pulse-to-list"
               role="listbox"
@@ -290,6 +303,7 @@ export function NewMessage({
         <div className="flex items-end gap-2">
           {/* caps-input: exempt -- a chat message is prose, not a stored value (lib/comms/types.ts) */}
           <Textarea
+            ref={bodyRef}
             uppercase={false}
             rows={1}
             value={body}

@@ -12,6 +12,7 @@ import {
   Eye,
   EyeOff,
   MessageSquareDot,
+  MessageSquareText,
   Repeat,
   Volume2,
   VolumeX,
@@ -59,13 +60,13 @@ import { Truncated } from "@/components/ui/truncated";
 import { useToast } from "@/components/ui/toast";
 import { useAppUser } from "@/lib/auth/permission-context";
 import { hasPermission } from "@/lib/auth/types";
-import { deleteChatForMe, joinChannel, leaveConversation, markRead, markUnread, setBlocked, setChatFlags, setMuted } from "@/lib/comms/actions";
+import { deleteChatForMe, joinChannel, leaveConversation, markRead, markThreadSeen, markUnread, setBlocked, setChatFlags, setMuted } from "@/lib/comms/actions";
 import { setConversationPrefs } from "@/lib/comms/channel-actions";
 import { loadChannelsToFind, loadPulseFiles } from "@/lib/comms/pulse-actions";
 import type { FileKind, PulseFile } from "@/lib/comms/files-service";
 import { messageHref } from "@/lib/comms/search";
 import { searchMore } from "@/lib/comms/search-actions";
-import type { ChannelListing, CommunitySummary, ConversationSummary, MessageHit } from "@/lib/comms/types";
+import type { ChannelListing, CommunitySummary, ConversationSummary, MessageHit, ThreadSummary } from "@/lib/comms/types";
 import { fmtDate } from "@/lib/format";
 import { glowVars } from "@/lib/ui/buyer-glow";
 import { cn } from "@/lib/utils";
@@ -170,6 +171,7 @@ export function avatarStyle(name: string): CSSProperties {
  */
 export function ConversationList({
   conversations,
+  threads = [],
   activeId = null,
   composing = false,
   home = false,
@@ -178,6 +180,8 @@ export function ConversationList({
   activeFileId = null,
 }: {
   conversations: ConversationSummary[];
+  /** 0811: threads the caller started or replied in, newest reply first. */
+  threads?: ThreadSummary[];
   /** 0775: the caller's communities; null when 0775 is not applied. */
   communities?: CommunitySummary[] | null;
   /** The community page open beside the list, lit. */
@@ -215,6 +219,37 @@ export function ConversationList({
     } catch {
       /* storage full or blocked: the change still holds until reload */
     }
+  }
+  // FOLDING HEADINGS (user 2026-11-05, screenshots 103830 / 143311: "add this
+  // type of dropdown in shortcut, direct message, channel and threads"): a ▾
+  // before each heading folds THAT section only, and the choice is kept in
+  // this browser, per login. Deliberately NOT an accordion (AGENTS "Folds are
+  // accordions"): these are kinds of chat, not steps of one editor, and the
+  // user's own screenshot keeps several open at once. The open chat is never
+  // hidden by a fold, and a search ignores folds.
+  const foldKey = `pulse:folded:${me.id}`;
+  const [folded, setFolded] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => {
+      try {
+        const v: unknown = JSON.parse(localStorage.getItem(foldKey) ?? "{}");
+        if (v && typeof v === "object") setFolded(v as Record<string, boolean>);
+      } catch {
+        /* unreadable: everything open */
+      }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [foldKey]);
+  function toggleFold(key: string) {
+    setFolded((f) => {
+      const next = { ...f, [key]: !f[key] };
+      try {
+        localStorage.setItem(foldKey, JSON.stringify(next));
+      } catch {
+        /* storage blocked: holds until reload */
+      }
+      return next;
+    });
   }
   function moveTo(chatId: string, sectionId: string | null) {
     saveSections(mySections.map((ms) => ({ ...ms, ids: [...ms.ids.filter((x) => x !== chatId), ...(ms.id === sectionId ? [chatId] : [])] })));
@@ -878,14 +913,15 @@ export function ConversationList({
       <div className="relative flex min-h-0 flex-1 flex-col">
       <nav ref={listRef} className="scrollbar-none min-h-0 flex-1 overflow-y-auto px-1 pb-12" aria-label="Chats">
         {/* SHORTCUTS (user 2026-11-05, the chat-app mockup): Home, Mentions and
-            Saved in one soft card above the chats. Under All only — a filter or
+            Saved above the chats. Flat since 2026-11-05 (user: "card mari
+            irukkathalma remove pannu") — a hairline beneath, no grey box. Under All only — a filter or
             a search is the operator narrowing the list, not navigating. */}
         {!searching && filter === "all" && (
-          <section aria-labelledby="pulse-sec-shortcuts" className="mb-1 rounded-2xl bg-surface-muted p-1">
-            <h2 id="pulse-sec-shortcuts" className="px-2 pb-0.5 pt-1 text-xs font-semibold text-muted-foreground">
-              Shortcuts
+          <section aria-labelledby="pulse-sec-shortcuts" className="mb-1 border-b border-border pb-1">
+            <h2 id="pulse-sec-shortcuts" className="flex items-center px-1 pb-0.5 pt-1 text-xs font-semibold text-muted-foreground">
+              <FoldToggle title="Shortcuts" folded={!!folded.shortcuts} onToggle={() => toggleFold("shortcuts")} />
             </h2>
-            <ul>
+            <ul hidden={!!folded.shortcuts}>
               <Shortcut href="/comms" icon={House} label="Home" on={home} />
               <Shortcut href="/comms/notifications" icon={AtSign} label="Mentions" count={mentions} />
               {/* Starred = the chats wearing the star (the Favourites flag, 0764)
@@ -900,7 +936,7 @@ export function ConversationList({
           <button
             type="button"
             onClick={() => setShowArchived(true)}
-            className="mb-1 flex w-full items-center gap-2.5 rounded-xl bg-surface-muted px-2.5 py-1.5 text-left hover:bg-[color-mix(in_srgb,var(--surface-muted)_70%,var(--border))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="mb-1 flex w-full items-center gap-2.5 rounded-xl px-2.5 py-1.5 text-left hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <span aria-hidden className="flex h-8 w-8 items-center justify-center rounded-lg bg-[color-mix(in_srgb,#6c5ce7_16%,var(--surface))] text-[#5b4bd6] dark:text-[#b4a9ff]">
               <Archive className="h-[18px] w-[18px]" />
@@ -936,9 +972,9 @@ export function ConversationList({
                     id={`pulse-sec-${s.key}`}
                     // Sentence case, quiet (user 2026-11-05, chat-app mockup) — was
                     // primary-coloured capitals with a rule above each heading.
-                    className="flex items-center gap-2 px-2 pb-0.5 pt-3 text-xs font-semibold text-muted-foreground"
+                    className="flex items-center gap-2 px-1 pb-0.5 pt-3 text-xs font-semibold text-muted-foreground"
                   >
-                    {s.title}
+                    <FoldToggle title={s.title} folded={!searching && !!folded[s.key]} onToggle={() => toggleFold(s.key)} disabled={searching} />
                     {/* HOVER ONLY (user 2026-11-05, artifacts "unread switch on hover"
                         and "section ⋮ menu"): the unread switch and the ⋮ are
                         hidden at rest and shown while the mouse is over the
@@ -979,11 +1015,13 @@ export function ConversationList({
                     (() => {
                       // A search shows every hit; otherwise a long section peeks.
                       // The open chat is never hidden by the peek.
-                      const long = !searching && items.length > SECTION_PEEK;
+                      const shut = !searching && !!folded[s.key];
+                      const long = !searching && !shut && items.length > SECTION_PEEK;
                       const open = !!expanded[s.key];
-                      let visible = long && !open ? items.slice(0, SECTION_PEEK) : items;
+                      let visible = shut ? [] : long && !open ? items.slice(0, SECTION_PEEK) : items;
                       const current = items.find((c) => c.id === activeId);
                       if (current && !visible.includes(current)) visible = [...visible, current];
+                      if (visible.length === 0) return null;
                       return (
                         <>
                           <ul>{visible.map((c) => row(c, true))}</ul>
@@ -1024,6 +1062,158 @@ export function ConversationList({
             <p className="text-[13px] text-muted-foreground">{emptyText}</p>
           </div>
         )}
+
+        {/* THREADS (0811, user 2026-11-05, the "Threads in the chat list"
+            artifact): threads the caller started or replied in, under the
+            kinds, newest reply first. Bold with a dot while a reply has not
+            been opened; the heading counts those. A row opens the chat with
+            its thread in the side panel (?m=&t=, the search hit's link).
+            Under All only, like Shortcuts — a filter or a search is the
+            operator narrowing the list. Peeks like the sections above. */}
+        {!searching && filter === "all" && threads.length > 0 && (() => {
+          const shut = !!folded.threads;
+          // Unread only (user 2026-11-05, artifact "Threads: unread switch and ⋮
+          // on hover") — the same per-section switch the kinds above carry.
+          const only = !!unreadOnly.threads;
+          const list = only ? threads.filter((t) => t.unread) : threads;
+          const long = !shut && list.length > SECTION_PEEK;
+          const open = !!expanded.threads;
+          const visible = shut ? [] : long && !open ? list.slice(0, SECTION_PEEK) : list;
+          const threadMenu: DropdownItem[] = [
+            // "Mark all as read" only while something is unread — the menu's
+            // own test, since the heading no longer carries a total.
+            ...(threads.some((t) => t.unread)
+              ? [
+                  {
+                    label: "Mark all as read",
+                    icon: CheckCheck,
+                    disabled: menuBusy,
+                    onClick: () =>
+                      runMenu(async () => {
+                        for (const t of threads.filter((x) => x.unread)) {
+                          const r = await markThreadSeen(t.id);
+                          if (!r.ok) return r;
+                        }
+                        return { ok: true as const };
+                      }, "All threads marked as read"),
+                  },
+                ]
+              : []),
+            {
+              label: shut ? "Expand section" : "Collapse section",
+              icon: shut ? ChevronsUpDown : ChevronsDownUp,
+              onClick: () => toggleFold("threads"),
+            },
+          ];
+          const chatOf = new Map(conversations.map((c) => [c.id, c]));
+          return (
+            <section aria-labelledby="pulse-sec-threads" className="group/sec">
+              <h2 id="pulse-sec-threads" className="flex items-center gap-2 px-1 pb-0.5 pt-3 text-xs font-semibold text-muted-foreground">
+                {/* No total beside the heading (user 2026-11-05, "not thread 4
+                    count"): the number is each thread's own, on its row. */}
+                <FoldToggle title="Threads" folded={shut} onToggle={() => toggleFold("threads")} />
+                {/* HOVER ONLY, the same rule as the kinds' headings above. */}
+                <span
+                  className={cn(
+                    "ml-auto flex items-center gap-0.5 transition-opacity",
+                    only
+                      ? "opacity-100"
+                      : "opacity-0 focus-within:opacity-100 group-hover/sec:opacity-100 has-[[aria-expanded=true]]:opacity-100 [@media(hover:none)]:opacity-100",
+                  )}
+                >
+                  <span title="Unread only" className="flex items-center">
+                    <Toggle
+                      checked={only}
+                      onChange={(v) => setUnreadOnly((m) => ({ ...m, threads: v }))}
+                      ariaLabel="Show only unread threads"
+                      className="min-h-0"
+                    />
+                  </span>
+                  <DropdownMenu
+                    label="Section actions for Threads"
+                    trigger={<EllipsisVertical className="h-4 w-4" aria-hidden />}
+                    triggerClassName="grid h-7 w-7 place-items-center rounded-full text-muted-foreground hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    items={threadMenu}
+                    compact
+                    menuWidth={210}
+                  />
+                </span>
+              </h2>
+              {only && !shut && list.length === 0 && (
+                <p className="px-3 py-1.5 text-xs text-muted-foreground">No new replies.</p>
+              )}
+              <ul>
+                {/* A ROW LIKE A DIRECT MESSAGE (user 2026-11-05, screenshot 144333
+                    and the "Threads rows like Direct messages" artifact: "no
+                    message … hi hello no need"): the chat's own avatar with a
+                    thread mark on its corner, its name, the last reply's time
+                    and, under it, the unread replies. The message the thread
+                    hangs off is in the hover title and the accessible name, so
+                    two threads in one chat can still be told apart. */}
+                {visible.map((t) => {
+                  const c = chatOf.get(t.conversation_id);
+                  const where = c ? (c.kind === "direct" ? nameCase(c.title) : c.title.replace(/^#/, "")) : "Chat";
+                  const n = t.unread_count;
+                  return (
+                    <li key={t.id}>
+                      <Link
+                        href={messageHref({ conversation_id: t.conversation_id, id: t.id, parent_id: t.id })}
+                        title={`Thread on: ${t.preview}`}
+                        aria-label={`Thread in ${where} on: ${t.preview}${n ? `, ${n} unread ${n === 1 ? "reply" : "replies"}` : ""}`}
+                        className="flex h-[46px] min-w-0 items-center gap-2.5 rounded-2xl pl-1.5 pr-2.5 transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-md:h-12"
+                      >
+                        <span className="relative inline-flex shrink-0">
+                          {c ? (
+                            <ChatAvatar c={c} size="row" />
+                          ) : (
+                            <span aria-hidden className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-soft text-primary">
+                              <MessageSquareText className="h-4 w-4" />
+                            </span>
+                          )}
+                          <span aria-hidden className="absolute -bottom-0.5 -right-0.5 grid h-4 w-4 place-items-center rounded-full bg-surface text-primary ring-2 ring-surface">
+                            <MessageSquareText className="h-2.5 w-2.5" strokeWidth={2.6} />
+                          </span>
+                        </span>
+                        <Truncated
+                          text={where}
+                          className={cn("min-w-0 flex-1 text-sm leading-snug", n > 0 ? "font-bold text-heading" : "font-medium text-foreground")}
+                        />
+                        <span className="flex min-w-11 shrink-0 flex-col items-end gap-[3px]">
+                          <span className={cn("h-4 text-[11px] leading-4 tabular-nums", n > 0 ? cn("font-extrabold", UNREAD_TEXT) : "font-medium text-muted-foreground")}>
+                            {when(t.last_reply_at)}
+                          </span>
+                          <span className="flex h-5 items-center">
+                            {n > 0 && (
+                              <span aria-hidden className={cn("flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-extrabold tabular-nums", UNREAD_FILL)}>
+                                {n > 99 ? "99+" : n}
+                              </span>
+                            )}
+                          </span>
+                        </span>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+              {long && (
+                // button-shape: exempt -- a list row ("Show all"), drawn like the chat rows above it
+                <button
+                  type="button"
+                  aria-expanded={open}
+                  onClick={() => setExpanded((m) => ({ ...m, threads: !open }))}
+                  className="flex h-8 w-full items-center gap-2.5 rounded-full px-3 text-left text-sm text-foreground transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-md:h-10"
+                >
+                  {open ? (
+                    <ChevronsDownUp className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                  ) : (
+                    <ChevronsUpDown className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                  )}
+                  {open ? "Show fewer" : "Show all threads"}
+                </button>
+              )}
+            </section>
+          );
+        })()}
 
         {term.length >= 2 && (
           <section aria-label="Messages" className="mt-3">
@@ -1100,6 +1290,27 @@ export function ConversationList({
         </Field>
       </Sheet>
     </div>
+  );
+}
+
+/**
+ * A list heading's ▾ and its words, as one button: ▾ open, ▸ folded. The
+ * heading's own extras (the unread count, the switch, the ⋮) stay outside it.
+ */
+function FoldToggle({ title, folded, onToggle, disabled = false }: { title: string; folded: boolean; onToggle: () => void; disabled?: boolean }) {
+  return (
+    // button-shape: exempt -- a list heading (▾ and its words), not an action button
+    <button
+      type="button"
+      onClick={onToggle}
+      disabled={disabled}
+      aria-expanded={!folded}
+      title={folded ? `Show ${title}` : `Hide ${title}`}
+      className="-my-0.5 flex min-w-0 items-center gap-1 rounded-md px-1 py-0.5 text-left hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:hover:bg-transparent"
+    >
+      <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 transition-transform", folded && "-rotate-90")} strokeWidth={2.4} aria-hidden />
+      <span className="min-w-0 break-words">{title}</span>
+    </button>
   );
 }
 

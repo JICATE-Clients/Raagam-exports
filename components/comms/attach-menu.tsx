@@ -17,7 +17,16 @@ export type AttachItem = "doc" | "media" | "camera" | "audio" | "contact" | "pol
  *
  * It rises from 📎 above the box (a menu opening downward would leave the
  * screen). ↑ ↓ move, Enter picks, Esc closes and gives focus back to 📎; a
- * click outside closes it. Not a modal — nothing behind it is blocked — so it
+ * click outside closes it.
+ *
+ * IT OPENS TOWARDS THE ROOM (user 2026-11-05, screenshot 123433: "path cut
+ * aagudhu"). It used to hang from 📎's LEFT edge and grow rightward — fine
+ * while 📎 sat at the left of the box, but in the chat layout 📎 sits beside
+ * Send at the RIGHT edge, so every label ran off the pane and was clipped
+ * ("Docum…", "Contac…"). On open it measures the room against the viewport
+ * and every clipping ancestor and, if the right side is short, hangs from 📎's
+ * right edge instead. Measured, not hard-coded per layout, so a 📎 moved
+ * anywhere later is still right. Not a modal — nothing behind it is blocked — so it
  * registers with no reload guard.
  */
 const ICON: Record<AttachItem, ReactNode> = {
@@ -72,6 +81,10 @@ const ICON: Record<AttachItem, ReactNode> = {
   ),
 };
 
+/** The menu is as wide as its longest label ("Record (PO, indent, RE)",
+ *  ~205px at 13px); toggle() measures against this upper bound. */
+const MENU_W = 220;
+
 const ITEMS: { value: AttachItem; label: string; rule?: boolean }[] = [
   { value: "doc", label: "Document" },
   { value: "media", label: "Photos & videos" },
@@ -88,6 +101,20 @@ export function AttachMenu({ onPick, disabled = false }: { onPick: (item: Attach
   const [open, setOpen] = useState(false);
   const wrap = useRef<HTMLDivElement>(null);
   const btn = useRef<HTMLButtonElement>(null);
+  const [alignRight, setAlignRight] = useState(false);
+
+  // Measured on the click that opens it (MENU_W bounds the menu's width), so
+  // the first frame is already on the right side — no clipped flash.
+  function toggle() {
+    if (!open && btn.current) {
+      let limit = window.innerWidth;
+      for (let el = wrap.current?.parentElement; el; el = el.parentElement) {
+        if (getComputedStyle(el).overflowX !== "visible") limit = Math.min(limit, el.getBoundingClientRect().right);
+      }
+      setAlignRight(btn.current.getBoundingClientRect().left + MENU_W > limit - 8);
+    }
+    setOpen((o) => !o);
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -121,7 +148,7 @@ export function AttachMenu({ onPick, disabled = false }: { onPick: (item: Attach
         ref={btn}
         type="button"
         disabled={disabled}
-        onClick={() => setOpen((o) => !o)}
+        onClick={toggle}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label="Attach"
@@ -137,11 +164,17 @@ export function AttachMenu({ onPick, disabled = false }: { onPick: (item: Attach
         <div
           role="menu"
           aria-label="Attach"
-          className="absolute bottom-full left-0 z-30 mb-2 w-60 rounded-2xl bg-surface p-2 shadow-[0_2px_6px_rgba(11,20,26,.08),0_12px_32px_rgba(11,20,26,.18)] dark:border dark:border-border"
+          className={cn(
+            // COMPACT (user 2026-11-05, WhatsApp's menu: "more compact"):
+            // 30px rows, 16px icons, 13px text, as wide as the longest label.
+            "absolute bottom-full z-30 mb-2 w-max min-w-[150px]",
+            alignRight ? "right-0" : "left-0",
+            "rounded-xl bg-surface p-1 shadow-[0_2px_6px_rgba(11,20,26,.08),0_12px_32px_rgba(11,20,26,.18)] dark:border dark:border-border",
+          )}
         >
           {ITEMS.map((it) => (
             <div key={it.value}>
-              {it.rule && <div role="separator" className="mx-1.5 my-1 border-t border-border" />}
+              {it.rule && <div role="separator" className="mx-2 my-[3px] border-t border-border" />}
               <button
                 type="button"
                 role="menuitem"
@@ -150,7 +183,7 @@ export function AttachMenu({ onPick, disabled = false }: { onPick: (item: Attach
                   setOpen(false);
                   onPick(it.value);
                 }}
-                className="flex w-full items-center gap-3.5 rounded-xl px-3 py-2.5 text-left text-[15px] text-foreground hover:bg-surface-muted focus-visible:bg-surface-muted focus-visible:outline-none [&_svg]:h-[22px] [&_svg]:w-[22px] [&_svg]:shrink-0"
+                className="flex w-full items-center gap-2.5 whitespace-nowrap rounded-md py-[5px] pl-2.5 pr-3 text-left text-[13px] leading-5 text-foreground hover:bg-surface-muted focus-visible:bg-surface-muted focus-visible:outline-none [&_svg]:h-4 [&_svg]:w-4 [&_svg]:shrink-0"
               >
                 {ICON[it.value]}
                 {it.label}

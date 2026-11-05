@@ -70,6 +70,26 @@ export const ALLOWED_MIME = [
 // Rows, as the services hand them to a screen
 // ---------------------------------------------------------------------------
 
+/**
+ * 0811: one row of Pulse's Threads section -- a thread the caller started or
+ * replied in. `preview` is the first message flattened to one line.
+ */
+export interface ThreadSummary {
+  /** The thread's first message (its parent). */
+  id: string;
+  conversation_id: string;
+  preview: string;
+  reply_count: number;
+  last_reply_at: string;
+  /** Who wrote the newest reply; null when unknown. */
+  last_reply_author_id: string | null;
+  last_reply_author_name: string | null;
+  /** Replies the caller has not opened (0811 comm_thread_seen). */
+  unread: boolean;
+  /** How many: replies by others newer than the caller last opened the thread. */
+  unread_count: number;
+}
+
 export interface ConversationSummary {
   id: string;
   kind: ConversationKind;

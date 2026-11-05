@@ -14,6 +14,7 @@ import {
   searchTerms,
   type SearchInput,
 } from "./search";
+import type { ThreadSummary } from "./types";
 import {
   MESSAGE_PAGE,
   conversationTitle,
@@ -632,6 +633,103 @@ export async function getMessagesByIds(conversationId: string, ids: string[]): P
     .in("id", wanted);
   if (error) fail("messages", error);
   return hydrate(s, (data ?? []) as unknown as RawMessage[], me);
+}
+
+/**
+ * PULSE'S THREADS SECTION (0811, user 2026-11-05): threads the caller started
+ * or replied in, newest reply first. Read through the ordinary comm_messages
+ * RLS, so a thread in a chat the caller has left or cannot read never appears.
+ *
+ * Unread = replies BY OTHERS newer than the caller last opened the thread
+ * (comm_thread_seen), counted. With no seen row, the caller's own newest reply
+ * in it stands in (they were there then); a thread they only started and never
+ * opened counts every reply. Before 0811 is applied that table is missing and
+ * nothing reads unread.
+ */
+// created-by: exempt -- a feed of threads for the list pane, not a listing of records; it has no Created columns
+export async function listMyThreads(limit = 30): Promise<ThreadSummary[]> {
+  const me = await myId();
+  if (!me) return [];
+  const s = await createClient();
+  const { data: mine, error: mErr } = await s
+    .from("comm_messages")
+    .select("parent_id")
+    .eq("author_id", me)
+    .not("parent_id", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(300);
+  if (mErr) fail("your threads", mErr);
+  const repliedIn = [...new Set(((mine ?? []) as { parent_id: string }[]).map((r) => r.parent_id))];
+  const or = repliedIn.length > 0 ? `author_id.eq.${me},id.in.(${repliedIn.join(",")})` : `author_id.eq.${me}`;
+  const { data: parents, error: pErr } = await s
+    .from("comm_messages")
+    .select("id, conversation_id, body, reply_count, last_reply_at, deleted_at")
+    .is("parent_id", null)
+    .gt("reply_count", 0)
+    .not("last_reply_at", "is", null)
+    .or(or)
+    .order("last_reply_at", { ascending: false })
+    .limit(limit);
+  if (pErr) fail("your threads", pErr);
+  type P = { id: string; conversation_id: string; body: string | null; reply_count: number; last_reply_at: string; deleted_at: string | null };
+  const rows = (parents ?? []) as P[];
+  if (rows.length === 0) return [];
+  const ids = rows.map((r) => r.id);
+
+  const [lastR, seenR, hiddenR] = await Promise.all([
+    s
+      .from("comm_messages")
+      .select("parent_id, author_id, created_at")
+      .in("parent_id", ids)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: false })
+      .limit(1000),
+    s.from("comm_thread_seen").select("parent_id, seen_at").eq("user_id", me).in("parent_id", ids),
+    s.from("comm_hidden").select("message_id").eq("user_id", me).in("message_id", ids),
+  ]);
+  if (lastR.error) fail("your threads", lastR.error);
+  const missing = (e: { code?: string | null } | null) => !!e && (e.code === "42P01" || e.code === "PGRST205");
+  if (seenR.error && !missing(seenR.error)) fail("your threads", seenR.error);
+  if (hiddenR.error && !missing(hiddenR.error)) fail("your threads", hiddenR.error);
+  const seenMissing = missing(seenR.error);
+
+  const replyRows = (lastR.data ?? []) as { parent_id: string; author_id: string | null; created_at: string }[];
+  const lastBy = new Map<string, string | null>();
+  const myLast = new Map<string, string>();
+  for (const r of replyRows) {
+    if (!lastBy.has(r.parent_id)) lastBy.set(r.parent_id, r.author_id);
+    if (r.author_id === me && !myLast.has(r.parent_id)) myLast.set(r.parent_id, r.created_at);
+  }
+  const seen = new Map(((seenMissing ? [] : seenR.data) ?? []).map((r) => [(r as { parent_id: string }).parent_id, (r as { seen_at: string }).seen_at]));
+  const unreadOf = new Map<string, number>();
+  if (!seenMissing) {
+    for (const r of replyRows) {
+      if (r.author_id === me) continue;
+      const since = seen.get(r.parent_id) ?? myLast.get(r.parent_id);
+      if (since && new Date(r.created_at) <= new Date(since)) continue;
+      unreadOf.set(r.parent_id, (unreadOf.get(r.parent_id) ?? 0) + 1);
+    }
+  }
+  const hidden = new Set(((missing(hiddenR.error) ? [] : hiddenR.data) ?? []).map((r) => (r as { message_id: string }).message_id));
+  const names = await resolveNames(s, [...lastBy.values(), ...rows.flatMap((r) => mentionIds(r.body))]);
+
+  return rows
+    .filter((r) => !hidden.has(r.id))
+    .map((r) => {
+      const lastAuthor = lastBy.get(r.id) ?? null;
+      const unreadCount = unreadOf.get(r.id) ?? 0;
+      return {
+        id: r.id,
+        conversation_id: r.conversation_id,
+        preview: r.deleted_at ? "This message was deleted" : previewText(r.body, names) || "Attachment",
+        reply_count: r.reply_count,
+        last_reply_at: r.last_reply_at,
+        last_reply_author_id: lastAuthor,
+        last_reply_author_name: lastAuthor === me ? "You" : lastAuthor ? names.get(lastAuthor) ?? null : null,
+        unread: unreadCount > 0,
+        unread_count: unreadCount,
+      };
+    });
 }
 
 /** A thread: its first message and every reply, oldest first. */

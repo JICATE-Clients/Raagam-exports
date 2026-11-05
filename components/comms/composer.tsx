@@ -149,6 +149,8 @@ export function Composer({
   onSend,
   autoFocus = false,
   chat = false,
+  chatPlaceholder = "Type a message",
+  onEditLast,
   onPosted,
   fill,
 }: {
@@ -166,6 +168,11 @@ export function Composer({
   /** Pulse's direct and group chats (the colourful redesign, 2026-10-29):
    *  a rounded, tinted box and a round coral Send. A channel keeps the plain box. */
   chat?: boolean;
+  /** The pill's own short hint in `chat` mode ("Reply" in a thread). */
+  chatPlaceholder?: string;
+  /** ↑ in an EMPTY box: edit your last message. True when there was one to
+   *  edit (the key is then taken); false lets ↑ do what it always did. */
+  onEditLast?: () => boolean;
 }) {
   const supabase = useMemo(() => createClient(), []);
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -477,6 +484,17 @@ export function Composer({
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (
+      onEditLast &&
+      e.key === "ArrowUp" &&
+      !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey &&
+      text === "" &&
+      uploads.length === 0 &&
+      onEditLast()
+    ) {
+      e.preventDefault();
+      return;
+    }
     if (mention && candidates.length > 0) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
@@ -655,7 +673,7 @@ export function Composer({
           autoCapitalize="sentences"
           autoCorrect="on"
           spellCheck
-          placeholder={chat ? "Type a message" : placeholder}
+          placeholder={chat ? chatPlaceholder : placeholder}
           aria-label={placeholder}
           maxLength={MESSAGE_MAX}
           onChange={(e) => {
