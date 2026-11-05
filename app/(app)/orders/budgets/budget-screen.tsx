@@ -49,7 +49,6 @@ import {
   Scissors,
   Send,
   ShoppingCart,
-  RefreshCw,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -129,7 +128,6 @@ import {
   mergeKey,
   mergePulled,
   pullMergeIsEmpty,
-  pullMergeSize,
 } from "@/lib/orders/budget/pull-merge";
 import {
   BUDGET_LINE_BASES,
@@ -760,15 +758,12 @@ export function BudgetScreen({
   /** Size-wise rate switches the operator set, by group id. Unset = derived:
    *  Yes only while the sizes' rates differ (`sizeFoldRows`). */
   const [sizeWise, setSizeWise] = useState<ReadonlyMap<string, boolean>>(() => new Map());
-  /** How many lines a refresh would change, found in the background when a
-   *  saved draft is opened. Null = in step, or not checked. */
-  const [bomDrift, setBomDrift] = useState<number | null>(null);
-  /** Which open the background check belongs to. A late answer about the
-   *  budget opened before this one is dropped, not shown on this one. */
+  /** Which open the automatic BOM refresh belongs to. A late answer about the
+   *  budget opened before this one is dropped, never applied to this one. */
   const driftSeq = useRef(0);
   /** Every other budget's priced lines, newest first, for the "last ₹ …"
    *  hint under a blank Rate (`lastRateFor`). Fetched once per open; a late
-   *  answer for an earlier open is dropped, as `bomDrift`'s is. */
+   *  answer for an earlier open is dropped, as the BOM refresh's is. */
   const [rateHistory, setRateHistory] = useState<RateHistoryBudget[]>([]);
   const historySeq = useRef(0);
   const fetchRateHistory = (excludeId: string | null) => {
@@ -1028,7 +1023,6 @@ export function BudgetScreen({
     setFoldNotes({});
     setStaleKeys(new Set());
     setSizeWise(new Map());
-    setBomDrift(null);
     driftSeq.current++;
     fetchRateHistory(null);
     amendSeq.current++;
@@ -1060,14 +1054,16 @@ export function BudgetScreen({
     setFoldNotes({});
     setStaleKeys(new Set());
     setSizeWise(new Map());
-    setBomDrift(null);
     driftSeq.current++;
     fetchRateHistory(b.id);
     setDirty(false);
-    // A saved DRAFT is asked whether the BOMs moved since; an approved or
-    // submitted one is frozen (0576), so nothing it says could be acted on.
+    /* A SAVED DRAFT IS BROUGHT INTO STEP WITH ITS BOMs AS IT OPENS — no button
+       (user 2026-11-05: "remove that refresh from bom, make it automatic"). A
+       pulled quantity is read-only, so the refresh was never a choice, only a
+       step the operator could forget, and `submitBudget` refused them for it.
+       An approved or submitted budget is frozen (0576) and is not touched. */
     if (b.status === "draft" || b.status === "rejected") {
-      checkBomDrift((b.orders ?? []).map((o) => o.garment_order_id), rows);
+      refreshFromBoms((b.orders ?? []).map((o) => o.garment_order_id), "open", rows);
     }
     /* THE ORDER BUDGET MODULE RULE (0619) — asked on every open of an
        editable budget; a late answer for an earlier open is dropped. */
@@ -1135,7 +1131,7 @@ export function BudgetScreen({
 
   /**
    * FILL AND REFRESH FROM THE BOMs — one path for picking an order and for the
-   * header's "Refresh from BOMs" (0591).
+   * open of a saved draft (0591; automatic since 2026-11-05).
    *
    * It used to only ADD lines not already here. That was right while a pulled
    * quantity could be retyped; now it is read-only (`bomLocked`), so a refresh
@@ -1158,11 +1154,14 @@ export function BudgetScreen({
    * closure is still the PREVIOUS budget's. Merged against those, its lines for
    * the same order would read as "already here" and never be added.
    */
-  function refreshFromBoms(ids: readonly string[], why: "pick" | "refresh", base?: readonly CostRow[]) {
+  function refreshFromBoms(ids: readonly string[], why: "pick" | "open", base?: readonly CostRow[]) {
     if (ids.length === 0) return;
     const pool = base ?? costs;
+    const seq = why === "open" ? driftSeq.current : null;
     start(async () => {
       const res = await loadCostLines([...ids]);
+      // Another budget was opened meanwhile — this answer is not about it.
+      if (seq != null && seq !== driftSeq.current) return;
       if (!res.ok) {
         toastError(res.error);
         return;
@@ -1300,12 +1299,7 @@ export function BudgetScreen({
           return next;
         });
       }
-      if (why === "refresh") setBomDrift(null);
-
-      if (pullMergeIsEmpty(plan)) {
-        if (why === "refresh") success("The budget already matches the BOMs");
-        return;
-      }
+      if (pullMergeIsEmpty(plan)) return;
       const parts: string[] = [];
       if (added.length) parts.push(`${added.length} added`);
       if (updates.size) parts.push(`${updates.size} updated`);
@@ -1317,25 +1311,11 @@ export function BudgetScreen({
       // it — and this document gets approved.
       if (res.skipped > 0) parts.push(`${res.skipped} BOM figures skipped as unanswered`);
       if (refitNotes > 0) parts.push(`${refitNotes} split reset to fabric-wise`);
-      success(`From the BOMs: ${parts.join(" · ")}`);
-    });
-  }
-
-  /**
-   * IS THIS SAVED DRAFT STILL THE BOMs' ANSWER? Asked in the background when it
-   * is opened, so a budget left for a week says so before anyone prices it. It
-   * changes nothing — the header offers the refresh — and it is not a
-   * transition, so the editor is not held busy while the Fabric BOM report runs.
-   */
-  function checkBomDrift(ids: readonly string[], rows: readonly CostRow[]) {
-    const seq = ++driftSeq.current;
-    setBomDrift(null);
-    if (ids.length === 0) return;
-    void loadCostLines([...ids]).then((res) => {
-      if (seq !== driftSeq.current || !res.ok) return;
-      const held = rows.filter((c) => PULLED_SOURCES.has(c.source as BudgetSource) && c.garment_order_id);
-      const plan = mergePulled(held.map(heldOf), res.lines);
-      setBomDrift(pullMergeIsEmpty(plan) ? null : pullMergeSize(plan));
+      success(
+        why === "open"
+          ? `Updated from the BOMs: ${parts.join(" · ")} — check and Save`
+          : `From the BOMs: ${parts.join(" · ")}`,
+      );
     });
   }
 
@@ -4485,6 +4465,19 @@ export function BudgetScreen({
     });
   }
 
+  /** The card's Send — the SAVED budget as it stands; nothing is open to save. */
+  function sendFromCard(id: string) {
+    start(async () => {
+      const sent = await submitBudget(id);
+      if (!sent.ok) {
+        toastError(sent.error);
+        return;
+      }
+      success("Budget sent for approval");
+      router.refresh();
+    });
+  }
+
   function remove(id: string) {
     start(async () => {
       const res = await deleteOrderBudget(id);
@@ -4521,9 +4514,7 @@ export function BudgetScreen({
     ? null
     : enteredCosts.length === 0
       ? "Add the budget's cost lines first"
-      : bomDrift != null
-        ? `The BOMs changed since this budget was filled (${bomDrift} ${bomDrift === 1 ? "line" : "lines"}) — press Refresh from BOMs, then Save`
-        : staleKeys.size > 0
+      : staleKeys.size > 0
           ? `Remove the ${staleKeys.size} ${staleKeys.size === 1 ? "line" : "lines"} marked "No longer on the BOM" first`
           : !validity.canSave
             ? (validity.first?.message ?? "Fill in every rate before sending")
@@ -4561,6 +4552,11 @@ export function BudgetScreen({
           onDelete={(o) => {
             const b = budgetOfCard(o);
             if (b) remove(b.id);
+          }}
+          canSend={perms.canEdit}
+          onSend={(o) => {
+            const b = budgetOfCard(o);
+            if (b) sendFromCard(b.id);
           }}
           isPending={isPending}
         />
@@ -4606,12 +4602,6 @@ export function BudgetScreen({
               </span>
               <span>· {enteredCosts.length} cost lines</span>
               {form.budget_date && <span>· {fmtDate(form.budget_date)}</span>}
-              {editable && bomDrift != null && (
-                <span className="font-medium text-warning">
-                  · The BOMs changed since this budget was filled ({bomDrift}{" "}
-                  {bomDrift === 1 ? "line" : "lines"}) — Refresh from BOMs
-                </span>
-              )}
               {editable && staleKeys.size > 0 && (
                 <span className="font-medium text-warning">
                   · {staleKeys.size} {staleKeys.size === 1 ? "line is" : "lines are"} no longer on the BOM
@@ -4624,24 +4614,6 @@ export function BudgetScreen({
           // the last field would otherwise send the document for approval.
           right: editable ? (
             <span className="flex items-center gap-2">
-              {/* ONE REFRESH FOR EVERY SOURCE — see `refreshFromBoms`. Picking an
-                  order already fills its lines; this brings them back in step
-                  after a BOM is edited. */}
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  refreshFromBoms(
-                    pickedOrders.map((o) => o.garment_order_id as string),
-                    "refresh",
-                  )
-                }
-                disabled={pickedOrders.length === 0 || isPending}
-              >
-                <RefreshCw className="h-4 w-4" aria-hidden />
-                Refresh from BOMs
-              </Button>
               <Button
                 type="button"
                 variant="outline"
@@ -4670,7 +4642,7 @@ export function BudgetScreen({
                     aria-description={submitBlocker ?? undefined}
                   >
                     <Send className="h-4 w-4" aria-hidden />
-                    Save &amp; send for approval
+                    Save &amp; Send
                   </Button>
                 </span>
               )}

@@ -181,6 +181,8 @@ export function BudgetQueue({
   canDelete = false,
   canDeleteRow,
   onDelete,
+  canSend = false,
+  onSend,
   isPending = false,
 }: {
   /** Every confirmed order, as `listBudgetableOrders` returns them. */
@@ -192,6 +194,14 @@ export function BudgetQueue({
   canDelete?: boolean;
   canDeleteRow?: (o: BudgetableOrder) => boolean;
   onDelete?: (o: BudgetableOrder) => void;
+  /** SEND FOR APPROVAL FROM THE CARD (user 2026-11-05, screenshot 4076: "add
+   *  option for approving in card"). Offered on a saved budget that may still
+   *  go to the approver — Under Progress or sent back for rework. The server's
+   *  `submitBudget` runs every check the editor's Save & Send does (rates, BOM
+   *  drift, revision scope), so a card can never send what the editor would
+   *  refuse; the refusal is the toast. */
+  canSend?: boolean;
+  onSend?: (o: BudgetableOrder) => void;
   isPending?: boolean;
 }) {
   const [query, setQuery] = useState("");
@@ -331,6 +341,16 @@ export function BudgetQueue({
               disabled={isPending}
               onClick={() => onOpen(o)}
             />
+            {canSend && (s === "draft" || s === "rejected") ? (
+              <CardAction
+                label="Send for approval"
+                tone="primary"
+                icon={DUO.send}
+                reason={warning}
+                disabled={isPending}
+                onClick={() => onSend?.(o)}
+              />
+            ) : null}
             {warning ? (
               <CardAction
                 label={warning}

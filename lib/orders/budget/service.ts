@@ -830,7 +830,7 @@ export async function pullCostLines(
     s
       .from("material_bom_amendment_requirements")
       .select(
-        "item_id, required_qty, consumption_uom_id, slice_label, " +
+        "item_id, required_qty, consumption_uom_id, slice_label, sno, " +
           /* THE TRIM COLOUR (2026-10-23) — named by its column: the row has two
              FKs to config_lookups (item_color_id, size_id). See the push below. */
           "item_color:config_lookups!item_color_id(name), purchase_qty, purchase_uom_id, " +
@@ -889,6 +889,7 @@ export async function pullCostLines(
     required_qty: number | null;
     consumption_uom_id: string | null;
     slice_label: string;
+    sno: number | null;
     item_color: { name: string | null } | null;
     purchase_qty: number | null;
     purchase_uom_id: string | null;
@@ -1140,6 +1141,32 @@ export async function pullCostLines(
     sliceColours.set(k, (sliceColours.get(k) ?? new Set()).add(r.item_color?.name?.trim().toUpperCase() ?? ""));
   }
 
+  /* THE SAME ITEM ON TWO MATERIAL BOM LINES IS TWO BUDGET LINES (2026-11-05,
+     budget 2: "The BOMs have changed since this budget was filled (1 line)"
+     after every Refresh). Polybag Sticker sat on lines 15 and 17 of one BOM,
+     both "Whole order", no colour, 2% and 3% excess — 4,393 and 4,436. Keyed
+     alike, both fresh rows matched the ONE held line: each refresh wrote the
+     last one over it, `submitBudget` read the other as a change, and the second
+     sticker's cost was never on the budget at all. The colour pass above cannot
+     tell them apart (same colour), so the BOM line number is appended to the
+     REPEAT only, so every other line keeps
+     the key it was saved under. */
+  const describe = (r: MaterialReq) => {
+    const colour = r.item_color?.name?.trim() ?? "";
+    return colour && (sliceColours.get(sliceKey(r))?.size ?? 0) > 1 ? `${r.slice_label} · ${colour}` : r.slice_label;
+  };
+  const descKey = (r: MaterialReq) =>
+    `${r.bom?.garment_order_id ?? ""}|${r.item_id ?? ""}|${describe(r).trim().toUpperCase()}`;
+  /* The FIRST line (lowest BOM line no.) keeps the plain key, so the budget
+     line already saved for it is updated in place rather than flagged stale;
+     only a repeat carries the suffix. */
+  const firstSno = new Map<string, number>();
+  for (const r of materialRows) {
+    const k = descKey(r);
+    const n = r.sno ?? Number.MAX_SAFE_INTEGER;
+    if (!firstSno.has(k) || n < firstSno.get(k)!) firstSno.set(k, n);
+  }
+
   for (const r of materialRows) {
     if (!r.bom || r.bom.is_draft || !r.bom.garment_order_id) continue;
     if (!wanted.has(r.bom.garment_order_id)) continue;
@@ -1157,11 +1184,10 @@ export async function pullCostLines(
        refresh could settle. The colour is appended ONLY where it is needed to
        tell two rows apart — a slice holding more than one colour — so every
        single-colour line keeps the key it was saved under. */
-    const colour = r.item_color?.name?.trim() ?? "";
     const description =
-      colour && (sliceColours.get(sliceKey(r))?.size ?? 0) > 1
-        ? `${r.slice_label} · ${colour}`
-        : r.slice_label;
+      r.sno != null && r.sno !== firstSno.get(descKey(r))
+        ? `${describe(r)} · BOM line ${r.sno}`
+        : describe(r);
     /* A MATERIAL LINE IS A PURCHASE, SO IT IS COUNTED IN THE PURCHASE UNIT
        (2026-10-23: sewing thread arrived as 10,32,060 MTR beside a "last ₹100"
        that was a price per CONE). The Material BOM converts a requirement to the
