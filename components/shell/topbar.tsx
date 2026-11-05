@@ -12,6 +12,7 @@ import { useLocationState } from "@/lib/auth/location-context";
 import { confirmDiscard } from "@/lib/reload-guard";
 import { useSearch } from "@/components/search/search-provider";
 import { NotificationsBell } from "@/components/shell/notifications-bell";
+import { PinStar } from "@/components/favorites/pin-star";
 import { useTheme } from "@/components/shell/theme-provider";
 import { useAppearanceItems } from "@/components/shell/appearance-menu";
 import type { Theme } from "@/lib/theme";
@@ -360,6 +361,7 @@ export function Topbar({
             <Search className="h-[18px] w-[18px]" />
           </button>
         )}
+        {!home && <PinStar />}
         <NotificationsBell onDark={home} />
 
         <div className="relative">

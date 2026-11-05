@@ -28,5 +28,11 @@ export const storeInput = z.object({
   store_type: z.enum(STORE_TYPES, { message: "Pick the store type" }),
   bin_prefix: capsTextNullable(),
   is_active: z.boolean().default(true),
+  /**
+   * CREATE ONLY: the units to make this store in (0811). One ordinary store row per
+   * unit — never one row shared by several, since a store's unit owns its stock.
+   * Omitted/empty = the current unit. Ignored on edit (a store never changes unit).
+   */
+  location_ids: z.array(z.string().uuid()).optional().default([]),
 });
 export type StoreInput = z.infer<typeof storeInput>;

@@ -58,6 +58,7 @@
     "scripts/check-amendment-modules.mts",
     "scripts/check-permission-overrides.mts",
     "scripts/check-screen-catalog.mts",
+    "scripts/check-favorites.mts",
     "scripts/check-comms.mts",
     "scripts/check-comms-workspace.mts",
     "scripts/check-comms-channels.mts",

@@ -1,15 +1,9 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
-import { ArrowRightLeft, Pencil } from "lucide-react";
+import { ArrowRightLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Truncated } from "@/components/ui/truncated";
-import { useToast } from "@/components/ui/toast";
-import { updateBin } from "@/lib/masters/bin-actions";
 import type { BinMove } from "@/lib/stores/bin-history-actions";
-import { useUnsavedGuard } from "@/lib/reload-guard";
 import { fmtDate, fmtMoney, fmtNumber } from "@/lib/format";
 import type { Row } from "./inventory-table";
 import { AGE_TONE, classColour, Dot, titleCase, VizCard } from "./inventory-visuals";
@@ -18,7 +12,7 @@ import { AGE_TONE, classColour, Dot, titleCase, VizCard } from "./inventory-visu
  * THE BIN PANEL — Purchase Store ▸ Overview's inspector (phase 1, user 2026-11-04: "maintain bin
  * details"; plan claude.ai/artifact/CXG8BjwjqJLEGzaMsKfqMt). Whatever bin is picked on the rack or
  * in the list: where it is, what is in it, whether it is MIXED (and the one-click fix), every
- * movement it has seen, and its description. The panel never moves stock itself — every move
+ * movement it has seen. (Bin details / description removed 2026-11-05, user.) The panel never moves stock itself — every move
  * button hands the lots to the dashboard's one Move flow (pick → bin → confirm, 0809).
  */
 
@@ -32,7 +26,6 @@ export function BinPanel({
   history,
   withValue,
   canMove,
-  canEditBin,
   mixed,
   suggestion,
   floorCount,
@@ -49,7 +42,6 @@ export function BinPanel({
   history: BinMove[] | null;
   withValue: boolean;
   canMove: boolean;
-  canEditBin: boolean;
   mixed: { classes: string[]; orders: string[]; minority: string } | null;
   /** The nearest empty bin in the same store — where a Mixed bin's minority should go. */
   suggestion: string | null;
@@ -67,10 +59,8 @@ export function BinPanel({
       </VizCard>
     );
   }
-  // Keyed on the bin, so opening another bin starts its description editor fresh.
   return (
     <BinPanelBody
-      key={bin.id}
       bin={bin}
       storeName={storeName}
       place={place}
@@ -78,7 +68,6 @@ export function BinPanel({
       history={history}
       withValue={withValue}
       canMove={canMove}
-      canEditBin={canEditBin}
       mixed={mixed}
       suggestion={suggestion}
       floorCount={floorCount}
@@ -96,7 +85,6 @@ function BinPanelBody({
   history,
   withValue,
   canMove,
-  canEditBin,
   mixed,
   suggestion,
   floorCount,
@@ -104,26 +92,8 @@ function BinPanelBody({
   onFixMixed,
   onPutHere,
 }: Parameters<typeof BinPanel>[0] & { bin: PanelBin }) {
-  const router = useRouter();
-  const { success, error: toastError } = useToast();
-  const [isPending, start] = useTransition();
-  const [editing, setEditing] = useState(false);
-  const [desc, setDesc] = useState(bin.description ?? "");
-  useUnsavedGuard(editing || isPending);
-
   const value = lots.reduce((a, r) => a + (r.value ?? 0), 0);
   const oldest = lots.length ? Math.max(...lots.map((r) => r.age_days)) : null;
-
-  function saveDesc() {
-    start(async () => {
-      const res = await updateBin(bin.id, { bin_code: "", store_id: bin.store_id, description: desc.trim() || null, inactive: bin.inactive });
-      if (res.ok) {
-        success(`${bin.bin_code} saved`);
-        setEditing(false);
-        router.refresh();
-      } else toastError(res.error ?? "Could not save the bin");
-    });
-  }
 
   const fact = (label: string, v: string) => (
     <div className="flex items-baseline gap-1.5 whitespace-nowrap">
@@ -135,7 +105,7 @@ function BinPanelBody({
   const heading = "mb-1.5 flex items-center justify-between text-[10.5px] font-semibold tracking-wide text-muted-foreground uppercase";
 
   return (
-    <section className="min-w-0 rounded-xl border border-border bg-surface shadow-[0_1px_2px_rgba(16,24,40,.04),0_8px_24px_-16px_rgba(3,123,184,.25)] xl:flex xl:h-full xl:min-h-0 xl:flex-col">
+    <section className="min-w-0 rounded-xl border border-border bg-surface shadow-[0_1px_2px_rgba(16,24,40,.04),0_8px_24px_-16px_rgba(3,123,184,.25)] xl:flex xl:min-h-0 xl:flex-1 xl:flex-col">
       {/* identity — ONE STATEMENT OF EACH FACT (user 2026-11-04, screenshot 4056). The header used
           to repeat what the panel already says below it: a Mixed chip over the mixed warning, an
           In use / Empty chip over the lot list (or its "nothing is booked" line), an Active chip on
@@ -264,48 +234,6 @@ function BinPanelBody({
         )}
       </div>
 
-      {/* details */}
-      <div className={section}>
-        <div className={heading}>
-          <span>Bin details</span>
-          {canEditBin && !editing ? (
-            <button type="button" onClick={() => setEditing(true)} className="inline-flex items-center gap-1 text-[11.5px] font-semibold tracking-normal text-primary normal-case hover:underline">
-              <Pencil className="size-3" aria-hidden />
-              Edit
-            </button>
-          ) : null}
-        </div>
-        {editing ? (
-          <form
-            data-focus-scope
-            className="flex flex-wrap items-center gap-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              saveDesc();
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") {
-                e.stopPropagation();
-                setDesc(bin.description ?? "");
-                setEditing(false);
-              }
-            }}
-          >
-            <Input aria-label="Description" value={desc} onChange={(e) => setDesc(e.target.value)} className="min-w-0 flex-1" autoFocus />
-            <Button type="button" variant="ghost" size="sm" onClick={() => { setDesc(bin.description ?? ""); setEditing(false); }} disabled={isPending}>
-              Cancel
-            </Button>
-            <Button type="submit" size="sm" disabled={isPending || desc.trim() === (bin.description ?? "").trim()}>
-              {isPending ? "Saving…" : "Save"}
-            </Button>
-          </form>
-        ) : (
-          <dl className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-x-2.5 gap-y-1 text-[12px]">
-            <dt className="text-muted-foreground">Description</dt>
-            <dd className="min-w-0">{bin.description ? <Truncated>{bin.description}</Truncated> : <span className="text-muted-foreground">—</span>}</dd>
-          </dl>
-        )}
-      </div>
       </div>
     </section>
   );

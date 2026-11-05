@@ -263,6 +263,7 @@ export function GlassRing({
   centre,
   className,
   discClassName = "size-[6.25rem]",
+  dense = false,
 }: {
   slices: GlassRingSlice[];
   /** What a full turn stands for — the slices may sum to less (a loss leaves bare track). */
@@ -275,6 +276,8 @@ export function GlassRing({
   className?: string;
   /** The frosted disc's size — 100px on the approval ring at both of its sizes. */
   discClassName?: string;
+  /** A small ring (PO Approval's, 2026-11-05): the centre's figure shrinks with the disc. */
+  dense?: boolean;
 }) {
   // Arc positions, clockwise from 12 o'clock (the svg is rotated -90°). Each
   // arc starts half a trim in, so its round cap sits inside its own share.
@@ -349,12 +352,18 @@ export function GlassRing({
           {centre.label}
         </span>
         <span
-          className={cn("text-[1.6rem] font-bold leading-[1.1] tracking-tight tabular-nums", centre.tone)}
+          className={cn(
+            dense ? "text-base" : "text-[1.6rem]",
+            "font-bold leading-[1.1] tracking-tight tabular-nums",
+            centre.tone,
+          )}
           style={centre.color ? { color: centre.color } : undefined}
         >
           {centre.value}
         </span>
-        <span className={cn("text-[11px] tabular-nums text-muted-foreground", centre.tone)}>{centre.sub}</span>
+        <span className={cn(dense ? "px-1 text-[9px] leading-tight" : "text-[11px]", "tabular-nums text-muted-foreground", centre.tone)}>
+          {centre.sub}
+        </span>
       </div>
     </div>
   );

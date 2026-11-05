@@ -230,28 +230,17 @@ export function StockStatementView({
         }
       />
 
-      <ul className="space-y-0.5 text-xs text-muted-foreground">
-        <li>
-          Each row is stock still on hand from one receipt. Issues use up their own bin and lot first, then the oldest
-          stock (FIFO), so GRN No and age are those of the stock that is actually left.
-        </li>
-        {withValue && (
-          <li>
-            Stock Value = qty on hand × the approved PO rate of the GRN it came in on.
-            {count((r) => r.rate == null) > 0 &&
-              ` ${fmtNumber(count((r) => r.rate == null))} lots have no known rate and add nothing to the value.`}
-          </li>
-        )}
-        {pendingQc > 0 && (
-          <li>
-            {fmtNumber(pendingQc)} GRN {pendingQc === 1 ? "line is" : "lines are"} awaiting QC and not yet in stock —{" "}
-            <Link href="/stores/qc-pending" className="underline">
-              Stores ▸ Pending QC
-            </Link>
-            .
-          </li>
-        )}
-      </ul>
+      {/* No explanatory footnotes under a report (user 2026-11-05). Only a live
+          notice that something is waiting stays — and only while it is. */}
+      {pendingQc > 0 && (
+        <p className="text-xs text-muted-foreground">
+          {fmtNumber(pendingQc)} GRN {pendingQc === 1 ? "line is" : "lines are"} awaiting QC and not yet in stock —{" "}
+          <Link href="/stores/qc-pending" className="underline">
+            Stores ▸ Pending QC
+          </Link>
+          .
+        </p>
+      )}
     </div>
   );
 }

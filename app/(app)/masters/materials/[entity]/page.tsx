@@ -34,6 +34,7 @@ import { listOutDocumentTerms } from "@/lib/masters/out-document-term-service";
 import { BinMasterScreen } from "@/components/masters/bin-master-screen";
 import { StoreMasterScreen } from "@/components/masters/store-master-screen";
 import { listStoresForMaster } from "@/lib/masters/store-master-service";
+import { getCurrentLocation } from "@/lib/auth/location";
 import { listBins, listBinStock } from "@/lib/masters/bin-service";
 // Size Groups lost its own master screen with the 2026-08-01 withdrawal, but
 // `listSizeGroups` STAYS: Categories (a survivor) renders a size-group field,
@@ -254,14 +255,22 @@ export default async function MaterialEntityPage({
     } else if (child.custom === "stores") {
       // Stores are kept under the STORES grant (their table's policies), not Masters:
       // the buttons follow the permission the database will actually check.
-      const [rows, sCreate, sEdit, sDelete] = await Promise.all([
+      // Units: the ones this operator may switch to — a new store can be made in
+      // several at once (0811), one store row per unit.
+      const [rows, sCreate, sEdit, sDelete, here] = await Promise.all([
         listStoresForMaster(),
         can("stores", "create"),
         can("stores", "edit"),
         can("stores", "delete"),
+        getCurrentLocation(),
       ]);
       screen = (
-        <StoreMasterScreen rows={rows} perms={{ ...perms, canCreate: sCreate, canEdit: sEdit, canDelete: sDelete }} />
+        <StoreMasterScreen
+          rows={rows}
+          units={here.allowed.map((l) => ({ id: l.id, name: l.name }))}
+          currentUnitId={here.location?.id ?? null}
+          perms={{ ...perms, canCreate: sCreate, canEdit: sEdit, canDelete: sDelete }}
+        />
       );
     } else if (child.custom === "bins") {
       // A bin's store: the current unit's stores (their read policy narrows to it).

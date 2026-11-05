@@ -172,13 +172,17 @@ export const stockTransferInput = z
     if (remarksRequired(v.transfer_type) && !v.remarks) {
       ctx.addIssue({ code: "custom", path: ["remarks"], message: "Remarks are required — this moves cost off an order's books" });
     }
+    // ONE LOT, SEVERAL BINS (0813, GRN's split): a layer may appear once PER To bin — the
+    // screen saves one line per bin of a split. The same layer into the same bin (or twice
+    // with no bin) is still the same move entered twice — the DB's unique rule says so too.
     const seen = new Set<string>();
     for (const l of v.lines) {
-      if (seen.has(l.source_ledger_id)) {
-        ctx.addIssue({ code: "custom", path: ["lines"], message: "The same stock is picked on two lines" });
+      const k = `${l.source_ledger_id}|${l.to_bin_id ?? ""}`;
+      if (seen.has(k)) {
+        ctx.addIssue({ code: "custom", path: ["lines"], message: "The same stock is picked twice into the same bin" });
         return;
       }
-      seen.add(l.source_ledger_id);
+      seen.add(k);
     }
   });
 export type StockTransferInput = z.input<typeof stockTransferInput>;

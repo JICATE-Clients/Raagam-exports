@@ -24,14 +24,12 @@ export default async function InventoryDashboardPage({
   const [purchaseView, storesView] = await Promise.all([can("materials_purchase", "view"), can("stores", "view")]);
   if (!purchaseView && !storesView) await requirePermission("materials_purchase", "view");
   const asOf = readAsOf(await searchParams);
-  const [read, unit, layout, canCreate, canEdit, canEditBin] = await Promise.all([
+  const [read, unit, layout, canCreate, canEdit] = await Promise.all([
     inventoryDashboard(asOf),
     currentUnitName(),
     unitStoresAndBins(),
     can("stores", "create"),
     can("stores", "edit"),
-    // A bin's description is the Bin master's field — `updateBin` asks masters:edit.
-    can("masters", "edit"),
   ]);
   return (
     <div className="space-y-3">
@@ -51,7 +49,6 @@ export default async function InventoryDashboardPage({
           withValue={read.access === "value"}
           // Assign a bin posts a Stock Transfer: stock_transfer_post needs stores:edit, the draft stores:create.
           canMove={canCreate && canEdit}
-          canEditBin={canEditBin}
         />
       )}
     </div>

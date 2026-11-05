@@ -3,6 +3,7 @@ import {
   // better icons"). Planning and Analytics both drew LineChart before; Sample
   // is a garment-sample module, so a shirt says it faster than a shopping bag.
   LayoutDashboard,
+  Star,
   Shirt,
   ClipboardList,
   ChartGantt,
@@ -69,6 +70,12 @@ export interface NavItem {
  */
 export const NAV: NavItem[] = [
   { href: "/", label: "Dashboard", module: "dashboard", icon: LayoutDashboard },
+  /* FAVOURITES, A MODULE OF ITS OWN (user 2026-11-05: "as module like home, under fav";
+     screenshot 4073). The person's one-tap tiles (lib/favorites), in the rail right under
+     Home — which is the Dashboard: the rail shortens that one to "Home" (GlobalSidebar
+     SHORT), so this could not also be called Home. Same `dashboard` grant: both are the
+     landing pages every role is meant to have. */
+  { href: "/favourites", label: "Favourites", module: "dashboard", icon: Star },
   {
     // RENAMED "Sales" → "Sample" (client 2026-08-14). The module is the
     // pre-bulk stage — fit samples, size sets, revisions — and the old name

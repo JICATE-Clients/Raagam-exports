@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Truncated } from "@/components/ui/truncated";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import { ToggleGroup } from "@/components/ui/segmented";
 import { Field, FieldRow, FIELD_WIDTH_CSS } from "@/components/ui/field";
@@ -15,7 +14,8 @@ import { StatusPill } from "@/components/ui/status-pill";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
-import { StoreBinPickCell } from "@/components/purchase/store-bin-editor";
+import { BinQtyCell } from "@/components/purchase/store-bin-editor";
+import { pickedBins, splitBinsProblem, withTailBin, type SplitRow } from "@/lib/purchase/bin-split";
 import {
   DENSE,
   DOC_BOTTOM_BAR,
@@ -23,6 +23,7 @@ import {
   DOC_FRAME,
   DOC_PILL_ROW,
   DOC_RULE,
+  DocRemarksLine,
   GRID_HEAD,
   HINT_CHIP_TONES,
   type HintKind,
@@ -34,6 +35,7 @@ import { statusTone } from "@/lib/ui/status-tone";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import {
   cancelStockTransfer,
+  loadStoreStockOwners,
   loadTransferLayers,
   loadTransferReqLines,
   postStockTransfer,
@@ -47,6 +49,7 @@ import {
   sidesFor,
   type StockTransfer,
   type StockTransferLine,
+  type StockTransferLineInput,
   type TransferBinOption,
   type TransferLayer,
   type TransferOrderOption,
@@ -59,31 +62,59 @@ const BASE = "/purchase/transfers";
 /** The From / To owner box's value for General Stock (an order id otherwise). */
 const GENERAL = "general";
 
+/**
+ * ONE ROW PER LOT, ITS TO BINS INSIDE IT (0813, user 2026-11-05: GRN's bin concept for To
+ * Bin). `bins` is GRN's split (lib/purchase/bin-split.ts): Bin + Qty rows that must hold the
+ * Transfer Qty exactly, a blank bin row opening on Enter while qty is left. The save writes
+ * one `stock_transfer_lines` row per picked bin, all naming the same layer; no bin picked is
+ * one line with no To bin (a same-store move then keeps the bin it is in).
+ */
 type Row = {
   key: string;
   layerId: string;
   qty: string;
-  toBin: string;
+  bins: SplitRow[];
   reqKey: string;
   bags: string;
   cones: string;
 };
 
-const EMPTY: Omit<Row, "key"> = { layerId: "", qty: "", toBin: "", reqKey: "", bags: "", cones: "" };
+let binSeq = 0;
+const blankBin = (): SplitRow => ({ key: `bin-${binSeq++}`, binId: "", qty: "" });
+const EMPTY = (): Omit<Row, "key"> => ({ layerId: "", qty: "", bins: [blankBin()], reqKey: "", bags: "", cones: "" });
 /** Nothing the operator typed — the grid's tail row (AGENTS "a blank end row instead of + Add"). */
-const isBlank = (r: Row) => !r.layerId && !r.qty.trim() && !r.toBin && !r.reqKey && !r.bags.trim() && !r.cones.trim();
+const isBlank = (r: Row) =>
+  !r.layerId && !r.qty.trim() && pickedBins(r.bins).length === 0 && !r.reqKey && !r.bags.trim() && !r.cones.trim();
+const numOf = (s: string) => {
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : 0;
+};
 
+/** Saved lines → screen rows: the lines of one layer (one per bin) fold back into one row. */
 function rowsFrom(lines: StockTransferLine[]): Row[] {
-  return lines.map((l) => ({
-    key: l.id,
-    layerId: l.source_ledger_id,
-    qty: String(l.quantity),
-    toBin: l.to_bin_id ?? "",
-    reqKey: l.req_key ?? "",
-    bags: l.bags == null ? "" : String(l.bags),
-    cones: l.cones == null ? "" : String(l.cones),
-  }));
+  const byLayer = new Map<string, StockTransferLine[]>();
+  for (const l of lines) byLayer.set(l.source_ledger_id, [...(byLayer.get(l.source_ledger_id) ?? []), l]);
+  return [...byLayer.values()].map((group) => {
+    const first = group[0];
+    const qty = group.reduce((t, l) => t + (Number(l.quantity) || 0), 0);
+    const sum = (k: "bags" | "cones") => (group.some((l) => l[k] != null) ? String(group.reduce((t, l) => t + (Number(l[k]) || 0), 0)) : "");
+    const bins: SplitRow[] = group
+      .filter((l) => l.to_bin_id)
+      .map((l) => ({ key: `bin-${binSeq++}`, binId: l.to_bin_id as string, qty: String(l.quantity), typed: true }));
+    return {
+      key: first.id,
+      layerId: first.source_ledger_id,
+      qty: String(qty),
+      bins: withTailBin(bins, blankBin, qty, false),
+      reqKey: first.req_key ?? "",
+      bags: sum("bags"),
+      cones: sum("cones"),
+    };
+  });
 }
+
+/** The owners with a positive balance in the From store (loadStoreStockOwners). */
+type StoreOwners = { orderIds: string[]; general: boolean };
 
 function ownerOf(doc: StockTransfer | null, side: "from" | "to"): string {
   if (!doc) return GENERAL;
@@ -114,6 +145,7 @@ export function StockTransferEditor({
   orders,
   initialLayers,
   initialReqLines,
+  initialStoreOwners = null,
   canSeeMoney,
   unitName,
   today = "",
@@ -127,6 +159,8 @@ export function StockTransferEditor({
   orders: TransferOrderOption[];
   initialLayers: TransferLayer[];
   initialReqLines: TransferReqLine[];
+  /** Who holds stock in the From store (null = no store yet). */
+  initialStoreOwners?: StoreOwners | null;
   canSeeMoney: boolean;
   /** The working unit, shown as a chip in the title row (GRN's). */
   unitName: string | null;
@@ -151,18 +185,31 @@ export function StockTransferEditor({
   // Row keys: saved lines keep their id; a new row draws from a counter bumped only in
   // handlers (approval-flows-screen's `newKey`), so render stays pure for the React Compiler.
   const keySeq = useRef(0);
-  const blankRow = (): Row => ({ key: `new-${keySeq.current++}`, ...EMPTY });
+  const blankRow = (): Row => ({ key: `new-${keySeq.current++}`, ...EMPTY() });
   const [rows, setRows] = useState<Row[]>(() => {
     const r = rowsFrom(lines);
-    return readOnly ? r : [...r, { key: "tail-0", ...EMPTY }];
+    return readOnly ? r : [...r, { key: "tail-0", ...EMPTY() }];
   });
-  const [bins, setBins] = useState(initialBins);
+  // The unit's bins. No quick-create on this screen (it never had one), so this never grows.
+  const [bins] = useState(initialBins);
   const [layers, setLayers] = useState<TransferLayer[]>(initialLayers);
   const [reqLines, setReqLines] = useState<TransferReqLine[]>(initialReqLines);
   const [confirm, setConfirm] = useState<"post" | "cancel" | null>(null);
+  const [storeOwners, setStoreOwners] = useState<StoreOwners | null>(initialStoreOwners);
+  /** From Bin — a FILTER on the Stock box, never saved: each line's layer already names its bin. */
+  const [fromBin, setFromBin] = useState("");
 
   const typed = rows.filter((r) => !isBlank(r));
-  const current = stateKey([transferDate, type, fromStore, toStore, fromOwner, toOwner, remarks.trim().toUpperCase(), typed.map((r) => [r.layerId, r.qty, r.toBin, r.reqKey, r.bags, r.cones])]);
+  const current = stateKey([
+    transferDate,
+    type,
+    fromStore,
+    toStore,
+    fromOwner,
+    toOwner,
+    remarks.trim().toUpperCase(),
+    typed.map((r) => [r.layerId, r.qty, pickedBins(r.bins).map((b) => [b.binId, numOf(b.qty)]), r.reqKey, r.bags, r.cones]),
+  ]);
   const [baseline, setBaseline] = useState(current);
   const dirty = !readOnly && current !== baseline;
   useUnsavedGuard(dirty || isPending);
@@ -177,10 +224,17 @@ export function StockTransferEditor({
   const effectiveTo = sides.to === "same" ? fromOwner : sides.to === "general" ? GENERAL : toOwner;
   const toIsOrder = effectiveTo !== GENERAL;
 
-  /** Order options: active orders, plus whichever one this document already names. */
-  function orderOptions(keep: string, withGeneral: boolean): ComboboxOption[] {
-    const list: ComboboxOption[] = withGeneral ? [{ value: GENERAL, label: "General Stock" }] : [];
+  /**
+   * Order options: active orders, plus whichever one this document already names.
+   * `holders` (the FROM side): only owners with stock in the From store — an order with
+   * nothing there is not a choice, it is a dead end that shows "Nothing on hand".
+   */
+  function orderOptions(keep: string, withGeneral: boolean, holders?: StoreOwners | null): ComboboxOption[] {
+    const held = holders ? new Set(holders.orderIds) : null;
+    const list: ComboboxOption[] =
+      withGeneral && (!holders || holders.general || keep === GENERAL) ? [{ value: GENERAL, label: "General Stock" }] : [];
     for (const o of orders) {
+      if (held && !held.has(o.id) && o.id !== keep) continue;
       if (o.inactive && o.id !== keep && type !== "order_to_general") continue;
       list.push({
         value: o.id,
@@ -200,8 +254,12 @@ export function StockTransferEditor({
 
   /** Reload what the From side holds. Every line drew on the old list, so the lines go too. */
   function reloadLayers(store: string, owner: string, date: string, keepRows = false) {
-    if (!keepRows) setRows([blankRow()]);
-    if (!store) return setLayers([]);
+    if (!keepRows) {
+      setRows([blankRow()]);
+      setFromBin("");
+    }
+    // No owner picked yet is NOT General Stock — `ids("")` would read as both-null and list it.
+    if (!store || owner === "") return setLayers([]);
     const o = ids(owner);
     startLoad(async () => {
       const res = await loadTransferLayers(store, o.re, o.iwo, date || null);
@@ -232,13 +290,26 @@ export function StockTransferEditor({
       setToOwner(nextTo);
       reloadReqLines(nextTo || GENERAL);
     }
-    if (s.to !== "same" && !toStore) setToStore(fromStore);
+    if (s.to !== "same" && !toStore) changeToStore(fromStore);
   }
 
   function pickFromStore(id: string) {
     setFromStore(id);
-    if (sides.to !== "same" && (!toStore || toStore === fromStore)) setToStore(id);
-    reloadLayers(id, fromOwner, transferDate);
+    if (sides.to !== "same" && (!toStore || toStore === fromStore)) changeToStore(id);
+    setStoreOwners(null);
+    if (!id) return reloadLayers("", fromOwner, transferDate);
+    // An order picked for the OLD store may hold nothing in this one: it drops, rather than
+    // leaving a From Stock Of the list would no longer offer and a Stock box reading "Nothing".
+    startLoad(async () => {
+      const res = await loadStoreStockOwners(id);
+      if (!res.ok) return toastError(res.error);
+      setStoreOwners({ orderIds: res.orderIds, general: res.general });
+      const keeps =
+        fromOwner === GENERAL ? res.general || sides.from === "general" : !fromOwner || res.orderIds.includes(fromOwner);
+      const owner = keeps ? fromOwner : sides.from === "any" && res.general ? GENERAL : "";
+      if (owner !== fromOwner) setFromOwner(owner);
+      reloadLayers(id, owner, transferDate);
+    });
   }
 
   function pickFromOwner(id: string) {
@@ -257,8 +328,23 @@ export function StockTransferEditor({
     if (fromStore) reloadLayers(fromStore, fromOwner, d, true);
   }
 
+  /** GRN's rule after every change: nothing auto-filled, a blank bin row only on Enter while
+   *  the bins hold less than the Transfer Qty (`withTailBin(…, false)`). */
   function setRow(key: string, patch: Partial<Row>) {
-    setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+    setRows((rs) =>
+      rs.map((r) => {
+        if (r.key !== key) return r;
+        const next = { ...r, ...patch };
+        return { ...next, bins: withTailBin(next.bins, blankBin, numOf(next.qty), false) };
+      }),
+    );
+  }
+
+  /** The To bins are the To store's (0800): a new To store clears every line's bins. */
+  function changeToStore(id: string) {
+    if (id === toStore) return;
+    setToStore(id);
+    setRows((rs) => rs.map((r) => ({ ...r, bins: [blankBin()] })));
   }
 
   // ---------- checks the screen can answer before Post ----------
@@ -270,7 +356,9 @@ export function StockTransferEditor({
     const req = r.reqKey ? reqByKey.get(r.reqKey) : undefined;
     return !!req && Number.isFinite(qtyOf(r)) && qtyOf(r) > req.balance_qty + 1e-9;
   };
-  const anyBad = typed.some((r) => overAvail(r) || gone(r) || !r.layerId || !(qtyOf(r) > 0));
+  /** GRN's bin refusal: picked bins must hold the Transfer Qty exactly (null when fine). */
+  const binProblem = (r: Row) => (readOnly ? null : splitBinsProblem(r.bins, Number.isFinite(qtyOf(r)) ? qtyOf(r) : 0));
+  const anyBad = typed.some((r) => overAvail(r) || gone(r) || !r.layerId || !(qtyOf(r) > 0) || !!binProblem(r));
   const ownersOk =
     (sides.from !== "order" || (fromOwner !== "" && fromOwner !== GENERAL)) &&
     (sides.to !== "order" || (toOwner !== "" && toOwner !== GENERAL)) &&
@@ -281,8 +369,9 @@ export function StockTransferEditor({
 
   const valueOf = (r: Row): number | null => {
     if (readOnly) {
+      // A split lot is several saved lines; the row's qty is their sum, the rate is the lot's.
       const s = savedById.get(r.layerId);
-      return s?.rate == null ? null : s.quantity * s.rate;
+      return s?.rate == null ? null : qtyOf(r) * s.rate;
     }
     const rate = layerById.get(r.layerId)?.rate;
     return rate == null || !Number.isFinite(qtyOf(r)) ? null : qtyOf(r) * rate;
@@ -308,14 +397,24 @@ export function StockTransferEditor({
         to_iwo_id: t.iwo,
         remarks: remarks.trim() || null,
         // The blank tail row is never saved (AGENTS "the seeded row is saved unless the save drops it").
-        lines: typed.map((r) => ({
-          source_ledger_id: r.layerId,
-          quantity: qtyOf(r),
-          to_bin_id: r.toBin || null,
-          req_key: r.reqKey || null,
-          bags: r.bags.trim() ? Number(r.bags) : null,
-          cones: r.cones.trim() ? Number(r.cones) : null,
-        })),
+        // ONE LINE PER PICKED BIN (0813): a lot split over MAT01 60 + MAT02 40 is two lines of
+        // one layer; Bags / Cones ride on the first so the printed counts are not doubled.
+        lines: typed.flatMap((r): StockTransferLineInput[] => {
+          const bags = r.bags.trim() ? Number(r.bags) : null;
+          const cones = r.cones.trim() ? Number(r.cones) : null;
+          const picked = pickedBins(r.bins);
+          if (picked.length === 0) {
+            return [{ source_ledger_id: r.layerId, quantity: qtyOf(r), to_bin_id: null, req_key: r.reqKey || null, bags, cones }];
+          }
+          return picked.map((b, i) => ({
+            source_ledger_id: r.layerId,
+            quantity: numOf(b.qty),
+            to_bin_id: b.binId,
+            req_key: r.reqKey || null,
+            bags: i === 0 ? bags : null,
+            cones: i === 0 ? cones : null,
+          }));
+        }),
       });
       if (!res.ok) return toastError(res.error);
       success("Stock transfer saved");
@@ -347,25 +446,46 @@ export function StockTransferEditor({
     });
   }
 
-  const layerOptions: ComboboxOption[] = layers.map((l) => ({
+  /*
+   * FROM BIN: only the From store's bins that HOLD this owner's stock — derived from the
+   * layers, so a bin with nothing in it (or another store's bin) cannot be offered.
+   */
+  const NO_BIN = "none";
+  const fromBinOptions = (() => {
+    const seen = new Map<string, string>();
+    for (const l of layers) seen.set(l.bin_id ?? NO_BIN, l.bin_code ?? "No bin");
+    return [...seen.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  })();
+  const binLayers = fromBin ? layers.filter((l) => (l.bin_id ?? NO_BIN) === fromBin) : layers;
+  const layerOption = (l: TransferLayer): ComboboxOption => ({
     value: l.layer_id,
     label: l.item_name,
     sublabel: [l.item_class, l.category, l.lot_no ? `Lot ${l.lot_no}` : null, l.grn_code, `${fmtNumber(l.qty_on_hand)} ${l.uom_code ?? ""}`.trim()]
       .filter(Boolean)
       .join(" · "),
     search: [l.item_name, l.lot_no, l.grn_code, l.bin_code, l.category].filter(Boolean).join(" "),
-  }));
+  });
+  const layerOptions: ComboboxOption[] = binLayers.map(layerOption);
+  /** A line keeps the stock it holds even when the From Bin filter now points elsewhere. */
+  const optionsFor = (layerId: string): ComboboxOption[] => {
+    if (!layerId) return layerOptions;
+    const own = layerById.get(layerId);
+    if (!own) return [{ value: layerId, label: savedById.get(layerId)?.item_name ?? "No longer on hand", disabled: true }, ...layerOptions];
+    return binLayers.includes(own) ? layerOptions : [layerOption(own), ...layerOptions];
+  };
   const toStoreName = stores.find((s) => s.id === toStore)?.name ?? "Store";
 
   /*
-   * 200 + 176 + 88 + 144 + 112 + 112 + 112 + 112 = 1056, + 72 chrome (`#` and ✕)
-   * = 1128 <= 1155 -> tableFrom="5xl". Class · Category ride in the picker's sub-line,
+   * COMPACTED (user 2026-11-05, Opening Stock's table): Stock 200 → 176, Lot · GRN · Age
+   * 176 → 144; To Bin 112 → 144 the same day for GRN's Bin + Qty cell (0813).
+   * 176 + 144 + 88 + 144 + 144 + 112 + 112 + 112 = 1032, + 72 chrome (`#` and ✕)
+   * = 1104 <= 1155 -> tableFrom="5xl". Class · Category ride in the picker's sub-line,
    * Rate in the Value cell, Bags and Cones share one cell — the plan's 11 columns were 1440.
    */
   const transferLineColumns: ChildGridColumn<Row>[] = [
     {
       header: "Stock",
-      width: FIELD_WIDTH_CSS.party,
+      width: FIELD_WIDTH_CSS.term,
       required: true,
       unique: (r) => r.layerId || null,
       cell: (r) => {
@@ -373,15 +493,21 @@ export function StockTransferEditor({
         if (readOnly) return <span className="text-sm">{saved?.item_name ?? "—"}</span>;
         return (
           <Combobox
-            options={
-              r.layerId && !layerById.has(r.layerId)
-                ? [{ value: r.layerId, label: saved?.item_name ?? "No longer on hand", disabled: true }, ...layerOptions]
-                : layerOptions
-            }
+            options={optionsFor(r.layerId)}
             value={r.layerId}
-            onChange={(v) => setRow(r.key, { layerId: v, reqKey: "", toBin: "" })}
-            placeholder={fromStore ? (isLoading ? "Loading…" : layers.length ? "Pick stock" : "Nothing on hand") : "Pick From store"}
-            disabled={!fromStore}
+            onChange={(v) => setRow(r.key, { layerId: v, reqKey: "", bins: [blankBin()] })}
+            placeholder={
+              !fromStore
+                ? "Pick From store"
+                : fromOwner === ""
+                  ? "Pick From Stock Of"
+                  : isLoading
+                    ? "Loading…"
+                    : binLayers.length
+                      ? "Pick stock"
+                      : "Nothing on hand"
+            }
+            disabled={!fromStore || fromOwner === ""}
             required
           />
         );
@@ -389,7 +515,7 @@ export function StockTransferEditor({
     },
     {
       header: "Lot · GRN · Age",
-      width: FIELD_WIDTH_CSS.term,
+      width: FIELD_WIDTH_CSS.code,
       cell: (r) => {
         const l = layerById.get(r.layerId);
         const saved = savedById.get(r.layerId);
@@ -443,23 +569,45 @@ export function StockTransferEditor({
       },
     },
     {
-      header: "To Bin",
-      width: FIELD_WIDTH_CSS.range,
+      /*
+       * TO BIN · QTY — GRN'S CELL (0813, user 2026-11-05): a Bin picker of the TO store's bins
+       * with its Qty box beside it; Enter on the last bin's Qty opens the next bin while the
+       * Transfer Qty is not all put away. Picked bins must hold the Transfer Qty exactly
+       * (`splitBinsProblem`). No bin picked = one line with no To bin (a same-store move keeps
+       * the bin it is in). code 144: the picker ~68px + its 72px qty box, as on Opening Stock.
+       */
+      header: "To Bin · Qty",
+      width: FIELD_WIDTH_CSS.code,
       // pick-once: exempt -- one bin takes several lots
       cell: (r) => {
-        if (readOnly) return <span className="text-sm">{savedById.get(r.layerId)?.to_bin_code ?? "—"}</span>;
+        if (readOnly) {
+          const picked = pickedBins(r.bins);
+          if (picked.length === 0) return <span className="text-sm text-muted-foreground">—</span>;
+          return (
+            <span className="grid gap-0.5 text-sm">
+              {picked.map((b) => (
+                <span key={b.key} className="flex items-center justify-between gap-2">
+                  <span>{bins.find((x) => x.id === b.binId)?.code ?? "bin"}</span>
+                  <span className="tabular-nums">{fmtNumber(numOf(b.qty))}</span>
+                </span>
+              ))}
+            </span>
+          );
+        }
+        const problem = r.layerId ? binProblem(r) : null;
         return (
-          <StoreBinPickCell
-            description={layerById.get(r.layerId)?.item_name ?? "Line"}
-            parent="Transfer"
-            stores={toStore ? [{ id: toStore, name: toStoreName }] : undefined}
-            storeId={toStore}
-            bins={bins}
-            binId={r.toBin}
-            onBin={(v) => setRow(r.key, { toBin: v })}
-            onBinCreated={(b) => setBins((list) => [...list, { id: b.id, code: b.code, description: null, store_id: b.store_id ?? null }])}
-            note={fromStore === toStore ? "Blank keeps the bin it is in" : undefined}
-          />
+          <span className="block">
+            <BinQtyCell<SplitRow>
+              description={layerById.get(r.layerId)?.item_name ?? "this line"}
+              storeId={toStore}
+              rows={r.bins}
+              onRow={(k, patch) => setRow(r.key, { bins: r.bins.map((b) => (b.key === k ? { ...b, ...patch } : b)) })}
+              accepted={Number.isFinite(qtyOf(r)) ? qtyOf(r) : 0}
+              uom={layerById.get(r.layerId)?.uom_code ?? null}
+              bins={bins}
+            />
+            {problem ? <span className="mt-0.5 block px-1.5 text-[11px] leading-tight text-danger">{problem}</span> : null}
+          </span>
         );
       },
     },
@@ -472,7 +620,7 @@ export function StockTransferEditor({
             {r.bags || "—"} · {r.cones || "—"}
           </span>
         ) : (
-          <span className="flex gap-1">
+          <span className="flex divide-x divide-border">
             <Input type="number" min="0" step="1" aria-label="Bags" placeholder="Bags" value={r.bags} onChange={(e) => setRow(r.key, { bags: e.target.value })} />
             <Input
               type="number"
@@ -503,12 +651,18 @@ export function StockTransferEditor({
               step="any"
               aria-label="Transfer qty"
               aria-invalid={overAvail(r) || undefined}
-              title={overAvail(r) ? `Only ${fmtNumber(availOf(r))} on hand` : undefined}
+              max={r.layerId ? availOf(r) : undefined}
               value={r.qty}
               onChange={(e) => setRow(r.key, { qty: e.target.value })}
               required
             />
-            {overNeed(r) && !overAvail(r) ? (
+            {/* QUANTITY GUARD, INLINE (2026-11-05): said under the box, not only in a tooltip —
+                Save and Post stay refused while it shows, and the DB re-checks at Post. */}
+            {overAvail(r) ? (
+              <span className="mt-0.5 block text-[11px] leading-tight text-danger">
+                Only {fmtNumber(availOf(r))} on hand in {layerById.get(r.layerId)?.bin_code ?? "this store"}
+              </span>
+            ) : overNeed(r) ? (
               <span className="mt-0.5 block text-[11px] leading-tight text-warning">More than the order needs</span>
             ) : null}
           </span>
@@ -558,6 +712,8 @@ export function StockTransferEditor({
       ? { kind: "md", text: "A transfer qty is more than that stock holds on the transfer date" }
       : anyGone
         ? { kind: "md", text: "A line's stock is no longer on hand — remove it or pick other stock" }
+        : typed.some((r) => !!binProblem(r))
+          ? { kind: "md", text: `To bins: ${typed.map(binProblem).find(Boolean)}` }
         : !fromStore || !toStore
           ? { kind: "todo", text: "Pick the From and To store" }
           : !ownersOk
@@ -572,15 +728,15 @@ export function StockTransferEditor({
   const HINT = hint ? HINT_CHIP_TONES[hint.kind] : null;
 
   const grid = (
-    /* GRN'S TABLE (doc-surface): frameless inside the frame, dense type, the soft-blue head band. */
-    <div className={DENSE}>
+    /* EXCEL-STYLE, CELL BY CELL — Opening Stock's table (user 2026-11-05): every cell ruled,
+       the control borderless so the gridline is the box, `flat` cells, 12px type. */
+    <div className={cn(DENSE, "[&_table]:table-fixed")} data-grid-style="sheet" data-grid-cells="flat">
       {/* default-row: exempt -- a blank tail row stands in for the seeded row (tailRow); the save drops it */}
       <ChildGrid<Row>
         columns={transferLineColumns}
         rows={rows}
         tableFrom="5xl"
         flatRows
-        frameless
         headerClassName={GRID_HEAD}
         hideAdd={readOnly}
         lockExisting={readOnly}
@@ -722,12 +878,18 @@ export function StockTransferEditor({
           ) : null}
         </div>
 
-        {/* FROM → TO, ONE ROW: store 200 · owner 288 · → 24 · store 200 · owner 288 = 1000
-            + 4 × 12 gap = 1048px, inside the 1120px the frame leaves. */}
+        {/* FROM → TO, ONE ROW, COMPACT (user 2026-11-05: "details into single row, compact
+            with field widths" — Opening Stock's header). Briefly two bands the same day, at the
+            old 200 / 288 widths; compacted they fit one line again:
+              From Store 144 · From Stock Of 176 · From Bin 112 · → 16 · To Store 144 · To Order 176
+              = 768 + 5 x 10 nowrap gap = 818px, inside the 1120px the frame leaves.
+            Everything on the FROM side narrows to what that store HOLDS ("Strict Store & Order
+            Filtering"): Stock Of lists only owners with stock there, Bin only the bins that hold
+            it, each line's Stock box only lots with qty > 0. The To bin is per line. */}
         <div className={cn(DOC_RULE, "px-4 py-2.5")}>
-          <FieldRow>
-            <Field label="From Store" required w="party">
-              <Select value={fromStore} onChange={(e) => pickFromStore(e.target.value)} required>
+          <FieldRow nowrap>
+            <Field label="From Store" required w="code">
+              <Select aria-label="From Store" value={fromStore} onChange={(e) => pickFromStore(e.target.value)} required>
                 <option value=""></option>
                 {stores.map((s) => (
                   <option key={s.id} value={s.id}>
@@ -736,24 +898,43 @@ export function StockTransferEditor({
                 ))}
               </Select>
             </Field>
-            <Field label="From Stock Of" required w="name">
+            <Field label="From Stock Of" required w="term">
               {sides.from === "general" ? (
-                <Input readOnly value="General Stock" />
+                <Input readOnly value={storeOwners && !storeOwners.general ? "General Stock · none here" : "General Stock"} />
               ) : (
                 <Combobox
-                  options={orderOptions(fromOwner, sides.from === "any")}
+                  options={orderOptions(fromOwner, sides.from === "any", storeOwners)}
                   value={fromOwner}
                   onChange={pickFromOwner}
-                  placeholder="Pick the order"
+                  placeholder={
+                    !fromStore ? "Pick the store first" : storeOwners && !storeOwners.orderIds.length ? "No order holds stock here" : "Pick the order"
+                  }
+                  disabled={!fromStore}
                   required
                 />
               )}
             </Field>
-            <span aria-hidden className="self-end pb-2 text-lg leading-none text-muted-foreground">
+            <Field label="From Bin" w="range">
+              {/* pick-once: exempt -- a header filter, not a grid column */}
+              <Select
+                aria-label="From Bin"
+                value={fromBin}
+                onChange={(e) => setFromBin(e.target.value)}
+                disabled={!fromStore || fromBinOptions.length === 0}
+              >
+                <option value="">{fromBinOptions.length ? "All bins" : "—"}</option>
+                {fromBinOptions.map(([id, code]) => (
+                  <option key={id} value={id}>
+                    {code}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <span aria-hidden className="w-4 self-end pb-2 text-center text-lg leading-none text-muted-foreground">
               →
             </span>
-            <Field label="To Store" required w="party">
-              <Select value={toStore} onChange={(e) => setToStore(e.target.value)} required>
+            <Field label="To Store" required w="code">
+              <Select aria-label="To Store" value={toStore} onChange={(e) => changeToStore(e.target.value)} required>
                 <option value=""></option>
                 {stores
                   .filter((s) => type !== "store_to_store" || s.id !== fromStore)
@@ -764,7 +945,7 @@ export function StockTransferEditor({
                   ))}
               </Select>
             </Field>
-            <Field label="To Order" required={sides.to === "order"} w="name">
+            <Field label="To Order" required={sides.to === "order"} w="term">
               {sides.to !== "order" ? (
                 <Input readOnly value={ownerName(effectiveTo || GENERAL)} />
               ) : (
@@ -791,12 +972,10 @@ export function StockTransferEditor({
           )}
         </div>
 
+        {/* Remarks, the closing line as wide as the grid (1104px) — mandatory where the move
+            takes cost off an order's books (Order → Order, Order → General). */}
         <div className={cn(DOC_RULE, "px-4 py-2.5")}>
-          <FieldRow>
-            <Field label="Remarks" required={remarksRequired(type)} w="name">
-              <Textarea rows={1} value={remarks} onChange={(e) => setRemarks(e.target.value)} required={remarksRequired(type)} />
-            </Field>
-          </FieldRow>
+          <DocRemarksLine maxWidthClass="max-w-[69rem]" value={remarks} required={remarksRequired(type)} onChange={setRemarks} />
         </div>
 
         {/* THE BOTTOM BAR (GRN's): the figures, why Save waits, and the buttons — kept in view

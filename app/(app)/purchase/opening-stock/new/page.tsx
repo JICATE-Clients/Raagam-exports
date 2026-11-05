@@ -20,6 +20,7 @@ export default async function NewOpeningStockPage() {
       stores={place.stores}
       bins={place.bins}
       orders={orders}
+      initialPlan={null}
       today={today()}
       canEdit={canEdit}
       canCreateBin={canCreateBin}

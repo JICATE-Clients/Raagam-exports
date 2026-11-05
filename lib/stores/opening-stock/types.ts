@@ -146,3 +146,19 @@ export const openingStockInput = z
     message: "Pick the order the stock is held for",
   });
 export type OpeningStockInput = z.input<typeof openingStockInput>;
+
+/**
+ * ONE ITEM OF AN ORDER'S REQUIREMENT PLAN (2026-11-05, doc/stores/opening-stock-order-items-plan.md).
+ * Read from `po_requirement_lines` — the source Raise PO and Stock Transfer read — and summed
+ * per item, because one item can sit on several slices (colour, size) of the same order.
+ * With an order picked, the line's Item list is these items and nothing else.
+ */
+export interface OpeningPlanItem {
+  item_id: string;
+  required_qty: number;
+  balance_qty: number;
+  uom_code: string | null;
+}
+
+/** An order's plan as the screen holds it: `null` items = not loaded (or failed), never "empty". */
+export type OpeningOrderPlan = { orderId: string; items: OpeningPlanItem[] } | { orderId: string; error: string };

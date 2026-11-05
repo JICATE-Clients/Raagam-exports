@@ -56,15 +56,6 @@ export function PurchaseVsReceiptReport({ rows }: { rows: ItemMovementRow[] }) {
         getKey={(_row, i) => `row-${i}`}
         empty="No purchase activity in this period."
       />
-      <p className="text-xs text-muted-foreground">
-        <span className="font-medium">GRN accepted reads 0 for lines with no PO
-        link.</span>{" "}
-        <code>grn_line_items</code> has no <code>item_id</code> of its own — the
-        material is reachable only through <code>po_line_item_id</code>, so a GRN
-        line entered without one cannot be attributed to any material. Those
-        receipts still appear under “Reached stock”, which is why that column can
-        exceed “GRN accepted”.
-      </p>
     </div>
   );
 }
