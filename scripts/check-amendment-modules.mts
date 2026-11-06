@@ -74,6 +74,19 @@ const eq = (label: string, got: unknown, want: unknown) =>
   if (run([zip, newTrim, freight, { source: "expense", cost_head_id: "ins", description: "INSURANCE", qty: 1, rate: 100 }])?.includes("added or changed")) ok("an Expense line added is refused");
   else fail("expense addition not refused");
   eq("a numeric string equals its number (the screen sends strings)", run([{ ...zip, qty: "100", rate: "12" }, newTrim, { ...freight, qty: "1", rate: "5000.00" }]), null);
+
+  /* A NEW UNIT IS A LINE THE APPROVED VERSION NEVER PRICED (REV/26-27/0003,
+     2026-11-06). The approved thread was ₹0.50 per MTR; the BOM now gives it
+     in CONES, the refresh voids the per-MTR rate, and the per-cone rate the
+     operator types was refused as "the approved rate … stays as approved" —
+     an approved rate no longer exists in that unit, so the line could be
+     neither priced nor saved. */
+  const thread: BudgetScopeLine = { source: "material", item_id: "thr", garment_order_id: "o1", description: "SEWING THREAD · BLACK", qty: 2167200, uom_id: "mtr", rate: 0.5 };
+  const threadRun = (next: BudgetScopeLine[]) =>
+    budgetScopeProblem({ entryNo: "REV/26-27/0003", baseline: [thread], baselineHeader: {}, next, nextHeader: {} });
+  eq("a line whose UNIT moved takes a new rate", threadRun([{ ...thread, qty: 433, uom_id: "cone", rate: 2500 }]), null);
+  if (threadRun([{ ...thread, rate: 0.6 }])?.includes("stays as approved")) ok("…while the same unit keeps its approved rate");
+  else fail("same-unit rate change not refused");
 }
 
 // 3 --------------------------------------------------------------------------
