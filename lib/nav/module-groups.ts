@@ -1046,6 +1046,8 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
     label: "Sample",
     module: "sales",
     entries: [
+      // OVERVIEW — FIRST (wave 2, 2026-11-06). The module's landing page; `/sales` redirects here.
+      { kind: "link", href: "/sales/overview", label: "Overview", icon: LayoutDashboard, moduleGrant: true },
       {
         kind: "group",
         slug: "management",
@@ -1549,6 +1551,8 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
     description: "Vehicles, trip requests, dispatch and the fleet board",
     module: "logistics",
     entries: [
+      // OVERVIEW — FIRST (wave 2, 2026-11-06). The module's landing page; `/logistics/transport` redirects here.
+      { kind: "link", href: "/logistics/transport/overview", label: "Overview", icon: LayoutDashboard, moduleGrant: true },
       {
         kind: "group",
         slug: "operations",
@@ -1732,6 +1736,8 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
     label: "Administration",
     module: "system_admin",
     entries: [
+      // OVERVIEW — FIRST (wave 2, 2026-11-06). The module's landing page; `/admin` redirects here.
+      { kind: "link", href: "/admin/overview", label: "Overview", icon: LayoutDashboard, moduleGrant: true },
       // USERS & ACCESS LEADS THE MODULE (user 2026-10-01, "struggling to find
       // the user and access control" — https://claude.ai/artifact/TMbj3C6rLF8NSMsenKf6J2).
       // The sidebar folds groups to one open at a time, and as the SECOND group
