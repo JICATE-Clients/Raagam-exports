@@ -70,6 +70,8 @@ const UNREGISTERED: Record<string, string> = {
   "/sales/overview": "module Overview — takes the module grant (ModuleLink.moduleGrant); every card is gated by its source screen",
   "/logistics/transport/overview": "module Overview — takes the module grant (ModuleLink.moduleGrant); every card is gated by its source screen",
   "/admin/overview": "module Overview — takes the module grant (ModuleLink.moduleGrant); its figures need system_admin:view, the module's own gate",
+  "/stores/overview": "module Overview — takes the module grant (ModuleLink.moduleGrant); stock comes from the Stock Statement RPCs, which decide access themselves",
+  "/finance/overview": "module Overview — takes the module grant (ModuleLink.moduleGrant); payables / receivables are each read only when their screen is viewable",
   "/resolve/my-work": "redirect() to Resolve ▸ Inbox — the per-lane lists folded into one Inbox 2026-10-26",
   "/resolve/requirements": "redirect() to Resolve ▸ Inbox — the per-lane lists folded into one Inbox 2026-10-26",
   "/resolve/my-complaints": "redirect() to Resolve ▸ My Reports — named complaints joined it 2026-10-26",

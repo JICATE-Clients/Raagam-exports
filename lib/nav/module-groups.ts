@@ -1285,6 +1285,8 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
     label: "Stores",
     module: "stores",
     entries: [
+      // OVERVIEW — FIRST (wave 3, 2026-11-06). The module's landing page; `/stores` redirects here.
+      { kind: "link", href: "/stores/overview", label: "Overview", icon: LayoutDashboard, moduleGrant: true },
       // Stock Setup and Issues & Requisitions, CSP Receipts and Transfers moved to
       // Purchase (user 2026-11-02); their old hub and screen addresses redirect.
       {
@@ -1584,6 +1586,8 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
     label: "Finance",
     module: "finance",
     entries: [
+      // OVERVIEW — FIRST (wave 3, 2026-11-06). The module's landing page; `/finance` redirects here.
+      { kind: "link", href: "/finance/overview", label: "Overview", icon: LayoutDashboard, moduleGrant: true },
       {
         kind: "group",
         slug: "setup",
