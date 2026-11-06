@@ -195,7 +195,7 @@ export function ScheduleSheet({
         <MultiSelect
           label="Panel"
           required
-          options={staff.map((p) => ({ id: p.id, label: p.name }))}
+          options={staff.map((p) => ({ id: p.id, label: p.name, person: p.key }))}
           values={d.panel}
           onChange={(v) => put({ panel: v })}
           emptyLabel="No active staff in this unit"

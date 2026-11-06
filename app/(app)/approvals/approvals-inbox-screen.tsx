@@ -1,5 +1,7 @@
 "use client";
 
+import { PersonAvatar } from "@/components/ui/person-avatar";
+
 import { useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import Link from "next/link";
 import { PageHeader } from "@/components/ui/page-header";
@@ -30,6 +32,7 @@ import { BudgetBreakdownChart } from "@/components/orders/budget-breakdown-chart
 import type { OrderApprovalCard as OrderCardData } from "@/lib/approvals/order-approval-cards";
 import type { PoApprovalCard, PoChangeCard } from "@/lib/approvals/po-approval-cards";
 import { approvePo, declinePo } from "@/lib/purchase/po-actions";
+import { forwardTimeoff, hrNextStage } from "@/lib/hr/timeoff-actions";
 import { ClipboardCheck } from "lucide-react";
 import { RowIconAction } from "@/components/ui/row-actions";
 import { BackLink } from "@/components/ui/back-link";
@@ -54,6 +57,18 @@ export type RequestRow = MyRequestItem & { actor_name: string | null };
 
 /** A phone, by the same 768px line Tailwind's `md:` draws — a media query is an
  *  external store (see `useFinePointer` in data-picker.tsx for the reasoning). */
+/**
+ * ONE "HR & PAYROLL" TAB FOR EVERY HR APPROVAL (user 2026-11-06) — leave,
+ * permission, on duty, comp-off, encashment, fines, PF, hiring — rather than a
+ * tab per workflow. The same requests also stay on HR ▸ Time Off ▸ Time Off
+ * Approvals; deciding from either is the same decision.
+ */
+const HR_TAB = "family:hr";
+const tabOf = (workflowKey: string) => (familyOf(workflowKey) === "hr" ? HR_TAB : workflowKey);
+
+/** The workflows whose stages escalate rather than all sign (0820). */
+const HR_FORWARD = new Set<string>(["timeoff_request", "timeoff_encashment"]);
+
 function useIsPhone(): boolean {
   return useSyncExternalStore(
     (onChange) => {
@@ -125,6 +140,7 @@ export function ApprovalsInboxScreen({
   requests = [],
   decisions = [],
   codes = {},
+  faces = {},
 }: {
   /** My requests (0807) — the phone's status tab. Empty on All open. */
   requests?: RequestRow[];
@@ -132,6 +148,8 @@ export function ApprovalsInboxScreen({
   decisions?: MyDecisionItem[];
   /** Document numbers for queue rows with no richer card, keyed by subject id. */
   codes?: Record<string, string>;
+  /** HR requests: subject id → "staff:<id>" / "worker:<id>" — the person's photo in place of the type icon. */
+  faces?: Record<string, string>;
   /**
    * SUPER ADMIN ▸ ALL OPEN (0783) — the SAME screen over every open run, decided
    * here and never by a link out (user 2026-10-31, screenshot 3941: "don't
@@ -172,6 +190,8 @@ export function ApprovalsInboxScreen({
   /** The open sheet's approval trail, and a PD request's own content — see `openDecision`. */
   const [trail, setTrail] = useState<{ runId: string; result: RunTimelineResult | null } | null>(null);
   const [pdReview, setPdReview] = useState<{ runId: string; data: Awaited<ReturnType<typeof loadPdReview>> | null } | null>(null);
+  /** HR requests (0820/0821): the stage "Send to …" would land on, read on open. */
+  const [hrNext, setHrNext] = useState<{ runId: string; to: string | null } | null>(null);
   const [poSheet, setPoSheet] = useState<{ runId: string; data: Awaited<ReturnType<typeof loadPoApprovalSheet>> | null } | null>(null);
   /* THE COST BREAKDOWN ARRIVES WITH THE CARD (Phase 2, 2026-09-30) —
      `loadOrderApprovalCards` computes it with the queue, so the tap that
@@ -194,6 +214,12 @@ export function ApprovalsInboxScreen({
       loadPdReview(r.subject_id)
         .catch(() => null)
         .then((data) => setPdReview((p) => (p?.runId === r.run_id ? { runId: r.run_id, data } : p)));
+    }
+    if (HR_FORWARD.has(r.workflow_key) && hrNext?.runId !== r.run_id) {
+      setHrNext({ runId: r.run_id, to: null });
+      hrNextStage(r.run_id)
+        .catch(() => null)
+        .then((to) => setHrNext((h) => (h?.runId === r.run_id ? { runId: r.run_id, to } : h)));
     }
     /* A PO's own lines for the line cards — PO Approval's loader, read on open. */
     if (r.workflow_key === WORKFLOWS.purchase_order.key && poSheet?.runId !== r.run_id) {
@@ -223,8 +249,8 @@ export function ApprovalsInboxScreen({
    */
   const workflowCounts = useMemo(() => {
     const seen = new Map<string, number>();
-    for (const w of WORKFLOW_LIST) seen.set(w.key, 0);
-    for (const r of rows) seen.set(r.workflow_key, (seen.get(r.workflow_key) ?? 0) + 1);
+    for (const w of WORKFLOW_LIST) seen.set(tabOf(w.key), 0);
+    for (const r of rows) seen.set(tabOf(r.workflow_key), (seen.get(tabOf(r.workflow_key)) ?? 0) + 1);
     return [...seen.entries()].map(([key, count]) => ({ key, count }));
   }, [rows]);
 
@@ -243,12 +269,12 @@ export function ApprovalsInboxScreen({
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return rows.filter((r) => {
-      if (workflow && r.workflow_key !== workflow) return false;
+      if (workflow && tabOf(r.workflow_key) !== workflow) return false;
       if (!needle) return true;
-      return [workflowLabel(r.workflow_key), r.step_label, r.created_by_name ?? ""]
+      return [workflowLabel(r.workflow_key), r.step_label, r.created_by_name ?? "", codes[r.subject_id] ?? ""]
         .some((v) => v.toLowerCase().includes(needle));
     });
-  }, [rows, query, workflow]);
+  }, [rows, query, workflow, codes]);
 
   /* NO ROW LINKS OUT (user 2026-11-04: "we need to open here, no need to redirect the
      actual module screen"). Every row and card opens the decision sheet in place, and
@@ -282,9 +308,13 @@ export function ApprovalsInboxScreen({
         const Icon = fam.icon;
         return (
           <span className="flex min-w-0 items-center gap-2.5">
-            <span className={cn("grid size-8 shrink-0 place-items-center rounded-lg", fam.well)}>
-              <Icon className="size-4" aria-hidden />
-            </span>
+            {faces[r.subject_id] ? (
+              <PersonAvatar name={codes[r.subject_id]} person={faces[r.subject_id]} />
+            ) : (
+              <span className={cn("grid size-8 shrink-0 place-items-center rounded-lg", fam.well)}>
+                <Icon className="size-4" aria-hidden />
+              </span>
+            )}
             <span className="flex min-w-0 flex-col">
               <span className="text-[10.5px] font-semibold uppercase tracking-wide text-muted-foreground">{workflowLabel(r.workflow_key)}</span>
               {/* DECIDED HERE, NOT ON THE DOCUMENT'S PAGE (user 2026-10-31; every row since
@@ -421,6 +451,20 @@ export function ApprovalsInboxScreen({
         onRejectForGood={
           decideRow.workflow_key === WORKFLOWS.purchase_order.key ? (reason) => declinePo(decideRow.subject_id, reason) : undefined
         }
+        /* AN HR REQUEST CAN BE SENT UP INSTEAD OF DECIDED — HOD → HR Manager → ED (0820). */
+        forward={
+          hrNext?.runId === decideRow.run_id && hrNext.to
+            ? {
+                to: hrNext.to,
+                send: (note) =>
+                  forwardTimeoff(
+                    decideRow.workflow_key === WORKFLOWS.timeoff_encashment.key ? "encashment" : "request",
+                    decideRow.subject_id,
+                    note,
+                  ),
+              }
+            : undefined
+        }
       />
     ) : null;
 
@@ -501,7 +545,7 @@ export function ApprovalsInboxScreen({
               { value: "", label: `All (${rows.length})` },
               ...workflowCounts
                 .filter((w) => w.count > 0 || w.key === workflow)
-                .map((w) => ({ value: w.key, label: `${workflowLabel(w.key)} (${w.count})` })),
+                .map((w) => ({ value: w.key, label: `${w.key === HR_TAB ? "HR & Payroll" : workflowLabel(w.key)} (${w.count})` })),
             ]}
           />
         }
@@ -567,6 +611,7 @@ export function ApprovalsInboxScreen({
           pos={pos}
           poChanges={poChanges}
           codes={codes}
+          faces={faces}
           requests={allOpen ? [] : requests}
           decisions={allOpen ? [] : decisions}
           allOpen={allOpen}
@@ -608,7 +653,7 @@ export function ApprovalsInboxScreen({
               <span className="flex min-w-0 flex-col">
                 <span>{page}</span>
                 <Truncated className="block text-xs font-normal text-muted-foreground">
-                  My Approvals / {page} / <span className="font-mono text-foreground">{no}</span>
+                  My Approvals / {page} / <span className={HR_FORWARD.has(decideRow.workflow_key) ? "text-foreground" : "font-mono text-foreground"}>{no}</span>
                 </Truncated>
               </span>
             );

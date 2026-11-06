@@ -1,5 +1,7 @@
 "use client";
 
+import { PersonCell } from "@/components/ui/person-avatar";
+
 import { useState, useTransition } from "react";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
@@ -90,7 +92,14 @@ export function CompEventsClient({ rows, employees, canCreate, canApprove, canDe
 
   const columns: Column<HrCompEvent>[] = [
     { header: "Code", cell: (r) => <span className="font-mono text-xs font-medium">{r.code ?? "—"}</span> },
-    { header: "Employee", cell: (r) => <span className="text-sm">{r.employee_name ?? "—"} <span className="text-xs text-muted-foreground">({EMPLOYEE_TYPE_LABELS[r.employee_type]})</span></span> },
+    {
+      header: "Employee",
+      cell: (r) => (
+        <PersonCell name={r.employee_name} person={r.employee_type === "contractor" ? null : `${r.employee_type}:${r.employee_id}`}>
+          <span className="text-sm">{r.employee_name ?? "—"} <span className="text-xs text-muted-foreground">({EMPLOYEE_TYPE_LABELS[r.employee_type]})</span></span>
+        </PersonCell>
+      ),
+    },
     { header: "Kind", cell: (r) => <span className="text-sm">{COMP_KIND_LABELS[r.kind]}</span> },
     { header: "Amount / rate", align: "right", cell: (r) => <span className="tabular-nums text-sm">{r.kind === "increment" && r.new_rate != null ? fmtNumber(r.new_rate) : fmtNumber(r.amount)}</span> },
     { header: "Effective", cell: (r) => <span className="tabular-nums text-sm">{fmtDate(r.effective_date)}</span> },
@@ -129,7 +138,7 @@ export function CompEventsClient({ rows, employees, canCreate, canApprove, canDe
                     <Label htmlFor="cm-emp">Employee</Label>
                     <Select id="cm-emp" value={empKey} onChange={(e) => setEmpKey(e.target.value)}>
                       <option value=""></option>
-                      {employees.map((x) => <option key={`${x.type}:${x.id}`} value={`${x.type}:${x.id}`}>[{EMPLOYEE_TYPE_LABELS[x.type]}] {x.name}</option>)}
+                      {employees.map((x) => <option key={`${x.type}:${x.id}`} value={`${x.type}:${x.id}`} data-person={x.type === "contractor" ? undefined : `${x.type}:${x.id}`}>[{EMPLOYEE_TYPE_LABELS[x.type]}] {x.name}</option>)}
                     </Select>
                   </div>
                   <div>

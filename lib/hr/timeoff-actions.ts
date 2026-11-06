@@ -113,7 +113,30 @@ export async function loadPersonBalances(person: string): Promise<BalanceRow[]> 
 /** The approval panel for one request or encashment. */
 export async function loadTimeoffPanel(kind: "request" | "encashment", id: string) {
   const table = kind === "request" ? WORKFLOWS.timeoff_request.subjectTable : WORKFLOWS.timeoff_encashment.subjectTable;
-  return getApprovalPanel(table, id);
+  const panel = await getApprovalPanel(table, id);
+  // Who the open step waits for, by name (0818) — "SURESH", not "the HOD".
+  let waiting: string[] = [];
+  let next: string | null = null;
+  if (panel.run?.status === "in_progress") {
+    const s = await createClient();
+    const { data, error } = await s.rpc("hr_waiting_on", { p_run_id: panel.run.id });
+    if (!error) waiting = ((data ?? []) as { full_name: string | null }[]).map((n) => n.full_name ?? "").filter(Boolean);
+    next = await hrNextStage(panel.run.id);
+  }
+  return { ...panel, waiting, next };
+}
+
+/**
+ * Where "Send to …" would take this request for the caller (0821) — the first
+ * later stage with someone on it who is not them, or null when there is none
+ * or the caller cannot decide it. The button's label and the send read the
+ * same database answer, so the label is where the request lands.
+ */
+export async function hrNextStage(runId: string): Promise<string | null> {
+  const s = await createClient();
+  const { data, error } = await s.rpc("hr_approval_next_stage", { p_run_id: runId });
+  if (error) return null; // PGRST202 before 0821 — no button rather than a wrong one
+  return ((data ?? []) as { step_label: string | null }[])[0]?.step_label ?? null;
 }
 
 /**
@@ -158,6 +181,23 @@ export async function decideTimeoff(
     return bad(done ? `${done} done; ${failures.length} refused — ${failures[0]}` : failures[0]);
   }
   return { ok: true, count: done };
+}
+
+/**
+ * "This needs the next person" — the HOD sends a request to the HR Manager,
+ * the HR Manager to the ED (0820). Not an approval: whoever approves closes
+ * the request, so sending it on is the only way it climbs a stage.
+ */
+export async function forwardTimeoff(kind: "request" | "encashment", id: string, comment: string): Promise<R> {
+  const table = kind === "request" ? WORKFLOWS.timeoff_request.subjectTable : WORKFLOWS.timeoff_encashment.subjectTable;
+  const run = await getRunForSubject(table, id).catch(() => null);
+  if (!run || run.status !== "in_progress") return bad("This request is no longer waiting for a decision — reload");
+  const s = await createClient();
+  const { error } = await s.rpc("hr_approval_forward", { p_run_id: run.id, p_comment: comment.trim() || null });
+  if (error) return bad(dbMessage(error, "Could not send it on"));
+  after(() => notifyCurrentApprovers(run.id, { reason: "advanced" }));
+  revalidateTimeoff();
+  return { ok: true, count: 1 };
 }
 
 // ─── Comp-off ──────────────────────────────────────────────────────────────
@@ -285,6 +325,20 @@ export async function deleteBlackout(id: string): Promise<R> {
   const s = await createClient();
   const { error } = await s.from("timeoff_blackouts").delete().eq("id", id);
   if (error) return bad(dbMessage(error, "Could not delete"));
+  revalidateTimeoff();
+  return { ok: true };
+}
+
+// ─── Approval flow: department heads (0817) ────────────────────────────────
+
+/** Name (or clear) the HOD of a department — step 1 of every HR request. */
+export async function saveDepartmentHead(departmentId: string, staffId: string | null): Promise<R> {
+  if (!(await can("hr_payroll", "edit"))) return bad("Forbidden");
+  const s = await createClient();
+  const { error } = staffId
+    ? await s.from("hr_department_heads").upsert({ department_id: departmentId, staff_id: staffId }, { onConflict: "department_id" })
+    : await s.from("hr_department_heads").delete().eq("department_id", departmentId);
+  if (error) return bad(dbMessage(error, "Could not save the HOD"));
   revalidateTimeoff();
   return { ok: true };
 }

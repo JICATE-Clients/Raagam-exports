@@ -1,5 +1,7 @@
 "use client";
 
+import { PersonCell } from "@/components/ui/person-avatar";
+
 import { useRouter } from "next/navigation";
 import { useDeferredValue, useState, useTransition } from "react";
 import { DataTable, type Column } from "@/components/ui/data-table";
@@ -19,6 +21,7 @@ export interface RegisterLine {
   code: string | null;
   name: string | null;
   kind: "staff" | "worker" | null;
+  person: string | null;
   departmentId: string | null;
   departmentName: string | null;
   date: string;
@@ -111,7 +114,8 @@ export function MovementRegisterClient({
     { header: "Card No", cell: (r) => <span className="tabular-nums">{r.cardNo}</span> },
     {
       header: "Name",
-      cell: (r) => r.name ?? <span className="text-muted-foreground">Not linked to anyone</span>,
+      cell: (r) =>
+        r.name ? <PersonCell name={r.name} person={r.person} /> : <span className="text-muted-foreground">Not linked to anyone</span>,
     },
     { header: "Department", cell: (r) => r.departmentName ?? "—" },
     { header: "IO Date", cell: (r) => r.date },

@@ -1,3 +1,4 @@
+import { PersonCell } from "@/components/ui/person-avatar";
 import { notFound } from "next/navigation";
 import { requirePermission, can } from "@/lib/auth/server";
 import {
@@ -42,7 +43,11 @@ const WORKER_TYPE_LABELS: Record<string, string> = {
 const workerColumns: Column<LineWithName>[] = [
   {
     header: "Worker",
-    cell: (row) => <span className="font-medium text-sm">{row.worker_name ?? "—"}</span>,
+    cell: (row) => (
+      <PersonCell name={row.worker_name} person={row.worker_id ? `worker:${row.worker_id}` : null}>
+        <span className="font-medium text-sm">{row.worker_name ?? "—"}</span>
+      </PersonCell>
+    ),
   },
   {
     header: "Type",
@@ -130,7 +135,11 @@ const workerColumns: Column<LineWithName>[] = [
 const staffColumns: Column<LineWithName>[] = [
   {
     header: "Staff",
-    cell: (row) => <span className="font-medium text-sm">{row.staff_name ?? "—"}</span>,
+    cell: (row) => (
+      <PersonCell name={row.staff_name} person={row.staff_id ? `staff:${row.staff_id}` : null}>
+        <span className="font-medium text-sm">{row.staff_name ?? "—"}</span>
+      </PersonCell>
+    ),
   },
   {
     header: "Gross",

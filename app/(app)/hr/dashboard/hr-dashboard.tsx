@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import { PersonAvatar } from "@/components/ui/person-avatar";
 import {
   AlarmClock,
   ArrowDownRight,
@@ -124,15 +125,6 @@ function daysToNext(today: string, iso: string): { days: number; year: number } 
 function whenLabel(days: number): string {
   return days === 0 ? "Today" : days === 1 ? "Tomorrow" : `In ${days} days`;
 }
-function initials(name: string): string {
-  return name
-    .split(/[\s.]+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((w) => w[0])
-    .join("")
-    .toUpperCase();
-}
 
 /* ------------------------------------------------------------------ *
  * Building blocks
@@ -248,6 +240,116 @@ const ACCENT = {
 } as const;
 type Accent = keyof typeof ACCENT;
 
+/*
+ * CONFETTI AND STICKERS for the Celebrations card (user 2026-11-04: "add some
+ * stickers, fun confetti, full of colourful stuff", then "more realistic, and
+ * pop out more than the other cards").
+ *
+ * Realistic = paper confetti FALLS: each piece drops through the card, sways
+ * side to side and flutters (a 3D flip, so it flashes thin and wide like real
+ * paper), at its own speed. Negative delays start every piece mid-fall, so the
+ * card never opens empty. Two glossy balloons float, streamers curl from the
+ * top, and the card itself stands out — a pink glow, a rainbow ring and a
+ * shimmer across the top.
+ *
+ * Decoration only: aria-hidden, pointer-events-none, behind the content. Fixed
+ * positions, not random — the server and the browser must draw the same card.
+ * Under "reduce motion" nothing moves; the pieces rest where their `top` puts
+ * them, scattered across the card.
+ */
+type Piece = { l: number; t: number; c: string; w: number; h: number; round?: boolean; fall: number; sway: number; flip: number; d: number };
+const CONFETTI: Piece[] = [
+  { l: 4, t: 18, c: "#f43f5e", w: 6, h: 11, fall: 9, sway: 3.1, flip: 1.1, d: -1 },
+  { l: 11, t: 64, c: "#f59e0b", w: 7, h: 7, round: true, fall: 11, sway: 2.6, flip: 1.6, d: -6 },
+  { l: 17, t: 40, c: "#8b5cf6", w: 5, h: 10, fall: 8, sway: 3.4, flip: 0.9, d: -3 },
+  { l: 23, t: 86, c: "#10b981", w: 6, h: 12, fall: 10, sway: 2.8, flip: 1.3, d: -8 },
+  { l: 29, t: 10, c: "#0ea5e9", w: 7, h: 7, round: true, fall: 12, sway: 3.6, flip: 1.8, d: -2 },
+  { l: 35, t: 52, c: "#ec4899", w: 5, h: 11, fall: 9.5, sway: 2.4, flip: 1, d: -5 },
+  { l: 41, t: 30, c: "#eab308", w: 6, h: 10, fall: 8.5, sway: 3, flip: 1.4, d: -7 },
+  { l: 47, t: 76, c: "#6366f1", w: 6, h: 6, round: true, fall: 11.5, sway: 2.7, flip: 1.7, d: -4 },
+  { l: 53, t: 22, c: "#f97316", w: 5, h: 12, fall: 10, sway: 3.3, flip: 0.8, d: -9 },
+  { l: 59, t: 58, c: "#14b8a6", w: 7, h: 10, fall: 9, sway: 2.5, flip: 1.2, d: -1.5 },
+  { l: 65, t: 92, c: "#d946ef", w: 6, h: 6, round: true, fall: 12.5, sway: 3.5, flip: 1.5, d: -6.5 },
+  { l: 71, t: 36, c: "#22c55e", w: 5, h: 11, fall: 8, sway: 2.9, flip: 1.1, d: -3.5 },
+  { l: 77, t: 70, c: "#f43f5e", w: 7, h: 9, fall: 10.5, sway: 3.2, flip: 1.9, d: -8.5 },
+  { l: 83, t: 14, c: "#a855f7", w: 6, h: 12, fall: 9, sway: 2.6, flip: 1, d: -2.5 },
+  { l: 89, t: 48, c: "#06b6d4", w: 6, h: 6, round: true, fall: 11, sway: 3.4, flip: 1.6, d: -5.5 },
+  { l: 95, t: 80, c: "#facc15", w: 5, h: 10, fall: 8.5, sway: 2.8, flip: 1.3, d: -7.5 },
+  { l: 8, t: 46, c: "#0ea5e9", w: 4, h: 8, fall: 13, sway: 3.7, flip: 1.2, d: -10 },
+  { l: 38, t: 66, c: "#f59e0b", w: 4, h: 8, fall: 12, sway: 2.3, flip: 0.9, d: -11 },
+  { l: 62, t: 6, c: "#ec4899", w: 4, h: 8, fall: 13.5, sway: 3.1, flip: 1.4, d: -4.5 },
+  { l: 86, t: 96, c: "#10b981", w: 4, h: 8, fall: 12, sway: 2.9, flip: 1.1, d: -9.5 },
+];
+
+function Balloon({ c1, c2, className, delay }: { c1: string; c2: string; className: string; delay: number }) {
+  const id = `bl-${c1.slice(1)}`;
+  return (
+    <svg viewBox="0 0 40 78" className={cn("absolute drop-shadow-md motion-safe:animate-[balloon-float_6s_ease-in-out_infinite]", className)} style={{ animationDelay: `${delay}s` }}>
+      <defs>
+        <radialGradient id={id} cx="35%" cy="30%" r="70%">
+          <stop offset="0%" stopColor="#fff" stopOpacity="0.9" />
+          <stop offset="18%" stopColor={c1} />
+          <stop offset="100%" stopColor={c2} />
+        </radialGradient>
+      </defs>
+      <path d="M20 46 C 22 54, 16 60, 21 68 S 18 76, 20 78" fill="none" stroke="#94a3b8" strokeWidth="0.8" />
+      <ellipse cx="20" cy="22" rx="16" ry="20" fill={`url(#${id})`} />
+      <path d="M17 41 L23 41 L20 46 Z" fill={c2} />
+      <ellipse cx="13" cy="13" rx="3.5" ry="6" fill="#fff" opacity="0.55" transform="rotate(-25 13 13)" />
+    </svg>
+  );
+}
+
+function PartyDecor() {
+  return (
+    <span aria-hidden className="pointer-events-none absolute inset-0 -z-10 overflow-hidden rounded-2xl">
+      {/* the card's own glow: pink, amber and violet blooms */}
+      <span className="absolute -left-10 bottom-0 h-44 w-44 rounded-full bg-amber-300/35 blur-3xl dark:bg-amber-400/10" />
+      <span className="absolute bottom-6 right-0 h-40 w-40 rounded-full bg-pink-300/40 blur-3xl dark:bg-pink-400/10" />
+      <span className="absolute left-1/3 top-1/4 h-36 w-36 rounded-full bg-violet-300/30 blur-3xl dark:bg-violet-400/10" />
+
+      {/* a rainbow band across the top, with a light sweeping along it */}
+      <span className="absolute inset-x-0 top-0 h-1.5 overflow-hidden bg-gradient-to-r from-pink-500 via-amber-400 via-40% to-violet-500">
+        <span className="absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-white/80 to-transparent motion-safe:animate-[party-shimmer_3s_ease-in-out_infinite]" />
+      </span>
+
+      {/* streamers curling down from the top corners */}
+      <svg viewBox="0 0 120 60" className="absolute -left-2 top-1 w-28 opacity-80 dark:opacity-50">
+        <path d="M2 4 C 20 30, 30 -6, 46 18 S 70 40, 84 14" fill="none" stroke="#f472b6" strokeWidth="2.5" strokeLinecap="round" />
+        <path d="M6 14 C 18 44, 40 10, 52 38" fill="none" stroke="#fbbf24" strokeWidth="2" strokeLinecap="round" />
+      </svg>
+      <svg viewBox="0 0 120 60" className="absolute -right-2 top-14 w-24 -scale-x-100 opacity-70 dark:opacity-40">
+        <path d="M2 4 C 20 30, 30 -6, 46 18 S 70 40, 84 14" fill="none" stroke="#a78bfa" strokeWidth="2.5" strokeLinecap="round" />
+        <path d="M6 14 C 18 44, 40 10, 52 38" fill="none" stroke="#34d399" strokeWidth="2" strokeLinecap="round" />
+      </svg>
+
+      {/* falling paper: fall (outer) · sway (middle) · flutter (inner) */}
+      {CONFETTI.map((p, i) => (
+        <span
+          key={i}
+          className="absolute motion-safe:animate-[confetti-fall_linear_infinite]"
+          style={{ left: `${p.l}%`, top: `${p.t}%`, animationDuration: `${p.fall}s`, animationDelay: `${p.d}s` }}
+        >
+          <span className="block motion-safe:animate-[confetti-sway_ease-in-out_infinite_alternate]" style={{ animationDuration: `${p.sway}s` }}>
+            <span
+              className={cn("block shadow-[0_1px_1px_rgb(0_0_0/0.12)] motion-safe:animate-[confetti-flutter_linear_infinite]", p.round ? "rounded-full" : "rounded-[1px]")}
+              style={{ width: p.w, height: p.h, background: `linear-gradient(135deg, ${p.c}, ${p.c}cc 60%, #ffffff66)`, animationDuration: `${p.flip}s` }}
+            />
+          </span>
+        </span>
+      ))}
+
+      {/* balloons and stickers */}
+      <Balloon c1="#f472b6" c2="#db2777" className="right-16 top-2 w-6 opacity-90" delay={0} />
+      <Balloon c1="#fbbf24" c2="#d97706" className="right-5 top-5 w-7 opacity-90" delay={1.5} />
+      <span className="absolute bottom-3 right-4 rotate-[-8deg] text-3xl drop-shadow-md motion-safe:animate-[sticker-bob_4s_ease-in-out_infinite]">🎂</span>
+      <span className="absolute bottom-4 left-3 rotate-6 text-2xl drop-shadow-md motion-safe:animate-[sticker-bob_4s_ease-in-out_infinite] [animation-delay:1.2s]">🎁</span>
+      <span className="absolute bottom-14 right-16 text-lg motion-safe:animate-[party-twinkle_2.4s_ease-in-out_infinite]">✨</span>
+      <span className="absolute left-1/2 bottom-6 text-xl drop-shadow-md motion-safe:animate-[sticker-bob_4s_ease-in-out_infinite] [animation-delay:2.4s]">🥳</span>
+    </span>
+  );
+}
+
 function Panel({
   title,
   subtitle,
@@ -256,8 +358,11 @@ function Panel({
   bodyClass,
   accent,
   icon: Icon,
+  decor,
   children,
 }: {
+  /** A purely decorative layer behind the content (the Celebrations confetti). */
+  decor?: React.ReactNode;
   title: string;
   subtitle?: string;
   action?: React.ReactNode;
@@ -283,6 +388,7 @@ function Panel({
           <span aria-hidden className={cn("pointer-events-none absolute -right-14 -top-14 -z-10 h-44 w-44 rounded-full blur-3xl transition-transform duration-500 group-hover/panel:scale-150", a.blob)} />
         </>
       )}
+      {decor}
       <header className={cn("flex items-start gap-3 border-b px-5 py-3.5", a ? a.line : "border-slate-100 dark:border-slate-800")}>
         {Icon && a && (
           <span className={cn("grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br text-white shadow-lg ring-2 ring-white transition-transform duration-300 group-hover/panel:rotate-6 group-hover/panel:scale-110 dark:ring-slate-900", a.badge)}>
@@ -348,18 +454,9 @@ function Pill({ tone, children }: { tone: keyof typeof S; children: React.ReactN
   );
 }
 
-function Avatar({ name, className }: { name: string; className?: string }) {
-  return (
-    <span
-      aria-hidden
-      className={cn(
-        "grid h-8 w-8 shrink-0 place-items-center rounded-full bg-slate-100 text-[11px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300",
-        className,
-      )}
-    >
-      {initials(name)}
-    </span>
-  );
+/** The person's photo beside their name (user 2026-11-06), else their initials. */
+function Avatar({ name, photo, className }: { name: string; photo?: string | null; className?: string }) {
+  return <PersonAvatar name={name} photoUrl={photo} className={className} />;
 }
 
 function Empty({ icon: Icon = Inbox, art, children }: { icon?: LucideIcon; art?: React.ReactNode; children: React.ReactNode }) {
@@ -531,10 +628,10 @@ function AttnAction({ href, children }: { href: string; children: React.ReactNod
   );
 }
 
-function AttnPerson({ p, metric, action }: { p: AttentionPerson; metric: string; action?: React.ReactNode }) {
+function AttnPerson({ p, metric, action, photos }: { p: AttentionPerson; metric: string; action?: React.ReactNode; photos: Record<string, string> }) {
   return (
     <li className="flex items-center gap-3 py-2">
-      <Avatar name={p.name} className="h-7 w-7 text-[10px]" />
+      <Avatar name={p.name} photo={(p.key && photos[p.key]) || photos[`bio:${p.bio}`]} className="h-7 w-7 text-[10px]" />
       <span className="min-w-0 flex-1">
         <Truncated text={p.name} className="block text-sm font-medium text-slate-900 dark:text-slate-100" />
         <Truncated text={[p.code, p.departmentName ?? "No department"].filter(Boolean).join(" · ")} className="block text-xs text-slate-500" />
@@ -589,7 +686,7 @@ function AttnGroup({
   );
 }
 
-function NeedsAttention({ attention: a, now, className }: { attention: HrDashboard["attention"]; now: number; className?: string }) {
+function NeedsAttention({ attention: a, now, className, photos }: { attention: HrDashboard["attention"]; now: number; className?: string; photos: Record<string, string> }) {
   const memo = (p: AttentionPerson, type: string) =>
     p.key ? <AttnAction href={`/hr/conduct/memos?new=1&person=${encodeURIComponent(p.key)}&type=${type}`}>Memo</AttnAction> : undefined;
   const total = a.late.length + a.absent.length + a.missedOut.length + a.silentDevices.length;
@@ -612,7 +709,7 @@ function NeedsAttention({ attention: a, now, className }: { attention: HrDashboa
             title={`Late ${LATE_PATTERN}+ times this week`}
             hint="A habit, not a bad morning"
             people={a.late}
-            render={(p) => <AttnPerson key={p.bio} p={p} metric={`${p.count}× · ${mins(p.detail)}`} action={memo(p, "late_coming")} />}
+            render={(p) => <AttnPerson key={p.bio} photos={photos} p={p} metric={`${p.count}× · ${mins(p.detail)}`} action={memo(p, "late_coming")} />}
           />
           <AttnGroup
             icon={UserX}
@@ -620,7 +717,7 @@ function NeedsAttention({ attention: a, now, className }: { attention: HrDashboa
             title={`Absent ${ABSENT_RUN}+ days running`}
             hint="No punch, no approved leave or on duty"
             people={a.absent}
-            render={(p) => <AttnPerson key={p.bio} p={p} metric={`${p.count} days`} action={memo(p, "absence")} />}
+            render={(p) => <AttnPerson key={p.bio} photos={photos} p={p} metric={`${p.count} days`} action={memo(p, "absence")} />}
           />
           <AttnGroup
             icon={DoorOpen}
@@ -631,6 +728,7 @@ function NeedsAttention({ attention: a, now, className }: { attention: HrDashboa
             render={(p) => (
               <AttnPerson
                 key={p.bio}
+                photos={photos}
                 p={p}
                 metric={`In ${clock(p.detail)}`}
                 action={<AttnAction href={`/hr/attendance?view=day&date=${a.missedOutDay}`}>Fix</AttnAction>}
@@ -1265,7 +1363,7 @@ export function HrDashboardView({
 
         {/* ── Act on it: attention + approvals & quick actions ── */}
         <div className="grid gap-6 xl:grid-cols-12">
-          <NeedsAttention attention={data.attention} now={clockNow} className="xl:col-span-8" />
+          <NeedsAttention attention={data.attention} now={clockNow} photos={data.photos} className="xl:col-span-8" />
 
           <div className="flex flex-col gap-6 xl:col-span-4">
             <Panel accent="amber"
@@ -1278,7 +1376,7 @@ export function HrDashboardView({
                 <ul className="divide-y divide-slate-100 dark:divide-slate-800">
                   {data.pendingTimeOff.slice(0, 4).map((t) => (
                     <li key={t.id} className="flex items-center gap-3 py-2">
-                      <Avatar name={t.name} />
+                      <Avatar name={t.name} photo={data.photos[t.personKey]} />
                       <span className="min-w-0 flex-1">
                         <Truncated text={t.name} className="block text-sm font-medium text-slate-900 dark:text-slate-100" />
                         <Truncated
@@ -1383,7 +1481,7 @@ export function HrDashboardView({
               <ul className="divide-y divide-slate-100 dark:divide-slate-800">
                 {away.slice(0, 6).map((t) => (
                   <li key={t.bio} className="flex items-center gap-3 py-2">
-                    <Avatar name={t.person!.name} />
+                    <Avatar name={t.person!.name} photo={data.photos[`bio:${t.bio}`]} />
                     <span className="min-w-0 flex-1">
                       <Truncated text={t.person!.name} className="block text-sm font-medium text-slate-900 dark:text-slate-100" />
                       <Truncated
@@ -1409,15 +1507,33 @@ export function HrDashboardView({
             )}
           </Panel>
 
-          <Panel accent="fuchsia" title="Celebrations" subtitle="Birthdays and work anniversaries, next 7 days" icon={Cake} className="lg:col-span-2 xl:col-span-1">
+          <Panel
+            accent="fuchsia"
+            title="Celebrations"
+            subtitle="Birthdays and work anniversaries, next 7 days"
+            icon={Cake}
+            decor={<PartyDecor />}
+            // Pops out above the other cards: a pink glow, a ring, and it lifts further on hover.
+            className="shadow-xl shadow-pink-500/25 ring-2 ring-pink-300/70 hover:shadow-2xl hover:shadow-pink-500/40 dark:ring-pink-500/40 lg:col-span-2 xl:col-span-1"
+          >
             {celebrations.length ? (
-              <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+              <ul className="space-y-2">
                 {celebrations.slice(0, 6).map((c) => (
-                  <li key={c.key} className="flex items-center gap-3 py-2">
+                  <li
+                    key={c.key}
+                    className={cn(
+                      "flex items-center gap-3 rounded-xl px-2.5 py-2 backdrop-blur-[2px]",
+                      c.days === 0
+                        ? "bg-gradient-to-r from-pink-100/90 via-amber-50/90 to-violet-100/90 shadow-sm ring-1 ring-pink-200 dark:from-pink-500/20 dark:via-amber-500/10 dark:to-violet-500/20 dark:ring-pink-500/30"
+                        : "bg-white/70 ring-1 ring-slate-100 dark:bg-slate-900/60 dark:ring-slate-800",
+                    )}
+                  >
                     <span
                       className={cn(
                         "grid h-8 w-8 shrink-0 place-items-center rounded-full",
-                        c.days === 0 ? "bg-pink-100 text-pink-600 dark:bg-pink-500/15 dark:text-pink-300" : "bg-slate-100 text-slate-500 dark:bg-slate-800",
+                        c.days === 0
+                          ? "bg-gradient-to-br from-pink-500 to-orange-400 text-white shadow-md shadow-pink-500/30"
+                          : "bg-slate-100 text-slate-500 dark:bg-slate-800",
                       )}
                     >
                       <c.icon className="h-4 w-4" aria-hidden />
@@ -1426,7 +1542,14 @@ export function HrDashboardView({
                       <Truncated text={c.p.name} className="block text-sm font-medium text-slate-900 dark:text-slate-100" />
                       <Truncated text={[c.what, c.p.departmentName].filter(Boolean).join(" · ")} className="block text-xs text-slate-500" />
                     </span>
-                    <span className={cn("shrink-0 text-xs font-semibold", c.days === 0 ? "text-pink-600 dark:text-pink-300" : "text-slate-500")}>{whenLabel(c.days)}</span>
+                    <span
+                      className={cn(
+                        "shrink-0 text-xs font-semibold",
+                        c.days === 0 ? "rounded-full bg-pink-500 px-2 py-0.5 text-white shadow-sm shadow-pink-500/40" : "text-slate-500",
+                      )}
+                    >
+                      {c.days === 0 ? `🎉 ${whenLabel(c.days)}` : whenLabel(c.days)}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -1549,7 +1672,7 @@ export function HrDashboardView({
         )}
 
         {/* ── People — the names behind any tile ───────────── */}
-        <DashboardPeople rows={peopleRows} now={now} filters={peopleFilter} />
+        <DashboardPeople rows={peopleRows} now={now} filters={peopleFilter} photos={data.photos} />
 
         {!report && (
         <>
@@ -1580,7 +1703,7 @@ export function HrDashboardView({
                         <td className={cn(TD, "w-24 tabular-nums text-slate-500")}>{clock(p.at)}</td>
                         <td className={TD}>
                           <span className="flex items-center gap-2.5">
-                            <Avatar name={p.name ?? p.bio} className="h-7 w-7 text-[10px]" />
+                            <Avatar name={p.name ?? p.bio} photo={data.photos[`bio:${p.bio}`]} className="h-7 w-7 text-[10px]" />
                             <span className="font-medium text-slate-900 dark:text-slate-100">{p.name ?? `ID ${p.bio}`}</span>
                           </span>
                         </td>

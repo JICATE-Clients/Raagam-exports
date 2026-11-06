@@ -1,5 +1,6 @@
 "use client";
 
+import { PersonAvatar } from "@/components/ui/person-avatar";
 import { useEffect, useId, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { DataTable, type Column } from "@/components/ui/data-table";
@@ -274,6 +275,7 @@ export default function LiveClient({
           );
         return (
           <span className="flex items-center gap-1.5">
+            <PersonAvatar name={who.name} person={who.person} className="h-6 w-6 text-[9px]" />
             <Truncated>{who.name}</Truncated>
             {who.kind === "staff" ? (
               <span className="text-xs text-muted-foreground">staff</span>

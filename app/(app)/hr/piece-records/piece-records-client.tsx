@@ -1,5 +1,7 @@
 "use client";
 
+import { PersonCell } from "@/components/ui/person-avatar";
+
 import { useState, useTransition } from "react";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
@@ -133,7 +135,7 @@ export default function PieceRecordsClient({
 
   const columns: Column<PieceRecordRow>[] = [
     { header: "Date", cell: (r) => fmtDate(r.work_date) },
-    { header: "Worker", cell: (r) => r.worker_name },
+    { header: "Worker", cell: (r) => <PersonCell name={r.worker_name} person={`worker:${r.worker_id}`} /> },
     {
       header: "Pieces",
       align: "right",
@@ -203,7 +205,7 @@ export default function PieceRecordsClient({
           >
             <option value="">All Workers</option>
             {workers.map((w) => (
-              <option key={w.id} value={w.id}>
+              <option key={w.id} value={w.id} data-person={`worker:${w.id}`}>
                 {w.name}
               </option>
             ))}
@@ -238,7 +240,7 @@ export default function PieceRecordsClient({
                 >
                   <option value=""></option>
                   {workers.map((w) => (
-                    <option key={w.id} value={w.id}>
+                    <option key={w.id} value={w.id} data-person={`worker:${w.id}`}>
                       {w.name}
                     </option>
                   ))}

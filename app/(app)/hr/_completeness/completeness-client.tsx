@@ -1,5 +1,7 @@
 "use client";
 
+import { PersonCell } from "@/components/ui/person-avatar";
+
 import { useMemo, useState } from "react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Input } from "@/components/ui/input";
@@ -107,7 +109,7 @@ export default function CompletenessClient({
 
   const common: Column<PersonCompleteness>[] = [
     { header: "ID No", cell: (r) => r.code ?? "—" },
-    { header: "Name", cell: (r) => r.name },
+    { header: "Name", cell: (r) => <PersonCell name={r.name} person={`${r.kind}:${r.id}`} /> },
     {
       header: "Type",
       cell: (r) => (r.kind === "staff" ? "Staff" : "Worker"),

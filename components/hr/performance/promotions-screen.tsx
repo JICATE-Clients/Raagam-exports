@@ -1,5 +1,6 @@
 "use client";
 
+import { PersonAvatar, personKeyOf } from "@/components/ui/person-avatar";
 import { Undo2 } from "lucide-react";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -163,7 +164,8 @@ export function PromotionsScreen({ rows, people, roles, designations, reviews, c
     {
       header: "Person",
       cell: (m) => (
-        <span className="text-sm">
+        <span className="flex items-center gap-2 text-sm">
+          <PersonAvatar name={m.person_name} person={personKeyOf(m)} className="h-7 w-7 text-[10px]" />
           <span className="font-medium">{m.person_name}</span>
           <span className="ml-2 text-xs text-muted-foreground">
             {m.person_code ?? ""}

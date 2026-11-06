@@ -20,6 +20,7 @@ import { PaginationBar } from "@/components/ui/pagination";
 import { usePagination } from "@/lib/use-pagination";
 import { Truncated } from "@/components/ui/truncated";
 import { cn } from "@/lib/utils";
+import { PersonAvatar } from "@/components/ui/person-avatar";
 
 /** One person on today's dashboard, slimmed to what the list shows. */
 export interface PeopleRow {
@@ -116,9 +117,12 @@ export function DashboardPeople({
   rows,
   now,
   filters,
+  photos = {},
 }: {
   rows: PeopleRow[];
   now: number;
+  /** "bio:<device id>" → photo URL (HrDashboard.photos) — the face beside the name. */
+  photos?: Record<string, string>;
   /** Department and Date over the table (user 2026-11-03) — the page's own filter, `variant="table"`. */
   filters?: React.ReactNode;
 }) {
@@ -126,7 +130,11 @@ export function DashboardPeople({
   const pathname = usePathname();
   const params = useSearchParams();
   const shown = params.get("show");
-  const list: PeopleKey = PEOPLE_LISTS.some((l) => l.key === shown) ? (shown as PeopleKey) : "late";
+  // PRESENT BY DEFAULT (user 2026-11-04: "when we open anytime it should fall
+  // on the Present tab, not Late"). A card's link still opens its own list;
+  // the workspace tab no longer remembers `show` (ONE_SHOT, lib/workspace-tabs.ts),
+  // so reopening the page always starts here.
+  const list: PeopleKey = PEOPLE_LISTS.some((l) => l.key === shown) ? (shown as PeopleKey) : "present";
 
   function pick(key: PeopleKey) {
     const q = new URLSearchParams(params.toString());
@@ -134,21 +142,41 @@ export function DashboardPeople({
     router.replace(`${pathname}?${q.toString()}`, { scroll: false });
   }
 
-  const visible = rows.filter((r) => r.in.includes(list)).sort((a, b) =>
-    list === "late"
-      ? b.lateMin - a.lateMin
-      : list === "early"
-        ? b.earlyMin - a.earlyMin
-        : list === "out"
-          ? (a.lastAt ?? 0) - (b.lastAt ?? 0)
-          : a.name.localeCompare(b.name),
-  );
+  /*
+   * GROUPED BY DEPARTMENT, A → Z (user 2026-11-04: "group the employees based
+   * on their departments, also in ascending order"). People with no department
+   * come last. Inside a department the list keeps its own order — the latest
+   * arrival first on Late, the earliest leaver first on Left early, the
+   * longest away first on Out now, A → Z by name everywhere else.
+   */
+  const visible = rows
+    .filter((r) => r.in.includes(list))
+    .sort(
+      (a, b) =>
+        (a.deptId ? 0 : 1) - (b.deptId ? 0 : 1) ||
+        a.dept.localeCompare(b.dept) ||
+        (list === "late"
+          ? b.lateMin - a.lateMin
+          : list === "early"
+            ? b.earlyMin - a.earlyMin
+            : list === "out"
+              ? (a.lastAt ?? 0) - (b.lastAt ?? 0)
+              : 0) ||
+        a.name.localeCompare(b.name),
+    );
+  // Head-count per department in this list, said once beside its name.
+  const perDept = new Map<string, number>();
+  for (const r of visible) perDept.set(r.deptId, (perDept.get(r.deptId) ?? 0) + 1);
 
   // Paged HERE, not by the table: a paged DataTable pins its pager to the
   // bottom of the screen and scrolls its rows in a box — right for a page's
   // main list, wrong inside a dashboard card (user 2026-10-31). Same app-wide
   // "Rows per page" either way.
   const pg = usePagination(visible);
+  // The first row of each department ON THIS PAGE carries its name and a
+  // stronger rule above it — a department running onto the next page starts
+  // there with its name again.
+  const firstOfDept = new Set(pg.paged.filter((r, i) => i === 0 || pg.paged[i - 1].deptId !== r.deptId).map((r) => r.bio));
 
   // The last column says what this list is about.
   const detail: Column<PeopleRow> | null =
@@ -178,21 +206,39 @@ export function DashboardPeople({
    * (on the wrapper below) makes the shares the rule, in both shapes.
    */
   const W = detail
-    ? { name: "w-[18%]", dept: "w-[18%]", time: "w-[15%]", last: "w-[16%]", status: "w-[19%]", detail: "w-[14%]" }
-    : { name: "w-[20%]", dept: "w-[20%]", time: "w-[16%]", last: "w-[18%]", status: "w-[26%]", detail: "" };
+    ? { name: "w-[21%]", dept: "w-[15%]", time: "w-[15%]", last: "w-[16%]", status: "w-[19%]", detail: "w-[14%]" }
+    : { name: "w-[24%]", dept: "w-[16%]", time: "w-[16%]", last: "w-[18%]", status: "w-[26%]", detail: "" };
   const columns: Column<PeopleRow>[] = [
     // Department first, then the name (user 2026-11-03: "first column should
     // be dept, second can be employee name").
-    { header: "Department", className: W.dept, cell: (r) => <Truncated text={r.dept} className={cn("block font-medium text-slate-900 dark:text-slate-100", !r.deptId && "italic text-slate-500 dark:text-slate-400")} /> },
     {
-      // The count sits beside the column it counts (user 2026-10-31).
-      header: `Employee (${visible.length})`,
+      header: "Department",
+      className: W.dept,
+      // Said once per department; the rows under it leave the cell empty on a
+      // desktop table. A phone's stacked cards are read one by one, so there
+      // every card keeps its department (`md:invisible`, not removed).
+      cell: (r) => (
+        <span className={cn("flex min-w-0 items-baseline gap-1.5", !firstOfDept.has(r.bio) && "md:invisible")}>
+          <Truncated
+            text={r.dept}
+            className={cn("block min-w-0 font-semibold text-slate-900 dark:text-slate-100", !r.deptId && "italic font-medium text-slate-500 dark:text-slate-400")}
+          />
+          <span className="shrink-0 text-xs font-medium tabular-nums text-slate-400">{perDept.get(r.deptId)}</span>
+        </span>
+      ),
+    },
+    {
+      // The count sits beside the column it counts (user 2026-10-31) — and
+      // says WHAT it counts (2026-11-04: "only 6 punched in today?" read off
+      // "Employee (6)" on the Late list, while 61 had punched in).
+      header: `Employee · ${visible.length} ${(PEOPLE_LISTS.find((l) => l.key === list)?.label ?? "").toLowerCase()}`,
       className: W.name,
       // The name alone (user 2026-11-03: "GENERAL STAFFS · ST-3614 … remove
       // it, only name is enough").
       cell: (r) => (
-        <div className="min-w-0">
-          <Truncated text={r.name} className="block font-medium text-slate-900 dark:text-slate-100" />
+        <div className="flex min-w-0 items-center gap-2">
+          <PersonAvatar name={r.name} photoUrl={photos[`bio:${r.bio}`]} className="h-7 w-7 text-[10px]" />
+          <Truncated text={r.name} className="block min-w-0 font-medium text-slate-900 dark:text-slate-100" />
         </div>
       ),
     },
@@ -274,6 +320,7 @@ export function DashboardPeople({
         getKey={(r) => r.bio}
         bare
         paginate={false}
+        rowClassName={(r, i) => (i > 0 && firstOfDept.has(r.bio) ? "border-t-2! border-t-slate-200! dark:border-t-slate-700!" : undefined)}
         empty={`Nobody under ${label} right now.`}
       />
       </div>

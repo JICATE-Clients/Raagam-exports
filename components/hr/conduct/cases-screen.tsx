@@ -1,5 +1,6 @@
 "use client";
 
+import { PersonAvatar, personKeyOf } from "@/components/ui/person-avatar";
 import Link from "next/link";
 import { ArrowRight, Gavel, NotebookPen, Undo2, UserRoundPlus } from "lucide-react";
 import { useState, useTransition } from "react";
@@ -314,7 +315,8 @@ export function CasesScreen({ rows, memos, people, canEdit }: Props) {
     {
       header: "Person",
       cell: (c) => (
-        <span className="text-sm">
+        <span className="flex items-center gap-2 text-sm">
+          <PersonAvatar name={c.person_name} person={personKeyOf(c)} className="h-7 w-7 text-[10px]" />
           <span className="font-medium">{c.person_name}</span>
           <span className="ml-2 text-xs text-muted-foreground">
             {c.person_code ?? ""}
@@ -603,7 +605,8 @@ export function CasesScreen({ rows, memos, people, canEdit }: Props) {
                 <ul className="space-y-2">
                   {detail.witnesses.map((x) => (
                     <li key={x.id} className="rounded-control border border-border p-3">
-                      <p className="font-medium">
+                      <p className="flex items-center gap-2 font-medium">
+                        <PersonAvatar name={x.name} person={x.person} className="h-6 w-6 text-[9px]" />
                         {x.name}
                         <span className="ml-2 text-xs font-normal text-muted-foreground">
                           {x.kind === "outside" ? "Not on the rolls" : x.kind === "worker" ? "Worker" : "Staff"} · {fmtDate(x.given_on)}

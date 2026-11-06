@@ -1,5 +1,6 @@
 "use client";
 
+import { PersonAvatar, personKeyOf } from "@/components/ui/person-avatar";
 import { Check, ExternalLink, X } from "lucide-react";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -89,7 +90,8 @@ export function VerifyScreen({ docs, canEdit }: Props) {
     {
       header: "Person",
       cell: (d) => (
-        <span className="text-sm">
+        <span className="flex items-center gap-2 text-sm">
+          <PersonAvatar name={d.person_name} person={personKeyOf(d)} className="h-7 w-7 text-[10px]" />
           <span className="font-medium">{d.person_name}</span>
           <span className="ml-2 text-xs text-muted-foreground">{d.worker_id ? "Worker" : "Staff"}</span>
         </span>

@@ -1,5 +1,6 @@
 "use client";
 
+import { PersonAvatar, personKeyOf } from "@/components/ui/person-avatar";
 import { CircleCheck, CirclePlay, CircleStop, FileText, Upload, Users } from "lucide-react";
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -379,7 +380,8 @@ export function TrainingScreen({ rows, enrolments, people, myStaffId, canCreate,
     {
       header: "Person",
       cell: (e) => (
-        <span className="text-sm">
+        <span className="flex items-center gap-2 text-sm">
+          <PersonAvatar name={e.person_name} person={personKeyOf(e)} className="h-7 w-7 text-[10px]" />
           <span className="font-medium">{e.person_name}</span>
           <span className="ml-2 text-xs text-muted-foreground">
             {e.person_code ?? ""}
@@ -615,7 +617,7 @@ export function TrainingScreen({ rows, enrolments, people, myStaffId, canCreate,
                 <div className="flex-1">
                   <MultiSelect
                     label="Add people"
-                    options={addable.map((p) => ({ id: p.key, label: `${p.name}${p.code ? ` (${p.code})` : ""}${p.kind === "worker" ? " · Worker" : ""}` }))}
+                    options={addable.map((p) => ({ id: p.key, label: `${p.name}${p.code ? ` (${p.code})` : ""}${p.kind === "worker" ? " · Worker" : ""}`, person: p.key }))}
                     values={addKeys}
                     onChange={setAddKeys}
                     emptyLabel="Everyone is already on it"

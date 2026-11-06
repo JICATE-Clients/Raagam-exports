@@ -31,6 +31,12 @@ export interface FeedPunch {
 export interface HrDashboard {
   /** The clock, for the devices and "Updated" — always the real now. */
   now: number;
+  /**
+   * Each person's photo (0557 `photo_url`), keyed "staff:<id>" / "worker:<id>"
+   * and "bio:<device id>" — so every list on the dashboard can draw a face
+   * beside the name (user 2026-11-06). A person with no photo is not in it.
+   */
+  photos: Record<string, string>;
   /** The shift day on view (IST, YYYY-MM-DD) — today unless a date was picked. */
   day: string;
   /** True for today: live figures, auto-refresh. False: a closed past day. */
@@ -74,6 +80,7 @@ export interface RosterPerson {
   gender: string | null;
   dob: string | null;
   joined: string | null;
+  photoUrl: string | null;
 }
 
 export interface PendingTimeOff {
@@ -159,6 +166,8 @@ export interface HrDashboardFilter {
   kind: PersonKind;
   /** Department ids; empty = every department. "" = no department. */
   depts: string[];
+  /** Part of a name or code (user 2026-11-04); blank = everyone. */
+  name?: string;
 }
 
 /** The punches the feed shows after filtering. */
@@ -195,19 +204,31 @@ export function filterHrDashboard(
     (a, b) => (a.id ? 0 : 1) - (b.id ? 0 : 1) || a.name.localeCompare(b.name),
   );
   const picked = filter.depts.filter((id) => counts.has(id));
-  const keep = (dept: string | null | undefined) => !picked.length || picked.includes(dept ?? "");
+  const byDept = (dept: string | null | undefined) => !picked.length || picked.includes(dept ?? "");
+  /*
+   * EMPLOYEE NAME (user 2026-11-04: "add employee name filter all the places
+   * near the dept filter"). Part of a name or code, any case. It narrows every
+   * card exactly as a department does — through the same `keep` — so the
+   * figures, the People table and the feed all count the same people. The
+   * department list is NOT narrowed by it: it still offers the side's
+   * departments with their full head-counts.
+   */
+  const q = (filter.name ?? "").trim().toLowerCase();
+  const byName = (name: string | null | undefined, code?: string | null) =>
+    !q || (name ?? "").toLowerCase().includes(q) || (code ?? "").toLowerCase().includes(q);
+  const keep = (dept: string | null | undefined, name?: string | null, code?: string | null) => byDept(dept) && byName(name, code);
 
   const groups = data.groups
     .filter((g) => g.group === filter.kind)
     .map((g) => {
-      const people = g.people.filter((d) => keep(d.person.departmentId));
+      const people = g.people.filter((d) => keep(d.person.departmentId, d.person.name, d.person.code));
       // A category's head-count follows the filter; one with nobody left in
       // view drops off the card's back.
       const per = new Map<string | null, number>();
       for (const d of people) per.set(d.person.categoryId, (per.get(d.person.categoryId) ?? 0) + 1);
       const shifts = g.shifts
         .map((x) => ({ ...x, people: per.get(x.categoryId) ?? 0 }))
-        .filter((x) => x.people > 0 || !picked.length);
+        .filter((x) => x.people > 0 || (!picked.length && !q));
       return { ...g, people, shifts };
     });
 
@@ -216,16 +237,16 @@ export function filterHrDashboard(
       ...data,
       groups,
       trend: data.trend.filter(
-        (t) => t.kind === filter.kind && (!picked.length || !data.trendByDept || keep(t.department_id)),
+        (t) => t.kind === filter.kind && (!picked.length || !data.trendByDept || byDept(t.department_id)),
       ),
       timeOff: (() => {
         const bios = new Set(groups.flatMap((g) => g.people.map((d) => d.person.bio)));
         return data.timeOff.filter((t) => bios.has(t.bio));
       })(),
-      feed: data.feed.filter((f) => f.kind === filter.kind && keep(f.departmentId)).slice(0, FEED_ROWS),
-      attention: keepAttention(data.attention, (p) => p.kind === filter.kind && keep(p.departmentId)),
+      feed: data.feed.filter((f) => f.kind === filter.kind && keep(f.departmentId, f.name)).slice(0, FEED_ROWS),
+      attention: keepAttention(data.attention, (p) => p.kind === filter.kind && keep(p.departmentId, p.name, p.code)),
       ...(() => {
-        const roster = data.roster.filter((p) => p.kind === filter.kind && keep(p.departmentId));
+        const roster = data.roster.filter((p) => p.kind === filter.kind && keep(p.departmentId, p.name, p.code));
         const keys = new Set(roster.map((p) => p.key));
         return { roster, pendingTimeOff: data.pendingTimeOff.filter((t) => keys.has(t.personKey)) };
       })(),
@@ -238,6 +259,7 @@ export function filterHrDashboard(
 type PersonRow = {
   id: string;
   name: string;
+  photo_url: string | null;
   code: string | null;
   biometric_id: string | null;
   category_id: string | null;
@@ -263,12 +285,12 @@ async function punchesSince(fromIso: string, toIso?: string): Promise<RawPunch[]
   }
 }
 
-async function enrolledPeople(): Promise<{ people: Person[]; noCategory: number; bioOf: Map<string, string> }> {
+async function enrolledPeople(): Promise<{ people: Person[]; noCategory: number; bioOf: Map<string, string>; photos: Record<string, string> }> {
   const s = await createClient();
   // `departments!department_id`: workers also carry `prod_dept_id` (0553), so a bare
   // `departments(...)` embed there is PGRST201-ambiguous (AGENTS.md).
   const sel =
-    "id, name, code, biometric_id, category_id, category:employee_categories!category_id(name), department_id, department:departments!department_id(name, short_name)";
+    "id, name, code, photo_url, biometric_id, category_id, category:employee_categories!category_id(name), department_id, department:departments!department_id(name, short_name)";
   const [staff, workers] = await Promise.all([
     s.from("staff").select(sel).eq("is_active", true).not("biometric_id", "is", null),
     s.from("workers").select(sel).eq("is_active", true).not("biometric_id", "is", null),
@@ -284,11 +306,13 @@ async function enrolledPeople(): Promise<{ people: Person[]; noCategory: number;
     ...((workers.data ?? []) as unknown as PersonRow[]).map((r) => ({ r, kind: "worker" as const })),
   ];
   const bioOf = new Map<string, string>();
+  const photos: Record<string, string> = {};
   for (const { r, kind } of rows) {
     const bio = String(r.biometric_id ?? "").trim();
     if (!bio || seen.has(bio)) continue; // a shared id is an enrolment mistake; first claim wins here
     seen.add(bio);
     bioOf.set(`${kind}:${r.id}`, bio);
+    if (r.photo_url) photos[`bio:${bio}`] = photos[`${kind}:${r.id}`] = r.photo_url;
     if (!r.category_id) noCategory++;
     people.push({
       bio,
@@ -302,7 +326,7 @@ async function enrolledPeople(): Promise<{ people: Person[]; noCategory: number;
       departmentName: r.department ? r.department.name || r.department.short_name : null,
     });
   }
-  return { people, noCategory, bioOf };
+  return { people, noCategory, bioOf, photos };
 }
 
 /**
@@ -553,7 +577,7 @@ export async function getHrDashboard(clock: number, day?: string): Promise<HrDas
     waitingOnMeCount(),
     pipelineOf(),
   ]);
-  const [timings, { people, noCategory, bioOf }] = await Promise.all([listCategoryTimings(), enrolledPeople()]);
+  const [timings, { people, noCategory, bioOf, photos: enrolledPhotos }] = await Promise.all([listCategoryTimings(), enrolledPeople()]);
   const shiftFrom = fetchFrom([...new Set(people.map((p) => p.categoryId))], timings, now);
   const [[weekPunches, offRows, devices, roster, pendingTimeOff, waitingOnMe, pipeline], gap] =
     await Promise.all([
@@ -593,8 +617,13 @@ export async function getHrDashboard(clock: number, day?: string): Promise<HrDas
   const unlinked = new Set(punches.map((p) => p.user_id.trim()).filter((id) => !known.has(id)));
   feed.sort((a, b) => b.at - a.at);
 
+  // Everyone on the roster too, so a person not on the punch reader still has a face.
+  const photos: Record<string, string> = { ...enrolledPhotos };
+  for (const p of roster) if (p.photoUrl) photos[p.key] = p.photoUrl;
+
   return {
     now: clock,
+    photos,
     day: todayDay,
     live: !atDay,
     asOf: now,
@@ -622,7 +651,7 @@ const one = <T,>(v: One<T>): T | null => (Array.isArray(v) ? (v[0] ?? null) : v)
 async function rosterOf(): Promise<RosterPerson[]> {
   const s = await createClient();
   const sel =
-    "id, name, code, gender, date_of_birth, joined_date, department_id, department:departments!department_id(name), designation:designations!designation_id(name)";
+    "id, name, code, photo_url, gender, date_of_birth, joined_date, department_id, department:departments!department_id(name), designation:designations!designation_id(name)";
   const [staff, workers] = await Promise.all([
     s.from("staff").select(sel).eq("is_active", true),
     s.from("workers").select(sel).eq("is_active", true),
@@ -633,6 +662,7 @@ async function rosterOf(): Promise<RosterPerson[]> {
     id: string;
     name: string;
     code: string | null;
+    photo_url: string | null;
     gender: string | null;
     date_of_birth: string | null;
     joined_date: string | null;
@@ -651,6 +681,7 @@ async function rosterOf(): Promise<RosterPerson[]> {
     gender: r.gender,
     dob: r.date_of_birth,
     joined: r.joined_date,
+    photoUrl: r.photo_url,
   });
   return [
     ...((staff.data ?? []) as unknown as Row[]).map(shape("staff")),

@@ -1,5 +1,6 @@
 "use client";
 
+import { PersonAvatar, personKeyOf } from "@/components/ui/person-avatar";
 import { BadgeIndianRupee, Calculator, Undo2 } from "lucide-react";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -271,7 +272,8 @@ export function SettlementsScreen({ rows, exits, canEdit, gratuity }: Props) {
     {
       header: "Person",
       cell: (r) => (
-        <span className="text-sm">
+        <span className="flex items-center gap-2 text-sm">
+          <PersonAvatar name={r.person_name} person={personKeyOf(r)} className="h-7 w-7 text-[10px]" />
           <span className="font-medium">{r.person_name}</span>
           <span className="ml-2 text-xs text-muted-foreground">{r.exit_code}</span>
         </span>

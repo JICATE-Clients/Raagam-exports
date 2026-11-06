@@ -338,6 +338,9 @@ export type Settlement = {
   code: string | null;
   exit_id: string;
   exit_code: string | null;
+  /** Who it is for — the photo beside the name. */
+  staff_id: string | null;
+  worker_id: string | null;
   person_name: string;
   person_code: string | null;
   separation_type: SeparationType;

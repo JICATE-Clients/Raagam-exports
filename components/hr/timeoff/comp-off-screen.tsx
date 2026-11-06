@@ -1,12 +1,13 @@
 "use client";
 
+import { PersonAvatar, PersonCell, personKeyOf } from "@/components/ui/person-avatar";
 import { Undo2, X } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { VoiceTextarea } from "@/components/ui/voice-textarea";
 import { Combobox } from "@/components/ui/combobox";
 import { Field, FieldRow } from "@/components/ui/field";
 import { Segmented, ToggleGroup } from "@/components/ui/segmented";
@@ -56,11 +57,11 @@ export function CompOffScreen({ rows, people, selfOnly }: Props) {
 
   // Usable credit per person — approved and not expired.
   const usableByPerson = useMemo(() => {
-    const m = new Map<string, { name: string; days: number }>();
+    const m = new Map<string, { name: string; person: string | null; days: number }>();
     for (const r of rows) {
       if (r.status !== "approved" || r.expired) continue;
       const k = r.staff_id ?? r.worker_id ?? "";
-      const cur = m.get(k) ?? { name: r.person_name, days: 0 };
+      const cur = m.get(k) ?? { name: r.person_name, person: personKeyOf(r), days: 0 };
       cur.days += r.credit_days;
       m.set(k, cur);
     }
@@ -134,8 +135,7 @@ export function CompOffScreen({ rows, people, selfOnly }: Props) {
   }
 
   const columns: Column<CompOffCredit>[] = [
-    { header: "Code", cell: (r) => <span className="font-mono text-xs font-medium">{r.code ?? "—"}</span> },
-    ...(selfOnly ? [] : [{ header: "Person", cell: (r: CompOffCredit) => <span className="text-sm">{r.person_name}</span> }]),
+    ...(selfOnly ? [] : [{ header: "Person", cell: (r: CompOffCredit) => <PersonCell name={r.person_name} person={personKeyOf(r)} /> }]),
     { header: "Worked", cell: (r) => <span className="text-sm tabular-nums">{fmtDate(r.worked_date)}</span> },
     { header: "Credit", align: "right", cell: (r) => <span className="text-sm tabular-nums">{fmtDays(r.credit_days)}</span> },
     {
@@ -160,7 +160,7 @@ export function CompOffScreen({ rows, people, selfOnly }: Props) {
   };
   const actions = rowActionsColumn<CompOffCredit>((r) => (
     <RowActions
-      label={r.code}
+      label={r.person_name}
       isPending={isPending}
       menu={r.status === "pending" ? [{ label: "Withdraw claim", icon: Undo2, onClick: () => withdraw(r) }] : []}
     />
@@ -171,7 +171,8 @@ export function CompOffScreen({ rows, people, selfOnly }: Props) {
       {usableByPerson.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {usableByPerson.slice(0, 12).map((p) => (
-            <span key={p.name} className="rounded-control border border-border bg-card px-3 py-1.5 text-sm">
+            <span key={p.name} className="inline-flex items-center gap-2 rounded-control border border-border bg-card px-3 py-1.5 text-sm">
+              <PersonAvatar name={p.name} person={p.person} className="h-5 w-5 text-[8px]" />
               {p.name} · <span className="font-semibold tabular-nums">{fmtDays(p.days)}</span> day(s) usable
             </span>
           ))}
@@ -188,7 +189,7 @@ export function CompOffScreen({ rows, people, selfOnly }: Props) {
             { value: "all", label: "All" },
           ]}
         />
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Link href="/hr/time-off/leave?new=1" className={buttonClasses({ variant: "outline" })}>
             Book comp-off as leave
           </Link>
@@ -209,9 +210,9 @@ export function CompOffScreen({ rows, people, selfOnly }: Props) {
         title="Claim comp-off credit"
         size="md"
         footer={
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs text-muted-foreground">{problem ?? "Each date becomes its own credit, decided by HR."}</span>
-            <div className="flex gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="min-w-0 text-xs text-muted-foreground">{problem ?? "Each date becomes its own credit, decided by HR."}</span>
+            <div className="ml-auto flex gap-2">
               <Button variant="outline" onClick={() => setOpen(false)}>
                 Cancel
               </Button>
@@ -230,6 +231,7 @@ export function CompOffScreen({ rows, people, selfOnly }: Props) {
                   options={people.map((p) => ({
                     value: p.key,
                     label: p.name,
+                    person: p.key,
                     sublabel: p.kind === "worker" ? "Worker" : "Staff",
                     search: p.code,
                   }))}
@@ -295,7 +297,7 @@ export function CompOffScreen({ rows, people, selfOnly }: Props) {
           )}
 
           <Field label="What was the work" required>
-            <Textarea rows={3} value={reason} onChange={(e) => setReason(e.target.value)} />
+            <VoiceTextarea rows={3} value={reason} onValueChange={setReason} />
           </Field>
         </div>
       </Sheet>

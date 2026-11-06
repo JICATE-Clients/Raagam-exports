@@ -103,6 +103,7 @@ export default async function ApprovalsPage({
         poChanges={await poChangeCards(rows)}
         verdicts={await queueVerdicts(rows)}
         codes={await subjectCodes(rows)}
+        faces={await hrFacesOf(rows)}
         /* A `key` because this element is made HERE, on the server, and rendered inside
            the client's PageHeader beside its other children — React's dev check read it
            as an unkeyed list child ("Each child in a list should have a unique key"). */
@@ -130,10 +131,15 @@ export default async function ApprovalsPage({
     }),
   ]);
   if (queue === null) return <ApprovalsNotInstalled />;
+  // Leave / encashment cards name the person, not LV-0003 (see subjectCodes).
+  const people = await hrPeopleOf([...myRequests, ...myDecisions]);
+  const named = <T extends { run_id: string; subject_code: string | null }>(r: T): T =>
+    people[r.run_id] ? { ...r, subject_code: people[r.run_id] } : r;
+  const decisionRows = myDecisions.map((d) => named(d));
   /* Who made a request's latest decision, by name — through `withCreators`, the
      app's one resolver, by handing it the actor as `created_by`. */
   const requestRows: RequestRow[] = (
-    await withCreators(myRequests.map((q) => ({ ...q, created_by: q.last_actor_id ?? "" })))
+    await withCreators(myRequests.map((q) => named(q)).map((q) => ({ ...q, created_by: q.last_actor_id ?? "" })))
   ).map(({ created_by_name, ...q }: MyRequestItem & { created_by: string; created_by_name?: string | null }) => ({
     ...q,
     actor_name: created_by_name ?? null,
@@ -188,8 +194,9 @@ export default async function ApprovalsPage({
       poChanges={await poChangeCards(rows)}
       verdicts={await queueVerdicts(rows)}
       codes={await subjectCodes(rows)}
+      faces={await hrFacesOf([...rows, ...myRequests, ...myDecisions])}
       requests={requestRows}
-      decisions={myDecisions}
+      decisions={decisionRows}
       /* In the header row beside Approval Flows — super admin only. */
       viewToggle={superAdmin ? <ApprovalsViewToggle key="approvals-view" view="mine" /> : undefined}
     />
@@ -260,7 +267,45 @@ async function poChangeCards(rows: QueueRow[]): Promise<Record<string, PoChangeC
  * per subject table, never per row. POs, budgets and PO changes name themselves
  * through their cards and are skipped. An enrichment: a table with no `code`, or
  * one the reader may not see, simply leaves the card on its workflow's name.
+ *
+ * AN HR REQUEST IS NAMED BY ITS PERSON, NOT ITS NUMBER (user 2026-11-06: "why
+ * the code LV-0001 … I only want the name"). Leave and encashment answer with
+ * the run's own person (0817 `hr_approval_stage`), which also reaches an HOD
+ * who cannot read the staff row.
  */
+const HR_PERSON_TABLES = new Set(["timeoff_requests", "timeoff_encashments"]);
+
+/** run id → the person on an HR request, from the run's own context (0807).
+ *  Read under 0808's policy: whoever can see the request sees its run. */
+async function hrPeopleOf(rows: { run_id: string; subject_table: string }[]): Promise<Record<string, string>> {
+  const ids = rows.filter((r) => HR_PERSON_TABLES.has(r.subject_table)).map((r) => r.run_id);
+  if (!ids.length) return {};
+  const s = await createClient();
+  const { data, error } = await s.from("approval_runs").select("id, context").in("id", ids);
+  if (error) return {};
+  const out: Record<string, string> = {};
+  for (const r of (data ?? []) as { id: string; context: { person_name?: string } | null }[])
+    if (r.context?.person_name) out[r.id] = r.context.person_name;
+  return out;
+}
+
+/** subject id → "staff:<id>" / "worker:<id>" for an HR request — the person's
+ *  photo where the type icon would sit (user 2026-11-06). The run's own context
+ *  (0807), like hrPeopleOf, so an HOD who cannot read the staff row still gets it. */
+async function hrFacesOf(rows: { subject_id: string; subject_table: string | null }[]): Promise<Record<string, string>> {
+  const ids = [...new Set(rows.filter((r) => r.subject_table && HR_PERSON_TABLES.has(r.subject_table)).map((r) => r.subject_id))];
+  if (!ids.length) return {};
+  const s = await createClient();
+  const { data, error } = await s.from("approval_runs").select("subject_id, context").in("subject_id", ids);
+  if (error) return {};
+  const out: Record<string, string> = {};
+  for (const r of (data ?? []) as { subject_id: string; context: { staff_id?: string; worker_id?: string } | null }[]) {
+    const key = r.context?.staff_id ? `staff:${r.context.staff_id}` : r.context?.worker_id ? `worker:${r.context.worker_id}` : null;
+    if (key) out[r.subject_id] = key;
+  }
+  return out;
+}
+
 async function subjectCodes(rows: QueueRow[]): Promise<Record<string, string>> {
   const skip = new Set<string>([WORKFLOWS.purchase_order.key, WORKFLOWS.order_budget.key, "po_rate_amendment", "po_cancellation"]);
   const byTable = new Map<string, string[]>();
@@ -273,6 +318,13 @@ async function subjectCodes(rows: QueueRow[]): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
   await Promise.all(
     [...byTable.entries()].map(async ([table, ids]) => {
+      if (HR_PERSON_TABLES.has(table)) {
+        const { data, error } = await s.rpc("hr_approval_stage", { p_subject_table: table, p_ids: ids });
+        if (error) return;
+        for (const d of (data ?? []) as { subject_id: string; person_name: string | null }[])
+          if (d.person_name) out[d.subject_id] = d.person_name;
+        return;
+      }
       const { data, error } = await s.from(table).select("id, code").in("id", ids);
       if (error) return;
       for (const d of (data ?? []) as unknown as { id: string; code: string | null }[]) if (d.code) out[d.id] = d.code;

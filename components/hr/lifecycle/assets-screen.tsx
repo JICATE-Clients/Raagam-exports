@@ -1,5 +1,6 @@
 "use client";
 
+import { PersonAvatar, personKeyOf } from "@/components/ui/person-avatar";
 import { PackageCheck } from "lucide-react";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -169,7 +170,8 @@ export function AssetsScreen({ rows, people, canCreate, canEdit, canDelete }: Pr
     {
       header: "Person",
       cell: (a) => (
-        <span className="text-sm">
+        <span className="flex items-center gap-2 text-sm">
+          <PersonAvatar name={a.person_name} person={personKeyOf(a)} className="h-7 w-7 text-[10px]" />
           <span className="font-medium">{a.person_name}</span>
           <span className="ml-2 text-xs text-muted-foreground">{a.worker_id ? "Worker" : "Staff"}</span>
         </span>

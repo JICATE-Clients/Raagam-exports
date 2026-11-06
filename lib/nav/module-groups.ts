@@ -1332,12 +1332,14 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         slug: "people",
         label: "People",
         icon: Users,
-        description: "Workers, staff, contractors and their lifecycle",
+        description: "Workers, staff and contractors",
         children: [
           { href: "/hr/workers", label: "Workers", description: "Worker master and bulk import" },
           { href: "/hr/staff", label: "Staff", description: "Staff master" },
           { href: "/hr/contractors", label: "Contractors", description: "Contractor master" },
-          { href: "/hr/lifecycle", label: "Lifecycle", description: "Joining, transfer, confirmation and exit" },
+          // Lifecycle REMOVED (user 2026-11-04: "remove lifecycle from people").
+          // Team Lifecycle (joining, documents, exits, full & final) does the
+          // job; the old screen held no events. /hr/lifecycle redirects there.
         ],
       },
       {
@@ -1355,9 +1357,39 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           // punch of the day as Time 1, Time 2, … Read-only, from `punches`.
           { href: "/hr/movement-register", label: "Daily Movement Register", description: "Every punch of the day, in order, per person" },
           { href: "/hr/piece-records", label: "Piece Records", description: "Piece-rate output per worker" },
-          { href: "/hr/leave", label: "Leave & Encashment", description: "Leave balances, applications and encashment" },
+          // Leave & Encashment REMOVED (user 2026-11-03: "remove leave &
+          // encashment from time and attendance"). Time Off below does the
+          // same job — Leave, Permission, Encashment, Balances — and the old
+          // screen held no rows (hr_leaves = 0). /hr/leave redirects there.
           // Was the Attendance page's third tab (?view=live).
           { href: "/hr/live", label: "Live", description: "What the biometric devices are sending, as it arrives" },
+        ],
+      },
+      // TIME OFF — the MyJKKN HR port, phase 1. Straight after Time &
+      // Attendance and before Pay (user 2026-11-04: "after time & attendance
+      // there should be time off, after that pay") — leave is read beside
+      // attendance and feeds pay. It first sat below Compliance & Setup with
+      // the other MyJKKN builds (client 2026-10-29). It replaced Time &
+      // Attendance ▸ Leave & Encashment on 2026-11-03. Tables, rules and
+      // approvals in 0770_hr_time_off.sql.
+      {
+        kind: "group",
+        slug: "time-off",
+        label: "Time Off",
+        icon: CalendarOff,
+        description: "Leave, permissions, comp-off, approvals, balances and encashment",
+        children: [
+          // The four requests first, named alike (user 2026-11-05: "leave
+          // request, permission request, on duty request, comp off request").
+          { href: "/hr/time-off/leave", label: "Leave Requests", description: "Apply for leave, withdraw, cancel" },
+          { href: "/hr/time-off/permission", label: "Permission Requests", description: "Short time off, in hours" },
+          { href: "/hr/time-off/on-duty", label: "On Duty Requests", description: "Work away from the desk, applied in advance" },
+          { href: "/hr/time-off/comp-off", label: "Comp Off Requests", description: "Claim credits for days worked, book them as leave" },
+          { href: "/hr/time-off/approvals", label: "Time Off Approvals", description: "Approve or reject leave, permissions, claims and encashments" },
+          { href: "/hr/time-off/calendar", label: "Leave Calendar", description: "Who is on leave, by month" },
+          { href: "/hr/time-off/balances", label: "Leave Balances", description: "Entitled, used, pending and available, per person" },
+          { href: "/hr/time-off/encashment", label: "Leave Encashment", description: "Turn unused leave into pay" },
+          { href: "/hr/time-off/setup", label: "Time Off Setup", description: "Leave types, leave years and blackout dates" },
         ],
       },
       {
@@ -1395,27 +1427,6 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         children: [
           { href: "/hr/statutory", label: "Statutory Docs", description: "PF, ESI and other statutory records" },
           { href: "/hr/settings", label: "Settings", description: "Payroll heads, rules and periods" },
-        ],
-      },
-      // TIME OFF — the MyJKKN HR port, phase 1 (client 2026-10-29: "after this
-      // compliance & setup bottom of this build these myjkkn things"). A
-      // separate build beside Time & Attendance ▸ Leave & Encashment, which is
-      // untouched. Tables, rules and approvals in 0770_hr_time_off.sql.
-      {
-        kind: "group",
-        slug: "time-off",
-        label: "Time Off",
-        icon: CalendarOff,
-        description: "Leave, permissions, comp-off, approvals, balances and encashment",
-        children: [
-          { href: "/hr/time-off/leave", label: "Leave Requests", description: "Apply for leave, withdraw, cancel" },
-          { href: "/hr/time-off/permission", label: "Permissions", description: "Short time off, in hours" },
-          { href: "/hr/time-off/comp-off", label: "Compensatory Off", description: "Claim credits for days worked, book them as leave" },
-          { href: "/hr/time-off/approvals", label: "Time Off Approvals", description: "Approve or reject leave, permissions, claims and encashments" },
-          { href: "/hr/time-off/calendar", label: "Leave Calendar", description: "Who is on leave, by month" },
-          { href: "/hr/time-off/balances", label: "Leave Balances", description: "Entitled, used, pending and available, per person" },
-          { href: "/hr/time-off/encashment", label: "Leave Encashment", description: "Turn unused leave into pay" },
-          { href: "/hr/time-off/setup", label: "Leave Setup", description: "Leave types, leave years and blackout dates" },
         ],
       },
       {

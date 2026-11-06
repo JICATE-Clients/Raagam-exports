@@ -1,4 +1,4 @@
-import { Check, X, RotateCcw, Clock, Ban, UserCog, TriangleAlert } from "lucide-react";
+import { Check, X, RotateCcw, Clock, Ban, UserCog, TriangleAlert, ArrowUpRight } from "lucide-react";
 import { fmtDateTime } from "@/lib/format";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Truncated } from "@/components/ui/truncated";
@@ -32,6 +32,7 @@ const ICONS: Record<EventAction, typeof Check> = {
   cancel: Ban,
   delegate: UserCog,
   sla_breach: TriangleAlert,
+  forward: ArrowUpRight,
 };
 
 /* The action's own word. `approve` on a step reads "Approved" as a fact about
@@ -44,6 +45,17 @@ const VERB: Record<EventAction, string> = {
   cancel: "Cancelled",
   delegate: "Delegated",
   sla_breach: "Overdue",
+  forward: "Sent on",
+};
+
+/* A step routed by a resolver carries the resolver's KEY as its hint; say it
+   in words (0807's three HR stages, 0629's either-role). A role hint is
+   already its own name and passes through. */
+const HINT_WORDS: Record<string, string> = {
+  hr_department_head: "the department's HOD",
+  hr_manager: "the HR Manager",
+  hr_executive_director: "the ED (Managing Director)",
+  md_or_hr_manager: "the Managing Director or an HR Manager",
 };
 
 const TONE: Record<EventAction, "success" | "danger" | "warning" | "neutral"> = {
@@ -54,6 +66,7 @@ const TONE: Record<EventAction, "success" | "danger" | "warning" | "neutral"> = 
   cancel: "neutral",
   delegate: "neutral",
   sla_breach: "warning",
+  forward: "neutral",
 };
 
 export function ApprovalTimeline({
@@ -71,9 +84,19 @@ export function ApprovalTimeline({
    * only says "Approved".
    */
   resolveUserName,
+  closed = false,
+  waitingOn,
 }: {
   rows: TimelineRow[];
   resolveUserName?: (id: string) => string | null | undefined;
+  /**
+   * The run has ENDED — rejected, withdrawn or approved. A step it never
+   * reached then reads "not reached", not as a step still to come (user
+   * 2026-11-05: a request closed in between the three stages stops there).
+   */
+  closed?: boolean;
+  /** Names of the people the current step waits for, where the caller knows them. */
+  waitingOn?: string[];
 }) {
   if (rows.length === 0) return null;
 
@@ -88,6 +111,8 @@ export function ApprovalTimeline({
       {rows.map((r, i) => {
         const Icon = r.action ? ICONS[r.action] : Clock;
         const actor = nameOf(r.actor_id);
+        /* A stage "Send to …" jumped over (0821) — a later stage has acted or holds it. */
+        const skipped = !r.action && !r.is_current && rows.slice(i + 1).some((x) => x.action || x.is_current);
 
         return (
           <li
@@ -158,7 +183,13 @@ export function ApprovalTimeline({
                   ? actor
                     ? `by ${actor}`
                     : "by the system"
-                  : r.approver_hint}
+                  : r.is_current && waitingOn?.length
+                    ? `waiting for ${waitingOn.join(", ")}`
+                    : skipped
+                      ? "skipped — sent past this stage"
+                      : closed
+                      ? "not needed — closed before this step"
+                      : (HINT_WORDS[r.approver_hint] ?? r.approver_hint)}
               </p>
 
               {r.comment && (

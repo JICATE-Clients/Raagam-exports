@@ -120,6 +120,18 @@ function setState(next: WorkspaceTabsState): void {
   emit();
 }
 
+/**
+ * FORGET EVERY OPEN TAB — called by the login screen. The strip lives in this
+ * browser tab's session, not in the person's account, so without it the next
+ * person to sign in here inherits the last one's tabs: TEST HR signed in after
+ * the admin and landed on Approval Flows, a screen they may not open (user
+ * 2026-11-06). Reaching /login is the one door every new session goes
+ * through, whether the last one signed out, timed out or was refused.
+ */
+export function resetWorkspaceTabs(): void {
+  setState(EMPTY_STATE);
+}
+
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);
   return () => {
@@ -229,7 +241,10 @@ function setTabResume(href: string, resume: string | null): void {
   });
 }
 
-const ONE_SHOT = ["new", "open", "costFor", "draft"];
+// `show` — the HR People table's list (Present, Late …): reopening the HR
+// Dashboard or Attendance Report starts on Present, never on the list last
+// looked at (user 2026-11-04). Only those two screens read it.
+const ONE_SHOT = ["new", "open", "costFor", "draft", "show"];
 
 function setTabSearch(href: string, query: string): void {
   const tab = findByHref(href);

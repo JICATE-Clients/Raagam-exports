@@ -24,33 +24,66 @@ import {
   deleteBlackout,
   deleteLeaveType,
   saveBlackout,
+  saveDepartmentHead,
   saveLeaveType,
   saveYear,
 } from "@/lib/hr/timeoff-actions";
 import {
-  CATEGORY_LABELS,
-  REQUEST_CATEGORIES,
+  isOnDuty,
   fmtDays,
   fmtMinutes,
   type Blackout,
+  type DepartmentHead,
+  type HodOption,
   type LeaveType,
   type LeaveTypeInput,
   type LeaveYear,
   type RequestCategory,
 } from "@/lib/hr/timeoff-types";
-import { TypeDot } from "./shared";
 
 /**
- * HR ▸ Time Off ▸ Leave Setup (0770, MyJKKN §9.4 / `admin/leave-types`,
+ * HR ▸ Time Off ▸ Time Off Setup (0770, MyJKKN §9.4 / `admin/leave-types`,
  * `admin/academic-years`, and the blackout table MyJKKN never gave a screen).
- * Three tabs: Leave Types, Leave Years, Blackout Dates.
+ * Tabs: Leave Types, Other Types, Leave Years, Blackout Dates, Approval Flow. The two TYPE
+ * tabs are one table split in two (user 2026-11-05: "separate tabs for leaves
+ * and the other things — OD, permission, comp off", then "why those 3
+ * separate, why not in one"): the leaves (CL, SL, EL, LOP …) and everything
+ * else (On Duty, Permission, Comp Off). Leave Types' "+ Add" makes a leave;
+ * Other Types' asks which of the three — the only place a kind is chosen,
+ * and only for a NEW type (the editor never changes it).
  */
+
+type TypeGroup = "leave" | "other";
+type OtherKind = "on_duty" | "permission" | "comp_off";
+
+const GROUPS: Record<TypeGroup, { label: string; noun: string; empty: string }> = {
+  leave: { label: "Leave Types", noun: "Leave Type", empty: "No leave types yet." },
+  other: { label: "Other Types", noun: "Type", empty: "No on duty, permission or comp off type yet." },
+};
+
+const OTHER_KINDS: Record<OtherKind, { label: string; category: RequestCategory }> = {
+  on_duty: { label: "On Duty", category: "leave" },
+  permission: { label: "Permission", category: "short_time_off" },
+  comp_off: { label: "Comp Off", category: "compensatory_off" },
+};
+
+function otherKind(t: { request_category: string; code: string | null; name: string | null }): OtherKind | null {
+  if (t.request_category === "short_time_off") return "permission";
+  if (t.request_category === "compensatory_off") return "comp_off";
+  return isOnDuty(t.code, t.name) ? "on_duty" : null;
+}
+
+function inGroup(t: LeaveType, g: TypeGroup): boolean {
+  return (g === "other") === (otherKind(t) !== null);
+}
 
 type Props = {
   types: LeaveType[];
   years: LeaveYear[];
   blackouts: Blackout[];
   locations: { id: string; name: string }[];
+  heads: DepartmentHead[];
+  hodOptions: HodOption[];
   canEdit: boolean;
   canDelete: boolean;
 };
@@ -59,9 +92,14 @@ export function SetupScreen(props: Props) {
   return (
     <Tabs
       items={[
-        { key: "types", label: "Leave Types", content: <TypesTab {...props} /> },
+        ...(Object.keys(GROUPS) as TypeGroup[]).map((g) => ({
+          key: g === "leave" ? "types" : g,
+          label: GROUPS[g].label,
+          content: <TypesTab {...props} group={g} />,
+        })),
         { key: "years", label: "Leave Years", content: <YearsTab {...props} /> },
         { key: "blackouts", label: "Blackout Dates", content: <BlackoutsTab {...props} /> },
+        { key: "flow", label: "Approval Flow", content: <FlowTab {...props} /> },
       ]}
     />
   );
@@ -123,7 +161,9 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function TypesTab({ types, canEdit, canDelete }: Props) {
+function TypesTab({ types: allTypes, canEdit, canDelete, group }: Props & { group: TypeGroup }) {
+  const G = GROUPS[group];
+  const types = allTypes.filter((t) => inGroup(t, group));
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -143,10 +183,22 @@ function TypesTab({ types, canEdit, canDelete }: Props) {
 
   function openEdit(t?: LeaveType) {
     setEditId(t?.id ?? null);
-    setD(typeDraft(t));
+    const draft = typeDraft(t);
+    if (!t && group === "other") pickKind(draft, "permission");
+    setD(draft);
     setDirty(false);
     setOpen(true);
   }
+  /** A new Other type takes its kind here. On Duty is recognised by "ON DUTY" in its name. */
+  function pickKind(draft: TypeDraft, k: OtherKind) {
+    draft.request_category = OTHER_KINDS[k].category;
+    draft.track_balance = false;
+    const name = String(draft.name ?? "");
+    if (k === "on_duty" && !/ON DUTY/i.test(name)) draft.name = `ON DUTY ${name}`.trim();
+    if (k !== "on_duty") draft.name = name.replace(/^ON DUTY\s*/i, "");
+  }
+  const newKind = otherKind({ request_category: str("request_category"), code: str("code"), name: str("name") }) ?? "permission";
+
   function save() {
     startTransition(async () => {
       const r = await saveLeaveType(editId, typePayload(d));
@@ -156,7 +208,7 @@ function TypesTab({ types, canEdit, canDelete }: Props) {
       }
       setDirty(false);
       setOpen(false);
-      success("Leave type saved");
+      success(`${G.noun} saved`);
       router.refresh();
     });
   }
@@ -173,8 +225,10 @@ function TypesTab({ types, canEdit, canDelete }: Props) {
 
   const columns: Column<LeaveType>[] = [
     { header: "Code", cell: (t) => <span className="font-mono text-xs font-medium">{t.code}</span> },
-    { header: "Name", cell: (t) => <TypeDot color={t.color}>{t.name}</TypeDot> },
-    { header: "Kind", cell: (t) => <span className="text-sm">{CATEGORY_LABELS[t.request_category]}</span> },
+    { header: "Name", cell: (t) => <span className="text-sm">{t.name}</span> },
+    ...(group === "other"
+      ? [{ header: "Kind", cell: (t: LeaveType) => <span className="text-sm">{OTHER_KINDS[otherKind(t) ?? "permission"].label}</span> }]
+      : []),
     {
       header: "Allowance",
       cell: (t) => (
@@ -215,18 +269,18 @@ function TypesTab({ types, canEdit, canDelete }: Props) {
 
   return (
     <div className="space-y-4 pt-3">
-      <div className="flex justify-end">{canEdit && <Button onClick={() => openEdit()}>+ Add Leave Type</Button>}</div>
+      <div className="flex justify-end">{canEdit && <Button onClick={() => openEdit()}>+ Add {G.noun}</Button>}</div>
       <DataTable
         columns={[...withCreatedColumns(columns, types), statusColumn, actions]}
         rows={types}
         getKey={(t) => t.id}
-        empty="No leave types yet."
+        empty={G.empty}
       />
 
       <Sheet
         open={open}
         onClose={() => setOpen(false)}
-        title={editId ? `Edit ${str("name")}` : "New leave type"}
+        title={editId ? `Edit ${str("name")}` : `New ${G.noun.toLowerCase()}`}
         size="md"
         footer={
           <div className="flex justify-end gap-2">
@@ -239,7 +293,7 @@ function TypesTab({ types, canEdit, canDelete }: Props) {
           </div>
         }
       >
-        {/* 144 code + 288 name + 176 kind + 88 colour + 72 order + gaps ≈ 830px → cap 56rem */}
+        {/* 144 code + 288 name + 176 available to + 144 gender + gaps ≈ 800px → cap 56rem; wraps on a phone */}
         <div className="max-w-[56rem] space-y-6">
           <Section title="Identity">
             <FieldRow>
@@ -250,24 +304,42 @@ function TypesTab({ types, canEdit, canDelete }: Props) {
               <Field label="Name" w="name" required>
                 <Input value={str("name")} onChange={(e) => set("name", e.target.value)} />
               </Field>
-              <Field label="Kind" w="term">
-                <Select value={str("request_category")} onChange={(e) => set("request_category", e.target.value)}>
-                  {REQUEST_CATEGORIES.map((c) => (
-                    <option key={c} value={c}>
-                      {CATEGORY_LABELS[c]}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <Field label="Colour" w="hug">
-                {/* caps-input: exempt -- a colour value, not text */}
-                <Input type="color" className="h-9 p-1" value={str("color")} onChange={(e) => set("color", e.target.value)} />
-              </Field>
-              <Field label="Order" w="num">
-                <Input type="number" min="0" value={str("sort_order")} onChange={(e) => set("sort_order", e.target.value)} />
-              </Field>
-            </FieldRow>
-            <FieldRow>
+              {group === "other" && !editId && (
+                <Field label="Kind" w="term" required>
+                  <Select
+                    value={newKind}
+                    onChange={(e) => {
+                      const next = { ...d };
+                      pickKind(next, e.target.value as OtherKind);
+                      setD(next);
+                      setDirty(true);
+                    }}
+                  >
+                    {(Object.keys(OTHER_KINDS) as OtherKind[]).map((k) => (
+                      <option key={k} value={k}>
+                        {OTHER_KINDS[k].label}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              )}
+              {/*
+                KIND REMOVED FROM THE EDITOR (user 2026-11-05: "why is it in
+                every leave edit — if not needed remove it"). A type's kind —
+                leave (days), compensatory off (earned, then booked), short time
+                off (hours) — is fixed for its life: CL/SL/EL/LOP/OD are leave,
+                CO comp-off, PER permission. The draft keeps what is stored, so
+                an edit never changes it, and a NEW type is a leave type (the
+                default). The list's Kind column still shows it.
+              */}
+              {/*
+                COLOUR AND ORDER REMOVED (user 2026-11-05: "remove the colour and
+                order everywhere in the Time Off setup"). The draft still carries
+                what is stored, so a save keeps a type's colour (the calendar's
+                dots read it) and its place in the lists; a new type takes the
+                default colour and order 0.
+              */}
+              {/* Available to and Gender share the first line (user 2026-11-05). */}
               <Field label="Available to" w="term">
                 <Select value={str("applies_to")} onChange={(e) => set("applies_to", e.target.value)}>
                   <option value="both">Staff & workers</option>
@@ -288,19 +360,24 @@ function TypesTab({ types, canEdit, canDelete }: Props) {
               {cat !== "short_time_off" && (
                 <>
                   <Toggle checked={bool("allow_half_day")} onChange={(v) => set("allow_half_day", v)} label="Half day allowed" />
-                  <Toggle checked={bool("skip_weekends")} onChange={(v) => set("skip_weekends", v)} label="Don't count Sundays" />
-                  <Toggle checked={bool("skip_holidays")} onChange={(v) => set("skip_holidays", v)} label="Don't count holidays" />
+                  {/* On the second line with the other switches (user 2026-11-05: "allowance limited by in 2nd row"). */}
+                  {cat === "leave" && (
+                    <Toggle checked={bool("track_balance")} onChange={(v) => set("track_balance", v)} label="Limited by a balance" />
+                  )}
+                  {/*
+                    "Don't count Sundays" and "Don't count holidays" REMOVED as
+                    switches (user 2026-11-05). Both stay ON — every type held
+                    them on that day, the draft keeps what is stored and a new
+                    type defaults to on — so a leave over a Sunday or a holiday
+                    still does not count those days. Only the choice is gone.
+                  */}
                 </>
               )}
             </div>
           </Section>
 
-          {cat === "leave" && (
+          {cat === "leave" && bool("track_balance") && (
             <Section title="Allowance">
-              <div className="flex flex-wrap gap-x-6 gap-y-2">
-                <Toggle checked={bool("track_balance")} onChange={(v) => set("track_balance", v)} label="Limited by a balance" />
-              </div>
-              {bool("track_balance") && (
                 <FieldRow>
                   <Field label="Days a year" w="hug">
                     <Input type="number" min="0" step="0.5" value={str("default_entitled_days")} onChange={(e) => set("default_entitled_days", e.target.value)} />
@@ -317,37 +394,22 @@ function TypesTab({ types, canEdit, canDelete }: Props) {
                     </Field>
                   )}
                 </FieldRow>
-              )}
             </Section>
           )}
 
-          {cat !== "short_time_off" && (
-            <Section title="Rules">
-              <FieldRow>
-                <Field label="Notice (days)" w="hug" hint="Asked of the person applying for themself">
-                  <Input type="number" min="0" value={str("min_advance_notice_days")} onChange={(e) => set("min_advance_notice_days", e.target.value)} />
-                </Field>
-                <Field label="Most days at a time" w="hug">
-                  <Input type="number" min="0.5" step="0.5" value={str("max_continuous_days")} onChange={(e) => set("max_continuous_days", e.target.value)} />
-                </Field>
-                {cat === "leave" && (
-                  <>
-                    <Field label="Cap per" w="code">
-                      <Select value={str("limit_period")} onChange={(e) => set("limit_period", e.target.value)}>
-                        <option value="none">No cap</option>
-                        <option value="month">Month</option>
-                        <option value="year">Year</option>
-                      </Select>
-                    </Field>
-                    {str("limit_period") !== "none" && (
-                      <Field label="Most days" w="hug" required>
-                        <Input type="number" min="0.5" step="0.5" value={str("max_days_per_period")} onChange={(e) => set("max_days_per_period", e.target.value)} />
-                      </Field>
-                    )}
-                  </>
-                )}
-              </FieldRow>
-              {cat === "leave" && bool("track_balance") && (
+          {/*
+            RULES REMOVED (user 2026-11-05: "the rules itself, the 3 boxes, no
+            need — remove it from all the places"). Notice (days), Most days at
+            a time and Cap per / Most days are gone from the editor. Every type
+            held them empty (0 · none · no cap) that day, so nothing is still
+            enforced unseen; the columns stay in the table and the draft still
+            carries what is stored, so a save never changes them. Every time
+            off is applied in advance regardless (0798's trigger).
+            What was left in the section — carry forward and encashment — keeps
+            it, under a title that says what it is.
+          */}
+          {cat === "leave" && bool("track_balance") && (
+            <Section title="Carry forward & encashment">
                 <>
                   <div className="flex flex-wrap gap-x-6 gap-y-2">
                     <Toggle checked={bool("allow_carry_forward")} onChange={(v) => set("allow_carry_forward", v)} label="Carry forward to next year" />
@@ -366,7 +428,6 @@ function TypesTab({ types, canEdit, canDelete }: Props) {
                     )}
                   </FieldRow>
                 </>
-              )}
             </Section>
           )}
 
@@ -464,8 +525,8 @@ function YearsTab({ years, canEdit }: Props) {
 
   return (
     <div className="space-y-4 pt-3">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="min-w-0 text-xs text-muted-foreground">
           Balances reset each leave year. Years cannot overlap. A closed year takes no new requests or changes.
         </span>
         {canEdit && <Button onClick={() => openEdit()}>+ Add Leave Year</Button>}
@@ -493,8 +554,8 @@ function YearsTab({ years, canEdit }: Props) {
         }
       >
         <div className="space-y-4">
-          <Field label="Name" required hint="For example 2027-28">
-            <Input value={d.name} onChange={(e) => put({ name: e.target.value })} />
+          <Field label="Name" required>
+            <Input value={d.name} placeholder="2027-28" onChange={(e) => put({ name: e.target.value })} />
           </Field>
           <FieldRow>
             <Field label="From" w="code" required>
@@ -598,8 +659,8 @@ function BlackoutsTab({ blackouts, types, locations, canEdit, canDelete }: Props
 
   return (
     <div className="space-y-4 pt-3">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="min-w-0 text-xs text-muted-foreground">
           No leave can be applied for on these dates — peak shipment weeks, audits, stock-taking.
         </span>
         {canEdit && <Button onClick={() => openEdit()}>+ Add Blackout</Button>}
@@ -665,6 +726,102 @@ function BlackoutsTab({ blackouts, types, locations, canEdit, canDelete }: Props
           </Field>
         </div>
       </Sheet>
+    </div>
+  );
+}
+
+// ─── Approval flow (0817) ──────────────────────────────────────────────────
+
+const STAGES = [
+  { label: "Department HOD", who: "The head of the person's department. No HOD named, or the HOD is the one on leave → the HR Manager takes it." },
+  { label: "HR Manager", who: "Whoever holds the HR Manager role. Nobody does → the Managing Director." },
+  { label: "ED", who: "The owner — the login holding Managing Director. Only after the ED approves is it approved." },
+];
+
+/**
+ * Every leave, permission, on duty, comp-off booking and encashment goes
+ * Department HOD → HR Manager → ED (user 2026-11-05). The three steps are the
+ * engine's flow (0817); what HR sets here is who heads each department. An HOD
+ * acts with their own login — the one whose e-mail is on their staff record.
+ */
+function FlowTab({ heads, hodOptions, canEdit }: Props) {
+  const router = useRouter();
+  const { success, error: toastError } = useToast();
+  const [isPending, startTransition] = useTransition();
+  useUnsavedGuard(isPending);
+  const named = heads.filter((h) => h.hod_staff_id).length;
+
+  function pick(h: DepartmentHead, staffId: string) {
+    startTransition(async () => {
+      const r = await saveDepartmentHead(h.department_id, staffId || null);
+      if (!r.ok) {
+        toastError(r.error);
+        return;
+      }
+      success(staffId ? `HOD of ${h.department_name} saved` : `${h.department_name} has no HOD now`);
+      router.refresh();
+    });
+  }
+
+  const columns: Column<DepartmentHead>[] = [
+    { header: "Department", cell: (h) => <span className="text-sm font-medium">{h.department_name}</span> },
+    {
+      header: "HOD",
+      cell: (h) => {
+        const own = hodOptions.filter((o) => o.department_id === h.department_id);
+        const rest = hodOptions.filter((o) => o.department_id !== h.department_id);
+        const label = (o: HodOption) => (o.code ? `${o.name} (${o.code})` : o.name);
+        return (
+          <Select
+            aria-label={`HOD of ${h.department_name}`}
+            className="w-full max-w-sm"
+            value={h.hod_staff_id ?? ""}
+            disabled={!canEdit || isPending}
+            onChange={(e) => pick(h, e.target.value)}
+          >
+            <option value="">No HOD — HR Manager approves</option>
+            {own.length > 0 && (
+              <optgroup label="In this department">
+                {own.map((o) => (
+                  <option key={o.id} value={o.id} data-person={`staff:${o.id}`}>
+                    {label(o)}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            <optgroup label={own.length ? "Other departments" : "Staff"}>
+              {rest.map((o) => (
+                <option key={o.id} value={o.id} data-person={`staff:${o.id}`}>
+                  {label(o)}
+                </option>
+              ))}
+            </optgroup>
+          </Select>
+        );
+      },
+    },
+  ];
+
+  return (
+    <div className="space-y-4 pt-3">
+      <ol className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        {STAGES.map((st, i) => (
+          <li key={st.label} className="rounded-lg border bg-card p-3">
+            <div className="flex items-center gap-2">
+              <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
+                {i + 1}
+              </span>
+              <span className="text-sm font-semibold">{st.label}</span>
+            </div>
+            <p className="mt-1.5 text-xs text-muted-foreground">{st.who}</p>
+          </li>
+        ))}
+      </ol>
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        Department HODs · {named} of {heads.length} named
+      </h3>
+      {/* paginate={false}: the whole set of departments is one setting, not a listing to page through. */}
+      <DataTable columns={columns} rows={heads} getKey={(h) => h.department_id} empty="No departments yet." paginate={false} />
     </div>
   );
 }

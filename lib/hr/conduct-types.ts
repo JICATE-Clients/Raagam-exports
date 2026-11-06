@@ -163,6 +163,8 @@ export type Witness = {
   id: string;
   name: string;
   kind: "staff" | "worker" | "outside";
+  /** "staff:<id>" / "worker:<id>" — the photo; null for someone not on the rolls. */
+  person: string | null;
   statement: string;
   given_on: string;
 };

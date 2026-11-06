@@ -24,7 +24,7 @@ import { HrDashboardView } from "./hr-dashboard";
 export default async function HrDashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ kind?: string; dept?: string; show?: string; day?: string }>;
+  searchParams: Promise<{ kind?: string; dept?: string; show?: string; day?: string; name?: string }>;
 }) {
   await requirePermission("hr_payroll", "view");
   const sp = await searchParams;
@@ -38,7 +38,8 @@ export default async function HrDashboardPage({
   const now = new Date().getTime();
   const full = await getHrDashboard(now, sp.day);
   const today = istToday();
-  const view = filterHrDashboard(full, { kind, depts });
+  const name = (sp.name ?? "").trim();
+  const view = filterHrDashboard(full, { kind, depts, name });
   const counts = {
     staff: full.groups.find((g) => g.group === "staff")?.people.length ?? 0,
     worker: full.groups.find((g) => g.group === "worker")?.people.length ?? 0,
@@ -47,15 +48,15 @@ export default async function HrDashboardPage({
   return (
     <HrDashboardView
       data={view.data}
-      query={new URLSearchParams({ kind, ...(sp.dept ? { dept: sp.dept } : {}), ...(full.live ? {} : { day: full.day }) }).toString()}
+      query={new URLSearchParams({ kind, ...(sp.dept ? { dept: sp.dept } : {}), ...(name ? { name } : {}), ...(full.live ? {} : { day: full.day }) }).toString()}
       weekNote={
         view.picked.length > 0 && !full.trendByDept
           ? "The week shows every department until migration 0776 is applied."
           : undefined
       }
-      filter={<HrDashboardFilter kind={kind} counts={counts} depts={view.depts} picked={view.picked} day={full.day} today={today} />}
+      filter={<HrDashboardFilter kind={kind} counts={counts} depts={view.depts} picked={view.picked} name={name} day={full.day} today={today} />}
       peopleFilter={
-        <HrDashboardFilter variant="table" kind={kind} counts={counts} depts={view.depts} picked={view.picked} day={full.day} today={today} />
+        <HrDashboardFilter variant="table" kind={kind} counts={counts} depts={view.depts} picked={view.picked} name={name} day={full.day} today={today} />
       }
     />
   );

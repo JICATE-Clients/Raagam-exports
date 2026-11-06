@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, Suspense } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { Eye, EyeOff } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { resetWorkspaceTabs } from "@/lib/workspace-tabs";
 import { Input } from "@/components/ui/input";
 
 /** Field skin for the light-green login (see `app/(login)/layout.tsx`). The
@@ -155,6 +156,8 @@ function LoginForm() {
 }
 
 export default function LoginPage() {
+  // A new session starts with no tabs — never the last person's (see resetWorkspaceTabs).
+  useEffect(() => resetWorkspaceTabs(), []);
   return (
     <Suspense fallback={null}>
       <LoginForm />

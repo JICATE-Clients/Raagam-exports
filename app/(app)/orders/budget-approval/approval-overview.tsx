@@ -10,6 +10,7 @@ import {
   FileText,
   RotateCcw,
   UserCog,
+  ArrowUpRight,
   X,
 } from "lucide-react";
 import { Card, CardBody } from "@/components/ui/card";
@@ -444,6 +445,7 @@ const STEP_ICON: Record<EventAction, typeof Check> = {
   cancel: Ban,
   delegate: UserCog,
   sla_breach: TriangleAlert,
+  forward: ArrowUpRight,
 };
 const STEP_WORD: Record<EventAction, string> = {
   submit: "Submitted",
@@ -453,6 +455,7 @@ const STEP_WORD: Record<EventAction, string> = {
   cancel: "Cancelled",
   delegate: "Delegated",
   sla_breach: "Overdue",
+  forward: "Sent on",
 };
 
 /**

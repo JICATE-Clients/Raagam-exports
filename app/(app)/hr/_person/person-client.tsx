@@ -1,5 +1,7 @@
 "use client";
 
+import { PersonCell } from "@/components/ui/person-avatar";
+
 import { useMemo, useRef, useState, useTransition } from "react";
 import { UserRound as UserRoundIcon } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
@@ -1664,7 +1666,7 @@ export default function PersonClient({
           {rows
             .filter((m) => m.id !== editId)
             .map((m) => (
-              <option key={m.id} value={m.id}>
+              <option key={m.id} value={m.id} data-person={`${isWorker ? "worker" : "staff"}:${m.id}`}>
                 {m.name}
               </option>
             ))}
@@ -2272,7 +2274,7 @@ export default function PersonClient({
                     {rows
                       .filter((m) => m.id !== editId)
                       .map((m) => (
-                        <option key={m.id} value={m.id}>
+                        <option key={m.id} value={m.id} data-person={`${isWorker ? "worker" : "staff"}:${m.id}`}>
                           {m.name}
                         </option>
                       ))}
@@ -4484,7 +4486,7 @@ export default function PersonClient({
       header: "Code",
       cell: (r) => <span className="font-mono text-xs">{r.code ?? "—"}</span>,
     },
-    { header: "Name", cell: (r) => r.name },
+    { header: "Name", cell: (r) => <PersonCell name={r.name} person={`${isWorker ? "worker" : "staff"}:${r.id}`} /> },
     {
       header: "Designation",
       // `designation_name` is resolved in the service — the row holds an id.
