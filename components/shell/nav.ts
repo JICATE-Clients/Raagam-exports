@@ -48,6 +48,9 @@ export interface NavItem {
   icon: LucideIcon;
   /** Sub-modules shown as an expandable tree under the module. */
   children?: SubNavItem[];
+  /** Kept OFF the rail and the phone bar, but still a module: its routes,
+   *  permission and active-module matching are unchanged. */
+  hidden?: boolean;
 }
 
 /**
@@ -218,6 +221,9 @@ export const NAV: NavItem[] = [
     module: "approvals",
     icon: Stamp, // was BadgeCheck (user 2026-11-03): approving is signing off
     children: [{ href: "/approvals/flows", label: "Approval Flows" }],
+    // HIDDEN FOR NOW (user 2026-11-06): the queue is worked from Pulse ▸ My
+    // Approvals (/comms/approvals). /approvals and /approvals/flows keep their URLs.
+    hidden: true,
   },
   {
     href: "/resolve",
