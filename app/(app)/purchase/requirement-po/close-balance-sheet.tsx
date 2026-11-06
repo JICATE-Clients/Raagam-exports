@@ -3,14 +3,13 @@
 import { useEffect, useState, useTransition } from "react";
 import { Sheet, type SheetOrigin } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { Field } from "@/components/ui/field";
-import { Textarea } from "@/components/ui/textarea";
 import { Truncated } from "@/components/ui/truncated";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { closeRequirementBalance, loadCloseBalances, reopenRequirementBalance } from "@/lib/purchase/re-po/actions";
 import type { CloseBalanceLine, RequirementClosure } from "@/lib/purchase/re-po/types";
+import { CloseReasonField, EMPTY_REASON, reasonText, type CloseReasonState } from "./close-reason";
 
 /**
  * CLOSE BALANCES (0799, user 2026-11-03). One RE / SWO / IWO's lines that still have
@@ -21,6 +20,11 @@ import type { CloseBalanceLine, RequirementClosure } from "@/lib/purchase/re-po/
  *
  * Every action writes at once (the database does the permission and visibility
  * checks), so the sheet has no Save of its own: Done closes it.
+ *
+ * CLOSE ALL (user 2026-11-06, the Close Balance spec: "closes all un-ordered residual lines
+ * under the selected RE / SWO / IWO in one click"). One reason for every line still to
+ * order, closed line by line through the same action, so each keeps its own audit row.
+ * The reason is picked from the shared list (`close-reason.tsx`) or typed under OTHER.
  */
 export function CloseBalanceSheet({
   source,
@@ -39,12 +43,13 @@ export function CloseBalanceSheet({
   const [lines, setLines] = useState<CloseBalanceLine[] | null>(null);
   const [closed, setClosed] = useState<RequirementClosure[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
-  /** The line whose reason box is open, and what is typed in it. */
+  /** The line whose reason box is open ("*all*" = Close all), and the reason picked. */
   const [closing, setClosing] = useState<string | null>(null);
-  const [reason, setReason] = useState("");
+  const [reason, setReason] = useState<CloseReasonState>(EMPTY_REASON);
+  const why = reasonText(reason);
   const [isPending, startTransition] = useTransition();
   // A half-typed reason must survive a silent deploy reload (AGENTS, "Auto-reload guard").
-  useUnsavedGuard(!!reason.trim() || isPending);
+  useUnsavedGuard(!!reason.pick || isPending);
 
   const sourceId = source?.id ?? null;
   const reload = (id: string) =>
@@ -66,14 +71,43 @@ export function CloseBalanceSheet({
   const open = lines?.filter((l) => l.balance > 0.0005) ?? [];
   const lineOf = new Map((lines ?? []).map((l) => [l.req_key, l]));
 
-  const doClose = (l: CloseBalanceLine) => {
-    if (!sourceId || !reason.trim()) return;
+  const refresh = async (id: string) => {
+    const again = await loadCloseBalances(id);
+    if (again.ok) {
+      setLines(again.lines);
+      setClosed(again.closed);
+    }
+  };
+
+  const doCloseAll = () => {
+    if (!sourceId || !why) return;
+    const todo = open;
     startTransition(async () => {
-      const res = await closeRequirementBalance(sourceId, l.req_key, reason);
+      let done = 0;
+      for (const l of todo) {
+        const res = await closeRequirementBalance(sourceId, l.req_key, why);
+        if (!res.ok) {
+          toastError(done ? `Closed ${done} of ${todo.length}, then: ${res.error}` : res.error);
+          break;
+        }
+        done++;
+      }
+      if (done === todo.length) success(`Closed all ${done} balance${done === 1 ? "" : "s"}`);
+      setClosing(null);
+      setReason(EMPTY_REASON);
+      if (done) onChanged();
+      await refresh(sourceId);
+    });
+  };
+
+  const doClose = (l: CloseBalanceLine) => {
+    if (!sourceId || !why) return;
+    startTransition(async () => {
+      const res = await closeRequirementBalance(sourceId, l.req_key, why);
       if (res.ok) {
         success(`Closed ${fmtNumber(res.closed)}${l.uom ? ` ${l.uom}` : ""} of ${l.item}`);
         setClosing(null);
-        setReason("");
+        setReason(EMPTY_REASON);
         onChanged();
         const again = await loadCloseBalances(sourceId);
         if (again.ok) {
@@ -128,7 +162,44 @@ export function CloseBalanceSheet({
       ) : (
         <div className="space-y-5">
           <section className="space-y-2">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Still to order</h3>
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Still to order</h3>
+              {open.length > 1 && closing !== "*all*" ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={isPending}
+                  onClick={() => {
+                    setClosing("*all*");
+                    setReason(EMPTY_REASON);
+                  }}
+                >
+                  Close all {open.length}
+                </Button>
+              ) : null}
+            </div>
+            {closing === "*all*" ? (
+              <div className="space-y-2 rounded-lg border border-warning/50 bg-warning-soft/40 px-3 py-2.5">
+                <p className="text-xs">Every line below stops being ordered. Each can still be reopened.</p>
+                <CloseReasonField id="close-all-reason" value={reason} onChange={setReason} />
+                <div className="flex justify-end gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={isPending}
+                    onClick={() => {
+                      setClosing(null);
+                      setReason(EMPTY_REASON);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button variant="danger" size="sm" disabled={isPending || !why} onClick={doCloseAll}>
+                    Close all {open.length}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
             {open.length === 0 ? (
               <p className="text-sm text-muted-foreground">Nothing left to order on this one.</p>
             ) : (
@@ -156,7 +227,7 @@ export function CloseBalanceSheet({
                             disabled={isPending}
                             onClick={() => {
                               setClosing(l.req_key);
-                              setReason("");
+                              setReason(EMPTY_REASON);
                             }}
                           >
                             Close
@@ -165,16 +236,7 @@ export function CloseBalanceSheet({
                       </div>
                       {isOpen ? (
                         <div className="space-y-2">
-                          <Field label="Reason for closing" required htmlFor={`close-reason-${l.req_key}`}>
-                            <Textarea
-                              id={`close-reason-${l.req_key}`}
-                              rows={2}
-                              value={reason}
-                              placeholder="E.g. vendor cannot supply the balance"
-                              onChange={(e) => setReason(e.target.value)}
-                              autoFocus
-                            />
-                          </Field>
+                          <CloseReasonField id={`close-reason-${l.req_key}`} value={reason} onChange={setReason} />
                           <div className="flex justify-end gap-2">
                             <Button
                               variant="ghost"
@@ -182,12 +244,12 @@ export function CloseBalanceSheet({
                               disabled={isPending}
                               onClick={() => {
                                 setClosing(null);
-                                setReason("");
+                                setReason(EMPTY_REASON);
                               }}
                             >
                               Cancel
                             </Button>
-                            <Button variant="danger" size="sm" disabled={isPending || !reason.trim()} onClick={() => doClose(l)}>
+                            <Button variant="danger" size="sm" disabled={isPending || !why} onClick={() => doClose(l)}>
                               Close {fmtNumber(l.balance)}
                               {u}
                             </Button>

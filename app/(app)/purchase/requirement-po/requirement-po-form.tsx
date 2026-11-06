@@ -28,6 +28,7 @@ import { today } from "@/lib/calendar";
 import { fmtDate, fmtFixed, fmtNumber } from "@/lib/format";
 import { checkRatesAgainstBudget, getLastPurchases, getLastRates, savePoFromRequirement } from "@/lib/purchase/re-po/actions";
 import { CommercialSection, blankCommercial, chargesNet, chargesToSave, type CommercialValue } from "./commercial-section";
+import { CloseLineSheet, type CloseLineTarget } from "./close-line-sheet";
 import {
   BUDGET_STATES,
   INSPECTION_DAYS,
@@ -241,6 +242,8 @@ export function RequirementPoForm({
   const [activeKey, setActiveKey] = useState(initialOrderId ?? "");
   /** The open Size Breakup — which item row, and the button it grows out of. */
   const [sizeSheet, setSizeSheet] = useState<{ key: string; origin: SheetOrigin } | null>(null);
+  /** The row whose balance is being closed (user 2026-11-06) — see `close-line-sheet.tsx`. */
+  const [closeLine, setCloseLine] = useState<CloseLineTarget | null>(null);
   /** The open Yarn bags / Fabric rolls pop-up — which line, and the cell it grows out of. */
   const [qtySheet, setQtySheet] = useState<{ key: string; origin: SheetOrigin } | null>(null);
   /** Show Last PO — the item asked about, and its earlier POs once they arrive (null = loading). */
@@ -609,21 +612,31 @@ export function RequirementPoForm({
        the box read as an empty yellow dropdown while the footer said "Give the reason …"
        and was cut off. The state and, while unpicked, the ask are a visible line above. */
     const asking = !(v.startsWith("OTHER") ? v.replace(/^OTHER:?/, "").trim() : v);
-    const label = (
-      <span className={cn("mb-0.5 flex items-center gap-1 whitespace-nowrap text-[11px] font-semibold leading-tight", BUDGET_MARK[mark].text)} title={why}>
-        <span aria-hidden className={cn("size-1.5 shrink-0 rounded-full", BUDGET_MARK[mark].dot)} />
-        {asking ? `${word} · reason *` : word}
+    /* THE ASK IS DRAWN INSIDE THE BOX, NOT ABOVE IT (user 2026-11-06, screenshot 153207:
+       "the value row has extra space"). Above the box it made the row two lines, so every
+       other cell on it — Value, Qty, Delivery — had a blank line under it. It now overlays
+       the empty box (`pointer-events-none`, so the click still opens the list) and goes
+       once a reason is picked; the box's red / amber keeps saying Above / No budget. */
+    const label = asking ? (
+      <span
+        aria-hidden
+        className={cn("pointer-events-none absolute inset-y-0 left-2 right-6 flex items-center gap-1 overflow-hidden whitespace-nowrap text-[11px] font-semibold", BUDGET_MARK[mark].text)}
+      >
+        <span className={cn("size-1.5 shrink-0 rounded-full", BUDGET_MARK[mark].dot)} />
+        {/* THE STATE WORD ONLY (user 2026-11-06, screenshot 153559: "show the Above only, no
+            need for the reason word — it looks cut off"). In a 5.5rem box "Above · reason *"
+            read "Above · rea…". The box's own red / amber and its hover ask for the reason. */}
+        {word}
       </span>
-    );
+    ) : null;
     if (v.startsWith("OTHER"))
       return (
-        <div className="min-w-0">
-        {label}
+        <div className="relative min-w-0">
         <Input
           aria-label={`${word} — reason, in your words`}
           title={why}
           placeholder={`${word} · reason *`}
-          className={cn("h-8 w-full px-2 text-xs font-semibold", tone)}
+          className={cn("h-8 w-full min-w-[5.5rem] px-2 text-xs font-semibold", tone)}
           maxLength={120}
           value={v.replace(/^OTHER:?/, "")}
           onChange={(e) => apply({ reason: `OTHER:${e.target.value}` })}
@@ -632,16 +645,16 @@ export function RequirementPoForm({
             if (!e.target.value.trim()) apply({ reason: "" });
           }}
         />
+        {label}
         </div>
       );
     const options: readonly string[] = mark === "above" ? BUDGET_REASONS : NO_BUDGET_REASONS;
     return (
-      <div className="min-w-0">
-      {label}
+      <div className="relative min-w-0">
       <Select
         aria-label={`${word} — reason`}
         title={why}
-        className={cn("h-8 w-full px-2 text-xs font-semibold", tone)}
+        className={cn("h-8 w-full min-w-[5.5rem] px-2 text-xs font-semibold", tone)}
         value={v}
         onChange={(e) => apply({ reason: e.target.value === "OTHER" ? "OTHER:" : e.target.value })}
       >
@@ -654,6 +667,7 @@ export function RequirementPoForm({
         ))}
         <option value="OTHER">OTHER (TYPE IT)</option>
       </Select>
+      {label}
       </div>
     );
   };
@@ -884,7 +898,7 @@ export function RequirementPoForm({
             }),
           );
         }}
-        className="flex h-8 w-full items-center justify-center px-1 whitespace-nowrap text-sm tabular-nums text-muted-foreground hover:bg-[#f2f7fb] hover:text-[#037bb8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:opacity-50"
+        className="flex h-8 w-full items-center justify-center px-1 whitespace-nowrap text-xs tabular-nums text-muted-foreground hover:bg-[#f2f7fb] hover:text-[#037bb8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:opacity-50"
       >
         {fmtDate(def.date)}
       </button>
@@ -906,27 +920,27 @@ export function RequirementPoForm({
   const itemCell = (name: string, colourSpec: string, struck = false, itemId?: string, category?: string | null, extra?: ReactNode) => {
     const describe = [classIds.length > 1 ? category?.trim() : "", colourSpec].filter(Boolean).join(" · ");
     return (
-    // CAPPED AT 20rem (user 2026-10-31, "compact this field size"): the grids hug their
+    // CAPPED AT 11rem (20rem → 15rem → 11rem; user 2026-11-06, "Item — compact this field",
+    // then Note and Close joined the row as columns; first capped
+    // 2026-10-31, "compact this field size"): the grids hug their
     // content (`autoFit`), so the Item column is as wide as its longest name — up to here,
     // past which the name truncates and reveals on hover. Without a cap one long name
     // would widen the whole table.
-    <div className="flex max-w-[20rem] min-w-0 items-start gap-1">
+    <div className="flex max-w-[11rem] min-w-0 items-start gap-1">
       {/* No `title` here (user 2026-10-30): each line is a <Truncated>, whose black
           bubble is the one reveal — a native title on the wrapper drew a second,
           white tooltip over it. */}
       <div className={cn("min-w-0 flex-1", struck && "text-muted-foreground line-through")}>
-        {/* The name on the row's 32px line (figureBox note), its second line under it. */}
-        <div className="flex h-8 min-w-0 items-center">
-          <Truncated className="min-w-0 text-sm leading-tight">{name}</Truncated>
+        {/* ONE LINE PER ROW (user 2026-11-06, option "Note as own column"): the name and its
+            slice · colour share the row's 32px line, so no cell has an empty second line
+            under it. The name keeps its room; the detail shrinks first and reveals on hover. */}
+        <div className="flex h-8 min-w-0 items-center gap-1.5">
+          {/* Both may shrink — a name that cannot shrink pushed the table past its pane — but
+              the detail shrinks ~1000× faster, so it goes first and the name keeps its room. */}
+          <Truncated className="min-w-0 shrink text-sm leading-tight">{name}</Truncated>
+          {describe ? <Truncated className="min-w-0 shrink-[999] text-[10.5px] leading-tight text-[#667085]">{`· ${describe}`}</Truncated> : null}
         </div>
-        {/* LINE 2 CARRIES NOTE AND GST (plan B, user 2026-10-30): their two columns gave
-            their width to the item name, which now shows whole on one line. */}
-        {describe || extra ? (
-          <div className="flex min-w-0 items-center gap-1.5">
-            {describe ? <Truncated className="min-w-0 shrink text-[10.5px] leading-tight text-[#667085]">{describe}</Truncated> : null}
-            {extra}
-          </div>
-        ) : null}
+        {extra ? <div className="flex min-w-0 items-center gap-1.5">{extra}</div> : null}
       </div>
       {/* SHOW LAST PO (user 2026-10-26, Task 3): the rate this item was last bought at, from
           whom and when — a benchmark to negotiate with, asked only when the icon is pressed.
@@ -947,59 +961,9 @@ export function RequirementPoForm({
     </div>
     );
   };
-  /**
-   * NOTE UNDER THE ITEM (plan B, 2026-10-30). Still a FIELD — Tab lands on it — it just
-   * moved from its own 88px column onto the item's second line. GST rode here too until
-   * 2026-10-31; it now sits under the rate it taxes (`rateWithGst`).
-   */
-  const lineExtras = (
-    key: string,
-    label: string,
-    note: string | null,
-    disabled: boolean,
-    setNote: (v: string) => void,
-    printsAs: string,
-  ) => (
-    <>
-      {/* A visible word, not a placeholder: placeholders are off app-wide (lib/ui/placeholders). */}
-      <label htmlFor={`rpo-note-${key}`} className="shrink-0 text-[10.5px] font-semibold text-[#037bb8]">
-        {note == null ? "Note (mixed)" : "Note"}
-      </label>
-      <Input
-        id={`rpo-note-${key}`}
-        maxLength={200}
-        aria-label={`Note to the vendor, ${label}`}
-        title={note ? `Prints as: ${withNote(printsAs, note).toUpperCase()}` : "Printed after the item on the PO, e.g. PROCESS: CUT & SEAL"}
-        disabled={disabled}
-        value={note ?? ""}
-        onChange={(e) => setNote(e.target.value)}
-        className="h-5 min-w-[3.5rem] flex-1 rounded-none border-0 border-b border-dashed border-[#c8dce9] bg-transparent px-1 text-[10.5px] font-medium shadow-none @2xl/editor:h-5 md:text-[10.5px] hover:bg-[#f2f7fb] focus:bg-white focus-visible:ring-1 focus-visible:ring-inset"
-      />
-    </>
-  );
-  /**
-   * GST UNDER THE RATE (user 2026-10-31, screenshot 3928: "move it under rate"). The slab
-   * taxes the basic rate, so it reads beneath it in the same tinted column — basic rate on
-   * top, its GST % below; the budget compares the two together (Net Rate). Tab: Rate, then GST.
-   */
-  const rateWithGst = (
-    rate: ReactNode,
-    key: string,
-    label: string,
-    gst: number | null,
-    disabled: boolean,
-    setGst: (pct: number) => void,
-  ) => (
-    <div className="flex min-w-0 flex-col">
-      {rate}
-      <div className="flex min-w-0 items-center gap-1 pl-1.5">
-        <span aria-hidden className="shrink-0 text-[10.5px] font-semibold text-[#667085]">
-          GST
-        </span>
-        {gstCell(`rpo-gst-${key}`, label, gst, disabled, setGst, true)}
-      </div>
-    </div>
-  );
+  /* NOTE UNDER THE ITEM (plan B, 2026-10-30) and GST UNDER THE RATE (2026-10-31) were both
+     undone on 2026-11-06 at the user's request: each is its own column again (`noteColumn`,
+     `gstColumn`), so every row is one line and no cell has empty space under it. */
   /** Open Show Last PO and ask the server — a newer request replaces an older answer. */
   function openLastPo(itemId: string, title: string, el: HTMLElement) {
     setLastPo({ itemId, title, origin: el.getBoundingClientRect(), rows: null, error: null });
@@ -1033,7 +997,10 @@ export function RequirementPoForm({
       // NO `title` (user 2026-10-27, screenshot 3763: two messages on one box). The black
       // Req · To order tooltip around the cell already says it; the browser's own bubble
       // ("At most … on the requirement sheet") repeated it underneath.
-      className={cn(CELL_INPUT, "min-w-0 flex-1 field-sizing-content px-1.5 text-right tabular-nums")}
+      // `w-auto` (2026-11-06, "compact Order PO Qty"): the primitive's `w-full` beat
+      // `field-sizing-content`, so "11062.8" sat in a 100px box that set the column's width.
+      // Now the box is its figure (56px at least), and a longer figure widens the column.
+      className={cn(CELL_INPUT, "w-auto min-w-[3rem] flex-1 field-sizing-content px-1 text-right tabular-nums")}
       disabled={r.row.skip}
       value={r.row.skip ? "0" : r.row.qty}
       onChange={(e) => {
@@ -1053,7 +1020,7 @@ export function RequirementPoForm({
       <>
         {qtyInput(r)}
         {/* The Purchase UOM rides inside the quantity — it is what the number is counted in. */}
-        <Truncated className="w-10 shrink-0 text-left text-[11px] text-muted-foreground uppercase">{r.uom_code ?? ""}</Truncated>
+        <Truncated className="w-7 shrink-0 text-left text-[11px] text-muted-foreground uppercase">{r.uom_code ?? ""}</Truncated>
       </>,
     );
   /*
@@ -1165,7 +1132,7 @@ export function RequirementPoForm({
               open(e.currentTarget);
             }
           }}
-          className="flex h-8 min-w-0 flex-1 items-center gap-1.5 pr-1.5 pl-1.5 text-sm tabular-nums hover:bg-[#f2f7fb] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:opacity-50"
+          className="flex h-8 min-w-0 flex-1 items-center gap-1 px-1 text-xs tabular-nums hover:bg-[#f2f7fb] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:opacity-50"
         >
           <Icon aria-hidden className="size-4 shrink-0 text-[#037bb8]" />
           {/* Amber when whole bags took it over To Order — allowed, and said. */}
@@ -1174,7 +1141,7 @@ export function RequirementPoForm({
         {/* NO UNIT WHEN THE HEADER SAYS IT (user 2026-10-28, screenshot 3816): icon + figure +
             "KGS" in 112px overlapped, and "PO Wt (kg)" above already names it. A mixed grid's
             header reads "Order PO Qty", so the unit stays there. */}
-        {byWeight ? null : <Truncated className="w-10 shrink-0 text-left text-[11px] text-muted-foreground uppercase">{r.uom_code ?? ""}</Truncated>}
+        {byWeight ? null : <Truncated className="w-7 shrink-0 text-left text-[11px] text-muted-foreground uppercase">{r.uom_code ?? ""}</Truncated>}
       </>,
     );
   };
@@ -1217,13 +1184,16 @@ export function RequirementPoForm({
       // outside it, where a click opened nothing. Wrapper: width only; box: the cell look.
       // SMALL (plan B, 2026-10-30): under the item name, beside the Note — no column of its own.
       // Under the rate (2026-10-31): fills what the "GST" word leaves of the Rate column.
-      // min 3.25rem: under automatic layout this is what keeps "12% ▾" whole — the cell
-      // grows to it rather than clipping the value to "1…" (screenshot 3769's bug).
-      className={small ? "min-w-[3.25rem] flex-1" : "w-full"}
+      // min 4rem: under automatic layout this is what keeps "12% ▾" whole — the cell
+      // grows to it rather than clipping the value to "1…" (screenshot 3769's bug). 3.25rem
+      // was 52px, and the compact chevron + padding left "12%" ~8px short: it read "1…"
+      // again at 1,536px (2026-11-06, "alignment … compact all the fields"). In its own
+      // column (same day) the table squeezed the box to ~60px, so it carries a 72px floor too.
+      className={small ? "min-w-[4rem] flex-1" : "w-full min-w-[3.75rem]"}
       inputClassName={
         small
           ? "h-5 rounded border-0 bg-transparent pl-1 text-[11px] tabular-nums text-[#667085] shadow-none hover:bg-[#f2f7fb] focus:bg-white focus-visible:ring-1 focus-visible:ring-inset"
-          : cn(CELL_INPUT, "pl-2 tabular-nums")
+          : cn(CELL_INPUT, "pl-1.5 tabular-nums")
       }
       compact
       disabled={disabled}
@@ -1251,13 +1221,26 @@ export function RequirementPoForm({
      20px from the cell top; read-only text sat at the top of its cell (~14px) and the
      row's first line read as three different heights. Every read-only figure now sits
      in the same 32px band, with the same 6px right inset the boxes have (`px-1.5`), so
-     every figure on the row shares one centre line and one right edge. */
+     every figure on the row shares one centre line and one right edge.
+     12px SINCE 2026-11-06 ("compact Order PO Qty, Value"): the typed boxes are `text-xs`
+     (CELL_INPUT), so the read figures at 14px stood a size larger than the figures typed
+     beside them and set wider columns. One size for every figure on the row. */
   const figureBox = (child: ReactNode, className?: string) => (
-    <div className={cn("flex h-8 min-w-0 items-center justify-end pr-1.5 text-sm tabular-nums", className)}>{child}</div>
+    <div className={cn("flex h-8 min-w-0 items-center justify-end pr-1.5 text-xs tabular-nums", className)}>{child}</div>
   );
   /** The row's `#` on the same line. ChildGrid's index is now as tall as `Input` (36px, 32px in
    *  an editor); this page is not an editor yet its boxes are 32px (`CELL_INPUT`), so it says so. */
-  const INDEX_ON_LINE = "[&>tr>td:first-child]:leading-8";
+  /* EVERY CELL ON THE ROW'S FIRST LINE (2026-11-06, "ui alignment compact all the fields").
+     A row is two lines — the item name, then its Note — and the table centred each cell
+     vertically, so the 32px figure bands (`figureBox`, the typed boxes, the date) floated
+     halfway between the two lines while the item name and rate sat on the first. Top-aligned,
+     every figure shares the item name's line; the second line is only the Note.
+     IMPORTANT (`!`) because globals.css's sheet rule (`[data-grid-style="sheet"] tbody td
+     { vertical-align: middle }`, 2026-11-06) has the same specificity and comes later; it
+     is right for one-line grids and wrong for this two-line one, so only this grid opts out.
+     `px-1!` (same day, "compact these fields"): the sheet rule pads each cell 8px a side —
+     16px × 11 columns pushed the order grid ~30px past a 1,536px pane; 4px a side fits it. */
+  const INDEX_ON_LINE = "[&>tr>td:first-child]:leading-8 [&>tr>td]:align-top! [&>tr>td]:px-1!";
   const lineGst = (r: GridRow) => r.row.gst ?? slab.pct;
   const netRateOf = (r: GridRow) => num(r.row.rate) * (1 + lineGst(r) / 100);
   const lineValue = (r: GridRow) => num(r.row.qty) * netRateOf(r);
@@ -1267,7 +1250,7 @@ export function RequirementPoForm({
     const vals = [...new Set(live.map((r) => fmtFixed(netRateOf(r), 2)))];
     if (vals.length === 0) return null;
     if (vals.length > 1) return figureBox(<span className="text-xs text-muted-foreground">mixed</span>);
-    return figureBox(<Truncated text={vals[0]} className="min-w-0" />);
+    return figureBox(<span className="whitespace-nowrap">{vals[0]}</span>);
   };
   /* SIZED TO THE VALUE (user 2026-10-31: "compact the field width … if the rate value
      exceeds the cell it dynamically adjusts, like Order Entry's Quantities tab"). The
@@ -1298,6 +1281,73 @@ export function RequirementPoForm({
    * (screenshot 3692, 2026-10-24) on the later instruction — the balance was a tooltip,
    * and the Purchase Manager wants to read it, not hover for it.
    */
+  /** A row's lines → what Close balance closes: every size, summed for the figures. */
+  const closeTargetOf = (ms: readonly GridRow[], title: string, detail: string, el: HTMLElement): CloseLineTarget => ({
+    title,
+    detail,
+    uom: ms[0]?.uom_code ?? null,
+    required: ms.reduce((a, m) => a + m.required_qty, 0),
+    ordered: ms.reduce((a, m) => a + m.ordered_qty, 0),
+    balance: ms.reduce((a, m) => a + m.balance_qty, 0),
+    members: ms.map((m) => ({ sourceId: m.source_id, reqKey: m.req_key })),
+    origin: el.getBoundingClientRect(),
+  });
+  /* CLOSE BALANCE, beside Skip (user 2026-11-06). Skip keeps the balance for another PO;
+     Close ends it, with a reason. A button, so Tab (fields only) passes over it. */
+  const closeButton = (ms: readonly GridRow[], title: string, detail: string) => (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      className="h-8 w-8"
+      aria-label={`Close the balance of ${title}${detail ? ` ${detail}` : ""}`}
+      title="Close balance — never order the rest (a reason is asked)"
+      onClick={(e) => setCloseLine(closeTargetOf(ms, title, detail, e.currentTarget))}
+    >
+      <Lock aria-hidden className="size-4 text-muted-foreground" />
+    </Button>
+  );
+  /** GST % IS ITS OWN COLUMN again (user 2026-11-06: "move the close balance and GST as
+   *  separate field columns") — it had ridden under the Basic Rate since 2026-10-31, where it
+   *  clipped to "1…" and made every row two figures tall. Right after Basic Rate, before Net
+   *  Rate, so the line still reads in the order it is worked out (10-31). */
+  const gstColumn = <T,>(cell: (row: T) => ReactNode): ChildGridColumn<T> => ({
+    header: "GST %",
+    width: FIELD_WIDTH_CSS.num,
+    cell,
+  });
+  /** NOTE IS ITS OWN COLUMN (user 2026-11-06, "Note as own column"): it rode under the item
+   *  name since 2026-10-30 and made every row two lines. A full cell to type in, as GST. */
+  const noteColumn = <T,>(cell: (row: T) => ReactNode): ChildGridColumn<T> => ({
+    header: "Note",
+    width: FIELD_WIDTH_CSS.hug,
+    cell,
+  });
+  const noteCell = (key: string, label: string, note: string | null, disabled: boolean, setNote: (v: string) => void, printsAs: string) => (
+    <Input
+      id={`rpo-note-${key}`}
+      maxLength={200}
+      aria-label={`Note to the vendor, ${label}`}
+      title={note ? `Prints as: ${withNote(printsAs, note).toUpperCase()}` : "Printed after the item on the PO, e.g. PROCESS: CUT & SEAL"}
+      // MIXED: the sizes / orders under the row were noted apart — typing here sets them all.
+      placeholder={note == null ? "mixed" : undefined}
+      disabled={disabled}
+      value={note ?? ""}
+      onChange={(e) => setNote(e.target.value)}
+      className={cn(CELL_INPUT, "w-auto min-w-[4rem] field-sizing-content px-1.5")}
+    />
+  );
+  /** CLOSE IS ITS OWN COLUMN (user 2026-11-06: "move the close balance and GST as separate
+   *  field columns"), the last one, after Budget · Skip. */
+  const closeColumn = <T,>(cell: (row: T) => ReactNode): ChildGridColumn<T> => ({
+    header: "Close",
+    // pick-once: exempt -- an action button, not a picked value
+    // 3rem: the 32px icon and the whole word "Close" in the header — `num` (72px) was half
+    // air, and 2.5rem cut the header to "Clos" (user 2026-11-06, screenshot 152646).
+    width: "3rem",
+    align: "center",
+    cell,
+  });
   const poLineColumns: ChildGridColumn<GridRow>[] = [
     {
       header: "Item",
@@ -1385,8 +1435,11 @@ export function RequirementPoForm({
         if (a <= 0) return null;
         const mark = budgetMarkOf([r]);
         return figureBox(
-          // Truncated (user 2026-10-28, screenshot 3810): a long figure spilled into Budget.
-          <Truncated text={fmtFixed(a, 2)} className={cn("min-w-0", mark === "above" && "font-semibold text-[#b42318]")} />,
+          // THE WHOLE FIGURE, ITS COLUMN GROWS (user 2026-11-06: "allow the value inline if it
+          // exceeds the cell width"). It was <Truncated> since 2026-10-28, when a long figure
+          // spilled into Budget under FIXED layout; this grid now runs automatic layout
+          // (`autoFit`), so a nowrap figure widens its own column instead of spilling or hiding.
+          <span className={cn("whitespace-nowrap", mark === "above" && "font-semibold text-[#b42318]")}>{fmtFixed(a, 2)}</span>,
         );
       },
     },
@@ -1398,7 +1451,7 @@ export function RequirementPoForm({
       header: "Budget",
       width: FIELD_WIDTH_CSS.term,
       cell: (r) => (
-        <div className="flex items-center gap-1">
+        <div className="flex items-start gap-1">
         <div className="min-w-0 flex-1">{budgetCell([r], (p) => setRow(r, p))}</div>
         <Button
           type="button"
@@ -1414,6 +1467,7 @@ export function RequirementPoForm({
         </div>
       ),
     },
+    closeColumn<GridRow>((r) => closeButton([r], r.item_name, lineDescription(r).replace(r.item_name, "").replace(/^ · /, ""))),
   ];
 
   // ---------- item-wise: one row per item across the ticked orders ----------
@@ -1485,7 +1539,7 @@ export function RequirementPoForm({
    */
   const itemColumns: ChildGridColumn<ItemGroup>[] = [
     {
-      // No width — the item takes what is left; Note and GST under it (plan B, 2026-10-30).
+      // No width — the item takes what is left; Note and GST are columns of their own (2026-11-06).
       header: "Item",
       cell: (g) =>
         itemCell(
@@ -1494,15 +1548,6 @@ export function RequirementPoForm({
           false,
           g.members[0]?.item_id,
           g.members[0]?.category,
-          lineExtras(
-            `i-${g.key}`,
-            `${g.item_name} ${g.spec}, for all ${g.orders} orders`,
-            // MIXED: the orders were noted / taxed apart in the breakup — typing here sets them all again.
-            g.mixedNote ? null : g.note,
-            !g.supplied,
-            (v) => setMembers(g.members, { note: v }),
-            g.members[0] ? lineDescription(g.members[0]) : g.item_name,
-          ),
         ),
     },
     {
@@ -1524,33 +1569,28 @@ export function RequirementPoForm({
       /* BASIC RATE → GST % → NET RATE → QTY → VALUE (user 2026-10-31): the sequence the
          line is worked out in, left to right. Qty used to come before the rate. */
       header: `Basic Rate ${cur}`,
-      // A FLOOR, not a width (FIT_BOX): the rate box and "GST 12% ▾" set it, and a long rate widens it.
+      // A FLOOR, not a width (FIT_BOX): the rate box sets it, and a long rate widens it. GST is its own column (2026-11-06).
       width: FIELD_WIDTH_CSS.num,
       align: "right",
       className: RATE_COL,
-      cell: (g) =>
-        rateWithGst(
-          <Input
-            type="number"
-            min={0}
-            inputMode="decimal"
-            aria-label={`Rate per ${g.uom_code ?? "unit"}, ${g.item_name} ${g.spec}, for all ${g.orders} orders`}
-            className={cn(CELL_INPUT, FIT_BOX, "px-1.5 text-right tabular-nums")}
-            // MIXED: the orders were priced apart in the breakup — typing here sets them all again.
-            placeholder={g.mixedRate ? "mixed" : undefined}
-            title={lastRateTitle(g.members[0]?.item_id)}
-            disabled={!g.supplied}
-            value={g.rate}
-            onChange={(e) => setMembers(g.members, { rate: e.target.value })}
-          />,
-          `i-${g.key}`,
-          `${g.item_name} ${g.spec}, for all ${g.orders} orders`,
-          // MIXED: the orders were taxed apart in the breakup — picking here sets them all again.
-          g.gst,
-          !g.supplied,
-          (pct) => setMembers(g.members, { gst: pct }),
-        ),
+      cell: (g) => (
+        <Input
+          type="number"
+          min={0}
+          inputMode="decimal"
+          aria-label={`Rate per ${g.uom_code ?? "unit"}, ${g.item_name} ${g.spec}, for all ${g.orders} orders`}
+          className={cn(CELL_INPUT, FIT_BOX, "px-1.5 text-right tabular-nums")}
+          // MIXED: the orders were priced apart in the breakup — typing here sets them all again.
+          placeholder={g.mixedRate ? "mixed" : undefined}
+          title={lastRateTitle(g.members[0]?.item_id)}
+          disabled={!g.supplied}
+          value={g.rate}
+          onChange={(e) => setMembers(g.members, { rate: e.target.value })}
+        />
+      ),
     },
+    // MIXED: the orders were taxed apart in the breakup — picking here sets them all again.
+    gstColumn<ItemGroup>((g) => gstCell(`rpo-gst-i-${g.key}`, `${g.item_name} ${g.spec}, for all ${g.orders} orders`, g.gst, !g.supplied, (pct) => setMembers(g.members, { gst: pct }))),
     {
       header: `Net Rate ${cur}`,
       width: FIELD_WIDTH_CSS.num,
@@ -1569,7 +1609,7 @@ export function RequirementPoForm({
           g.members.reduce((a, m) => a + m.ordered_qty, 0),
           <div className="flex h-8 w-full items-center justify-end gap-1 px-1.5 text-sm tabular-nums">
             {g.qty > 0 ? fmtNumber(g.qty) : "—"}
-            <Truncated className="w-10 shrink-0 text-left text-[11px] text-muted-foreground uppercase">{g.uom_code ?? ""}</Truncated>
+            <Truncated className="w-7 shrink-0 text-left text-[11px] text-muted-foreground uppercase">{g.uom_code ?? ""}</Truncated>
           </div>,
         ),
     },
@@ -1578,7 +1618,7 @@ export function RequirementPoForm({
       header: "Value",
       width: FIELD_WIDTH_CSS.num,
       align: "right",
-      cell: (g) => (g.amount > 0 ? figureBox(<Truncated text={fmtFixed(g.amount, 2)} className="min-w-0" />) : null),
+      cell: (g) => (g.amount > 0 ? figureBox(<span className="whitespace-nowrap">{fmtFixed(g.amount, 2)}</span>) : null),
     },
     {
       header: "Delivery",
@@ -1600,6 +1640,17 @@ export function RequirementPoForm({
       // The order grid's own control; the reason goes to every order line under the item.
       cell: (g) => <div className="flex h-8 items-center">{budgetCell(g.members, (p) => setMembers(g.members, p))}</div>,
     },
+    // MIXED: the orders were noted apart in the breakup — typing here sets them all again.
+    noteColumn<ItemGroup>((g) =>
+      noteCell(
+        `i-${g.key}`,
+        `${g.item_name} ${g.spec}, for all ${g.orders} orders`,
+        g.mixedNote ? null : g.note,
+        !g.supplied,
+        (v) => setMembers(g.members, { note: v }),
+        g.members[0] ? lineDescription(g.members[0]) : g.item_name,
+      ),
+    ),
   ];
   /* The breakup under an open item: one row per order, its own qty (capped at that
      order's balance) and delivery — the cells are the order-wise grid's own. */
@@ -1709,7 +1760,7 @@ export function RequirementPoForm({
   const groupColumns: ChildGridColumn<SizeGroup>[] = [
     {
       /* NO WIDTH: THE ITEM TAKES WHAT IS LEFT (plan B, user 2026-10-30: "show the item name
-         full in single"). Note and GST ride on its second line (`lineExtras`). */
+         full in single"). One line since 2026-11-06: Note and GST are columns of their own. */
       header: "Item",
       cell: (g) =>
         itemCell(
@@ -1718,27 +1769,17 @@ export function RequirementPoForm({
           groupSkip(g),
           g.first.item_id,
           g.first.category,
-          lineExtras(
-            g.first.key,
-            `${g.first.item_name} ${describeGroup(g)}`,
-            // Compared trimmed, SHOWN as typed — a trimmed copy ate each space as it was typed
-            // (user 2026-10-31, screenshot 3937). The save trims.
-            common(g.members.map((m) => (m.row.note ?? "").trim())) == null ? null : (g.first.row.note ?? ""),
-            groupSkip(g),
-            (v) => setMembers(g.members, { note: v }),
-            lineDescription(g.first),
-          ),
         ),
     },
     {
       header: `Basic Rate ${cur}`,
-      // A FLOOR, not a width (FIT_BOX): the rate box and "GST 12% ▾" set it, and a long rate widens it.
+      // A FLOOR, not a width (FIT_BOX): the rate box sets it, and a long rate widens it. GST is its own column (2026-11-06).
       width: FIELD_WIDTH_CSS.num,
       align: "right",
       className: RATE_COL,
       cell: (g) => {
         const rate = common(g.members.filter((m) => !m.row.skip).map((m) => m.row.rate.trim()));
-        return rateWithGst(
+        return (
           <Input
             type="number"
             min={0}
@@ -1751,15 +1792,19 @@ export function RequirementPoForm({
             disabled={groupSkip(g)}
             value={rate ?? ""}
             onChange={(e) => setMembers(g.members, { rate: e.target.value })}
-          />,
-          g.first.key,
-          `${g.first.item_name} ${describeGroup(g)}`,
-          common(g.members.map((m) => m.row.gst ?? slab.pct)),
-          groupSkip(g),
-          (pct) => setMembers(g.members, { gst: pct }),
+          />
         );
       },
     },
+    gstColumn<SizeGroup>((g) =>
+      gstCell(
+        `rpo-gst-${g.first.key}`,
+        `${g.first.item_name} ${describeGroup(g)}`,
+        common(g.members.map((m) => m.row.gst ?? slab.pct)),
+        groupSkip(g),
+        (pct) => setMembers(g.members, { gst: pct }),
+      ),
+    ),
     {
       header: `Net Rate ${cur}`,
       width: FIELD_WIDTH_CSS.num,
@@ -1808,12 +1853,12 @@ export function RequirementPoForm({
                    is 14px with pl-1 and a gap-2 keeps it off the number; the number still
                    ends at `pr-2.5` and the unit keeps the w-10 every other row uses, so
                    both line up with the typed boxes below. */
-                className="flex h-8 min-w-0 flex-1 items-center gap-2 pr-1.5 pl-1 text-sm tabular-nums hover:bg-[#f2f7fb] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:opacity-50"
+                className="flex h-8 min-w-0 flex-1 items-center gap-1 px-1 text-xs tabular-nums hover:bg-[#f2f7fb] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:opacity-50"
               >
                 <Ruler aria-hidden className="size-3.5 shrink-0 text-[#037bb8]" />
                 <span className="ml-auto">{Number(groupQty(g).toFixed(3))}</span>
               </button>
-            <Truncated className="w-10 shrink-0 text-left text-[11px] text-muted-foreground uppercase">{g.first.uom_code ?? ""}</Truncated>
+            <Truncated className="w-7 shrink-0 text-left text-[11px] text-muted-foreground uppercase">{g.first.uom_code ?? ""}</Truncated>
             {/* NO Req · To order HERE (user 2026-10-26, screenshot 3735): the pop-up shows both per size. */}
           </div>
         );
@@ -1842,8 +1887,11 @@ export function RequirementPoForm({
         if (a <= 0) return null;
         const mark = budgetMarkOf(live);
         return figureBox(
-          // Truncated (user 2026-10-28, screenshot 3810): a long figure spilled into Budget.
-          <Truncated text={fmtFixed(a, 2)} className={cn("min-w-0", mark === "above" && "font-semibold text-[#b42318]")} />,
+          // THE WHOLE FIGURE, ITS COLUMN GROWS (user 2026-11-06: "allow the value inline if it
+          // exceeds the cell width"). It was <Truncated> since 2026-10-28, when a long figure
+          // spilled into Budget under FIXED layout; this grid now runs automatic layout
+          // (`autoFit`), so a nowrap figure widens its own column instead of spilling or hiding.
+          <span className={cn("whitespace-nowrap", mark === "above" && "font-semibold text-[#b42318]")}>{fmtFixed(a, 2)}</span>,
         );
       },
     },
@@ -1863,14 +1911,15 @@ export function RequirementPoForm({
     },
     {
       // BUDGET · SKIP, as on the order grid; the reason goes to every size under the row.
-      // 112 since plan B (was 176): the word and the reason box at 12px, then Skip.
+      // 112 since plan B (was 176): the word and the reason box at 12px, then Skip. Close
+      // balance is its own column after this one (2026-11-06).
       header: "Budget",
       width: FIELD_WIDTH_CSS.range,
       cell: (g) => {
         const skip = groupSkip(g);
         const what = `${g.first.item_name} ${describeGroup(g)}${g.sized ? " (every size)" : ""}`;
         return (
-          <div className="flex items-center gap-1">
+          <div className="flex items-start gap-1">
           <div className="min-w-0 flex-1">{budgetCell(g.members, (p) => setMembers(g.members, p))}</div>
           <Button
             type="button"
@@ -1887,6 +1936,19 @@ export function RequirementPoForm({
         );
       },
     },
+    noteColumn<SizeGroup>((g) =>
+      noteCell(
+        g.first.key,
+        `${g.first.item_name} ${describeGroup(g)}`,
+        // Compared trimmed, SHOWN as typed — a trimmed copy ate each space as it was typed
+        // (user 2026-10-31, screenshot 3937). The save trims.
+        common(g.members.map((m) => (m.row.note ?? "").trim())) == null ? null : (g.first.row.note ?? ""),
+        groupSkip(g),
+        (v) => setMembers(g.members, { note: v }),
+        lineDescription(g.first),
+      ),
+    ),
+    closeColumn<SizeGroup>((g) => closeButton(g.members, g.first.item_name, `${describeGroup(g)}${g.sized ? " · every size" : ""}`)),
   ];
 
   /* The pop-up's own grid: one row per size — Size · Required · To Order · Order PO Qty,
@@ -1921,7 +1983,7 @@ export function RequirementPoForm({
       cell: (r) => (
         <div className="flex items-center gap-1">
           {qtyInput(r, `rpo-sqty-${r.key}`)}
-          <Truncated className="w-10 shrink-0 text-left text-[11px] text-muted-foreground uppercase">{r.uom_code ?? ""}</Truncated>
+          <Truncated className="w-7 shrink-0 text-left text-[11px] text-muted-foreground uppercase">{r.uom_code ?? ""}</Truncated>
         </div>
       ),
     },
@@ -2031,9 +2093,12 @@ export function RequirementPoForm({
             .filter(Boolean)
             .join(" · ")}
           onClick={() => (on ? setActiveKey(o.id) : toggleOrder(o.id))}
-          className="mr-1 flex h-full min-w-0 items-center gap-1.5 rounded px-1.5 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[#037bb8]"
+          className="mr-1 flex h-full min-w-0 items-center gap-1 rounded px-1 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[#037bb8]"
         >
-          <Truncated className="min-w-0 font-mono text-xs font-semibold tabular-nums">{shortNo}</Truncated>
+          {/* THE WHOLE NUMBER (2026-11-06, "compact this section"): monospace at 12px cut
+              "HO/RE/26-27/0011" to "…/00…" in the rail. The app face at 11.5px with aligned
+              digits needs 112px; the chip's padding and gap went 6px → 4px to give it 114. */}
+          <Truncated className="min-w-0 text-[11.5px] font-semibold tabular-nums">{shortNo}</Truncated>
           {/* No buyer on the row (user 2026-10-26: "no need customer name") — the Buyer
               filter narrows by it, and the row's hover still names it. */}
           <span className="flex-1" />
@@ -2583,6 +2648,10 @@ export function RequirementPoForm({
             </div>
           )}
 
+
+      {/* CLOSE BALANCE — the row's lock icon. Writes at once; the refresh drops the closed
+          line from the page's list (it only lists lines with a balance), so the row leaves. */}
+      <CloseLineSheet target={closeLine} onClose={() => setCloseLine(null)} onClosed={() => { setCloseLine(null); router.refresh(); }} />
 
       {/* SHOW LAST PO — read-only, so `sm` with no footer: there is nothing to save. The newest
           purchase leads in its own box (the benchmark); the two before it sit under it, so a
