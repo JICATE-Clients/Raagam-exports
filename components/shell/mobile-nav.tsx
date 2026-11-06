@@ -262,8 +262,12 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
   if (modules.length === 0 || editorOpen) return null;
 
   const storeLinks: SubNavItem[] = stores.map((s) => ({ href: `/stores/${s.id}`, label: s.name }));
-  const childrenFor = (moduleHref: string, children?: SubNavItem[]) =>
-    moduleHref === "/stores" ? [...storeLinks, ...(children ?? [])] : (children ?? []);
+  // The live stores go under the module's Overview (2026-11-06), which stays the first row.
+  const childrenFor = (moduleHref: string, children?: SubNavItem[]) => {
+    if (moduleHref !== "/stores") return children ?? [];
+    const [first, ...rest] = children ?? [];
+    return first?.href === "/stores/overview" ? [first, ...storeLinks, ...rest] : [...storeLinks, ...(children ?? [])];
+  };
 
   const activeModule = moduleOf(pathname, modules);
   const homeModule = modules.find((m) => m.href === "/");

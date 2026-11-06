@@ -96,8 +96,7 @@ export function ContextSidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
     href: `/stores/${s.id}`,
     label: s.name,
   }));
-  const children: SubNavItem[] =
-    mod.href === "/stores" ? [...storeLinks, ...(mod.children ?? [])] : (mod.children ?? []);
+  const children: SubNavItem[] = mod.href === "/stores" ? withStoreLinks(mod.children ?? [], storeLinks) : (mod.children ?? []);
 
   if (children.length === 0) return null;
 
@@ -378,4 +377,11 @@ function FoldingGroups({
       ))}
     </>
   );
+}
+
+/** The live store rows go under the module's Overview (wave 3, 2026-11-06) — it stays the first
+ *  row of every module — and ahead of the fixed sub-modules, as before. */
+function withStoreLinks(children: SubNavItem[], storeLinks: SubNavItem[]): SubNavItem[] {
+  const [first, ...rest] = children;
+  return first?.href === "/stores/overview" ? [first, ...storeLinks, ...rest] : [...storeLinks, ...children];
 }

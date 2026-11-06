@@ -2,19 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Archive, ArrowRightLeft, Boxes, Factory, PackagePlus, PackageX, Truck, Warehouse, X } from "lucide-react";
+import { ArrowRightLeft, Warehouse, X } from "lucide-react";
+import { STORE_ICON, type DashBin, type DashStore } from "./store-icons";
 
-/* ONE ICON PER KIND OF STORE (user 2026-11-06: "that store icon need difference") — the
-   picture says what the store is FOR, so three tabs never look like one tab three times.
-   Keyed on `store_type` (system store types, 0800), never on the name an admin can retype. */
-const STORE_ICON: Record<string, typeof Warehouse> = {
-  material: Boxes, //        stock kept for orders
-  purchase: PackagePlus, //  goods just bought and received
-  rejection: PackageX, //    refused at QC, owed by the vendor
-  processing: Factory, //    out at / back from a process
-  surplus: Archive, //       left over, set aside
-  transit: Truck, //         on the move between units
-};
+
 import { facetGroups } from "@/components/reports/stock-statement-view";
 import { storeStyle } from "@/components/masters/bin-rack";
 import { FilterBar } from "@/components/ui/filter-bar";
@@ -66,8 +57,7 @@ import {
  * with Stores create + edit, which the post needs.
  */
 
-export type DashBin = { id: string; bin_code: string | null; store_id: string; inactive: boolean; description: string | null };
-export type DashStore = { id: string; name: string; store_type: string };
+export type { DashBin, DashStore };
 
 const GROUPS = facetGroups();
 const NO_BIN = "—";
@@ -126,6 +116,7 @@ export function InventoryDashboard({
   unit,
   withValue,
   canMove,
+  initialStoreId,
 }: {
   rows: Row[];
   bins: DashBin[];
@@ -134,6 +125,8 @@ export function InventoryDashboard({
   unit: string;
   withValue: boolean;
   canMove: boolean;
+  /** `?store=` — Stores ▸ Overview's store tiles open their own store (2026-11-06). Else the busiest. */
+  initialStoreId?: string | null;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -180,6 +173,7 @@ export function InventoryDashboard({
       .sort((a, b) => Number(binsByStore.has(b.id)) - Number(binsByStore.has(a.id)) || a.name.localeCompare(b.name));
   }, [stores, binsByStore, rows]);
   const [storeId, setStoreId] = useState<string>(() => {
+    if (initialStoreId && stores.some((x) => x.id === initialStoreId)) return initialStoreId;
     const busiest = [...rows].sort((a, b) => b.qty - a.qty)[0]?.store;
     return storeByName.get(busiest ?? "")?.id ?? storeTabs[0]?.id ?? "";
   });

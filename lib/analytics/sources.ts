@@ -425,6 +425,8 @@ export type EnquiryFact = {
   title: string;
   buyer: string;
   merchandiser: string;
+  /** The staff row of the merchandiser — what Sample ▸ Overview's "Mine" matches on. */
+  merchandiserId: string | null;
   received: string;
   /** The current costing (latest, not superseded); null when never costed or costing not visible. */
   costing: { id: string; status: CostingState; firstAt: string; submittedAt: string | null; marginPct: number | null } | null;
@@ -443,7 +445,7 @@ export const loadEnquiries = cache(async (): Promise<Access<{ rows: EnquiryFact[
   const [opps, sheets, orders] = await Promise.all([
     sb
       .from("opportunities")
-      .select("id, code, title, received_date, receipt_date, created_at, customer:customers!customer_id(name), merch:staff!merchandiser_id(name)")
+      .select("id, code, title, received_date, receipt_date, created_at, merchandiser_id, customer:customers!customer_id(name), merch:staff!merchandiser_id(name)")
       .eq("is_draft", false),
     costingVisible
       ? sb.from("cost_sheets").select("id, opportunity_id, status, is_draft, created_at, costing_date, submitted_at, profit_loss_pct").not("opportunity_id", "is", null)
@@ -476,6 +478,7 @@ export const loadEnquiries = cache(async (): Promise<Access<{ rows: EnquiryFact[
     received_date: string | null;
     receipt_date: string | null;
     created_at: string;
+    merchandiser_id: string | null;
     customer: { name: string | null } | null;
     merch: { name: string | null } | null;
   };
@@ -488,6 +491,7 @@ export const loadEnquiries = cache(async (): Promise<Access<{ rows: EnquiryFact[
       title: o.title?.trim() || "—",
       buyer: o.customer?.name?.trim() || "No buyer",
       merchandiser: o.merch?.name?.trim() || "—",
+      merchandiserId: o.merchandiser_id,
       received: (o.received_date || o.receipt_date || o.created_at).slice(0, 10),
       costing: cur
         ? {
