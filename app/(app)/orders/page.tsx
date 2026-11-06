@@ -1,20 +1,16 @@
-import { ModuleHub } from "@/components/shell/module-hub";
+import { redirect } from "next/navigation";
 
 /**
- * The Orders module landing page: one card per sub-module, from
- * `lib/nav/module-groups.ts`.
- *
- * It was the All Orders register until 2026-08-13 (now `/orders/all`) — a
- * module root that was a working screen rather than an index of what the module
- * contains, so clicking "Orders" showed a table and the seven sub-modules were
- * reachable only from the sidebar. `/masters` was the one module root doing this
- * correctly; `ModuleHub` is that shape made shared, and its header records what
- * the hand-written alternative had already drifted into elsewhere.
- *
- * Four lines, exactly like the 37 sub-module hubs beside it, and for the same
- * reason: the cards come from the registry the sidebar reads, so a sub-module
- * cannot be in one and missing from the other.
+ * ORDERS OPENS ON ITS OVERVIEW (user 2026-11-06: "add an overview page in sidebar"). The
+ * overview has its own address and its own sidebar row (`/orders/overview`, first in
+ * `lib/nav/module-groups.ts`), so the row lights when you are on it; the module root just
+ * sends you there, carrying the query (`?who=`), so clicking the module still lands on it.
+ * A REDIRECT, never a page of its own — two addresses for one page would be two rows.
  */
-export default function OrdersPage() {
-  return <ModuleHub moduleHref="/orders" />;
+export default async function OrdersRootPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const sp = await searchParams;
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(sp)) for (const x of Array.isArray(v) ? v : v == null ? [] : [v]) q.append(k, x);
+  const s = q.toString();
+  redirect(s ? `/orders/overview?${s}` : "/orders/overview");
 }

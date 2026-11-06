@@ -259,6 +259,14 @@ export interface ModuleLink {
    * A `link` has no `todo` state on purpose: a route that does not exist yet has
    * no business being a sidebar row of its own.
    */
+  /**
+   * THE ROW TAKES THE MODULE GRANT, NOT A SCREEN TICK OF ITS OWN — a module's Overview
+   * (user 2026-11-06). Every card on it is already gated by the screen its figures come
+   * from (`canViewHref` in `lib/analytics/sources.ts`), so the page itself shows nobody
+   * anything they could not open, and a role granted screen by screen keeps its landing
+   * page without a new tick. `buildScreenCatalog` leaves such a row out of the tree.
+   */
+  moduleGrant?: true;
   status?: "unavailable";
   /** Why it cannot be used, in the operator's words. Same contract as
    *  `GroupChild.unavailableNote` — required in practice, optional in the type
@@ -313,6 +321,10 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
     description:
       "The garment order flow — styles and BOMs, entry, amendments, confirmation, execution and closure",
     entries: [
+      // OVERVIEW — FIRST (user 2026-11-06: "add an overview page in sidebar"). The module's
+      // landing page: the sentence, the strip, the picture and what needs doing
+      // (plan https://claude.ai/artifact/5e8SGWe8DPHC7Ua2fQyaiW). `/orders` redirects here.
+      { kind: "link", href: "/orders/overview", label: "Overview", icon: LayoutDashboard, moduleGrant: true },
       // THE LEGACY 14-STEP GARMENT ORDERS HUB IS GONE (client 2026-08-13).
       //
       // It was restored as a group on 2026-08-08, hidden from the sidebar on
@@ -1059,6 +1071,10 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
     label: "Planning",
     module: "planning",
     entries: [
+      // OVERVIEW — FIRST (user 2026-11-06: "add an overview page in sidebar"). The module's
+      // landing page: the sentence, the strip, the picture and what needs doing
+      // (plan https://claude.ai/artifact/5e8SGWe8DPHC7Ua2fQyaiW). `/planning` redirects here.
+      { kind: "link", href: "/planning/overview", label: "Overview", icon: LayoutDashboard, moduleGrant: true },
       {
         kind: "group",
         slug: "bom",
@@ -1168,6 +1184,10 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
     label: "Purchase",
     module: "materials_purchase",
     entries: [
+      // OVERVIEW — FIRST (user 2026-11-06: "add an overview page in sidebar"). The module's
+      // landing page: the sentence, the strip, the picture and what needs doing
+      // (plan https://claude.ai/artifact/5e8SGWe8DPHC7Ua2fQyaiW). `/purchase` redirects here.
+      { kind: "link", href: "/purchase/overview", label: "Overview", icon: LayoutDashboard, moduleGrant: true },
       {
         kind: "group",
         slug: "procurement",

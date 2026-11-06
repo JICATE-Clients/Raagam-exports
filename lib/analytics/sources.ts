@@ -51,6 +51,8 @@ export type OrderFact = {
   buyerId: string | null;
   buyer: string;
   merchandiser: string;
+  /** The staff row of the merchandiser — what a module overview's "Mine" matches on. */
+  merchandiserId: string | null;
   season: string;
   /** When the buyer's order came in: PO date, else received date, else entry. */
   orderDate: string;
@@ -70,7 +72,7 @@ export const loadOrders = cache(async (): Promise<Access<OrderFact[]>> => {
     sb
       .from("garment_order_amendments")
       .select(
-        "id, code, po_date, received_date, created_at, delivery_date, season, re_status, customer_id, " +
+        "id, code, po_date, received_date, created_at, delivery_date, season, re_status, customer_id, merchandiser_id, " +
           "customer:customers!customer_id(name), merch:staff!merchandiser_id(name), " +
           "so:sales_orders!sales_order_id(order_number, status)",
       )
@@ -90,6 +92,7 @@ export const loadOrders = cache(async (): Promise<Access<OrderFact[]>> => {
     season: string | null;
     re_status: string | null;
     customer_id: string | null;
+    merchandiser_id: string | null;
     customer: { name: string | null } | null;
     merch: { name: string | null } | null;
     so: { order_number: string | null; status: string | null } | null;
@@ -104,6 +107,7 @@ export const loadOrders = cache(async (): Promise<Access<OrderFact[]>> => {
       buyerId: r.customer_id,
       buyer: r.customer?.name?.trim() || "No buyer",
       merchandiser: r.merch?.name?.trim() || "—",
+      merchandiserId: r.merchandiser_id,
       season: r.season?.trim() || "No season",
       orderDate: (r.po_date || r.received_date || r.created_at).slice(0, 10),
       deliveryDate: r.delivery_date,
@@ -202,6 +206,8 @@ export type PoFact = {
   lastGrn: string | null;
   receivedQty: number;
   rejectedQty: number;
+  /** Who raised it — what a module overview's "Mine" matches on. */
+  createdBy: string | null;
 };
 
 /** A PO that went to the vendor. Draft, waiting and cancelled are not spend. */
@@ -214,7 +220,7 @@ export const loadPurchase = cache(async (): Promise<Access<PoFact[]>> => {
     sb
       .from("purchase_orders")
       .select(
-        "id, code, status, order_date, expected_date, total_amount, budget_reason, " +
+        "id, code, status, order_date, expected_date, total_amount, budget_reason, created_by, " +
           "mv:master_vendors!master_vendor_id(name), v:vendors!vendor_id(name), " +
           "lines:po_line_items(quantity, unit_price, received_qty, cancelled_qty, balance_closed_qty, item_class)",
       )
@@ -244,6 +250,7 @@ export const loadPurchase = cache(async (): Promise<Access<PoFact[]>> => {
     expected_date: string | null;
     total_amount: unknown;
     budget_reason: string | null;
+    created_by: string | null;
     mv: { name: string | null } | null;
     v: { name: string | null } | null;
     lines: Line[] | null;
@@ -278,6 +285,7 @@ export const loadPurchase = cache(async (): Promise<Access<PoFact[]>> => {
       lastGrn: g?.last ?? null,
       receivedQty: g?.rec ?? 0,
       rejectedQty: g?.rej ?? 0,
+      createdBy: r.created_by,
     });
   }
   return { ok: true, data: out };
