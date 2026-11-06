@@ -25,7 +25,7 @@ import {
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { saveApprovalFlow, setApprovalFlowActive } from "@/lib/approvals/actions";
-import { describeCriteria } from "@/lib/approvals/criteria";
+import { describeCriteria, RESOLVER_WORDS } from "@/lib/approvals/criteria";
 import { WORKFLOW_LIST, workflowLabel } from "@/lib/approvals/workflows";
 import type { RoleOption } from "@/lib/approvals/admin";
 import type {
@@ -295,7 +295,7 @@ export function ApprovalFlowsScreen({
 
   const stepsPayload = (): ApprovalStep[] =>
     steps
-      .filter((s) => s.step_label.trim() || s.approver_role_key)
+      .filter((s) => s.step_label.trim() || s.approver_role_key || s.rest.approver_resolver)
       .map((s, i) => ({
         /* The untouched keys FIRST, so an edited field always wins over the
            value it was read from — and nothing this screen cannot show is
@@ -339,7 +339,8 @@ export function ApprovalFlowsScreen({
     if (packed.length === 0) out.push("Add at least one step");
     packed.forEach((s, i) => {
       if (!s.step_label) out.push(`Step ${i + 1} needs a label`);
-      if (!s.approver_role_key) out.push(`Step ${i + 1} names no approver`);
+      // A resolver step (0807's HOD / HR Manager / ED) picks its own approver.
+      if (!s.approver_role_key && !s.approver_resolver) out.push(`Step ${i + 1} names no approver`);
     });
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -414,32 +415,40 @@ export function ApprovalFlowsScreen({
     {
       header: "Approver role",
       width: "14rem",
-      cell: (r) => (
-        <Select
-          compact
-          value={r.approver_role_key}
-          onChange={(e) =>
-            mutSteps((xs) =>
-              xs.map((x) =>
-                x.key === r.key ? { ...x, approver_role_key: e.target.value } : x,
-              ),
-            )
-          }
-        >
-          <option value="" />
-          {roles.map((role) => (
-            <option key={role.name} value={role.name}>
-              {role.name}
-            </option>
-          ))}
-        </Select>
-      ),
+      cell: (r) =>
+        /* A step routed by a RESOLVER has no role to pick — it finds its own
+           approver (0817: the department's HOD, …). Say who, rather than an
+           empty role box that reads as "nobody". */
+        !r.approver_role_key && r.rest.approver_resolver ? (
+          <span className="text-xs text-muted-foreground">
+            Automatic — {RESOLVER_WORDS[r.rest.approver_resolver] ?? r.rest.approver_resolver}
+          </span>
+        ) : (
+          <Select
+            compact
+            value={r.approver_role_key}
+            onChange={(e) =>
+              mutSteps((xs) =>
+                xs.map((x) =>
+                  x.key === r.key ? { ...x, approver_role_key: e.target.value } : x,
+                ),
+              )
+            }
+          >
+            <option value="" />
+            {roles.map((role) => (
+              <option key={role.name} value={role.name}>
+                {role.name}
+              </option>
+            ))}
+          </Select>
+        ),
     },
     {
       header: "Holders",
       width: "8rem",
       cell: (r) => {
-        if (!r.approver_role_key) return <span className="text-sm">—</span>;
+        if (!r.approver_role_key) return <span className="text-sm">{r.rest.approver_resolver ? "auto" : "—"}</span>;
         const n = roleByName.get(r.approver_role_key) ?? 0;
         /* THE WARNING, AT THE POINT OF THE DECISION. Red rather than muted:
            this is the difference between a flow that works and one that strands

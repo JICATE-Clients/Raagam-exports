@@ -12,6 +12,7 @@ import { GRID_FRAME } from "@/components/masters/child-grid";
 import { cn } from "@/lib/utils";
 import { matchesSearch, searchTokens } from "@/lib/ui/search-match";
 import { hint } from "@/lib/ui/placeholders";
+import { PersonAvatar } from "@/components/ui/person-avatar";
 
 /**
  * PICK SEVERAL FROM ONE LIST — the app's first multi-select.
@@ -118,6 +119,8 @@ export type MultiSelectOption = {
   label: string;
   /** Read through `isInactive()` at the call site; a disabled master row. */
   inactive?: boolean;
+  /** "staff:<id>" / "worker:<id>" — the row and its chip show that person's photo. */
+  person?: string | null;
 };
 
 /** `summarizeLabels` names up to this many; beyond it the trigger counts. */
@@ -1132,6 +1135,9 @@ export function MultiSelect({
                       )}
                       {/* `touch={false}`: this row commits on mousedown, so a
                           press-and-hold would reveal the value AND pick it. */}
+                      {o.person !== undefined && (
+                        <PersonAvatar name={o.label} person={o.person} className="h-6 w-6 text-[9px]" />
+                      )}
                       <Truncated touch={false}>{o.label}</Truncated>
                       {o.inactive && !gridded && (
                         <span className="ml-auto shrink-0 text-xs text-muted-foreground">
@@ -1253,6 +1259,7 @@ export function MultiSelectChips({
           key={o.id}
           className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-muted px-2 py-0.5 text-sm font-medium"
         >
+          {o.person !== undefined && <PersonAvatar name={o.label} person={o.person} className="h-5 w-5 text-[8px]" />}
           {o.label}
           {!disabled && (
             <button

@@ -2582,6 +2582,36 @@ html[data-type-scale="compact"] [data-sheet-row="head"] > :is(.text-foreground, 
    stages. The resting frame is the real chart, and reduced motion goes straight to it.
    CSS only — the dashboard ships no chart JavaScript, and this keeps it that way.
    Elements keep their keys across the minute refresh, so nothing replays every minute. */
+/* HR Dashboard ▸ Celebrations — falling paper confetti, balloons, stickers
+   (motion-safe only; under reduce-motion every piece rests where it is). */
+@keyframes confetti-fall {
+  from { top: -8%; }
+  to { top: 108%; }
+}
+@keyframes confetti-sway {
+  from { transform: translateX(-9px) rotate(-18deg); }
+  to { transform: translateX(9px) rotate(18deg); }
+}
+@keyframes confetti-flutter {
+  from { transform: rotate3d(1, 0.4, 0.2, 0deg); }
+  to { transform: rotate3d(1, 0.4, 0.2, 360deg); }
+}
+@keyframes balloon-float {
+  0%, 100% { translate: 0 0; rotate: -3deg; }
+  50% { translate: 0 -7px; rotate: 3deg; }
+}
+@keyframes sticker-bob {
+  0%, 100% { translate: 0 0; }
+  50% { translate: 0 -4px; }
+}
+@keyframes party-twinkle {
+  0%, 100% { opacity: 0.4; scale: 0.85; }
+  50% { opacity: 1; scale: 1.15; }
+}
+@keyframes party-shimmer {
+  from { left: -35%; }
+  to { left: 105%; }
+}
 @keyframes dash-rise { from { transform: scaleY(0); } }
 @keyframes dash-grow { from { transform: scaleX(0); } }
 @keyframes dash-sweep { from { stroke-dasharray: 0 100; } }

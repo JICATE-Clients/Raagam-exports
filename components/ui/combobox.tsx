@@ -15,6 +15,7 @@ import {
   FieldAffordance,
 } from "@/components/ui/field-affordance";
 import { hint } from "@/lib/ui/placeholders";
+import { PersonAvatar } from "@/components/ui/person-avatar";
 
 export interface ComboboxOption {
   value: string;
@@ -43,6 +44,13 @@ export interface ComboboxOption {
   /** Why it is greyed, in words, e.g. "(already added)". Opacity alone reads as
    *  a rendering glitch rather than a reason. */
   disabledNote?: string;
+  /**
+   * A PERSON'S ROW SHOWS THEIR FACE (user 2026-11-06: "wherever we pick the
+   * name it should come with the profile picture"). "staff:<id>" / "worker:<id>"
+   * — the row draws `PersonAvatar` before the label: the HR photo, else the
+   * initials. Leave it off for anything that is not a person.
+   */
+  person?: string | null;
 }
 
 /**
@@ -482,6 +490,9 @@ export function Combobox({
                   i === highlight ? "bg-primary/10 text-foreground" : "text-foreground hover:bg-surface-muted",
                 )}
               >
+                {o.person !== undefined && (
+                  <PersonAvatar name={o.label} person={o.person} className="mr-2 inline-grid h-6 w-6 align-middle text-[9px]" />
+                )}
                 {o.label}
                 {o.sublabel && <span className="ml-2 text-xs text-muted-foreground">{o.sublabel}</span>}
                 {/* In words. 40% opacity on its own reads as a rendering

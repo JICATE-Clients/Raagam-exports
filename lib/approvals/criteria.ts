@@ -102,8 +102,13 @@ const OPERATOR_WORDS: Record<string, string> = {
 };
 
 /** Resolvers implemented in `approval_rbac_resolve_dynamic`, in words. */
-const RESOLVER_WORDS: Record<string, string> = {
+export const RESOLVER_WORDS: Record<string, string> = {
   md_or_hr_manager: 'anyone with the "Managing Director" or "HR Manager" role',
+  // 0817 — HR requests: Department HOD → HR Manager → ED.
+  hr_department_head:
+    "the HOD of the person's department (HR ▸ Time Off Setup ▸ Approval Flow); with no HOD, the HR Manager",
+  hr_manager: 'anyone with the "HR Manager" role; with nobody holding it, the "Managing Director"',
+  hr_executive_director: 'the ED — anyone with the "Managing Director" role',
 };
 
 function humaniseKey(key: string): string {

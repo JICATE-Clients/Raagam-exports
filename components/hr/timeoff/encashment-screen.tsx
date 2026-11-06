@@ -1,11 +1,12 @@
 "use client";
 
+import { PersonCell, personKeyOf } from "@/components/ui/person-avatar";
 import { BadgeIndianRupee, Undo2 } from "lucide-react";
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { VoiceTextarea } from "@/components/ui/voice-textarea";
 import { Select } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
 import { Field, FieldRow } from "@/components/ui/field";
@@ -16,8 +17,6 @@ import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 import { useToast } from "@/components/ui/toast";
-import { ApprovalActionBar } from "@/components/approvals/approval-action-bar";
-import { ApprovalTimeline } from "@/components/approvals/approval-timeline";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { useOpenIntent } from "@/lib/use-open-intent";
 import { useUnsavedGuard } from "@/lib/reload-guard";
@@ -38,7 +37,7 @@ import {
   type LeaveType,
   type PersonOption,
 } from "@/lib/hr/timeoff-types";
-import { Fact, ReasonSheet } from "./shared";
+import { ApprovalTrail, Fact, ReasonSheet } from "./shared";
 
 /**
  * HR ▸ Time Off ▸ Leave Encashment (0770). A stub in MyJKKN (request only);
@@ -167,8 +166,7 @@ export function EncashmentScreen({ rows, types, people, selfOnly, canPay }: Prop
   }
 
   const columns: Column<Encashment>[] = [
-    { header: "Code", cell: (r) => <span className="font-mono text-xs font-medium">{r.code ?? "—"}</span> },
-    ...(selfOnly ? [] : [{ header: "Person", cell: (r: Encashment) => <span className="text-sm">{r.person_name}</span> }]),
+    ...(selfOnly ? [] : [{ header: "Person", cell: (r: Encashment) => <PersonCell name={r.person_name} person={personKeyOf(r)} /> }]),
     { header: "Leave Type", cell: (r) => <span className="text-sm">{r.leave_name}</span> },
     { header: "Days", align: "right", cell: (r) => <span className="text-sm tabular-nums">{fmtDays(r.days)}</span> },
     { header: "Rate / Day", align: "right", cell: (r) => <span className="text-sm tabular-nums">{fmtMoney(r.rate_per_day)}</span> },
@@ -176,11 +174,17 @@ export function EncashmentScreen({ rows, types, people, selfOnly, canPay }: Prop
   ];
   const statusColumn: Column<Encashment> = {
     header: "Status",
-    cell: (r) => <StatusPill tone={timeoffTone(r.status)}>{statusLabel(r.status)}</StatusPill>,
+    cell: (r) => (
+      <span className="inline-flex flex-col items-start gap-0.5">
+        <StatusPill tone={timeoffTone(r.status)}>{statusLabel(r.status)}</StatusPill>
+        {/* Pending until the last of HOD → HR Manager → ED; this says how far it got. */}
+        {r.status === "pending" && r.stage && <span className="text-xs text-muted-foreground">{r.stage}</span>}
+      </span>
+    ),
   };
   const actions = rowActionsColumn<Encashment>((r) => (
     <RowActions
-      label={r.code}
+      label={r.person_name}
       onView={() => openView(r)}
       isPending={isPending}
       menu={[
@@ -198,7 +202,7 @@ export function EncashmentScreen({ rows, types, people, selfOnly, canPay }: Prop
         <span className="text-xs text-muted-foreground">
           {encashable.length
             ? `Encashable: ${encashable.map((t) => t.name).join(", ")}.`
-            : "No leave type is encashable yet — tick Encashable on Leave Setup."}
+            : "No leave type is encashable yet — tick Encashable on Time Off Setup."}
         </span>
         {people.length > 0 && encashable.length > 0 && <Button onClick={openNew}>+ Request Encashment</Button>}
       </div>
@@ -216,11 +220,11 @@ export function EncashmentScreen({ rows, types, people, selfOnly, canPay }: Prop
         title="Request leave encashment"
         size="md"
         footer={
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="min-w-0 text-xs text-muted-foreground">
               {problem ?? "Priced at the day rate when it is saved; the days leave the balance at once."}
             </span>
-            <div className="flex gap-2">
+            <div className="ml-auto flex gap-2">
               <Button variant="outline" onClick={() => setOpen(false)}>
                 Cancel
               </Button>
@@ -239,6 +243,7 @@ export function EncashmentScreen({ rows, types, people, selfOnly, canPay }: Prop
                   options={people.map((p) => ({
                     value: p.key,
                     label: p.name,
+                    person: p.key,
                     sublabel: p.kind === "worker" ? "Worker" : "Staff",
                     search: p.code,
                   }))}
@@ -268,7 +273,7 @@ export function EncashmentScreen({ rows, types, people, selfOnly, canPay }: Prop
             </p>
           )}
           <Field label="Reason" required>
-            <Textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} />
+            <VoiceTextarea rows={2} value={reason} onValueChange={setReason} />
           </Field>
         </div>
       </Sheet>
@@ -276,7 +281,7 @@ export function EncashmentScreen({ rows, types, people, selfOnly, canPay }: Prop
       <Sheet
         open={!!viewFor}
         onClose={() => setViewFor(null)}
-        title={viewFor ? `${viewFor.code ?? "Encashment"} — ${viewFor.person_name}` : "Encashment"}
+        title={viewFor ? `${viewFor.person_name} — Encashment` : "Encashment"}
         size="md"
       >
         {viewFor && (
@@ -297,19 +302,8 @@ export function EncashmentScreen({ rows, types, people, selfOnly, canPay }: Prop
                 </Fact>
               )}
             </dl>
-            {panel?.id === viewFor.id && panel.run && (
-              <section className="space-y-2">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Approval</h3>
-                <ApprovalTimeline rows={panel.timeline} resolveUserName={(id) => panel.names[id]} />
-                {panel.verdict && (
-                  <ApprovalActionBar
-                    run={panel.run}
-                    verdict={panel.verdict}
-                    subjectPath="/hr/time-off/encashment"
-                    onDone={() => setViewFor(null)}
-                  />
-                )}
-              </section>
+            {panel?.id === viewFor.id && (
+              <ApprovalTrail panel={panel} subjectPath="/hr/time-off/encashment" onDone={() => setViewFor(null)} />
             )}
           </div>
         )}
@@ -320,7 +314,7 @@ export function EncashmentScreen({ rows, types, people, selfOnly, canPay }: Prop
         busy={isPending}
         onClose={() => setWithdrawFor(null)}
         onConfirm={doWithdraw}
-        title={`Withdraw ${withdrawFor?.code ?? ""}`}
+        title={`Withdraw — ${withdrawFor?.person_name ?? ""}`}
         confirmLabel="Withdraw"
         intro="This takes the encashment out of the approver's queue and returns its days to the balance."
       />
@@ -328,7 +322,7 @@ export function EncashmentScreen({ rows, types, people, selfOnly, canPay }: Prop
       <Sheet
         open={!!payFor}
         onClose={() => setPayFor(null)}
-        title={`Mark ${payFor?.code ?? ""} paid`}
+        title={`Mark paid — ${payFor?.person_name ?? ""}`}
         size="sm"
         footer={
           <div className="flex justify-end gap-2">

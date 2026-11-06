@@ -1,3 +1,4 @@
+import { PersonCell } from "@/components/ui/person-avatar";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { requirePermission } from "@/lib/auth/server";
@@ -63,7 +64,14 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ m
   });
 
   const columns: Column<TimeoffRequest>[] = [
-    { header: "Person", cell: (r) => <span className="text-sm font-medium">{r.person_name}</span> },
+    {
+      header: "Person",
+      cell: (r) => (
+        <PersonCell name={r.person_name} person={r.staff_id ? `staff:${r.staff_id}` : r.worker_id ? `worker:${r.worker_id}` : null}>
+          <span className="text-sm font-medium">{r.person_name}</span>
+        </PersonCell>
+      ),
+    },
     { header: "Type", cell: (r) => <TypeDot color={r.leave_color}>{r.leave_name}</TypeDot> },
     { header: "When", cell: (r) => <span className="text-sm tabular-nums">{whenOf(r)}</span> },
     {
@@ -104,15 +112,23 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ m
         )}
       </div>
 
-      <div className="overflow-x-auto">
-        <div className="grid min-w-[44rem] grid-cols-7 overflow-hidden rounded-lg border border-border">
+      {/*
+        THE MONTH FITS A PHONE (user 2026-11-04: "time off … mainly focusing on
+        mobile friendly"). It was a 44rem grid in a sideways scroll. Below md a
+        day is a small square — its date and one coloured dot per person away
+        (½ and ⏱ ride on the dot's title); who it is lives in the list below,
+        which DataTable turns into cards there. From md it is the grid it was:
+        names in each day, a holiday's name in the corner.
+      */}
+      {/* responsive: exempt -- a calendar is seven weekdays; a day is ~50px on a 375px phone and holds a date and dots */}
+      <div className="grid grid-cols-7 overflow-hidden rounded-lg border border-border">
           {WEEKDAYS.map((w) => (
-            <div key={w} className="border-b border-border bg-muted/40 px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+            <div key={w} className="border-b border-border bg-muted/40 px-1 py-1.5 text-center text-[11px] font-semibold text-muted-foreground md:px-2 md:text-left md:text-xs">
               {w}
             </div>
           ))}
           {cells.map((c, i) => {
-            if (!c.date) return <div key={i} className="min-h-24 border-b border-r border-border bg-muted/20" />;
+            if (!c.date) return <div key={i} className="min-h-12 border-b border-r border-border bg-muted/20 md:min-h-24" />;
             const list = onDay(c.date);
             const h = holidayOn(c.date);
             const sunday = i % 7 === 6;
@@ -120,7 +136,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ m
               <div
                 key={c.date}
                 className={cn(
-                  "min-h-24 border-b border-r border-border p-1.5",
+                  "min-h-12 min-w-0 border-b border-r border-border p-1 md:min-h-24 md:p-1.5",
                   (sunday || h) && "bg-muted/30",
                   c.date === t0 && "ring-2 ring-inset ring-primary/40",
                 )}
@@ -129,9 +145,22 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ m
                   <span className={cn("text-xs font-semibold tabular-nums", c.date === t0 && "text-primary")}>
                     {Number(c.date.slice(8))}
                   </span>
-                  {h && <span className="truncate text-[10px] text-muted-foreground">{h.name}</span>}
+                  {h && <span className="hidden truncate text-[10px] text-muted-foreground md:inline">{h.name}</span>}
                 </div>
-                <ul className="mt-1 space-y-0.5">
+                {list.length > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-0.5 md:hidden" aria-label={`${list.length} away`}>
+                    {list.slice(0, 6).map((r) => (
+                      <span
+                        key={r.id}
+                        className="size-2 rounded-full"
+                        style={{ background: r.leave_color }}
+                        title={`${r.person_name} — ${r.leave_name}`}
+                      />
+                    ))}
+                    {list.length > 6 && <span className="text-[9px] leading-none text-muted-foreground">+{list.length - 6}</span>}
+                  </div>
+                )}
+                <ul className="mt-1 hidden space-y-0.5 md:block">
                   {list.slice(0, 4).map((r) => (
                     <li
                       key={r.id}
@@ -148,7 +177,6 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ m
               </div>
             );
           })}
-        </div>
       </div>
 
       <DataTable columns={columns} rows={rows} getKey={(r) => r.id} empty="No approved leave this month." paginate={false} />

@@ -26,6 +26,7 @@ export function PersonCombobox({
       options={people.map((p) => ({
         value: p.key,
         label: p.name,
+        person: p.key,
         sublabel: p.kind === "worker" ? "Worker" : "Staff",
         search: p.code ?? undefined,
       }))}

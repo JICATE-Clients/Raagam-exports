@@ -112,13 +112,11 @@ export const GROUP_HUB_ICONS: Readonly<Record<string, HubMark>> = {
   "/hr/workers": { icon: HardHat, tone: "primary" },
   "/hr/staff": { icon: UserCog, tone: "info" },
   "/hr/contractors": { icon: Building2, tone: "accent" },
-  "/hr/lifecycle": { icon: UserMinus, tone: "warning" },
 
   // Time & Attendance
   "/hr/attendance": { icon: CalendarCheck, tone: "info" },
   "/hr/movement-register": { icon: ListOrdered, tone: "info" },
   "/hr/piece-records": { icon: Scissors, tone: "accent" },
-  "/hr/leave": { icon: CalendarOff, tone: "primary" },
   "/hr/live": { icon: Radio, tone: "danger" },
 
   // Pay — Salary Registry (accent) · Bank Details (primary) lead it, then
@@ -139,6 +137,7 @@ export const GROUP_HUB_ICONS: Readonly<Record<string, HubMark>> = {
   // Time Off (0770)
   "/hr/time-off/leave": { icon: CalendarOff, tone: "primary" },
   "/hr/time-off/permission": { icon: Timer, tone: "warning" },
+  "/hr/time-off/on-duty": { icon: Briefcase, tone: "info" },
   "/hr/time-off/comp-off": { icon: CalendarPlus, tone: "accent" },
   "/hr/time-off/approvals": { icon: ClipboardCheck, tone: "success" },
   "/hr/time-off/calendar": { icon: CalendarDays, tone: "info" },

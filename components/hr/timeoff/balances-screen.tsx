@@ -1,5 +1,6 @@
 "use client";
 
+import { PersonAvatar } from "@/components/ui/person-avatar";
 import { SlidersHorizontal } from "lucide-react";
 import { useMemo, useState, useTransition } from "react";
 import { usePathname, useRouter } from "next/navigation";
@@ -165,7 +166,8 @@ export function BalancesScreen({ years, yearId, sheet, types, overrides, canEdit
     {
       header: "Person",
       cell: (p) => (
-        <span className="text-sm">
+        <span className="flex items-center gap-2 text-sm">
+          <PersonAvatar name={p.name} person={p.key} className="h-7 w-7 text-[10px]" />
           <span className="font-medium">{p.name}</span>
           <span className="ml-2 text-xs text-muted-foreground">{p.kind === "worker" ? "Worker" : "Staff"}</span>
         </span>
@@ -229,7 +231,7 @@ export function BalancesScreen({ years, yearId, sheet, types, overrides, canEdit
               type="search"
               aria-label="Search people"
               placeholder="Search name or code"
-              className="h-9 w-60"
+              className="h-9 w-full sm:w-60"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -247,7 +249,7 @@ export function BalancesScreen({ years, yearId, sheet, types, overrides, canEdit
         columns={[...columns, actions]}
         rows={visible}
         getKey={(p) => p.key}
-        empty="No balances — add leave types that track a balance on Leave Setup."
+        empty="No balances — add leave types that track a balance on Time Off Setup."
       />
 
       <Sheet
@@ -256,11 +258,11 @@ export function BalancesScreen({ years, yearId, sheet, types, overrides, canEdit
         title={adjustFor ? `Adjust balance — ${adjustFor.name}` : "Adjust balance"}
         size="md"
         footer={
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="min-w-0 text-xs text-muted-foreground">
               {reason.trim() ? "Every change is logged with this reason." : "The reason is mandatory."}
             </span>
-            <div className="flex gap-2">
+            <div className="ml-auto flex gap-2">
               <Button variant="outline" onClick={() => setAdjustFor(null)}>
                 Cancel
               </Button>
@@ -273,16 +275,23 @@ export function BalancesScreen({ years, yearId, sheet, types, overrides, canEdit
       >
         {adjustFor && (
           <div className="max-w-[44rem] space-y-4 text-sm">
-            <table className="w-full">
-              <thead>
-                <tr className="text-left text-xs text-muted-foreground">
-                  <th className="pb-2 font-medium">Leave type</th>
-                  <th className="pb-2 font-medium">Entitled (blank = default)</th>
-                  <th className="pb-2 font-medium">Carried forward</th>
-                  <th className="pb-2 font-medium">Already taken before</th>
-                </tr>
-              </thead>
-              <tbody>
+            {/*
+              PHONE FIRST (user 2026-11-04: "time off … mainly focusing on mobile
+              friendly"). This was a 4-column <table> with 7rem inputs — ~30rem,
+              wider than a phone, inside a sheet that is a bottom sheet there.
+              Now each leave type is a block: its name, then three labelled boxes
+              side by side. From 28rem of SHEET width (a container query — the
+              sheet, not the screen, decides) it is the same table as before:
+              one header row, one line per type, the labels read off the header.
+            */}
+            <div className="@container/adjust">
+              <div className="hidden grid-cols-[minmax(0,1fr)_repeat(3,7rem)] gap-3 pb-2 text-xs font-medium text-muted-foreground @md/adjust:grid">
+                <span>Leave type</span>
+                <span>Entitled (blank = default)</span>
+                <span>Carried forward</span>
+                <span>Already taken before</span>
+              </div>
+              <div className="space-y-3 @md/adjust:space-y-1">
                 {columnsTypes.map((t) => {
                   const e = edits[t.id];
                   if (!e) return null;
@@ -291,47 +300,54 @@ export function BalancesScreen({ years, yearId, sheet, types, overrides, canEdit
                     setDirty(true);
                   };
                   return (
-                    <tr key={t.id}>
-                      <td className="py-1 pr-3">{t.name}</td>
-                      <td className="py-1 pr-3">
+                    <div
+                      key={t.id}
+                      // responsive: exempt -- three number boxes, ~100px each on a phone; the type name spans all three
+                      className="grid grid-cols-3 gap-2 border-b border-border/60 pb-3 @md/adjust:grid-cols-[minmax(0,1fr)_repeat(3,7rem)] @md/adjust:items-center @md/adjust:gap-3 @md/adjust:border-0 @md/adjust:pb-0"
+                    >
+                      <span className="col-span-3 font-medium @md/adjust:col-span-1 @md/adjust:font-normal">{t.name}</span>
+                      <label className="min-w-0 space-y-1">
+                        <span className="block text-[11px] text-muted-foreground @md/adjust:sr-only">Entitled</span>
                         <Input
                           type="number"
                           min="0"
                           step="0.5"
                           aria-label={`${t.name} entitled`}
                           placeholder={fmtDays(t.default_entitled_days)}
-                          className="w-28"
+                          className="w-full"
                           value={e.entitled}
                           onChange={(ev) => put("entitled", ev.target.value)}
                         />
-                      </td>
-                      <td className="py-1 pr-3">
+                      </label>
+                      <label className="min-w-0 space-y-1">
+                        <span className="block text-[11px] text-muted-foreground @md/adjust:sr-only">Carried forward</span>
                         <Input
                           type="number"
                           min="0"
                           step="0.5"
                           aria-label={`${t.name} carried forward`}
-                          className="w-28"
+                          className="w-full"
                           value={e.carried}
                           onChange={(ev) => put("carried", ev.target.value)}
                         />
-                      </td>
-                      <td className="py-1">
+                      </label>
+                      <label className="min-w-0 space-y-1">
+                        <span className="block text-[11px] text-muted-foreground @md/adjust:sr-only">Already taken</span>
                         <Input
                           type="number"
                           min="0"
                           step="0.5"
                           aria-label={`${t.name} already taken`}
-                          className="w-28"
+                          className="w-full"
                           value={e.opening}
                           onChange={(ev) => put("opening", ev.target.value)}
                         />
-                      </td>
-                    </tr>
+                      </label>
+                    </div>
                   );
                 })}
-              </tbody>
-            </table>
+              </div>
+            </div>
             <Field label="Reason" required>
               <Textarea
                 rows={2}

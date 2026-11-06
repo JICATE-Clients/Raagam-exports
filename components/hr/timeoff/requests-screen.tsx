@@ -1,11 +1,12 @@
 "use client";
 
+import { PersonCell, personKeyOf } from "@/components/ui/person-avatar";
 import { Ban, CalendarX2, Undo2 } from "lucide-react";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { VoiceTextarea } from "@/components/ui/voice-textarea";
 import { Select } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
 import { Field, FieldRow } from "@/components/ui/field";
@@ -18,8 +19,6 @@ import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 import { Truncated } from "@/components/ui/truncated";
 import { useToast } from "@/components/ui/toast";
-import { ApprovalActionBar } from "@/components/approvals/approval-action-bar";
-import { ApprovalTimeline } from "@/components/approvals/approval-timeline";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { useOpenIntent } from "@/lib/use-open-intent";
 import { useUnsavedGuard } from "@/lib/reload-guard";
@@ -35,6 +34,7 @@ import {
 import {
   CATEGORY_LABELS,
   REQUEST_STATUSES,
+  isOnDuty,
   fmtDays,
   fmtMinutes,
   statusLabel,
@@ -46,19 +46,28 @@ import {
   type RequestStatus,
   type TimeoffRequest,
 } from "@/lib/hr/timeoff-types";
-import { Fact, ReasonSheet, TypeDot, whenOf } from "./shared";
+import { ApprovalTrail, Fact, ReasonSheet, TypeDot, whenOf } from "./shared";
 
 /**
- * HR ▸ Time Off ▸ Leave Requests and ▸ Permissions (0770, MyJKKN §9.2–9.3,
- * §9.7). One screen, two modes: `leave` lists leave and comp-off bookings,
- * `permission` lists short time off in hours.
+ * HR ▸ Time Off ▸ Leave, Permission and On Duty Requests (0770, MyJKKN
+ * §9.2–9.3, §9.7). One screen, three modes: `leave` lists leave and comp-off
+ * bookings, `permission` lists short time off in hours, `on_duty` lists the
+ * On Duty type alone (user 2026-11-05: "in time off there should be leave
+ * request, permission request, on duty request, comp off request") — which
+ * `leave` therefore no longer offers. Split by `isOnDuty`.
  *
  * Every refusal the apply sheet shows sooner is also refused by
  * `timeoff_apply` — balance, overlap, notice, caps, blackouts, who may apply
  * for whom.
  */
 
-type Mode = "leave" | "permission";
+type Mode = "leave" | "permission" | "on_duty";
+
+const WORDS: Record<Mode, { noun: string; button: string; title: string; typeLabel: string; pick: string; path: string }> = {
+  leave: { noun: "leave", button: "+ Apply Leave", title: "Apply for leave", typeLabel: "Leave Type", pick: "Pick the leave type", path: "/hr/time-off/leave" },
+  permission: { noun: "permission", button: "+ Apply Permission", title: "Apply for permission", typeLabel: "Permission Type", pick: "Pick the permission type", path: "/hr/time-off/permission" },
+  on_duty: { noun: "on duty", button: "+ Apply On Duty", title: "Apply for on duty", typeLabel: "On Duty Type", pick: "Pick the on duty type", path: "/hr/time-off/on-duty" },
+};
 
 type Props = {
   mode: Mode;
@@ -96,7 +105,9 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, canRevoke 
       types.filter(
         (t) =>
           t.is_active &&
-          (mode === "permission" ? t.request_category === "short_time_off" : t.request_category !== "short_time_off"),
+          (mode === "permission"
+            ? t.request_category === "short_time_off"
+            : t.request_category !== "short_time_off" && (mode === "on_duty") === isOnDuty(t.code, t.name)),
       ),
     [types, mode],
   );
@@ -143,7 +154,7 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, canRevoke 
   // The person's live balance, re-read when the person changes.
   const [balances, setBalances] = useState<{ person: string; rows: BalanceRow[] } | null>(null);
   useEffect(() => {
-    if (!open || !draft.person || mode === "permission") return;
+    if (!open || !draft.person || mode !== "leave") return;
     let live = true;
     loadPersonBalances(draft.person).then((rows) => {
       if (live) setBalances({ person: draft.person, rows });
@@ -167,7 +178,7 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, canRevoke 
 
   const problem = (() => {
     if (!draft.person) return "Pick the person";
-    if (!draft.leave_type_id) return mode === "permission" ? "Pick the permission type" : "Pick the leave type";
+    if (!draft.leave_type_id) return WORDS[mode].pick;
     if (!draft.start_date) return "Pick the From date";
     // Time off is applied in advance (0798; user 2026-11-03: "all the time off
     // things happening in Raagam are beforehand") — the database refuses a
@@ -235,10 +246,9 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, canRevoke 
   }
 
   const columns: Column<TimeoffRequest>[] = [
-    { header: "Code", cell: (r) => <span className="font-mono text-xs font-medium">{r.code ?? "—"}</span> },
     ...(selfOnly
       ? []
-      : [{ header: "Person", cell: (r: TimeoffRequest) => <span className="text-sm">{r.person_name}</span> }]),
+      : [{ header: "Person", cell: (r: TimeoffRequest) => <PersonCell name={r.person_name} person={personKeyOf(r)} /> }]),
     { header: "Type", cell: (r) => <TypeDot color={r.leave_color}>{r.leave_name}</TypeDot> },
     { header: "When", cell: (r) => <span className="text-sm tabular-nums">{whenOf(r)}</span> },
     {
@@ -257,11 +267,17 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, canRevoke 
   ];
   const statusColumn: Column<TimeoffRequest> = {
     header: "Status",
-    cell: (r) => <StatusPill tone={timeoffTone(r.status)}>{statusLabel(r.status)}</StatusPill>,
+    cell: (r) => (
+      <span className="inline-flex flex-col items-start gap-0.5">
+        <StatusPill tone={timeoffTone(r.status)}>{statusLabel(r.status)}</StatusPill>
+        {/* Pending until the last of HOD → HR Manager → ED; this says how far it got. */}
+        {r.status === "pending" && r.stage && <span className="text-xs text-muted-foreground">{r.stage}</span>}
+      </span>
+    ),
   };
   const actions = rowActionsColumn<TimeoffRequest>((r) => (
     <RowActions
-      label={r.code}
+      label={r.person_name}
       onView={() => openView(r)}
       isPending={isPending}
       menu={[
@@ -278,7 +294,7 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, canRevoke 
     />
   ));
 
-  const noun = mode === "permission" ? "permission" : "leave";
+  const noun = WORDS[mode].noun;
 
   return (
     <div className="space-y-4">
@@ -307,7 +323,7 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, canRevoke 
             ))}
           </Select>
         </div>
-        {people.length > 0 && <Button onClick={openApply}>+ Apply {noun === "leave" ? "Leave" : "Permission"}</Button>}
+        {people.length > 0 && <Button onClick={openApply}>{WORDS[mode].button}</Button>}
       </div>
 
       <DataTable
@@ -321,14 +337,14 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, canRevoke 
       <Sheet
         open={open}
         onClose={() => setOpen(false)}
-        title={mode === "permission" ? "Apply for permission" : "Apply for leave"}
+        title={WORDS[mode].title}
         size="md"
         footer={
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="min-w-0 text-xs text-muted-foreground">
               {problem ?? "Goes to the approver set on Admin ▸ Approval Flows (Leave / Permission)."}
             </span>
-            <div className="flex gap-2">
+            <div className="ml-auto flex gap-2">
               <Button variant="outline" onClick={() => setOpen(false)}>
                 Cancel
               </Button>
@@ -348,6 +364,7 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, canRevoke 
                   options={people.map((p) => ({
                     value: p.key,
                     label: p.name,
+                    person: p.key,
                     sublabel: p.kind === "worker" ? "Worker" : "Staff",
                     search: p.code,
                   }))}
@@ -356,7 +373,7 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, canRevoke 
                 />
               </Field>
             )}
-            <Field label={mode === "permission" ? "Permission Type" : "Leave Type"} w="term" required>
+            <Field label={WORDS[mode].typeLabel} w="term" required>
               <Select value={draft.leave_type_id} onChange={(e) => set("leave_type_id", e.target.value)}>
                 <option value="">—</option>
                 {typesForPerson.map((t) => (
@@ -421,7 +438,7 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, canRevoke 
             </FieldRow>
           )}
 
-          {type && mode === "leave" && (
+          {type && mode !== "permission" && (
             <p className="text-xs text-muted-foreground">
               {type.request_category === "compensatory_off"
                 ? "Books approved comp-off credits worked before these dates, earliest expiry first."
@@ -433,7 +450,6 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, canRevoke 
               {type.skip_weekends || type.skip_holidays
                 ? ` ${[type.skip_weekends && "Sundays", type.skip_holidays && "holidays"].filter(Boolean).join(" and ")} inside the range are not counted.`
                 : ""}
-              {type.min_advance_notice_days > 0 ? ` Needs ${type.min_advance_notice_days} day(s) notice.` : ""}
             </p>
           )}
           {type && mode === "permission" && (
@@ -451,7 +467,7 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, canRevoke 
           )}
 
           <Field label="Reason" required>
-            <Textarea rows={3} value={draft.reason} onChange={(e) => set("reason", e.target.value)} />
+            <VoiceTextarea rows={3} value={draft.reason} onValueChange={(v) => set("reason", v)} />
           </Field>
         </div>
       </Sheet>
@@ -460,7 +476,7 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, canRevoke 
       <Sheet
         open={!!viewFor}
         onClose={() => setViewFor(null)}
-        title={viewFor ? `${viewFor.code ?? "Request"} — ${viewFor.person_name}` : "Request"}
+        title={viewFor ? `${viewFor.person_name} — ${viewFor.leave_name}` : "Request"}
         size="md"
       >
         {viewFor && (
@@ -494,19 +510,8 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, canRevoke 
                 </Fact>
               )}
             </dl>
-            {panel?.id === viewFor.id && panel.run && (
-              <section className="space-y-2">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Approval</h3>
-                <ApprovalTimeline rows={panel.timeline} resolveUserName={(id) => panel.names[id]} />
-                {panel.verdict && (
-                  <ApprovalActionBar
-                    run={panel.run}
-                    verdict={panel.verdict}
-                    subjectPath={mode === "permission" ? "/hr/time-off/permission" : "/hr/time-off/leave"}
-                    onDone={() => setViewFor(null)}
-                  />
-                )}
-              </section>
+            {panel?.id === viewFor.id && (
+              <ApprovalTrail panel={panel} subjectPath={WORDS[mode].path} onDone={() => setViewFor(null)} />
             )}
           </div>
         )}
@@ -520,10 +525,10 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, canRevoke 
         danger={closing?.mode === "revoke"}
         title={
           closing?.mode === "withdraw"
-            ? `Withdraw ${closing.row.code ?? ""}`
+            ? `Withdraw — ${closing.row.person_name}`
             : closing?.mode === "cancel"
-              ? `Cancel ${closing.row.code ?? ""}`
-              : `Revoke ${closing?.row.code ?? ""}`
+              ? `Cancel — ${closing.row.person_name}`
+              : `Revoke — ${closing?.row.person_name ?? ""}`
         }
         confirmLabel={closing?.mode === "withdraw" ? "Withdraw" : closing?.mode === "cancel" ? "Cancel leave" : "Revoke"}
         intro={

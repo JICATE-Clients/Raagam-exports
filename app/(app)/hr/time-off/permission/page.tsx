@@ -2,9 +2,9 @@ import { Suspense } from "react";
 import { requirePermission } from "@/lib/auth/server";
 import { PageHeader } from "@/components/ui/page-header";
 import { RequestsScreen } from "@/components/hr/timeoff/requests-screen";
-import { listLeaveTypes, listRequests, listTimeoffPeople, timeoffViewer } from "@/lib/hr/timeoff-service";
+import { listLeaveTypes, listRequests, listTimeoffPeople, ownRows, timeoffViewer } from "@/lib/hr/timeoff-service";
 
-export const metadata = { title: "Permissions" };
+export const metadata = { title: "Permission Requests" };
 
 export default async function Page() {
   await requirePermission("hr_payroll", "view");
@@ -16,12 +16,12 @@ export default async function Page() {
   ]);
   return (
     <div className="space-y-4">
-      <PageHeader title="Permissions" description="Short time off in hours. Limits per day and per month are set on Leave Setup." />
+      <PageHeader title="Permission Requests" description="Short time off in hours. Limits per day and per month are set on Time Off Setup." />
       {/* useOpenIntent / useCreateIntent read the URL, so the screen sits in Suspense. */}
       <Suspense>
         <RequestsScreen
           mode="permission"
-          rows={rows}
+          rows={ownRows(rows, viewer)}
           types={types}
           people={people}
           selfOnly={!!viewer.myStaffId}

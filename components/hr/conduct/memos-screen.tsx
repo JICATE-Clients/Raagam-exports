@@ -1,5 +1,6 @@
 "use client";
 
+import { PersonAvatar, personKeyOf } from "@/components/ui/person-avatar";
 import { CircleCheck, MessageSquareWarning, ThumbsUp, Undo2 } from "lucide-react";
 import { useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -188,7 +189,8 @@ export function MemosScreen({ rows, people, myStaffId, canEdit }: Props) {
           {
             header: "Person",
             cell: (m: Memo) => (
-              <span className="text-sm">
+              <span className="flex items-center gap-2 text-sm">
+                <PersonAvatar name={m.person_name} person={personKeyOf(m)} className="h-7 w-7 text-[10px]" />
                 <span className="font-medium">{m.person_name}</span>
                 <span className="ml-2 text-xs text-muted-foreground">
                   {m.person_code ?? ""}

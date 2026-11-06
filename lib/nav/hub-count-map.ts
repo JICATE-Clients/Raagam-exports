@@ -189,14 +189,12 @@ export const HUB_COUNT_TABLES: Record<string, string | null> = {
   "/hr/workers": "workers",
   "/hr/staff": "staff",
   "/hr/contractors": "contractors",
-  "/hr/lifecycle": "hr_lifecycle_events",
   // Attendance is marked for a DATE, not accumulated: `worker_attendance` is
   // one row per worker per day, so its count grows without bound and answers
   // "how many marks have ever been made", which is not what the card is for
   // (W3's audit).
   "/hr/attendance": null,
   "/hr/piece-records": "worker_piece_records",
-  "/hr/leave": "hr_leaves",
   "/hr/payroll": "payroll_runs",
   "/hr/advances": "hr_advances",
   "/hr/adjustments": "hr_adjustments",

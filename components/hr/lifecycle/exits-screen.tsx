@@ -1,5 +1,6 @@
 "use client";
 
+import { PersonAvatar, personKeyOf } from "@/components/ui/person-avatar";
 import { IndianRupee, Undo2 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState, useTransition } from "react";
@@ -240,7 +241,8 @@ export function ExitsScreen({ rows, people, noticeDays, selfOnly, canEdit }: Pro
     {
       header: "Person",
       cell: (r) => (
-        <span className="text-sm">
+        <span className="flex items-center gap-2 text-sm">
+          <PersonAvatar name={r.person_name} person={personKeyOf(r)} className="h-7 w-7 text-[10px]" />
           <span className="font-medium">{r.person_name}</span>
           <span className="ml-2 text-xs text-muted-foreground">{r.worker_id ? "Worker" : "Staff"}</span>
         </span>

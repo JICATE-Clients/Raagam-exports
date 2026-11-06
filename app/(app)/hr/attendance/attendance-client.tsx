@@ -1,5 +1,7 @@
 "use client";
 
+import { PersonAvatar } from "@/components/ui/person-avatar";
+
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { Worker, WorkerAttendance, AttendanceInput } from "@/lib/hr/types";
@@ -203,6 +205,7 @@ export default function AttendanceClient({
                   className="space-y-3 rounded-lg border border-border bg-surface p-3"
                 >
                   <div className="flex items-start gap-3">
+                    <PersonAvatar name={w.name} person={`worker:${w.id}`} />
                     <div className="min-w-0 flex-1">
                       <div className="font-medium">{w.name}</div>
                       <div className="text-xs text-muted-foreground">
@@ -356,7 +359,10 @@ export default function AttendanceClient({
                       className="border-b border-border last:border-0 hover:bg-surface-muted/60"
                     >
                       <td className="px-3 py-1.5 align-middle">
-                        <div className="font-medium">{w.name}</div>
+                        <div className="flex items-center gap-2">
+                          <PersonAvatar name={w.name} person={`worker:${w.id}`} className="h-7 w-7 text-[10px]" />
+                          <div className="font-medium">{w.name}</div>
+                        </div>
                         {w.code && (
                           <div className="text-xs font-mono text-muted-foreground">
                             {w.code}

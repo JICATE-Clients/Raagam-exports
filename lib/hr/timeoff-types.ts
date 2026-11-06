@@ -120,8 +120,20 @@ export type Blackout = {
   created_at: string;
 };
 
+/**
+ * ON DUTY is a leave type, not a category (0798 seeds code OD, "ON DUTY"): away
+ * on company work, not absent. Read through this one test — the dashboard's
+ * `timeOffToday` already uses the same code-or-name rule — so Leave Requests
+ * and On Duty Requests split the same rows the same way.
+ */
+export function isOnDuty(code: string | null | undefined, name: string | null | undefined): boolean {
+  return (code ?? "").trim().toUpperCase() === "OD" || (name ?? "").toUpperCase().includes("ON DUTY");
+}
+
 export type TimeoffRequest = {
   id: string;
+  /** While pending: how far through HOD → HR Manager → ED it is (0817). */
+  stage?: string | null;
   code: string | null;
   staff_id: string | null;
   worker_id: string | null;
@@ -173,6 +185,8 @@ export type CompOffCredit = {
 
 export type Encashment = {
   id: string;
+  /** While pending: how far through HOD → HR Manager → ED it is (0817). */
+  stage?: string | null;
   code: string | null;
   staff_id: string | null;
   worker_id: string | null;
@@ -236,7 +250,26 @@ export type QueueItem = {
   created_at: string;
   /** For a request/encashment: whether the signed-in user is on its current step. */
   can_act: boolean;
+  /** Which step it waits on — "HR Manager · 2 of 3" (0817). Null for a claim. */
+  stage: string | null;
+  /** pending · approved · rejected · paid · consumed — the row's own status. */
+  status: string;
+  /** Who it is for — the photo beside the name (PersonAvatar). */
+  staff_id: string | null;
+  worker_id: string | null;
+  /** A decided row: who decided it and when — "TEST ED · 06/11/2026". */
+  decided?: string | null;
 };
+
+/** One department and its HOD — step 1 of every HR request (0817). */
+export type DepartmentHead = {
+  department_id: string;
+  department_name: string;
+  hod_staff_id: string | null;
+};
+
+/** A staff member who can be named HOD. */
+export type HodOption = { id: string; name: string; code: string | null; department_id: string | null };
 
 // ─── Inputs ────────────────────────────────────────────────────────────────
 

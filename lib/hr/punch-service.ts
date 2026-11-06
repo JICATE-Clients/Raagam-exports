@@ -142,6 +142,8 @@ export async function countPunchesToday(fromIso: string): Promise<number> {
 export interface PunchIdentity {
   name: string;
   kind: "worker" | "staff";
+  /** "staff:<id>" / "worker:<id>" — the photo beside the name. */
+  person: string;
   /** True when more than one person claims this device id. */
   conflict: boolean;
 }
@@ -154,11 +156,11 @@ export async function getPunchIdentities(): Promise<
   const [workers, staff] = await Promise.all([
     supabase
       .from("workers")
-      .select("name, biometric_id")
+      .select("id, name, biometric_id")
       .not("biometric_id", "is", null),
     supabase
       .from("staff")
-      .select("name, biometric_id")
+      .select("id, name, biometric_id")
       .not("biometric_id", "is", null),
   ]);
 
@@ -167,7 +169,7 @@ export async function getPunchIdentities(): Promise<
 
   const map: Record<string, PunchIdentity> = {};
   const add = (
-    rows: { name: string; biometric_id: string | null }[] | null,
+    rows: { id: string; name: string; biometric_id: string | null }[] | null,
     kind: PunchIdentity["kind"],
   ) => {
     for (const r of rows ?? []) {
@@ -176,7 +178,7 @@ export async function getPunchIdentities(): Promise<
       // A second claim on the same id marks it, and keeps the first name so
       // the screen can still say WHO it collided with.
       if (map[id]) map[id].conflict = true;
-      else map[id] = { name: r.name, kind, conflict: false };
+      else map[id] = { name: r.name, kind, person: `${kind}:${r.id}`, conflict: false };
     }
   };
   add(workers.data, "worker");

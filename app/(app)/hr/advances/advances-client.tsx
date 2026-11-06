@@ -1,5 +1,7 @@
 "use client";
 
+import { PersonCell } from "@/components/ui/person-avatar";
+
 import { useState, useTransition } from "react";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
@@ -88,7 +90,14 @@ export function AdvancesClient({ rows, employees, canCreate, canEdit, canDelete 
 
   const columns: Column<HrAdvance>[] = [
     { header: "Code", cell: (r) => <span className="font-mono text-xs font-medium">{r.code ?? "—"}</span> },
-    { header: "Employee", cell: (r) => <span className="text-sm">{r.employee_name ?? "—"} <span className="text-xs text-muted-foreground">({EMPLOYEE_TYPE_LABELS[r.employee_type]})</span></span> },
+    {
+      header: "Employee",
+      cell: (r) => (
+        <PersonCell name={r.employee_name} person={r.employee_type === "contractor" ? null : `${r.employee_type}:${r.employee_id}`}>
+          <span className="text-sm">{r.employee_name ?? "—"} <span className="text-xs text-muted-foreground">({EMPLOYEE_TYPE_LABELS[r.employee_type]})</span></span>
+        </PersonCell>
+      ),
+    },
     { header: "Amount", align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtNumber(r.amount)}</span> },
     { header: "Repaid", align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtNumber(r.repaid_amount)}</span> },
     { header: "Date", cell: (r) => <span className="tabular-nums text-sm">{fmtDate(r.advance_date)}</span> },
@@ -130,7 +139,7 @@ export function AdvancesClient({ rows, employees, canCreate, canEdit, canDelete 
                     <Label htmlFor="ad-emp">Employee</Label>
                     <Select id="ad-emp" value={empKey} onChange={(e) => setEmpKey(e.target.value)}>
                       <option value=""></option>
-                      {employees.map((x) => <option key={`${x.type}:${x.id}`} value={`${x.type}:${x.id}`}>[{EMPLOYEE_TYPE_LABELS[x.type]}] {x.name}</option>)}
+                      {employees.map((x) => <option key={`${x.type}:${x.id}`} value={`${x.type}:${x.id}`} data-person={x.type === "contractor" ? undefined : `${x.type}:${x.id}`}>[{EMPLOYEE_TYPE_LABELS[x.type]}] {x.name}</option>)}
                     </Select>
                   </div>
                   <div><Label htmlFor="ad-amt">Amount</Label><Input id="ad-amt" type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} /></div>

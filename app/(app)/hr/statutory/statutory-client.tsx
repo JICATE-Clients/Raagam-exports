@@ -1,5 +1,7 @@
 "use client";
 
+import { PersonCell } from "@/components/ui/person-avatar";
+
 import { useState, useTransition } from "react";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { useRouter } from "next/navigation";
@@ -87,7 +89,14 @@ export function StatutoryClient({ rows, employees, canCreate, canEdit, canDelete
 
   const columns: Column<HrStatutoryDoc>[] = [
     { header: "Code", cell: (r) => <span className="font-mono text-xs font-medium">{r.code ?? "—"}</span> },
-    { header: "Employee", cell: (r) => <span className="text-sm">{r.employee_name ?? "—"} <span className="text-xs text-muted-foreground">({EMPLOYEE_TYPE_LABELS[r.employee_type]})</span></span> },
+    {
+      header: "Employee",
+      cell: (r) => (
+        <PersonCell name={r.employee_name} person={r.employee_type === "contractor" ? null : `${r.employee_type}:${r.employee_id}`}>
+          <span className="text-sm">{r.employee_name ?? "—"} <span className="text-xs text-muted-foreground">({EMPLOYEE_TYPE_LABELS[r.employee_type]})</span></span>
+        </PersonCell>
+      ),
+    },
     { header: "Form", cell: (r) => <span className="text-sm">{STATUTORY_FORM_LABELS[r.form_type]}</span> },
     { header: "Reference", cell: (r) => <span className="text-sm">{r.reference_no ?? "—"}</span> },
     { header: "Date", cell: (r) => <span className="tabular-nums text-sm">{fmtDate(r.doc_date)}</span> },
@@ -123,7 +132,7 @@ export function StatutoryClient({ rows, employees, canCreate, canEdit, canDelete
                     <Label htmlFor="st-emp">Employee</Label>
                     <Select id="st-emp" value={empKey} onChange={(e) => setEmpKey(e.target.value)}>
                       <option value=""></option>
-                      {employees.map((x) => <option key={`${x.type}:${x.id}`} value={`${x.type}:${x.id}`}>[{EMPLOYEE_TYPE_LABELS[x.type]}] {x.name}</option>)}
+                      {employees.map((x) => <option key={`${x.type}:${x.id}`} value={`${x.type}:${x.id}`} data-person={x.type === "contractor" ? undefined : `${x.type}:${x.id}`}>[{EMPLOYEE_TYPE_LABELS[x.type]}] {x.name}</option>)}
                     </Select>
                   </div>
                   <div>

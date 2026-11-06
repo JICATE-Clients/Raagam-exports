@@ -135,6 +135,22 @@ export async function startApproval(args: StartRunArgs): Promise<Result> {
  * audit gap); the action bar asks for it first so the operator is not refused
  * after committing to the decision.
  */
+/**
+ * WHO MAY DECIDE: "Approvals: approve", OR ANYONE THE FLOW IS WAITING ON (user
+ * 2026-11-05: "anyone in the flow can approve"). An HR request's step 1 is the
+ * person's department HOD (0817) — any staff member, named in Time Off Setup,
+ * not a role — so a permission they were never given turned their own step
+ * into "Forbidden". The engine already knows who the step resolved to;
+ * `approval_act` re-checks it under lock, so this opens nothing beyond it.
+ * An OVERRIDE (a super admin stepping into someone else's step) still needs
+ * the permission.
+ */
+async function mayDecide(runId: string): Promise<boolean> {
+  if (await can("approvals", "approve")) return true;
+  const v = await canAct(runId).catch(() => null);
+  return !!v?.can_act && !v.is_override;
+}
+
 export async function actOnRun(params: {
   runId: string;
   action: RunAction;
@@ -143,7 +159,7 @@ export async function actOnRun(params: {
   /** The document's route, so its page revalidates too. */
   subjectPath?: string;
 }): Promise<Result> {
-  if (!(await can("approvals", "approve"))) return fail("Forbidden");
+  if (!(await mayDecide(params.runId))) return fail("Forbidden");
   try {
     // The document's own "not yet" (0764) — a PO whose budget reopened since it was sent.
     if (params.action === "approve") {
@@ -197,7 +213,8 @@ export async function actOnSubject(params: {
   comment?: string;
   subjectPath?: string;
 }): Promise<Result | { ok: false; noRun: true; error: string }> {
-  if (!(await can("approvals", "approve"))) return fail("Forbidden");
+  // The permission, or being on the step — checked below, once the run is known.
+  const permitted = await can("approvals", "approve");
   let run;
   try {
     run = await getRunForSubject(params.subjectTable, params.subjectId);
@@ -208,7 +225,8 @@ export async function actOnSubject(params: {
     return { ok: false, noRun: true, error: "No approval is running for this document" };
   }
   const verdict = await canAct(run.id).catch(() => null);
-  if (!verdict?.can_act) return fail("This is waiting on someone else's step, not yours");
+  if (!verdict?.can_act) return fail(permitted ? "This is waiting on someone else's step, not yours" : "Forbidden");
+  if (!permitted && verdict.is_override) return fail("Forbidden");
   /* AN OVERRIDE APPROVE WITH NO REMARK GETS ONE WRITTEN FOR IT (user 2026-10-31:
      "removed the comment from UI but still while approving PO it's asking").
      `approval_act` (0502) refuses an override with an empty comment, and the PO

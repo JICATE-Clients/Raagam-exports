@@ -324,7 +324,9 @@ export type RunTimelineResult =
 
 export type EventAction =
   | 'submit' | 'approve' | 'reject' | 'return'
-  | 'cancel' | 'delegate' | 'sla_breach';
+  | 'cancel' | 'delegate' | 'sla_breach'
+  /** Sent on to the next stage without a decision (0820, HR requests). */
+  | 'forward';
 
 export interface TimelineRow {
   step_order: number;

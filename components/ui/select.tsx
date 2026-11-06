@@ -68,12 +68,22 @@ function parseOptions(children: ReactNode): ParsedOptions {
   let placeholder: string | undefined;
   let hasEmpty = false;
 
-  for (const child of Children.toArray(children)) {
+  // An <optgroup>'s options are options too — flattened in order. Skipping the
+  // group dropped every option inside it on desktop (Time Off Setup's HOD
+  // picker listed only "No HOD"), while touch, on the native <select>, showed them.
+  const flat = Children.toArray(children).flatMap((c) =>
+    isValidElement(c) && c.type === "optgroup"
+      ? Children.toArray((c.props as { children?: ReactNode }).children)
+      : [c],
+  );
+  for (const child of flat) {
     if (!isValidElement(child) || child.type !== "option") continue;
     const props = child.props as {
       value?: string | number;
       children?: ReactNode;
       disabled?: boolean;
+      /** `<option data-person="staff:<id>">` — the row shows that person's photo (ComboboxOption.person). */
+      "data-person"?: string;
     };
     const label = optionLabel(props.children);
     const value = props.value != null ? String(props.value) : label;
@@ -98,7 +108,7 @@ function parseOptions(children: ReactNode): ParsedOptions {
     // above and dropped here, so `<option disabled>` anywhere else in the list
     // was honoured by the native <select> on touch and silently selectable on
     // desktop, where this parses into a Combobox — one list, two answers.
-    options.push({ value, label, disabled: props.disabled || undefined });
+    options.push({ value, label, disabled: props.disabled || undefined, person: props["data-person"] });
   }
 
   return { options, placeholder, hasEmpty };

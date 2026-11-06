@@ -1,11 +1,12 @@
 "use client";
 
+import { PersonCell, personKeyOf } from "@/components/ui/person-avatar";
 import { Check, X } from "lucide-react";
-import { useMemo, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
-import { Textarea } from "@/components/ui/textarea";
+import { VoiceTextarea } from "@/components/ui/voice-textarea";
 import { ToggleGroup } from "@/components/ui/segmented";
 import { Sheet } from "@/components/ui/sheet";
 import { DataTable, type Column } from "@/components/ui/data-table";
@@ -13,12 +14,14 @@ import { RowActions } from "@/components/ui/row-actions";
 import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { SelectionBar } from "@/components/ui/selection-bar";
 import { Truncated } from "@/components/ui/truncated";
+import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useOpenIntent } from "@/lib/use-open-intent";
 import { fmtDateTime } from "@/lib/format";
-import { decideTimeoff } from "@/lib/hr/timeoff-actions";
-import type { QueueItem } from "@/lib/hr/timeoff-types";
+import { decideTimeoff, forwardTimeoff, loadTimeoffPanel } from "@/lib/hr/timeoff-actions";
+import { ApprovalTrail, Fact, type TimeoffPanel } from "./shared";
+import { statusLabel, timeoffTone, type QueueItem } from "@/lib/hr/timeoff-types";
 
 /**
  * HR ▸ Time Off ▸ Time Off Approvals (0770, MyJKKN `/hr/leave/approvals`).
@@ -32,7 +35,9 @@ import type { QueueItem } from "@/lib/hr/timeoff-types";
 
 type Props = { items: QueueItem[] };
 type Kind = "all" | QueueItem["kind"];
-type Decision = { items: QueueItem[]; action: "approve" | "reject" };
+/** "forward" = send it to the next stage (0820): one item, from its own view. */
+type Decision = { items: QueueItem[]; action: "approve" | "reject" | "forward"; to?: string };
+const VERB = { approve: "Approve", reject: "Reject", forward: "Send" } as const;
 
 const KIND_LABEL: Record<QueueItem["kind"], string> = {
   request: "Leave / permission",
@@ -46,17 +51,15 @@ export function ApprovalsScreen({ items }: Props) {
   const [isPending, startTransition] = useTransition();
   useUnsavedGuard(isPending);
 
-  const [mineOnly, setMineOnly] = useState<"mine" | "all">("mine");
+  /* "decided" — approved and rejected, so an approval is SEEN as one (user
+     2026-11-06: "I want to see the approved wording in green"). */
+  const [mineOnly, setMineOnly] = useState<"mine" | "all" | "decided">("mine");
   const [kind, setKind] = useState<Kind>("all");
-  const visible = useMemo(
-    () => items.filter((i) => (mineOnly === "all" || i.can_act) && (kind === "all" || i.kind === kind)),
-    [items, mineOnly, kind],
-  );
-  const counts = useMemo(() => {
-    const c = { request: 0, encashment: 0, claim: 0 };
-    for (const i of items) if (mineOnly === "all" || i.can_act) c[i.kind] += 1;
-    return c;
-  }, [items, mineOnly]);
+  const inScope = (i: QueueItem) =>
+    mineOnly === "decided" ? i.status !== "pending" : i.status === "pending" && (mineOnly === "all" || i.can_act);
+  const visible = items.filter((i) => inScope(i) && (kind === "all" || i.kind === kind));
+  const counts = { request: 0, encashment: 0, claim: 0 };
+  for (const i of items) if (inScope(i)) counts[i.kind] += 1;
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const keyOf = (i: QueueItem) => `${i.kind}:${i.id}`;
@@ -67,7 +70,20 @@ export function ApprovalsScreen({ items }: Props) {
   useOpenIntent((id) => {
     setMineOnly("all");
     setFocusId(id);
+    const it = items.find((i) => i.id === id);
+    if (it) openView(it);
   });
+
+  // ── view: the whole request and its HOD → HR Manager → ED trail ──
+  const [viewing, setViewing] = useState<QueueItem | null>(null);
+  const [panel, setPanel] = useState<(TimeoffPanel & { id: string }) | null>(null);
+  // The stage after the one this request is at — what "Send to …" names.
+  const nextStage =
+    viewing?.can_act && panel?.id === viewing.id ? panel.next : null;
+  function openView(i: QueueItem) {
+    setViewing(i);
+    if (i.kind !== "claim") loadTimeoffPanel(i.kind, i.id).then((p) => setPanel({ ...p, id: i.id }));
+  }
 
   const [deciding, setDeciding] = useState<Decision | null>(null);
   const [comment, setComment] = useState("");
@@ -76,18 +92,29 @@ export function ApprovalsScreen({ items }: Props) {
     if (!deciding) return;
     const { items: list, action } = deciding;
     startTransition(async () => {
-      const r = await decideTimeoff(
-        list.map((i) => ({ kind: i.kind, id: i.id })),
-        action,
-        comment,
-      );
+      const one = list[0];
+      const r =
+        action === "forward" && one.kind !== "claim"
+          ? await forwardTimeoff(one.kind, one.id, comment)
+          : action === "forward"
+            ? ({ ok: false, error: "A comp-off claim is decided by HR directly" } as const)
+            : await decideTimeoff(
+                list.map((i) => ({ kind: i.kind, id: i.id })),
+                action,
+                comment,
+              );
       if (!r.ok) {
         toastError(r.error);
         router.refresh();
         return;
       }
-      success(`${r.count ?? list.length} ${action === "approve" ? "approved" : "rejected"}`);
+      success(
+        action === "forward"
+          ? `Sent to ${deciding.to ?? "the next stage"}`
+          : `${r.count ?? list.length} ${action === "approve" ? "approved" : "rejected"}`,
+      );
       setDeciding(null);
+      setViewing(null);
       setComment("");
       setSelected(new Set());
       router.refresh();
@@ -95,18 +122,41 @@ export function ApprovalsScreen({ items }: Props) {
   }
 
   const columns: Column<QueueItem>[] = [
-    { header: "Code", cell: (r) => <span className="font-mono text-xs font-medium">{r.code ?? "—"}</span> },
-    { header: "Person", cell: (r) => <span className="text-sm font-medium">{r.person_name}</span> },
+    {
+      header: "Person",
+      // The name opens the request — its details and approval flow. No code
+      // column (user 2026-11-05: "why code is here, only name is enough").
+      cell: (r) => (
+        <PersonCell name={r.person_name} person={personKeyOf(r)}>
+          <button type="button" onClick={() => openView(r)} className="text-left text-sm font-medium text-primary hover:underline">
+            {r.person_name}
+          </button>
+        </PersonCell>
+      ),
+    },
     { header: "What", cell: (r) => <span className="text-sm">{r.what}</span> },
     { header: "When", cell: (r) => <span className="text-sm tabular-nums">{r.when}</span> },
     { header: "Amount", align: "right", cell: (r) => <span className="text-sm tabular-nums">{r.amount}</span> },
     { header: "Reason", cell: (r) => <Truncated className="max-w-[16rem] text-sm text-muted-foreground">{r.reason}</Truncated> },
     { header: "Asked", cell: (r) => <span className="text-xs text-muted-foreground tabular-nums">{fmtDateTime(r.created_at)}</span> },
+    // The status in its colour (Approved green, Rejected red, Pending amber);
+    // under it, who has it now (Department HOD → HR Manager → ED, 0817) or who decided.
+    {
+      header: "Status",
+      cell: (r) => (
+        <span className="text-sm">
+          <StatusPill tone={timeoffTone(r.status)}>{statusLabel(r.status)}</StatusPill>
+          <span className={r.can_act ? "block text-xs font-medium text-primary" : "block text-xs text-muted-foreground"}>
+            {r.status !== "pending" ? (r.decided ?? "") : r.can_act ? `Waiting on you${r.stage ? ` · ${r.stage}` : ""}` : (r.stage ?? "")}
+          </span>
+        </span>
+      ),
+    },
   ];
   const actions = rowActionsColumn<QueueItem>((r) => (
     <RowActions
-      label={r.code}
-      view={false}
+      label={r.person_name}
+      onView={() => openView(r)}
       isPending={isPending}
       menu={
         r.can_act
@@ -134,6 +184,7 @@ export function ApprovalsScreen({ items }: Props) {
           options={[
             { value: "mine", label: "Waiting on me" },
             { value: "all", label: "Everything pending" },
+            { value: "decided", label: "Decided" },
           ]}
         />
         <ToggleGroup
@@ -185,17 +236,76 @@ export function ApprovalsScreen({ items }: Props) {
           setSelected((s) => (s.size === actable.length ? new Set() : new Set(actable.map(keyOf))))
         }
         rowClassName={(r) => (r.id === focusId ? "bg-primary/5" : undefined)}
-        empty={mineOnly === "mine" ? "Nothing is waiting on you." : "Nothing is pending."}
+        empty={
+          mineOnly === "mine" ? "Nothing is waiting on you." : mineOnly === "decided" ? "Nothing decided in the last 60 days." : "Nothing is pending."
+        }
       />
+
+      <Sheet
+        open={!!viewing}
+        onClose={() => setViewing(null)}
+        title={viewing ? `${viewing.person_name} — ${KIND_LABEL[viewing.kind]}` : ""}
+        size="md"
+        footer={
+          viewing?.can_act ? (
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" disabled={isPending} onClick={() => setDeciding({ items: [viewing], action: "reject" })}>
+                Reject…
+              </Button>
+              {/* Needs the next person's attention: HOD → HR Manager → ED (0820). */}
+              {nextStage && (
+                <Button
+                  variant="outline"
+                  disabled={isPending}
+                  onClick={() => setDeciding({ items: [viewing], action: "forward", to: nextStage })}
+                >
+                  Send to {nextStage}…
+                </Button>
+              )}
+              <Button disabled={isPending} onClick={() => setDeciding({ items: [viewing], action: "approve" })}>
+                Approve
+              </Button>
+            </div>
+          ) : undefined
+        }
+      >
+        {viewing && (
+          <div className="space-y-5 text-sm">
+            <dl className="space-y-1">
+              <Fact label="Person">{viewing.person_name}</Fact>
+              <Fact label="What">{viewing.what}</Fact>
+              <Fact label="When" className="tabular-nums">
+                {viewing.when}
+              </Fact>
+              <Fact label="Amount" className="tabular-nums">
+                {viewing.amount}
+              </Fact>
+              <Fact label="Reason" className="whitespace-pre-wrap">
+                {viewing.reason}
+              </Fact>
+              <Fact label="Asked" className="tabular-nums">
+                {fmtDateTime(viewing.created_at)}
+              </Fact>
+            </dl>
+            {viewing.kind === "claim" ? (
+              <p className="text-muted-foreground">A comp-off claim is decided by HR directly — one step.</p>
+            ) : panel?.id === viewing.id ? (
+              <ApprovalTrail panel={panel} subjectPath="/hr/time-off/approvals" decide={false} />
+            ) : (
+              <p className="text-muted-foreground">Loading the approval flow…</p>
+            )}
+          </div>
+        )}
+      </Sheet>
 
       <Sheet
         open={!!deciding}
         onClose={() => setDeciding(null)}
         title={
           deciding
-            ? `${deciding.action === "approve" ? "Approve" : "Reject"} ${
+            ? `${deciding.action === "forward" ? `Send to ${deciding.to}` : VERB[deciding.action]} ${
                 deciding.items.length === 1
-                  ? `${deciding.items[0].code ?? ""} — ${deciding.items[0].person_name}`
+                  ? deciding.items[0].person_name
                   : `${deciding.items.length} items`
               }`
             : ""
@@ -211,7 +321,7 @@ export function ApprovalsScreen({ items }: Props) {
               disabled={isPending || (deciding?.action === "reject" && !comment.trim())}
               onClick={run}
             >
-              {isPending ? "Working…" : deciding?.action === "reject" ? "Reject" : "Approve"}
+              {isPending ? "Working…" : deciding?.action === "forward" ? `Send to ${deciding.to}` : deciding ? VERB[deciding.action] : ""}
             </Button>
           </div>
         }
@@ -229,8 +339,19 @@ export function ApprovalsScreen({ items }: Props) {
               ))}
               {deciding.items.length > 8 && <li className="text-muted-foreground">…and {deciding.items.length - 8} more</li>}
             </ul>
-            <Field label={deciding.action === "reject" ? "Reason" : "Comment (optional)"} required={deciding.action === "reject"}>
-              <Textarea rows={2} value={comment} onChange={(e) => setComment(e.target.value)} />
+            {deciding.action === "forward" && (
+              <p className="text-muted-foreground">
+                It leaves your queue and waits for the {deciding.to}, who approves or rejects it.
+              </p>
+            )}
+            {deciding.action === "approve" && (
+              <p className="text-muted-foreground">Approving closes the request — nobody after you is asked.</p>
+            )}
+            <Field
+              label={deciding.action === "reject" ? "Reason" : deciding.action === "forward" ? "Note for them (optional)" : "Comment (optional)"}
+              required={deciding.action === "reject"}
+            >
+              <VoiceTextarea rows={2} value={comment} onValueChange={setComment} />
             </Field>
           </div>
         )}

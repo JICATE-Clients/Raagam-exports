@@ -39,6 +39,7 @@ export default async function MovementRegisterPage({ searchParams }: Props) {
     code: r.code,
     name: r.name,
     kind: r.kind,
+    person: r.person,
     departmentId: r.departmentId,
     departmentName: r.departmentName,
     date: fmtDate(r.date),

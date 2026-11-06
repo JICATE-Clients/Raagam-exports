@@ -1,5 +1,7 @@
 "use client";
 
+import { PersonAvatar } from "@/components/ui/person-avatar";
+
 import { useMemo, useRef, useState, useTransition, type MouseEvent, type ReactNode } from "react";
 import { BackLink } from "@/components/ui/back-link";
 import { useRouter } from "next/navigation";
@@ -287,6 +289,7 @@ export function ApprovalsPhoneView({
   pos,
   poChanges,
   codes,
+  faces = {},
   requests,
   decisions,
   allOpen,
@@ -300,6 +303,8 @@ export function ApprovalsPhoneView({
   poChanges: Record<string, PoChangeCard>;
   /** Document numbers for queue rows that have no richer card, keyed by subject id. */
   codes: Record<string, string>;
+  /** HR requests: subject id → person key — the person's photo in place of the type icon. */
+  faces?: Record<string, string>;
   requests: RequestRow[];
   decisions: MyDecisionItem[];
   /** Super Admin ▸ All open: the queue only — the status tabs are the caller's own. */
@@ -349,9 +354,13 @@ export function ApprovalsPhoneView({
         onClick={open}
       >
         <div className="flex min-w-0 items-start gap-2.5">
-          <span className={cn("grid size-9 shrink-0 place-items-center rounded-lg", fam.well)}>
+          {faces[r.subject_id] ? (
+            <PersonAvatar name={codes[r.subject_id]} person={faces[r.subject_id]} className="h-9 w-9" />
+          ) : (
+            <span className={cn("grid size-9 shrink-0 place-items-center rounded-lg", fam.well)}>
             <Icon className="size-[18px]" aria-hidden />
           </span>
+          )}
           <div className="min-w-0 flex-1">
             {face.kindLine !== false && (
               <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{workflowLabel(r.workflow_key)}</div>
@@ -457,9 +466,13 @@ export function ApprovalsPhoneView({
         className="grid w-full gap-2 rounded-xl border border-border bg-surface p-3 text-left active:bg-surface-muted"
       >
         <div className="flex items-start gap-2.5">
-          <span className={cn("grid size-9 shrink-0 place-items-center rounded-lg", fam.well)}>
+          {faces[q.subject_id] ? (
+            <PersonAvatar name={title} person={faces[q.subject_id]} className="h-9 w-9" />
+          ) : (
+            <span className={cn("grid size-9 shrink-0 place-items-center rounded-lg", fam.well)}>
             <Icon className="size-[18px]" aria-hidden />
           </span>
+          )}
           <div className="min-w-0 flex-1">
             <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{workflowLabel(q.workflow_key)}</div>
             <div className="font-mono text-[15px] font-semibold">{title}</div>
@@ -495,9 +508,13 @@ export function ApprovalsPhoneView({
         onClick={() => openTimeline(d.run_id, `${workflowLabel(d.workflow_key)} · ${title}`, hrefOf(d.workflow_key, d.subject_id))}
         className="flex w-full items-center gap-2.5 rounded-xl border border-border bg-surface p-3 text-left active:bg-surface-muted"
       >
-        <span className={cn("grid size-9 shrink-0 place-items-center rounded-lg", fam.well)}>
+        {faces[d.subject_id] ? (
+          <PersonAvatar name={title} person={faces[d.subject_id]} className="h-9 w-9" />
+        ) : (
+          <span className={cn("grid size-9 shrink-0 place-items-center rounded-lg", fam.well)}>
           <Icon className="size-[18px]" aria-hidden />
         </span>
+        )}
         <div className="min-w-0 flex-1">
           <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{workflowLabel(d.workflow_key)}</div>
           <div className="font-mono text-[15px] font-semibold">{title}</div>

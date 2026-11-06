@@ -146,6 +146,7 @@ export async function getCaseDetail(caseId: string): Promise<{ events: CaseEvent
       id: w.id,
       name: w.outside_name ?? who(people, w.staff_id, w.worker_id).person_name,
       kind: w.outside_name ? "outside" : w.staff_id ? "staff" : "worker",
+      person: w.outside_name ? null : w.staff_id ? `staff:${w.staff_id}` : w.worker_id ? `worker:${w.worker_id}` : null,
       statement: w.statement,
       given_on: w.given_on,
     })),

@@ -68,7 +68,7 @@ export function PayslipClient({
               >
                 <option value=""></option>
                 {workers.map((w) => (
-                  <option key={w.id} value={w.id}>
+                  <option key={w.id} value={w.id} data-person={`worker:${w.id}`}>
                     {w.code ? `${w.code} — ` : ""}{w.name}
                   </option>
                 ))}

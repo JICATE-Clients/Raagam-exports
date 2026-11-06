@@ -1,3 +1,4 @@
+import { PersonAvatar, personKeyOf } from "@/components/ui/person-avatar";
 import Link from "next/link";
 import { requirePermission } from "@/lib/auth/server";
 import { PageHeader } from "@/components/ui/page-header";
@@ -29,7 +30,8 @@ export default async function Page() {
     {
       header: "Person",
       cell: (r) => (
-        <span className="text-sm">
+        <span className="flex items-center gap-2 text-sm">
+          <PersonAvatar name={r.name} person={personKeyOf(r)} className="h-7 w-7 text-[10px]" />
           <span className="font-medium">{r.name}</span>
           <span className="ml-2 text-xs text-muted-foreground">{r.person_kind === "worker" ? "Worker" : "Staff"}</span>
         </span>

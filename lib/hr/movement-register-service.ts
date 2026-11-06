@@ -31,6 +31,8 @@ export interface MovementRow {
   code: string | null;
   name: string | null;
   kind: "staff" | "worker" | null;
+  /** "staff:<id>" / "worker:<id>" — the photo beside the name; null when not linked. */
+  person: string | null;
   departmentId: string | null;
   departmentName: string | null;
   /** Punch timestamps for the day, earliest first. */
@@ -120,6 +122,7 @@ export async function getMovementRegister(from: string, to: string): Promise<Mov
         code: who?.p.code ?? null,
         name: who?.p.name ?? null,
         kind: who?.kind ?? null,
+        person: who ? `${who.kind}:${who.p.id}` : null,
         departmentId: who?.p.department_id ?? null,
         departmentName: who?.p.department
           ? who.p.department.name || who.p.department.short_name

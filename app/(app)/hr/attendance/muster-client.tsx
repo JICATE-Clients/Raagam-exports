@@ -1,5 +1,7 @@
 "use client";
 
+import { PersonAvatar } from "@/components/ui/person-avatar";
+
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -293,10 +295,13 @@ export default function MusterClient({
                         scope="row"
                         className="sticky left-0 z-10 bg-surface px-3 py-1 text-left font-normal"
                       >
-                        <Truncated
-                          text={w.name}
-                          className="block font-medium text-foreground"
-                        />
+                        <span className="flex items-center gap-1.5">
+                          <PersonAvatar name={w.name} person={`worker:${w.id}`} className="h-5 w-5 text-[8px]" />
+                          <Truncated
+                            text={w.name}
+                            className="block font-medium text-foreground"
+                          />
+                        </span>
                         {w.code && (
                           <span className="block font-mono text-[10px] text-muted-foreground">
                             {w.code}

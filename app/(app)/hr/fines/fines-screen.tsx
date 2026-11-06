@@ -1,5 +1,7 @@
 "use client";
 
+import { PersonCell } from "@/components/ui/person-avatar";
+
 import { Send, Undo2 } from "lucide-react";
 import { useMemo, useState, useTransition, type ReactNode } from "react";
 import Link from "next/link";
@@ -199,7 +201,7 @@ export function FinesScreen({ rows, staff, canCreate, canEdit, canDelete }: Prop
   });
 
   const staffOptions = useMemo(
-    () => staff.map((s) => ({ value: s.id, label: s.name, search: s.code ?? undefined })),
+    () => staff.map((s) => ({ value: s.id, label: s.name, search: s.code ?? undefined, person: `staff:${s.id}` })),
     [staff],
   );
 
@@ -310,7 +312,7 @@ export function FinesScreen({ rows, staff, canCreate, canEdit, canDelete }: Prop
 
   const columns: Column<HrFine>[] = [
     { header: "Code", cell: (r) => <span className="font-mono text-xs font-medium">{r.code ?? "—"}</span> },
-    { header: "Staff", cell: (r) => <span className="text-sm">{r.staff_name ?? "—"}</span> },
+    { header: "Staff", cell: (r) => <PersonCell name={r.staff_name ?? "—"} person={r.staff_id ? `staff:${r.staff_id}` : null} /> },
     { header: "Incident", cell: (r) => <span className="text-sm">{r.incident_ref} · {fmtDate(r.incident_date)}</span> },
     { header: "Month", cell: (r) => <span className="text-sm">{monthLabel(r.deduction_month)}</span> },
     { header: "Basis", cell: (r) => <span className="text-sm">{modeDetail(r)}</span> },

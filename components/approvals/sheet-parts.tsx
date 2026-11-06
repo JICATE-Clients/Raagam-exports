@@ -105,6 +105,7 @@ const WORD: Partial<Record<EventAction, { word: string; tone: StatusTone }>> = {
   cancel: { word: "Cancelled", tone: "neutral" },
   delegate: { word: "Delegated", tone: "neutral" },
   sla_breach: { word: "Overdue", tone: "danger" },
+  forward: { word: "Sent on", tone: "neutral" },
 };
 
 /**
@@ -135,8 +136,10 @@ export function CompactTrail({
           {submittedBy ? ` · ${submittedBy}` : ""}
         </span>
       </li>
-      {rows.map((r) => {
+      {rows.map((r, i) => {
         const word = r.action ? WORD[r.action] : null;
+        /* A stage "Send to …" jumped over (0821) — a later stage has acted or holds it. */
+        const skipped = !r.action && !r.is_current && rows.slice(i + 1).some((x) => x.action || x.is_current);
         const done = r.action === "approve";
         const bad = r.action === "reject" || r.action === "sla_breach";
         const who = r.actor_id ? names[r.actor_id] : null;
@@ -174,7 +177,9 @@ export function CompactTrail({
                     r.step_order === 1
                     ? `Waiting since ${fmtDateTime(submittedAt)}`
                     : "Waiting now"
-                  : "Still to come"}
+                  : skipped
+                    ? "Skipped — sent past this stage"
+                    : "Still to come"}
             </span>
             {r.comment && r.action !== "sla_breach" ? (
               <span className="col-start-2 col-end-4 mt-1 rounded-md bg-surface-muted px-2 py-1 text-xs">&ldquo;{r.comment}&rdquo;</span>

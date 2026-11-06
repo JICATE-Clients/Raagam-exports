@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Check, ChevronDown, FileX, RotateCcw, X, TriangleAlert } from "lucide-react";
+import { ArrowUpRight, Check, ChevronDown, FileX, RotateCcw, X, TriangleAlert } from "lucide-react";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { FILE_NOT_RECEIVED } from "@/lib/sales/pd-requests/words";
@@ -70,7 +70,7 @@ export function overrideApproveRemark(stepLabel?: string | null): string {
 /** A document's own decision action (e.g. `approvePo`, `declinePo`). */
 type DocResult = { ok: boolean; error?: string };
 /** The bar's confirmable decisions: the engine's three, plus a document's reject-for-good. */
-type BarAction = RunAction | "decline";
+type BarAction = RunAction | "decline" | "forward";
 
 export function ApprovalActionBar({
   run,
@@ -86,6 +86,7 @@ export function ApprovalActionBar({
   onRejectForGood,
   approveNeedsReason = false,
   onRework,
+  forward,
 }: {
   run: ActionBarRun;
   verdict: CanActVerdict;
@@ -164,6 +165,14 @@ export function ApprovalActionBar({
    * mandatory. The action ends the run itself (`actOnSubject`).
    */
   onRejectForGood?: (reason: string) => Promise<DocResult>;
+  /**
+   * SEND IT TO THE NEXT PERSON INSTEAD OF DECIDING (HR requests, 0820 / 0821 —
+   * user 2026-11-06: the HOD approves and it closes, or sends it to the HR
+   * Manager, who may send it to the ED). `to` is the stage it lands on, as the
+   * database named it. Takes Return's place: on an escalation there is no
+   * earlier stage to return to. The note is optional.
+   */
+  forward?: { to: string; send: (note: string) => Promise<DocResult> };
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -201,6 +210,7 @@ export function ApprovalActionBar({
       ? { title: "Send back for rework?", verb: "Request Rework", needsComment: true }
       : { title: "Reject this request?", verb: "Reject", needsComment: true },
     decline: { title: "Reject for good?", verb: "Reject", needsComment: true },
+    forward: { title: `Send to the ${forward?.to ?? "next stage"}?`, verb: `Send to ${forward?.to ?? "next stage"}`, needsComment: false },
   };
 
   /* AN OVERRIDE APPROVE NEEDS NO TYPED REASON (user 2026-10-31: Approve is one
@@ -208,7 +218,7 @@ export function ApprovalActionBar({
      The database still demands a remark on an override, so `submit` writes one
      that names it; Reject and Return keep their own required reason. */
   const commentRequired = pending
-    ? COPY[pending].needsComment || (isOverride && pending !== "approve")
+    ? COPY[pending].needsComment || (isOverride && pending !== "approve" && pending !== "forward")
     : false;
   const canSubmit = !commentRequired || comment.trim().length > 0;
 
@@ -243,6 +253,10 @@ export function ApprovalActionBar({
     const note = comment.trim();
     if (action === "decline") {
       if (onRejectForGood) runDoc(() => onRejectForGood(note), "Rejected");
+      return;
+    }
+    if (action === "forward") {
+      if (forward) runDoc(() => forward.send(note), `Sent to ${forward.to}`);
       return;
     }
     if (action === "reject" && onRework) {
@@ -398,7 +412,20 @@ export function ApprovalActionBar({
               {COPY.decline.verb}
             </Button>
           )}
-          {!rework && !acknowledge && (
+          {forward && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-full sm:w-auto"
+              onClick={() => setPending("forward")}
+              disabled={isPending}
+            >
+              <ArrowUpRight className="h-4 w-4" aria-hidden />
+              Send to {forward.to}
+            </Button>
+          )}
+          {!rework && !acknowledge && !forward && (
             <Button
               type="button"
               variant="outline"

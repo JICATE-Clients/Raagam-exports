@@ -1,5 +1,6 @@
 "use client";
 
+import { PersonAvatar, personKeyOf } from "@/components/ui/person-avatar";
 import { ClipboardPen, UserCog } from "lucide-react";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -276,7 +277,8 @@ export function AppraisalsScreen({ rounds, rows, people, myStaffId, canEdit }: P
     {
       header: "Person",
       cell: (r) => (
-        <span className="text-sm">
+        <span className="flex items-center gap-2 text-sm">
+          <PersonAvatar name={r.person_name} person={personKeyOf(r)} className="h-7 w-7 text-[10px]" />
           <span className="font-medium">{r.person_name}</span>
           <span className="ml-2 text-xs text-muted-foreground">
             {r.person_code ?? ""}
@@ -615,7 +617,7 @@ export function AppraisalsScreen({ rounds, rows, people, myStaffId, canEdit }: P
           </p>
           <MultiSelect
             label="People"
-            options={addable.map((p) => ({ id: p.key, label: `${p.name}${p.code ? ` (${p.code})` : ""}${p.kind === "worker" ? " · Worker" : ""}` }))}
+            options={addable.map((p) => ({ id: p.key, label: `${p.name}${p.code ? ` (${p.code})` : ""}${p.kind === "worker" ? " · Worker" : ""}`, person: p.key }))}
             values={addKeys}
             onChange={setAddKeys}
             emptyLabel="Everyone is already in this round"

@@ -1,21 +1,11 @@
-import { requirePermission, can } from "@/lib/auth/server";
-import { PageHeader } from "@/components/ui/page-header";
-import { listLifecycleEvents, getEmployees } from "@/lib/hr/extras-service";
-import { LifecycleClient } from "./lifecycle-client";
+import { redirect } from "next/navigation";
 
-export default async function LifecyclePage() {
-  await requirePermission("hr_payroll", "view");
-  const [rows, employees, canCreate, canEdit, canDelete] = await Promise.all([
-    listLifecycleEvents(),
-    getEmployees(),
-    can("hr_payroll", "create"),
-    can("hr_payroll", "edit"),
-    can("hr_payroll", "delete"),
-  ]);
-  return (
-    <div className="space-y-4">
-      <PageHeader title="Lifecycle Events" description="Transfers, resignations and full-&-final settlements." />
-      <LifecycleClient rows={rows} employees={employees} canCreate={canCreate} canEdit={canEdit} canDelete={canDelete} />
-    </div>
-  );
+/**
+ * People ▸ Lifecycle was REMOVED (user 2026-11-04: "remove lifecycle from
+ * people"). Team Lifecycle — joining checklists, documents, exits and full &
+ * final — does the same job, and the old screen held no events. A bookmark or
+ * an old workspace tab lands there instead of on a 404.
+ */
+export default function LifecyclePage() {
+  redirect("/hr/team");
 }

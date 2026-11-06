@@ -1,22 +1,14 @@
-import { requirePermission, can } from "@/lib/auth/server";
-import { PageHeader } from "@/components/ui/page-header";
-import { listLeaves, getEmployees } from "@/lib/hr/extras-service";
-import { LeaveClient } from "./leave-client";
+import { redirect } from "next/navigation";
 
-export default async function LeavePage() {
-  await requirePermission("hr_payroll", "view");
-  const [rows, employees, canCreate, canEdit, canApprove, canDelete] = await Promise.all([
-    listLeaves(),
-    getEmployees(),
-    can("hr_payroll", "create"),
-    can("hr_payroll", "edit"),
-    can("hr_payroll", "approve"),
-    can("hr_payroll", "delete"),
-  ]);
-  return (
-    <div className="space-y-4">
-      <PageHeader title="Leave & Encashment" description="Leave applications and earned-leave encashment." />
-      <LeaveClient rows={rows} employees={employees} canCreate={canCreate} canEdit={canEdit} canApprove={canApprove} canDelete={canDelete} />
-    </div>
-  );
+/**
+ * Time & Attendance ▸ Leave & Encashment is gone from the sidebar (user
+ * 2026-11-03: "remove leave & encashment from time and attendance"). HR ▸ Time
+ * Off does the same job — Leave, Permission, Encashment, Balances, with the
+ * approval flow and the in-advance rule (0798) — and this screen held no
+ * records (hr_leaves had 0 rows). Its address answers by opening Time Off, so a
+ * bookmark or a remembered workspace tab still lands somewhere that works.
+ * Declared in REDIRECTED, scripts/check-module-groups.mts.
+ */
+export default function LeavePage() {
+  redirect("/hr/time-off");
 }

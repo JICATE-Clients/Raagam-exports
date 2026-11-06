@@ -41,7 +41,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ y
           canEdit={viewer.canEdit}
         />
       ) : (
-        <p className="text-sm text-muted-foreground">No leave year yet — add one on Time Off ▸ Leave Setup.</p>
+        <p className="text-sm text-muted-foreground">No leave year yet — add one on Time Off ▸ Time Off Setup.</p>
       )}
     </div>
   );

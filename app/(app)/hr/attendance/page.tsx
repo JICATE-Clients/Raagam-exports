@@ -30,6 +30,8 @@ interface Props {
     dept?: string;
     /** The report's day (not `date`, which is the Day sheet's). */
     day?: string;
+    /** Part of an employee's name or code. */
+    name?: string;
   }>;
 }
 
@@ -57,7 +59,7 @@ interface Props {
 export default async function AttendancePage({ searchParams }: Props) {
   await requirePermission("hr_payroll", "view");
 
-  const { date, location, view, month, kind: kindParam, dept, day } = await searchParams;
+  const { date, location, view, month, kind: kindParam, dept, day, name: nameParam } = await searchParams;
   const locationId = location || null;
   const isMonth = view === "month";
   /*
@@ -80,7 +82,8 @@ export default async function AttendancePage({ searchParams }: Props) {
       .map((d) => (d === "none" ? "" : d));
     const full = await getHrDashboard(new Date().getTime(), day);
     const todayIso = today();
-    const shown = filterHrDashboard(full, { kind, depts });
+    const name = (nameParam ?? "").trim();
+    const shown = filterHrDashboard(full, { kind, depts, name });
     const counts = {
       staff: full.groups.find((g) => g.group === "staff")?.people.length ?? 0,
       worker: full.groups.find((g) => g.group === "worker")?.people.length ?? 0,
@@ -89,10 +92,10 @@ export default async function AttendancePage({ searchParams }: Props) {
       <HrDashboardView
         variant="report"
         data={shown.data}
-        query={new URLSearchParams({ kind, ...(dept ? { dept } : {}), ...(full.live ? {} : { day: full.day }) }).toString()}
-        filter={<HrDashboardFilter kind={kind} counts={counts} depts={shown.depts} picked={shown.picked} day={full.day} today={todayIso} />}
+        query={new URLSearchParams({ kind, ...(dept ? { dept } : {}), ...(name ? { name } : {}), ...(full.live ? {} : { day: full.day }) }).toString()}
+        filter={<HrDashboardFilter kind={kind} counts={counts} depts={shown.depts} picked={shown.picked} name={name} day={full.day} today={todayIso} />}
         peopleFilter={
-          <HrDashboardFilter variant="table" kind={kind} counts={counts} depts={shown.depts} picked={shown.picked} day={full.day} today={todayIso} />
+          <HrDashboardFilter variant="table" kind={kind} counts={counts} depts={shown.depts} picked={shown.picked} name={name} day={full.day} today={todayIso} />
         }
       />
     );
