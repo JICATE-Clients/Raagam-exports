@@ -502,6 +502,12 @@ const REDIRECTED: Record<string, string> = {
   // Purchase Orders came off the Procurement menu (user 2026-11-03). Raise PO is
   // where a PO is raised now; a PO's own page under this address still answers.
   "/purchase/orders": "/purchase/requirement-po",
+  // Time & Attendance ▸ Leave & Encashment REMOVED (user 2026-11-03). Time Off
+  // does the same job and the old screen held no rows; the address opens it.
+  "/hr/leave": "/hr/time-off",
+  // People ▸ Lifecycle REMOVED (user 2026-11-04). Team Lifecycle does the job
+  // and the old screen held no events; the address opens that group.
+  "/hr/lifecycle": "/hr/team",
   // More than Budget Approval MERGED into PO Approval (user 2026-11-03: "merge these
   // two in one single screen"). The row is gone; the address opens PO Approval with
   // Over budget selected.
