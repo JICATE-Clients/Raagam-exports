@@ -21,6 +21,11 @@ import { announceChannelsChanged } from "./sidebar-channels";
  * Channel info uses, so the permission (`abilities.add_members`, decided by
  * the caller) and the RPC's own check are unchanged. Present members are left
  * out of the search.
+ *
+ * THE FACES + COUNT ARE BACK (user 2026-11-06, screenshot 163252: "apply in
+ * channel field"). They were removed on 2026-11-05 ("remove this in channel
+ * module"); the later request wins. Three faces and the active count, and a
+ * click opens Channel info.
  */
 export function ChannelHeaderPeople({
   conversationId,

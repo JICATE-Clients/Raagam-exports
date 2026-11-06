@@ -289,6 +289,52 @@ export function MessageItem({
     );
   }
 
+  // A CHANNEL ROW'S ACTIONS SIT BESIDE THE MESSAGE (user 2026-11-06, the
+  // "near message" board, after WhatsApp's ☺ beside the bubble): ☺ React,
+  // ↩ Reply in thread and the ⌄ trail the last word of the text instead of
+  // floating at the row's far edge, 600px from a short "Vanakam". The slot is
+  // always there and only fades in, so nothing in the row moves on hover; the
+  // negative margin keeps the 22px chips from deepening the text's line. On a
+  // touch screen the ⌄ stays visible, as before.
+  const toolsInText =
+    !bubble && !deleted && !editing && !m.poll && !m.event && !contact && !sticker && !!m.body;
+  const channelTools =
+    bubble || !menu ? null : (
+      <span
+        className={cn(
+          "ml-1.5 inline-flex items-center gap-0.5 align-middle -my-[3px] whitespace-nowrap",
+          "md:opacity-0 md:transition-opacity md:group-hover:opacity-100 md:group-focus-within:opacity-100 md:has-[[aria-expanded=true]]:opacity-100 [@media(hover:none)]:opacity-100",
+          reacting && "md:opacity-100",
+        )}
+      >
+        {canAct && actions.onReact && !deleted && !editing && (
+          // button-shape: exempt -- WhatsApp's round ☺ beside the message, an icon chip
+          <button
+            type="button"
+            aria-label="React"
+            title="React"
+            onClick={() => setReacting(true)}
+            className="hidden h-[22px] w-[22px] items-center justify-center rounded-full bg-surface text-[#8696a0] shadow-[0_1px_2px_rgba(11,20,26,.16)] hover:text-[#54656f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:text-muted-foreground md:inline-flex"
+          >
+            <Smile className="h-[15px] w-[15px]" strokeWidth={1.8} aria-hidden />
+          </button>
+        )}
+        {canAct && actions.onReply && !m.parent_id && !deleted && !editing && (
+          // button-shape: exempt -- the ☺'s twin beside the message, an icon chip
+          <button
+            type="button"
+            aria-label="Reply in thread"
+            title="Reply in thread"
+            onClick={() => actions.onReply!(m)}
+            className="hidden h-[22px] w-[22px] items-center justify-center rounded-full bg-surface text-[#8696a0] shadow-[0_1px_2px_rgba(11,20,26,.16)] hover:text-[#54656f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:text-muted-foreground md:inline-flex"
+          >
+            <MessageSquareReply className="h-[14px] w-[14px]" strokeWidth={1.8} aria-hidden />
+          </button>
+        )}
+        <span className="inline-flex h-[22px] w-5 items-center justify-center">{menu}</span>
+      </span>
+    );
+
   // The message's own pieces, drawn in both layouts below.
   const content = (
     <>
@@ -326,7 +372,7 @@ export function MessageItem({
           ) : contact ? (
             <ContactCard contact={contact} meId={meId} />
           ) : sticker ? null : (
-            m.body && <MessageBody body={m.body} names={names} meId={meId} trailer={timeInText ? metaLine(true) : undefined} />
+            m.body && <MessageBody body={m.body} names={names} meId={meId} trailer={timeInText ? metaLine(true) : toolsInText ? channelTools : undefined} />
           )}
           {/* A bubble shows Edited and Saved beside its time instead (metaLine). */}
           {!bubble && m.edited_at && <span className="text-[11px] text-muted-foreground">(edited)</span>}
@@ -417,13 +463,15 @@ export function MessageItem({
   // BUBBLES (the Pulse redesign, 2026-10-29) for direct and group chats: yours
   // on the right in the primary colour, everyone else's on the left on white,
   // a sender's name in their own colour above a group bubble, the time inside
-  // the bubble. Channels keep the classic rows below — a channel is read as a
-  // stream, not a back-and-forth. Same pieces, same actions, same tap rule.
+  // the bubble. Channels wear the group bubbles too since 2026-11-06 (user,
+  // "remove this … i need this", the "bubbles instead of full-width cards"
+  // artifact); the classic rows below remain for any caller passing null.
+  // Same pieces, same actions, same tap rule.
   // A system line ("Roja added Yogesh") is nobody's bubble: a centred note.
   if (bubble && m.kind === "system") {
     return (
       <div id={`msg-${m.id}`} className="flex justify-center px-3 py-1">
-        <p className="rounded-full bg-surface px-3 py-1 text-center text-xs text-muted-foreground shadow-sm">{plainText(m.body, names)}</p>
+        <p className="max-w-[80%] rounded-[7.5px] bg-[#f8f9fa] px-3 pb-1.5 pt-[5px] text-center text-[12.5px] leading-tight text-[#54656f] shadow-[0_1px_.5px_rgba(11,20,26,.13)] dark:bg-surface dark:text-muted-foreground">{plainText(m.body, names)}</p>
       </div>
     );
   }
@@ -435,21 +483,23 @@ export function MessageItem({
         ref={rowRef}
         id={`msg-${m.id}`}
         className={cn(
-          "group relative flex scroll-mt-16 items-end gap-2 px-3",
-          // 2px between one person's messages, 12px when the sender changes.
-          grouped ? "pt-0.5" : "pt-3",
-          !deleted && m.reactions.length > 0 && "pb-3.5",
+          // COMPACT (user 2026-11-06, the "compact messages" artifact, to
+          // read like a direct chat): 6px when the sender changes (was 12),
+          // 2px within one person's run, a 26px photo (was 32).
+          "group relative flex scroll-mt-16 items-end gap-1.5 px-2.5",
+          grouped ? "pt-0.5" : "pt-1.5",
+          !deleted && m.reactions.length > 0 && "pb-3",
           mine ? "justify-end" : "justify-start",
           highlight && "rounded-md bg-warning-soft ring-2 ring-warning/60 transition-colors",
         )}
       >
         {showWho && (
-          <div className="w-8 shrink-0">
+          <div className="w-[26px] shrink-0">
             {!grouped && (
               <span
                 aria-hidden
                 style={avatarStyle(author)}
-                className={cn("flex h-8 w-8 items-center justify-center overflow-hidden rounded-full text-[11px] font-bold", AVATAR_TINT)}
+                className={cn("flex h-[26px] w-[26px] items-center justify-center overflow-hidden rounded-full text-[10px] font-bold", AVATAR_TINT)}
               >
                 {authorPhoto ? <PhotoImg src={authorPhoto} /> : initials(author)}
               </span>
@@ -464,7 +514,9 @@ export function MessageItem({
             // the text deepened from it), so it changes with the topbar colour
             // menu, light and dark; theirs white with a hairline border. 12px
             // corners with a 4px one on the sender's side.
-            "relative min-w-0 max-w-[min(65%,32.5rem)] rounded-xl pb-2 pl-2.5 pr-2 pt-1.5 [&_.text-sm]:text-[14.2px] [&_.text-sm]:leading-[19px] [@media(hover:none)]:select-none",
+            // COMPACT (2026-11-06): 3 / 7 / 4 / 8 padding, 10px corners, and
+            // up to 78% wide so a short line keeps its time beside it.
+            "relative min-w-0 max-w-[min(78%,36rem)] rounded-[10px] pb-1 pl-2 pr-[7px] pt-[3px] [&_.text-sm]:text-[14.2px] [&_.text-sm]:leading-[19px] [@media(hover:none)]:select-none",
             // A sticker is drawn without a bubble, as WhatsApp does.
             sticker
               ? "bg-transparent px-0 shadow-none [&_.text-muted-foreground]:text-muted-foreground"
@@ -510,7 +562,7 @@ export function MessageItem({
           }}
         >
           {showWho && !grouped && (
-            <p style={avatarStyle(author)} className="mb-0.5 text-xs font-bold text-[var(--ink)]">
+            <p style={avatarStyle(author)} className="text-[11.5px] font-bold leading-[14px] text-[var(--ink)]">
               {author}
             </p>
           )}
@@ -732,47 +784,18 @@ export function MessageItem({
                 <Pin className="h-3 w-3" aria-hidden /> Pinned
               </span>
             )}
+            {!toolsInText && channelTools}
           </div>
         )}
 
         {content}
       </div>
 
-      {menu && (
-        <div
-          className={cn(
-            "flex shrink-0 items-center gap-0.5 self-start pt-1",
-            "md:absolute md:-top-3 md:right-2 md:z-10 md:rounded-lg md:border md:border-border md:bg-surface md:p-0.5 md:shadow-sm",
-            "md:opacity-0 md:transition-opacity md:group-hover:opacity-100 md:group-focus-within:opacity-100 md:has-[[aria-expanded=true]]:opacity-100",
-            reacting && "md:opacity-100",
-          )}
-        >
-          {canAct && actions.onReact && !deleted && !editing && (
-            // button-shape: exempt -- an icon square in the row's hover toolbar
-            <button
-              type="button"
-              aria-label="React"
-              title="React"
-              onClick={() => setReacting(true)}
-              className="hidden h-[26px] w-[26px] items-center justify-center rounded-md text-muted-foreground hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:inline-flex"
-            >
-              <Smile className="h-[15px] w-[15px]" aria-hidden />
-            </button>
-          )}
-          {canAct && actions.onReply && !m.parent_id && !deleted && !editing && (
-            // button-shape: exempt -- an icon square in the row's hover toolbar
-            <button
-              type="button"
-              aria-label="Reply in thread"
-              title="Reply in thread"
-              onClick={() => actions.onReply!(m)}
-              className="hidden h-[26px] w-[26px] items-center justify-center rounded-md text-muted-foreground hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:inline-flex"
-            >
-              <MessageSquareReply className="h-[15px] w-[15px]" aria-hidden />
-            </button>
-          )}
-          <span className="md:flex md:h-[26px] md:w-[26px] md:items-center md:justify-center">{menu}</span>
-        </div>
+      {/* No text for the actions to trail (a photo, a poll, a card): they sit
+          beside the name and time, or for a follow-on row with no header, at
+          the row's top edge as before. */}
+      {channelTools && !toolsInText && grouped && (
+        <div className="shrink-0 self-start pt-0.5">{channelTools}</div>
       )}
     </div>
   );
