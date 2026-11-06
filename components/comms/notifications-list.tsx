@@ -10,14 +10,9 @@ import { useToast } from "@/components/ui/toast";
 import { markAllRead, markNotificationRead } from "@/lib/notifications/actions";
 import type { Notification } from "@/lib/notifications/types";
 import { fmtDateTime } from "@/lib/format";
+import { NotificationRow } from "@/components/notifications/notification-row";
 import { cn } from "@/lib/utils";
 
-const DOT: Record<Notification["type"], string> = {
-  info: "bg-primary",
-  success: "bg-success",
-  warning: "bg-warning",
-  danger: "bg-danger",
-};
 
 /**
  * The full notification inbox. Opening an alert marks it read and follows its
@@ -104,26 +99,8 @@ export function NotificationsList({
           <ul className="divide-y divide-border">
             {items.map((n) => {
               const isUnread = !n.read_at && !readNow.has(n.id);
-              const row = (
-                <>
-                  <span
-                    aria-hidden
-                    className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", isUnread ? DOT[n.type] : "bg-transparent")}
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className={cn("block break-words text-sm text-foreground", isUnread && "font-semibold")}>
-                      {n.title}
-                    </span>
-                    {n.body && <span className="block break-words text-xs text-muted-foreground">{n.body}</span>}
-                    <time dateTime={n.created_at} className="block text-[11px] text-muted-foreground">
-                      {fmtDateTime(n.created_at)}
-                    </time>
-                  </span>
-                  {isUnread && <span className="sr-only">Unread</span>}
-                </>
-              );
-              const cls =
-                "flex gap-3 px-4 py-3 hover:bg-surface-muted focus-visible:bg-surface-muted focus-visible:outline-none";
+              const row = <NotificationRow n={n} unread={isUnread} time={fmtDateTime(n.created_at)} />;
+              const cls = "block hover:bg-surface-muted focus-visible:bg-surface-muted focus-visible:outline-none";
               return (
                 <li key={n.id}>
                   {n.href ? (
