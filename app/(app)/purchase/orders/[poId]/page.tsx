@@ -21,8 +21,6 @@ import { getRequirementLines } from "@/lib/purchase/re-po/service";
 import { statusTone } from "@/lib/ui/status-tone";
 import { getPoBudgetVariance, type PoVariance } from "@/lib/purchase/po-escalation";
 import { loadPoApprovalSheet } from "@/lib/purchase/po-approval-sheet-actions";
-import { loadPoApprovalCards } from "@/lib/approvals/po-approval-cards";
-import { poBudgetState } from "@/lib/approvals/po-budget-state";
 import { withCreators } from "@/lib/created-by";
 import { PoApprovalOverview } from "../../po-approval/po-approval-overview";
 import { PoDecisionBar } from "../../po-approval/po-decision-bar";
@@ -67,11 +65,10 @@ export default async function PoDetailPage({
      overview below — profile card · tiles, ring, lines · trail. A PO with no run (sent
      before 0764) keeps `PoReview`, whose own buttons are its only way to be decided. */
   if (raised && po.status === "pending_approval") {
-    const [sheet, cards] = await Promise.all([loadPoApprovalSheet(po.id), loadPoApprovalCards([po.id]).catch(() => ({}))]);
+    const sheet = await loadPoApprovalSheet(po.id);
     if (sheet.po && sheet.panel.run) {
       const [creator] = await withCreators([{ created_by: (po as { created_by?: string | null }).created_by ?? "" }]);
       const raisedBy = (creator as { created_by_name?: string | null }).created_by_name ?? null;
-      const card = (cards as Record<string, Parameters<typeof poBudgetState>[0]>)[po.id];
       return (
         <div className="space-y-4">
           <PageHeader
@@ -94,7 +91,6 @@ export default async function PoDetailPage({
                 run={sheet.panel.run}
                 verdict={sheet.panel.verdict}
                 poId={po.id}
-                overBudget={poBudgetState(card) === "over"}
                 subjectPath={`/purchase/orders/${po.id}`}
               />
             )}

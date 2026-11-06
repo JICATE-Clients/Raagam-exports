@@ -4,8 +4,8 @@
  * Purchase ▸ Procurement ▸ PO Approval — ONE SCREEN FOR EVERY PO, OVER BUDGET OR NOT
  * (user 2026-11-03: "merge PO Approval and More than Budget Approval in one single
  * screen … better UI, uncomplicated, clean"; plan artifact "PO Approval and More than
- * Budget Plan", recommendations accepted: remark required to approve over budget, bulk
- * approve only within / no budget, the detail beside the list).
+ * Budget Plan", recommendations accepted then: remark to approve over budget and bulk approve
+ * within / no budget only — BOTH WITHDRAWN 2026-11-06, below — and the detail beside the list).
  *
  *   status box + Within / Over budget + search + Filters + "n of m"
  *   the table: ☐ · PO No/date · Vendor · Item · RE No · Value · Created · Status · ⎙ ↺ ✓
@@ -21,14 +21,12 @@
  * through the PO's approval run (0764) when it has one, so the trail and My Approvals
  * stay right, and the run decides WHO may act (the MD on an above-budget PO).
  *
- * BULK APPROVE (2026-10-31) is kept for within-budget and no-budget POs only: an
- * over-budget row has no tick box, because its excess has to be read — and a remark
- * written — before it is approved. Each PO still goes through `approvePo` on its own, so
+ * BULK APPROVE (2026-10-31) takes every pending PO, over budget included (user 2026-11-06:
+ * approving never asks a reason). Each PO still goes through `approvePo` on its own, so
  * every gate holds per PO and one refusal never stops the rest.
  *
  * OPENED: a full-page `Sheet` over the table, exactly as Orders ▸ Approval opens a budget —
- * the decisions in its header through `ApprovalActionBar` (Approve over budget asks for the
- * remark in its confirm, `approveNeedsReason`). A PO sent before 0764 has no run and keeps
+ * the decisions in its header through `ApprovalActionBar` (Approve is one click, no reason). A PO sent before 0764 has no run and keeps
  * the remark strip under the overview, the budget page's own legacy fallback.
  */
 
@@ -195,8 +193,11 @@ export function PoApprovalScreen({
 
   const decidable = (r: RaisedPo) => canApprove && r.status === "pending_approval";
   const printable = (r: RaisedPo) => !["draft", "pending_approval", "cancelled"].includes(r.status);
-  // Bulk only where the excess needs no reading: never an over-budget PO.
-  const tickable = (r: RaisedPo) => decidable(r) && stateOf(r) !== "over";
+  /* APPROVE NEVER ASKS A REASON (user 2026-11-06: "no need ask reason for every approval
+     … approve immediately"). This withdraws the 11-03 "remark to approve over budget": an
+     over-budget PO is ticked, bulk-approved and row-approved like any other. Its excess
+     still shows on the row and in the detail; `approvePo`'s own gates still hold. */
+  const tickable = (r: RaisedPo) => decidable(r);
   const pickable = filtered.filter(tickable).map((r) => r.id);
   const selected = new Set(pickable.filter((id) => picked.has(id)));
 
@@ -285,7 +286,7 @@ export function PoApprovalScreen({
     po && mayDecide && !sheet?.panel.run ? (
       <div className="space-y-2 rounded-lg border border-border bg-surface-muted/50 p-3">
         <Field
-          label={detailOver ? "Remark — needed to approve over budget, and to send back or reject" : "Remark — needed to send back or reject"}
+          label="Remark — needed to send back or reject"
           htmlFor="po-approval-remark"
         >
           <Textarea id="po-approval-remark" rows={2} value={remark} onChange={(e) => setRemark(e.target.value)} />
@@ -315,8 +316,7 @@ export function PoApprovalScreen({
           </Button>
           <Button
             type="button"
-            disabled={isPending || (detailOver && !note)}
-            title={detailOver && !note ? "Write why the excess is accepted first" : undefined}
+            disabled={isPending}
             onClick={() => decide(po.id, () => approvePo(po.id, note || undefined), "Purchase order approved")}
           >
             <Check aria-hidden className="size-4" />
@@ -350,7 +350,6 @@ export function PoApprovalScreen({
                     type="checkbox"
                     className="size-4 accent-[var(--color-primary)] disabled:opacity-40"
                     aria-label={`Select ${r.code ?? "PO"}`}
-                    title={tickable(r) ? undefined : "Over budget — open it, read the excess and approve with a remark"}
                     disabled={!tickable(r) || isPending}
                     checked={selected.has(r.id)}
                     onChange={() => togglePick(r.id)}
@@ -413,7 +412,6 @@ export function PoApprovalScreen({
           const canDecide = decidable(r);
           const why =
             r.status !== "pending_approval" ? "Only a PO pending approval" : !canApprove ? "Needs the Purchase ▸ Approve permission" : null;
-          const over = stateOf(r) === "over";
           return (
             <div className="flex items-center justify-end gap-0.5">
               <RowIconAction
@@ -433,12 +431,12 @@ export function PoApprovalScreen({
                 onClick={() => pick(r.id)}
               />
               <RowIconAction
-                label={over ? "Approve over budget — open it and write the remark" : "Approve"}
+                label="Approve"
                 name={r.code}
                 icon={Check}
                 className="text-success"
                 disabledReason={canDecide ? (isPending ? "Working…" : null) : why}
-                onClick={() => (over ? pick(r.id) : approveMany([r.id]))}
+                onClick={() => approveMany([r.id])}
               />
             </div>
           );
@@ -547,8 +545,7 @@ export function PoApprovalScreen({
           list — the page's name and where it sits as the title, the decisions in the
           HEADER (the same `ApprovalActionBar` the budget page mounts), and the 3-column
           overview filling the pane. It replaced the in-place card with "← PO list" and the
-          remark strip under it. Over budget, Approve asks for the remark in its confirm
-          (`approveNeedsReason`) — the 11-03 rule, kept. */}
+          remark strip under it. Approve is one click, over budget too (user 2026-11-06). */}
       <Sheet
         open={!!detailId}
         onClose={() => {
@@ -570,7 +567,6 @@ export function PoApprovalScreen({
               run={sheet.panel.run}
               verdict={verdict}
               poId={po.id}
-              overBudget={detailOver}
               subjectPath="/purchase/po-approval"
               onDone={() => {
                 advance(po.id);

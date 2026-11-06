@@ -81,10 +81,8 @@ export function ApprovalActionBar({
   acknowledge = false,
   compact = false,
   overrideNote = true,
-  directApprove = false,
   onApprove,
   onRejectForGood,
-  approveNeedsReason = false,
   onRework,
 }: {
   run: ActionBarRun;
@@ -126,16 +124,6 @@ export function ApprovalActionBar({
    */
   overrideNote?: boolean;
   /**
-   * ONE-CLICK APPROVE (client 2026-10-30, PO Approval: "within budget … directly
-   * approve it with 1 click, without popping up a modal asking for a reason").
-   * Approve acts at once instead of opening the confirm. Only the CALLER knows
-   * whether the document needs a second look (a PO above or without a budget
-   * does), so it is opt-in per call site. Ignored on an override, where the
-   * database demands a reason and the confirm is what asks for it. Reject /
-   * Request Rework always keep their confirm: they always need a reason.
-   */
-  directApprove?: boolean;
-  /**
    * APPROVE THROUGH THE DOCUMENT'S OWN ACTION (PO, user 2026-10-31: "Approve = one
    * click, no reason, for every PO"). When given, Approve is ONE CLICK — no confirm,
    * even on an override — and calls this instead of `actOnRun`. It exists for a
@@ -145,13 +133,6 @@ export function ApprovalActionBar({
    * bypasses the run.
    */
   onApprove?: (note?: string) => Promise<DocResult>;
-  /**
-   * APPROVE NEEDS A REASON (PO over budget, user 2026-11-03: "remark to approve over
-   * budget"). Approve opens the confirm with a REQUIRED reason, and the reason goes to
-   * `onApprove(note)` — the PO's own action writes it on the run and the audit. Without
-   * `onApprove` it rides on `actOnRun` as the comment.
-   */
-  approveNeedsReason?: boolean;
   /**
    * REQUEST REWORK / REJECT THROUGH THE DOCUMENT'S OWN ACTION (PO: `rejectPo` — the run's
    * reject plus the PO's own audit row and its no-run fallback). The reason is mandatory.
@@ -188,9 +169,7 @@ export function ApprovalActionBar({
   const COPY: Record<BarAction, { title: string; verb: string; needsComment: boolean }> = {
     approve: acknowledge
       ? { title: "Acknowledge this request?", verb: "Acknowledge", needsComment: false }
-      : approveNeedsReason
-        ? { title: "Approve over budget?", verb: "Approve over budget", needsComment: true }
-        : { title: "Approve this request?", verb: "Approve", needsComment: false },
+      : { title: "Approve this request?", verb: "Approve", needsComment: false },
     return: { title: "Return for changes?", verb: "Return", needsComment: true },
     reject: acknowledge
       ? fileMissing
@@ -417,15 +396,12 @@ export function ApprovalActionBar({
             type="button"
             size="sm"
             className="w-full sm:w-auto"
-            onClick={() =>
-              approveNeedsReason
-                ? setPending("approve")
-                : onApprove
-                  ? runDoc(() => onApprove(), "Approved")
-                  : directApprove
-                    ? submit("approve")
-                    : setPending("approve")
-            }
+            /* APPROVE IS ONE CLICK, EVERYWHERE (user 2026-11-06: "no need ask reason
+               for every approval in application … approve immediately"). No confirm,
+               no reason — on an override too, where `submit` writes the remark the
+               database demands. Reject / Return / Request Rework keep their confirm:
+               a negative outcome still needs its reason. */
+            onClick={() => (onApprove ? runDoc(() => onApprove(), "Approved") : submit("approve"))}
             disabled={isPending}
           >
             <Check className="h-4 w-4" aria-hidden />
@@ -514,8 +490,6 @@ export function ApprovalActionBar({
           <p className="text-xs text-muted-foreground">
             {pending === "decline"
               ? "The document is closed for good, not sent back. The requester sees this reason."
-              : pending === "approve" && approveNeedsReason
-              ? "Say why the excess over budget is accepted — it is recorded on the approval."
               : isOverride
               ? "This is an override, so the reason is recorded against your name in the audit trail."
               : "The requester sees this, and it is what tells them what to change."}
