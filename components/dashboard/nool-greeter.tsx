@@ -361,7 +361,7 @@ export function NoolGreeter({
             rows as the list below and say "—" when there is no list to count. */}
         <div className={cn("grid w-full grid-cols-3 gap-2 self-center lg:ml-auto lg:w-[22rem] lg:flex-none", compact && "hidden")}>
           <DayTile
-            href="/approvals"
+            href="/comms/approvals"
             label="Waiting on you"
             value={waiting?.count}
             sub={waiting && waiting.overdue > 0 ? `${waiting.overdue} overdue` : undefined}

@@ -63,6 +63,10 @@ function check(cond: boolean, msg: string) {
  * back to its module's grant — say why that is right.
  */
 const UNREGISTERED: Record<string, string> = {
+  // Module overviews (user 2026-11-06) — `moduleGrant` rows: each card is gated by its own source screen.
+  "/purchase/overview": "module Overview — takes the module grant (ModuleLink.moduleGrant); every card is gated by its source screen",
+  "/orders/overview": "module Overview — takes the module grant (ModuleLink.moduleGrant); every card is gated by its source screen",
+  "/planning/overview": "module Overview — takes the module grant (ModuleLink.moduleGrant); every card is gated by its source screen",
   "/resolve/my-work": "redirect() to Resolve ▸ Inbox — the per-lane lists folded into one Inbox 2026-10-26",
   "/resolve/requirements": "redirect() to Resolve ▸ Inbox — the per-lane lists folded into one Inbox 2026-10-26",
   "/resolve/my-complaints": "redirect() to Resolve ▸ My Reports — named complaints joined it 2026-10-26",

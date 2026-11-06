@@ -238,16 +238,19 @@ export const PO_STAGES: { key: PoStage; label: string }[] = [
   { key: "closed", label: "Closed" },
 ];
 
+/** How far a PO has got — one stage each. Shared by the Purchase board and Purchase ▸ Overview. */
+export function poStage(p: Pick<PoIn, "placed" | "status" | "openQty" | "receivedValue">): PoStage {
+  return !p.placed ? "waiting" : p.status === "closed" ? "closed" : p.openQty <= 0 ? "received" : p.receivedValue > 0 ? "part" : "none_in";
+}
+
 export function purchaseBoard(all: readonly PoIn[], period: Period, todayIso: string) {
   const inPeriod = all.filter((p) => inRange(p.orderDate, period));
   const rows = inPeriod.filter((p) => p.placed);
   const prevValue = period.prev ? all.filter((p) => p.placed && inRange(p.orderDate, period.prev!)).reduce((a, p) => a + p.value, 0) : null;
 
   /* THE PIPELINE: every PO in the period by how far it has got. One stage each, in order. */
-  const stage = (p: PoIn): PoStage =>
-    !p.placed ? "waiting" : p.status === "closed" ? "closed" : p.openQty <= 0 ? "received" : p.receivedValue > 0 ? "part" : "none_in";
   const pipeline = PO_STAGES.map((st) => {
-    const list = inPeriod.filter((p) => stage(p) === st.key);
+    const list = inPeriod.filter((p) => poStage(p) === st.key);
     return { ...st, count: list.length, value: list.reduce((a, p) => a + p.value, 0), items: list.map((p) => p.value) };
   });
 

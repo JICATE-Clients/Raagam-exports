@@ -51,6 +51,7 @@ export function Dot({ colour, className }: { colour: string; className?: string 
 export function VizCard({
   title,
   question,
+  lead,
   right,
   children,
   className,
@@ -58,6 +59,12 @@ export function VizCard({
 }: {
   title: string;
   question?: string;
+  /**
+   * A control that IS the card's subject, drawn where the title would be — the
+   * title stays as a screen-reader heading. Store Overview's store tabs (user
+   * 2026-11-06: "move as title"): the store picked is what the card shows.
+   */
+  lead?: ReactNode;
   right?: ReactNode;
   children: ReactNode;
   className?: string;
@@ -67,10 +74,17 @@ export function VizCard({
   return (
     <section className={cn("min-w-0 rounded-xl border border-border bg-surface", SHADOW, className)}>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-3.5 py-2">
-        <div className="min-w-0">
-          <h2 className="text-[13px] font-semibold">{title}</h2>
-          {question ? <p className="text-xs text-muted-foreground">{question}</p> : null}
-        </div>
+        {lead ? (
+          <div className="min-w-0">
+            <h2 className="sr-only">{title}</h2>
+            {lead}
+          </div>
+        ) : (
+          <div className="min-w-0">
+            <h2 className="text-[13px] font-semibold">{title}</h2>
+            {question ? <p className="text-xs text-muted-foreground">{question}</p> : null}
+          </div>
+        )}
         {right}
       </div>
       {padded ? <div className="px-3.5 py-3">{children}</div> : children}
@@ -93,7 +107,8 @@ export type StripCell = {
   href?: string;
 };
 
-export function Strip({ cells }: { cells: StripCell[] }) {
+/** `compact` — the module overviews' smaller figures (user 2026-11-06: "compact the font"); Store Overview and the boards keep the default. */
+export function Strip({ cells, compact = false }: { cells: StripCell[]; compact?: boolean }) {
   return (
     <dl className={cn("grid grid-cols-2 rounded-xl border border-border bg-surface", SHADOW, cells.length >= 5 ? "md:grid-cols-5" : "md:grid-cols-4")}>
       {cells.map((c, i) => {
@@ -102,7 +117,7 @@ export function Strip({ cells }: { cells: StripCell[] }) {
           <>
             <span aria-hidden className="absolute inset-x-3.5 top-0 h-0.5 rounded-b-sm" style={{ background: colour, boxShadow: `0 0 10px 1px ${colour}` }} />
             <dt className="text-xs text-muted-foreground">{c.label}</dt>
-            <dd className="mt-0.5 text-xl font-bold tabular-nums tracking-tight">{c.value}</dd>
+            <dd className={cn("mt-0.5 font-bold tabular-nums tracking-tight", compact ? "text-base" : "text-xl")}>{c.value}</dd>
             {c.hint ? (
               <div className="mt-0.5 flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
                 {c.mood && c.mood !== "normal" ? <Dot colour={colour} /> : null}
@@ -111,7 +126,7 @@ export function Strip({ cells }: { cells: StripCell[] }) {
             ) : null}
           </>
         );
-        const cls = cn("relative block min-w-0 px-3.5 py-2.5", i > 0 && "md:border-l md:border-border");
+        const cls = cn("relative block min-w-0 px-3.5", compact ? "py-2" : "py-2.5", i > 0 && "md:border-l md:border-border");
         return c.href ? (
           <Link key={c.label} href={c.href} className={cn(cls, "rounded-xl hover:bg-surface-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring")}>
             {body}
@@ -235,7 +250,7 @@ export type NeedCell = {
   action?: ReactNode;
 };
 
-export function NeedsDoing({ cells, question = "Each line opens the screen that clears it" }: { cells: NeedCell[]; question?: string }) {
+export function NeedsDoing({ cells, question = "Each line opens the screen that clears it", compact = false }: { cells: NeedCell[]; question?: string; compact?: boolean }) {
   const cell = "min-w-0 border-border px-3.5 py-2.5 md:border-l md:first:border-l-0 max-md:border-t max-md:first:border-t-0";
   return (
     <VizCard title="What needs doing?" question={question}>
@@ -248,7 +263,7 @@ export function NeedsDoing({ cells, question = "Each line opens the screen that 
                 <Dot colour={colour} />
                 {c.title}
               </span>
-              <div className="text-lg font-bold">{c.count}</div>
+              <div className={cn("font-bold", compact ? "text-[15px]" : "text-lg")}>{c.count}</div>
               <Truncated text={c.text} className="block text-xs text-muted-foreground" />
               {c.action}
               {c.href ? (

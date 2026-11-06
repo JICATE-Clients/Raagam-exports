@@ -28,7 +28,8 @@ import { setMenuCollapsed } from "./menu-collapse";
  */
 const RAIL_BANDS: { label?: string; hrefs: string[] }[] = [
   // Favourites under Home (user 2026-11-05): the day starts on one of those two.
-  { hrefs: ["/", "/favourites", "/approvals"] },
+  // Approvals left the rail 2026-11-06 (NavItem.hidden): My Approvals lives under Pulse.
+  { hrefs: ["/", "/favourites"] },
   { label: "Sampling & Orders", hrefs: ["/sales", "/orders"] },
   { label: "Bulk Production", hrefs: ["/planning", "/purchase", "/stores", "/production", "/logistics", "/logistics/transport"] },
   { label: "People & Accounts", hrefs: ["/hr", "/finance"] },
@@ -67,7 +68,8 @@ const SYSTEM_HREFS = ["/resolve", "/admin"];
 
 type Band = { label?: string; rows: NavItem[] };
 
-function toBands(items: NavItem[]): { work: Band[]; system: Band | null } {
+function toBands(all: NavItem[]): { work: Band[]; system: Band | null } {
+  const items = all.filter((i) => !i.hidden);
   const placed = new Set<string>();
   const pick = (hrefs: string[]) => {
     const rows = hrefs.map((h) => items.find((i) => i.href === h)).filter((i): i is NavItem => !!i);
