@@ -3,13 +3,12 @@
 import Link from "next/link";
 import { useState } from "react";
 import { MessageCircle } from "lucide-react";
-import { Toggle } from "@/components/ui/toggle";
 import { Truncated } from "@/components/ui/truncated";
 import type { ConversationSummary } from "@/lib/comms/types";
 import { fmtDate } from "@/lib/format";
 import { nameCase } from "@/lib/comms/name-case";
 import { cn } from "@/lib/utils";
-import { ChatAvatar, preview } from "./conversation-list";
+import { ChatAvatar, UnreadOnlyButton, preview } from "./conversation-list";
 import { clockTime } from "./message-body";
 
 /**
@@ -17,7 +16,7 @@ import { clockTime } from "./message-body";
  * a home irukkanum, mail chat mari"). What /comms shows beside the chat list:
  * one card per chat, newest activity first — avatar, name, kind, time, and the
  * latest message as "Name: text". Unread chats are bold with a dot, and the
- * Unread switch narrows the feed to them. A card opens its chat.
+ * Unread envelope narrows the feed to them. A card opens its chat.
  *
  * The artifact's Threads chip was dropped at the user's request ("remove
  * threds"). Everything here comes from the conversation read the list already
@@ -54,8 +53,10 @@ export function HomeFeed({ conversations }: { conversations: ConversationSummary
         <h1 id="pulse-home-title" className="flex-1 text-xl font-semibold text-heading">
           Home
         </h1>
-        <span className="text-sm text-foreground">Unread</span>
-        <Toggle checked={unreadOnly} onChange={setUnreadOnly} ariaLabel="Show only unread chats" className="min-h-0" />
+        {/* The chat list's envelope, not a switch (user 2026-11-06, screenshots
+            095209 / 095614: "apply this type of toggle button in home page"),
+            so Home and the list headings draw "Unread only" the same way. */}
+        <UnreadOnlyButton on={unreadOnly} onChange={setUnreadOnly} label="Show only unread chats" />
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">

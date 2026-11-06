@@ -10,9 +10,10 @@ export type AttachItem = "doc" | "media" | "camera" | "audio" | "contact" | "pol
  * WHATSAPP'S 📎 MENU ON PULSE'S MESSAGE BOX (user 2026-10-31, screenshot
  * 152017 and the Pulse Attach Menu mockup: "apply this").
  *
- * Document · Photos & videos · Camera · Audio · Contact · Poll · Event ·
- * New sticker, in WhatsApp's order and colours, then Pulse's own Record (a
- * PO, indent or RE) under a rule — the "Link a record" button that used to sit
+ * Pulse's own Record (a PO, indent or RE) first, a rule, then Document ·
+ * Photos & videos · Camera · Audio · Contact · Poll · Event · New sticker in
+ * WhatsApp's order and colours (Record moved to the top 2026-11-06) — the
+ * "Link a record" button that used to sit
  * in the action row lives here now, one job one button.
  *
  * It rises from 📎 above the box (a menu opening downward would leave the
@@ -85,7 +86,12 @@ const ICON: Record<AttachItem, ReactNode> = {
  *  ~205px at 13px); toggle() measures against this upper bound. */
 const MENU_W = 220;
 
+// RECORD LEADS (user 2026-11-06, screenshot 094721: "i need 1st menu in
+// record po indent re"). Linking a PO / indent / RE is Pulse's own job and the
+// commonest pick here, so it sits first with the rule BELOW it, and
+// WhatsApp's eight follow in their own order.
 const ITEMS: { value: AttachItem; label: string; rule?: boolean }[] = [
+  { value: "record", label: "Record (PO, indent, RE)", rule: true },
   { value: "doc", label: "Document" },
   { value: "media", label: "Photos & videos" },
   { value: "camera", label: "Camera" },
@@ -94,7 +100,6 @@ const ITEMS: { value: AttachItem; label: string; rule?: boolean }[] = [
   { value: "poll", label: "Poll" },
   { value: "event", label: "Event" },
   { value: "sticker", label: "New sticker" },
-  { value: "record", label: "Record (PO, indent, RE)", rule: true },
 ];
 
 export function AttachMenu({ onPick, disabled = false }: { onPick: (item: AttachItem) => void; disabled?: boolean }) {
@@ -174,7 +179,6 @@ export function AttachMenu({ onPick, disabled = false }: { onPick: (item: Attach
         >
           {ITEMS.map((it) => (
             <div key={it.value}>
-              {it.rule && <div role="separator" className="mx-2 my-[3px] border-t border-border" />}
               <button
                 type="button"
                 role="menuitem"
@@ -188,6 +192,7 @@ export function AttachMenu({ onPick, disabled = false }: { onPick: (item: Attach
                 {ICON[it.value]}
                 {it.label}
               </button>
+              {it.rule && <div role="separator" className="mx-2 my-[3px] border-t border-border" />}
             </div>
           ))}
         </div>

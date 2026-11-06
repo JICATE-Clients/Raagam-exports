@@ -11,6 +11,7 @@ import {
   Ban,
   Eye,
   EyeOff,
+  Mail,
   MessageSquareDot,
   MessageSquareText,
   Repeat,
@@ -55,7 +56,6 @@ import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Segmented } from "@/components/ui/segmented";
 import { Sheet } from "@/components/ui/sheet";
-import { Toggle } from "@/components/ui/toggle";
 import { Truncated } from "@/components/ui/truncated";
 import { useToast } from "@/components/ui/toast";
 import { useAppUser } from "@/lib/auth/permission-context";
@@ -176,6 +176,7 @@ export function ConversationList({
   activeId = null,
   composing = false,
   home = false,
+  mentionsOpen = false,
   communities,
   activeCommunityId = null,
   activeFileId = null,
@@ -195,6 +196,8 @@ export function ConversationList({
   composing?: boolean;
   /** /comms — the Home feed is open beside the list (lights the Home shortcut). */
   home?: boolean;
+  /** /comms/mentions — Pulse ▸ Mentions is open beside the list (lights its shortcut). */
+  mentionsOpen?: boolean;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -933,7 +936,9 @@ export function ConversationList({
             </h2>
             <ul hidden={!!folded.shortcuts}>
               <Shortcut href="/comms" icon={House} label="Home" on={home} />
-              <Shortcut href="/comms/notifications" icon={AtSign} label="Mentions" count={mentions} />
+              {/* Pulse ▸ Mentions, not Notifications (user 2026-11-06): the badge
+                  counts unread @mentions, so the page lists exactly those. */}
+              <Shortcut href="/comms/mentions" icon={AtSign} label="Mentions" count={mentions} on={mentionsOpen} />
               {/* Starred = the chats wearing the star (the Favourites flag, 0764)
                   — user 2026-11-05: Saved, Favourites, Communities and Files
                   removed from the card, Starred added. Saved messages stay
@@ -1002,14 +1007,11 @@ export function ConversationList({
                       )}
                     >
                       {canNarrow && (
-                        <span title="Unread only" className="flex items-center">
-                          <Toggle
-                            checked={only}
-                            onChange={(v) => setUnreadOnly((m) => ({ ...m, [s.key]: v }))}
-                            ariaLabel={`Show only unread in ${s.title}`}
-                            className="min-h-0"
-                          />
-                        </span>
+                        <UnreadOnlyButton
+                          on={only}
+                          onChange={(v) => setUnreadOnly((m) => ({ ...m, [s.key]: v }))}
+                          label={`Show only unread in ${s.title}`}
+                        />
                       )}
                       <DropdownMenu
                         label={`Section actions for ${s.title}`}
@@ -1131,14 +1133,11 @@ export function ConversationList({
                       : "opacity-0 focus-within:opacity-100 group-hover/sec:opacity-100 has-[[aria-expanded=true]]:opacity-100 [@media(hover:none)]:opacity-100",
                   )}
                 >
-                  <span title="Unread only" className="flex items-center">
-                    <Toggle
-                      checked={only}
-                      onChange={(v) => setUnreadOnly((m) => ({ ...m, threads: v }))}
-                      ariaLabel="Show only unread threads"
-                      className="min-h-0"
-                    />
-                  </span>
+                  <UnreadOnlyButton
+                    on={only}
+                    onChange={(v) => setUnreadOnly((m) => ({ ...m, threads: v }))}
+                    label="Show only unread threads"
+                  />
                   <DropdownMenu
                     label="Section actions for Threads"
                     trigger={<EllipsisVertical className="h-4 w-4" aria-hidden />}
@@ -1320,6 +1319,32 @@ function FoldToggle({ title, folded, onToggle, disabled = false }: { title: stri
     >
       <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 transition-transform", folded && "-rotate-90")} strokeWidth={2.4} aria-hidden />
       <span className="min-w-0 break-words">{title}</span>
+    </button>
+  );
+}
+
+/**
+ * A heading's "Unread only" control — an envelope, not a switch (user
+ * 2026-11-06, artifact "Pulse: Unread-only switch → icon", option A). Off:
+ * grey. On: tinted like the open chat, with a dot, and the tooltip says how to
+ * go back. Same 28px round as the ⋮ beside it, so the heading does not move.
+ */
+export function UnreadOnlyButton({ on, onChange, label }: { on: boolean; onChange: (on: boolean) => void; label: string }) {
+  return (
+    // button-shape: exempt -- a 28px round heading icon beside the section ⋮, drawn like that ⋮
+    <button
+      type="button"
+      aria-pressed={on}
+      aria-label={label}
+      title={on ? "Show all chats" : "Unread only"}
+      onClick={() => onChange(!on)}
+      className={cn(
+        "relative grid h-7 w-7 place-items-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        on ? "bg-primary-soft text-primary" : "text-muted-foreground hover:bg-surface-muted hover:text-foreground",
+      )}
+    >
+      <Mail className="h-4 w-4" aria-hidden />
+      {on && <span aria-hidden className="absolute right-1 top-1 h-[7px] w-[7px] rounded-full border-[1.5px] border-surface bg-primary" />}
     </button>
   );
 }

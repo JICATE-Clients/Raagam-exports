@@ -220,6 +220,10 @@ export interface CommMember {
   mentionable?: boolean;
   /** When this member last opened the conversation — drives the blue ticks on a sender's messages. */
   last_read_at?: string | null;
+  /** 0737: who put them in — NULL for a self-join, and equal to user_id for a
+   *  creator. Drives a channel's "Roja added Ramesh" notes. */
+  added_by?: string | null;
+  added_by_name?: string | null;
 }
 
 export interface ConversationDetail {

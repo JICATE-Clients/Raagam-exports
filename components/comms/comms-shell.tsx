@@ -120,6 +120,8 @@ export function CommsShell({
   // /comms/new: the New message screen (moved off /comms on 2026-11-05, when
   // /comms became the Home feed). A pane like a conversation.
   const isNew = pathname === "/comms/new";
+  // Pulse ▸ Mentions (user 2026-11-06): opens beside the list, Mentions lit.
+  const isMentions = pathname === "/comms/mentions";
   // 0775: a community's page is part of Pulse too — the list stays beside it.
   const communityId = /^\/comms\/community\/([0-9a-f-]{36})/i.exec(pathname)?.[1]?.toLowerCase() ?? null;
   // Pulse ▸ Files opens a file beside the list too (user 2026-10-31).
@@ -127,7 +129,7 @@ export function CommsShell({
   // Every conversation opens beside the list since Pulse ▸ Channels (user
   // 2026-10-31): a public channel read before joining is one tap from the
   // list, as a WhatsApp channel is.
-  const pulse = !!chats && (isHome || isNew || !!communityId || !!fileId || !!openId);
+  const pulse = !!chats && (isHome || isNew || isMentions || !!communityId || !!fileId || !!openId);
 
   // NO OUTER CARD (user 2026-11-05, "remove this card based"): the frame has
   // no border or corners, and <main> drops its padding around it — sides and
@@ -163,6 +165,7 @@ export function CommsShell({
               activeId={openId}
               composing={isNew}
               home={isHome}
+              mentionsOpen={isMentions}
               communities={communities}
               activeCommunityId={communityId}
               activeFileId={fileId}

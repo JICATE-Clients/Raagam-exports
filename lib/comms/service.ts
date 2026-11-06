@@ -330,13 +330,13 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
   const membersRead = (cols: string) => s.from("comm_members").select(cols).eq("conversation_id", id).order("joined_at");
   const [conv0, mem0, manageR] = await Promise.all([
     conversationRead("id, kind, name, topic, description, visibility, department_id, is_archived, archived_at, created_at"),
-    membersRead("user_id, role, joined_at, removed_at, muted, last_read_at, pinned_at, notify_level"),
+    membersRead("user_id, role, joined_at, removed_at, added_by, muted, last_read_at, pinned_at, notify_level"),
     s.rpc("comm_can_manage", { p_conv: id }),
   ]);
   let convR = conv0;
   let memR = mem0;
   if (convR.error?.code === "42703") convR = await conversationRead("id, kind, name, topic, visibility, department_id, is_archived, created_at");
-  if (memR.error?.code === "42703") memR = await membersRead("user_id, role, joined_at, removed_at, muted, last_read_at");
+  if (memR.error?.code === "42703") memR = await membersRead("user_id, role, joined_at, removed_at, added_by, muted, last_read_at");
   if (convR.error) fail("the conversation", convR.error);
   if (!convR.data) return null;
   if (memR.error) fail("members", memR.error);
@@ -345,14 +345,16 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
   const raw = convR.data as unknown as Omit<ConversationDetail, "title" | "members" | "me" | "can_manage" | "department_name" | "description" | "archived_at"> &
     Partial<Pick<ConversationDetail, "description" | "archived_at">>;
   const conv = { ...raw, description: raw.description ?? null, archived_at: raw.archived_at ?? null };
-  const rows = (memR.data ?? []) as unknown as (Omit<CommMember, "full_name"> & {
+  const rows = (memR.data ?? []) as unknown as (Omit<CommMember, "full_name" | "added_by_name"> & {
     muted: boolean;
     last_read_at: string | null;
     pinned_at: string | null;
     notify_level: "all" | "mentions" | "none";
   })[];
   const [names, depts] = await Promise.all([
-    resolveNames(s, rows.map((r) => r.user_id)),
+    // The adders too: a channel's "Roja added Ramesh" notes name them, and an
+    // adder may since have left (0737's added_by).
+    resolveNames(s, [...new Set([...rows.map((r) => r.user_id), ...rows.flatMap((r) => (r.added_by ? [r.added_by] : []))])]),
     departmentNames(s, [conv.department_id]),
   ]);
   const members: CommMember[] = rows.map((r) => ({
@@ -362,6 +364,8 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
     removed_at: r.removed_at,
     full_name: names.get(r.user_id) ?? null,
     last_read_at: r.last_read_at ?? null,
+    added_by: r.added_by ?? null,
+    added_by_name: r.added_by ? (names.get(r.added_by) ?? null) : null,
   }));
   // 0759: who the composer may offer for @mention. Before 0759 the read fails
   // and everyone stays offered, as before (the server still drops a mention of
@@ -1001,6 +1005,95 @@ export async function getSavedPage(query: SavedQuery = {}): Promise<{ items: Sav
     items: page.map((r) => ({ message_id: r.message_id, saved_at: r.saved_at, hit: hits.get(r.message_id) ?? null })),
     next,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Mentions (user 2026-11-06, artifact "Pulse: fixing the Mentions shortcut",
+// option A). The shortcut used to open /comms/notifications — every alert —
+// while its badge counted only @mentions.
+// ---------------------------------------------------------------------------
+
+export const MENTIONS_PAGE = 30;
+
+/** One @mention of the caller. `unread` uses the same test as the chat list's
+ *  `mention_count` (0764): the message is newer than the caller's read point in
+ *  that chat — so the page's unread rows and the shortcut's badge agree. */
+export type MentionItem = { hit: MessageHit; unread: boolean };
+
+/**
+ * Messages that @mention the caller, newest first, a page at a time.
+ *
+ * `unreadOnly` cannot be a SQL filter — "unread" is per-chat (each chat has its
+ * own read point) and PostgREST cannot compare two tables' columns. So the
+ * candidate window is bounded instead: nothing older than the EARLIEST read
+ * point among the caller's chats can be unread, and only that window is read
+ * (capped at UNREAD_SCAN rows), then tested per chat.
+ *
+ * Deleted messages are left out, as `mention_count` leaves them out. Reads run
+ * as the caller, so RLS (comm_mentions_read → comm_message_visible) drops any
+ * message they can no longer read.
+ */
+const UNREAD_SCAN = 500;
+export async function getMentionsPage(query: { cursor?: string | null; unreadOnly?: boolean } = {}): Promise<{
+  items: MentionItem[];
+  next: string | null;
+}> {
+  const s = await createClient();
+  const me = await myId();
+  if (!me) return { items: [], next: null };
+
+  const { data: memRows, error: memErr } = await s
+    .from("comm_members")
+    .select("conversation_id, last_read_at, joined_at")
+    .eq("user_id", me)
+    .is("removed_at", null);
+  if (memErr) fail("mentions", memErr);
+  const readPoint = new Map(
+    ((memRows ?? []) as { conversation_id: string; last_read_at: string | null; joined_at: string }[]).map((m) => [
+      m.conversation_id,
+      m.last_read_at ?? m.joined_at,
+    ]),
+  );
+  const isUnread = (m: { conversation_id: string; created_at: string }) => {
+    const at = readPoint.get(m.conversation_id);
+    return !!at && Date.parse(m.created_at) > Date.parse(at);
+  };
+
+  let q = s
+    .from("comm_mentions")
+    .select("message_id, created_at")
+    .eq("user_id", me)
+    .order("created_at", { ascending: false })
+    .order("message_id", { ascending: false });
+
+  if (query.unreadOnly) {
+    const points = Array.from(readPoint.values()).sort();
+    if (points.length === 0) return { items: [], next: null };
+    q = q.gt("created_at", points[0]).limit(UNREAD_SCAN);
+  } else {
+    const cur = decodeSavedCursor(query.cursor);
+    // Quoted: a timestamp carries ":" and "+", which PostgREST's or() grammar reads otherwise.
+    if (cur) q = q.or(`created_at.lt."${cur.at}",and(created_at.eq."${cur.at}",message_id.lt.${cur.id})`);
+    q = q.limit(MENTIONS_PAGE + 1);
+  }
+  const { data, error } = await q;
+  if (error) fail("mentions", error);
+  const rows = (data ?? []) as { message_id: string; created_at: string }[];
+  const page = query.unreadOnly ? rows : rows.slice(0, MENTIONS_PAGE);
+  const last = page[page.length - 1];
+  const next = !query.unreadOnly && rows.length > MENTIONS_PAGE && last ? encodeSavedCursor(last.created_at, last.message_id) : null;
+
+  const ids = page.map((r) => r.message_id);
+  if (ids.length === 0) return { items: [], next };
+  const { data: msgs, error: mErr } = await s.from("comm_messages").select(MESSAGE_SELECT).in("id", ids).is("deleted_at", null);
+  if (mErr) fail("mentions", mErr);
+  const order = new Map(ids.map((id, i) => [id, i]));
+  const raw = ((msgs ?? []) as unknown as RawMessage[]).sort((a, b) => order.get(a.id)! - order.get(b.id)!);
+  const hits = await withTitles(s, await hydrate(s, raw, me), me);
+  const items = hits
+    .map((hit) => ({ hit, unread: isUnread(hit.message) }))
+    .filter((it) => !query.unreadOnly || it.unread);
+  return { items, next };
 }
 
 /**

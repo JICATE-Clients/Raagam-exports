@@ -13,6 +13,8 @@ import {
   getMessages,
   getMessagesByIds,
   getSavedPage,
+  getMentionsPage,
+  type MentionItem,
   type SavedItem,
   type SavedQuery,
   getPinned,
@@ -475,6 +477,35 @@ export async function setReaction(
 }
 
 /** The next page of the Saved list, or the list under new filters (0763). */
+/** Pulse ▸ Mentions: the next page, or the Unread view (user 2026-11-06). */
+export async function loadMentions(query: { cursor?: string | null; unreadOnly?: boolean }): Promise<
+  { ok: true; items: MentionItem[]; next: string | null } | Fail
+> {
+  try {
+    return { ok: true, ...(await getMentionsPage({ cursor: query.cursor ?? null, unreadOnly: !!query.unreadOnly })) };
+  } catch {
+    return fail("Mentions could not be loaded.");
+  }
+}
+
+/**
+ * Pulse ▸ Mentions ▸ Mark all as read: moves the read point of each chat that
+ * holds an unread mention — the same marker opening the chat moves, so the
+ * chat's own unread count clears with it (that is what "read" means here).
+ */
+export async function markMentionsRead(conversationIds: string[]): Promise<Result> {
+  const ids = Array.from(new Set(conversationIds)).filter((id) => typeof id === "string" && UUID_RE.test(id));
+  if (ids.length === 0) return { ok: true };
+  if (ids.length > 200) return fail("Too many chats at once.");
+  const s = await createClient();
+  for (const id of ids) {
+    const { error } = await s.rpc("comm_mark_read", { p_conv: id, p_until: null });
+    if (error) return fail(commErrorText(error, "The mentions could not be marked read."));
+  }
+  revHub();
+  return { ok: true };
+}
+
 export async function loadSaved(query: SavedQuery): Promise<{ ok: true; items: SavedItem[]; next: string | null } | Fail> {
   const kinds = ["channel", "direct", "group", "thread"];
   if (query.kind && !kinds.includes(query.kind)) return fail("Unknown conversation type.");
