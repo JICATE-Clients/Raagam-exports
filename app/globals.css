@@ -15,10 +15,14 @@
      band, its ink and the rule under it; the body stays `--surface` white.
      Reverses the 2026-10-15 white header for DataTable only, by instruction.
      Fixed hues, not `--primary`: a colour preset re-tints controls, and the
-     header band is not a control. Dark values in `.dark` below. */
-  --table-head-bg: #eaf4fb;
-  --table-head-fg: #24465e;
-  --table-head-border: #c8dce9;
+     header band is not a control. Dark values in `.dark` below.
+     ONE STEP STRONGER, AND EVERY GRID TOO (user 2026-11-06: "clear colour difference, better
+     title section impact — now look normal"): #eaf4fb read as white beside the rows. Same hue;
+     ink #1b3f5a is ~9:1 on the band. Sheet grids wear these tokens as well now (see the
+     SPREADSHEET GRID header rule). */
+  --table-head-bg: #d9e9f5;
+  --table-head-fg: #1b3f5a;
+  --table-head-border: #b3cde0;
   /* THE FLOATING WORK PANEL (2026-10-01, frame option A). The frame used to be
    * five strips — rail, module menu, top bar, tab band, page — each drawing its
    * own borders, and the lines never met (the menu's at 48px, the top bar's at
@@ -59,6 +63,10 @@
    * subordinate, or a form becomes a wall of equal-weight words — which is the
    * failure the bold experiment produced by another route this morning. */
   --muted-foreground: #414a57; /* secondary text */
+  /* THE SECOND LINE IN A TABLE CELL (user 2026-11-06: "Pending 20", "10005GD47 · WHITE" — "give
+     some colouring difference … overall application"). Slate-blue, 5.6:1 on white: tinted so a
+     code / colour / spec line reads as detail of the value above it, not as more of it. */
+  --cell-detail: #4f6a8a;
   /* A CAPTION over a list, one step quieter than --muted-foreground
    * (user 2026-10-01, screenshot 3188: the sidebar's group captions and the
    * screens under them read at the same size and the same grey, so the menu
@@ -318,9 +326,9 @@
 
 .dark {
   /* The soft blue header at night: the same hue as a deep tint, pale ink. */
-  --table-head-bg: #15222e;
-  --table-head-fg: #b6d2e6;
-  --table-head-border: #2b4255;
+  --table-head-bg: #1a2c3b;
+  --table-head-fg: #c3dcee;
+  --table-head-border: #33506a;
   --viz-1: #3987e5;
   --viz-2: #d95926;
   --viz-3: #199e70;
@@ -355,6 +363,7 @@
    * is how muted text disappears in the dark theme. Still clearly below
    * --foreground, so the hierarchy survives here too. */
   --muted-foreground: #b3bdcb;
+  --cell-detail: #9fb4cf; /* dark twin of the table cell's detail line */
   /* Dark twin of --caption: one step quieter than #b3bdcb, ~6:1 on the
    * dark panel. */
   --caption: #8b96a5;
@@ -443,6 +452,7 @@
   --color-surface-muted: var(--surface-muted);
   --color-foreground: var(--foreground);
   --color-muted-foreground: var(--muted-foreground);
+  --color-cell-detail: var(--cell-detail);
   --color-border: var(--border);
   --color-border-strong: var(--border-strong);
   /* Exposed so the switch can say `bg-switch-off` instead of reaching for an
@@ -2755,9 +2765,17 @@ html[data-type-scale="compact"] [data-sheet-row="head"] > :is(.text-foreground, 
      (08-28) and came back grey three days later because white-on-white "stopped reading as
      a header" — that time nothing replaced the fill. Now the line under the header is
      --border-strong, the token rule 4a of the layout skill uses for "a new kind of line". */
+/* THE LISTINGS' BLUE BAND, NOT WHITE (user 2026-11-06, Raise PO's Items grid: "need clear
+   colour difference, better title section impact — now look normal"). White was the 10-15
+   answer to a GREY band; it read as one more row, and once every ChildGrid became a sheet
+   (same day) it also wiped the band the Purchase grids had through `--table-head-bg`. The
+   header now wears the exact tokens `DataTable` uses — a tint, navy bold text, its own rule
+   — so a grid's title row and a list's title row are one design. Never grey (10-15 stands). */
 [data-grid-style="sheet"] thead th {
-  background: var(--surface);
-  border-bottom-color: var(--border-strong);
+  background: var(--table-head-bg);
+  color: var(--table-head-fg);
+  font-weight: 700;
+  border-bottom-color: var(--table-head-border);
   padding: 0.375rem 0.5rem;
   vertical-align: middle;
   /* SENTENCE CASE, ONE LINE (screenshot 114301: "ACTIONS" ran out of its
@@ -3249,4 +3267,17 @@ html[data-type-scale="compact"] [data-sheet-row="head"] > :is(.text-foreground, 
     [data-field-trigger]
   ):is(:focus-visible, :focus-within):not([aria-invalid="true"]):not([data-dup-error]) {
   box-shadow: 0 0 0 3px color-mix(in srgb, #79b023 35%, transparent) !important;
+}
+
+/* A TABLE CELL'S SECONDARY LINE IS TINTED, APP-WIDE (user 2026-11-06: "Pending 20 …
+   10005GD47 · WHITE — I think we can give some colouring difference in overall application,
+   not only here"). Every listing and grid already writes its detail line (code · colour, a
+   spec, a unit, a dash) as 	ext-muted-foreground, and #414a57 is too close to the value
+   above it to separate the two. One rule, so every table — and every one built later —
+   gets it without a call site knowing. Unlayered, so it outranks the utility.
+   A figure that is still OWED (Pending, a balance) uses 	ext-warning instead — a status,
+   not a detail. */
+table td .text-muted-foreground,
+table td.text-muted-foreground {
+  color: var(--cell-detail);
 }
