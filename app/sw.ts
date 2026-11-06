@@ -38,23 +38,35 @@ const serwist = new Serwist({
 serwist.addEventListeners();
 
 // ── Web push ────────────────────────────────────────────────────────────────
-// Payload shape is set by lib/notifications/notify.ts: { title, body, url }.
+// Payload shape is set by lib/notifications/notify.ts:
+//   { title, body, url, icon?, module?, tag?, ts? }
+// 0814 (user 2026-11-06): `icon` is the SENDER's face with the module badge
+// (/api/notify-icon/…png), so two approvals from two people stop looking alike.
+// The Raagam mark stays as the `badge` — the small one-colour glyph Android puts
+// in the status bar — so the alert is still plainly from Raagam. The OS draws
+// the text in its own font; nothing here can change that.
+type PushPayload = { title?: string; body?: string; url?: string; icon?: string; module?: string; tag?: string; ts?: number };
+
 self.addEventListener("push", (event) => {
   if (!event.data) return;
-  let payload: { title?: string; body?: string; url?: string } = {};
+  let payload: PushPayload = {};
   try {
     payload = event.data.json();
   } catch {
     payload = { body: event.data.text() };
   }
-  event.waitUntil(
-    self.registration.showNotification(payload.title ?? "Raagam ERP", {
-      body: payload.body ?? "",
-      icon: "/icons/icon-192x192.png",
-      badge: "/icons/badge-72x72.png",
-      data: { url: payload.url ?? "/" },
-    }),
-  );
+  const options: NotificationOptions & { timestamp?: number; actions?: { action: string; title: string }[] } = {
+    body: payload.body ?? "",
+    icon: payload.icon ?? "/icons/icon-192x192.png",
+    badge: "/icons/badge-72x72.png",
+    data: { url: payload.url ?? "/" },
+    // Same tag = a newer alert about the same thing replaces the older one.
+    ...(payload.tag ? { tag: payload.tag } : {}),
+    ...(payload.ts ? { timestamp: payload.ts } : {}),
+    // One button: Open. Approving waits until the document has been read.
+    actions: [{ action: "open", title: payload.module ? `Open in ${payload.module}` : "Open" }],
+  };
+  event.waitUntil(self.registration.showNotification(payload.title ?? "Raagam ERP", options));
 });
 
 self.addEventListener("notificationclick", (event) => {

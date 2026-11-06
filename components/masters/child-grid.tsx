@@ -1565,6 +1565,7 @@ export function ChildGrid<T extends { key: string }>({
   across = false,
   fill = false,
   autoFit = false,
+  cells = "sheet",
   flushRows = false,
   hideIndex = false,
   hideHeader = false,
@@ -2170,6 +2171,23 @@ export function ChildGrid<T extends { key: string }>({
    */
   autoFit?: boolean;
   /**
+   * EXCEL CELLS ARE THE DEFAULT (user 2026-11-06: "full application is using this single
+   * separated cell kind of UI, but we need to make it as tightened excel kind of cell — in
+   * future also the table should create like that format").
+   *
+   * `"sheet"` (default) marks the grid `data-grid-style="sheet" data-grid-cells="flat"` —
+   * the globals.css SPREADSHEET GRID: the gridline is the box, the field inside a cell has
+   * none, the focused cell draws the blue inset and an error keeps a red one. It was an
+   * opt-in wrapper on 31 grids (Sample Entry ▸ Quantities first, 2026-10-08) while ~120
+   * kept a box per field; a per-screen look never reaches the next screen, so it lives
+   * here now. A screen that already wraps its grid in the markers is unchanged.
+   *
+   * `"boxed"` keeps the old field-in-a-box look. Needs a `grid-cells: exempt -- <reason>`
+   * comment beside it (`npm run check:grid-cells`). Table layout only: the inline / across
+   * modes are not tables, so there are no cells to rule.
+   */
+  cells?: "sheet" | "boxed";
+  /**
    * Inline rows that read as FIELDS rather than as cards — for a grid sharing a
    * row with a plain `Field`, where the two must line up.
    *
@@ -2749,6 +2767,8 @@ export function ChildGrid<T extends { key: string }>({
       : forceCards
         ? "cards"
         : "responsive";
+  /** Excel cells — the `cells` prop, on a grid that draws a table at all. */
+  const sheetCells = cells === "sheet" && mode === "responsive";
 
   /**
    * The band appears when a COLUMN asks for one. `blank` is a column saying
@@ -3076,7 +3096,13 @@ export function ChildGrid<T extends { key: string }>({
     // the cap is what decides table-vs-stacked-cards — see the prop's own note.
     // Moved inward, the container would measure the whole section instead and
     // the layout choice would change silently.
-    <div className={cn("@container", narrow && "max-w-lg")}>
+    <div
+      className={cn("@container", narrow && "max-w-lg")}
+      // EXCEL CELLS BY DEFAULT — see the `cells` prop. On the root, exactly where the 31
+      // opt-in screens put their wrapper, so the one CSS block means the same thing for both.
+      data-grid-style={sheetCells ? "sheet" : undefined}
+      data-grid-cells={sheetCells ? "flat" : undefined}
+    >
       {/* Padding and rhythm are `DetailSection`'s, not this grid's own — they
           were `p-3` / `space-y-3` against the section's `p-2.5
           @2xl/editor:p-2`, so a grid's label and fields sat 4px right of the

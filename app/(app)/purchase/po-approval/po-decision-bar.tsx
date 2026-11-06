@@ -11,7 +11,7 @@ import type { ApprovalRun, CanActVerdict } from "@/lib/approvals/types";
  * own page — so the two can never word or gate a decision differently.
  *
  *   Approve        → `approvePo` (signature, TBA, reopened-budget gates; ends the run).
- *                    Over budget it asks for the remark first (11-03 rule) and saves it.
+ *                    One click, over budget too — no reason asked (user 2026-11-06).
  *   Request Rework → `rejectPo` — back to draft with the remark, and the PO's audit row.
  *   Reject         → `declinePo` — closed for good, its requirement back on Raise PO.
  *
@@ -21,14 +21,12 @@ export function PoDecisionBar({
   run,
   verdict,
   poId,
-  overBudget,
   subjectPath,
   onDone,
 }: {
   run: ApprovalRun;
   verdict: CanActVerdict;
   poId: string;
-  overBudget: boolean;
   /** The page to revalidate with the decision. */
   subjectPath: string;
   onDone?: () => void;
@@ -42,7 +40,6 @@ export function PoDecisionBar({
       rework
       compact
       overrideNote={false}
-      approveNeedsReason={overBudget}
       onApprove={(note) => approvePo(poId, note)}
       onRework={(reason) => rejectPo(poId, reason)}
       onRejectForGood={(reason) => declinePo(poId, reason)}

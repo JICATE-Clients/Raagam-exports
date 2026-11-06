@@ -3,6 +3,8 @@ import webpush from "web-push";
 import { createAdminClient } from "@/lib/supabase/server";
 import { notificationInput, type NotificationInput } from "./types";
 import { NOTIFICATION_EVENTS, type NotificationEventKey } from "./events";
+import { resolveActor, sessionUserId } from "./actor";
+import { moduleLook, notificationIconPath } from "./look";
 
 /**
  * Who receives a notification. One user, an explicit list, everyone in a role,
@@ -42,8 +44,14 @@ export type NotifyOptions = {
   dedupeKey?: string;
   /** Where the alert came from, for the dispatch log. Sweeps pass "cron". */
   source?: "action" | "cron" | "admin";
-  /** Who raised it, when a person did (a broadcast, a test). */
-  actorId?: string;
+  /**
+   * Who raised it. Omitted = the SIGNED-IN user (0814: their face goes on the
+   * bell and the pop-up). `source: "cron"` never takes the session — a sweep
+   * that runs inside someone's page load did not become theirs — so it stays
+   * null and the alert wears its module's icon. Pass `null` when a person is
+   * signed in but did not cause it.
+   */
+  actorId?: string | null;
 };
 
 const FALLBACK_NOTE = "No one is set up to receive this alert, so it came to you. ";
@@ -204,8 +212,17 @@ export async function notify(
     let body = parsed.data.body;
 
     const admin = createAdminClient();
+    // Started now, awaited only where it is written: the sender's name and photo
+    // cost no extra wait in front of the alert.
+    // A SWEEP NEVER BORROWS A SESSION: the approval SLA sweep also runs inside
+    // whoever opens /approvals, and that person did not cause the overdue alert.
+    const actorP = (async () =>
+      resolveActor(
+        options.actorId !== undefined ? options.actorId : options.source === "cron" ? null : await sessionUserId(),
+      ))();
     const policy = await policyFor(admin, event);
     const dispatchId = crypto.randomUUID();
+    const actor = await actorP;
     const log = {
       id: dispatchId,
       event_key: event,
@@ -215,7 +232,7 @@ export async function notify(
       type,
       target,
       source: options.source ?? "action",
-      actor_id: options.actorId ?? null,
+      actor_id: actor?.id ?? null,
     };
 
     // A disabled event still leaves its row: suppressed, and why.
@@ -266,6 +283,9 @@ export async function notify(
       type,
       event_key: event,
       dispatch_id: linkId,
+      actor_id: actor?.id ?? null,
+      actor_name: actor?.name ?? null,
+      actor_photo: actor?.photo ?? null,
       // Only sent when the caller passed a key, so a database without 0746's
       // column still takes every un-keyed alert exactly as before.
       ...(options.dedupeKey ? { dedupe_key: `${event}:${options.dedupeKey}` } : {}),
@@ -300,7 +320,20 @@ export async function notify(
       .in("user_id", delivered);
     if (!subs?.length) return linkId;
 
-    const message = JSON.stringify({ title, body: body ?? "", url: href ?? "/" });
+    /* THE POP-UP (0814): the OS draws it in its own font with no colour, so the
+       picture carries the sender's face and the module badge, and the title says
+       who. `tag` lets a newer alert about the same thing replace the older one. */
+    const mod = moduleLook(NOTIFICATION_EVENTS[event].module);
+    const message = JSON.stringify({
+      // "Priya S · …" unless the title already names them (Pulse's "New message from Priya S").
+      title: actor?.name && !title.toLowerCase().includes(actor.name.toLowerCase()) ? `${actor.name} · ${title}` : title,
+      body: body ?? "",
+      url: href ?? "/",
+      icon: notificationIconPath(mod.key, actor),
+      module: mod.label,
+      tag: options.dedupeKey ? `${event}:${options.dedupeKey}` : undefined,
+      ts: Date.now(),
+    });
     const ok: string[] = [];
     const failed: string[] = [];
     const pruned: string[] = [];

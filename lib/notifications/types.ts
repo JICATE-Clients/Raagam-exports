@@ -12,6 +12,12 @@ export interface Notification {
   type: NotificationType;
   read_at: string | null;
   created_at: string;
+  /** 0673: which declared alert this is — gives the row its module. */
+  event_key?: string | null;
+  /** 0814: who raised it, copied at send time (null = a sweep or a job). */
+  actor_id?: string | null;
+  actor_name?: string | null;
+  actor_photo?: string | null;
 }
 
 export const notificationInput = z.object({
