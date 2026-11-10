@@ -83,10 +83,13 @@ export function MessageItem({
   quickEdit = false,
   editRequest = 0,
   onEditDone,
+  memberIds,
 }: {
   message: CommMessage;
   grouped: boolean;
   names: Map<string, string | null>;
+  /** Active members of the chat — a poll's "Not voted yet" (View votes). Absent outside the main list. */
+  memberIds?: string[];
   meId: string;
   /** Active member: may react, pin, reply. */
   canAct: boolean;
@@ -366,9 +369,9 @@ export function MessageItem({
       ) : (
         <>
           {m.poll ? (
-            <PollCard message={m} poll={m.poll} canAct={canAct} onReplace={actions.onReplace} />
+            <PollCard message={m} poll={m.poll} canAct={canAct} onReplace={actions.onReplace} names={names} meId={meId} memberIds={memberIds} />
           ) : m.event ? (
-            <EventCard message={m} event={m.event} canAct={canAct} onReplace={actions.onReplace} />
+            <EventCard message={m} event={m.event} canAct={canAct} onReplace={actions.onReplace} names={names} />
           ) : contact ? (
             <ContactCard contact={contact} meId={meId} />
           ) : sticker ? null : (

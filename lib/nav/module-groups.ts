@@ -1507,6 +1507,9 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           { href: "/hr/conduct/policies", label: "Policies", description: "Written policies, their versions, and who has read them" },
         ],
       },
+      // 0823 (2026-11-06): events sent as real Google Calendar invitations,
+      // guests picked by Employee ID. One screen, so a standalone row.
+      { kind: "link", href: "/hr/events", label: "Events", icon: CalendarClock },
     ],
   },
 

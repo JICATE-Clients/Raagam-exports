@@ -169,6 +169,7 @@ export function ConversationView({
     () => new Map(conversation.members.map((m) => [m.user_id, m.full_name] as const)),
     [conversation.members],
   );
+  const memberIds = useMemo(() => conversation.members.filter((m) => !m.removed_at).map((m) => m.user_id), [conversation.members]);
 
   const refreshLatest = useCallback(async () => {
     const r = await loadMessages(id, null);
@@ -891,6 +892,7 @@ export function ConversationView({
               )}
               <MessageItem
                 message={m}
+                memberIds={memberIds}
                 bubble={bubble}
                 grouped={!newDay && !!prev && grouped(m, prev)}
                 names={names}
