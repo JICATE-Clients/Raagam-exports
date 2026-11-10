@@ -31,6 +31,12 @@ export interface PollOption {
   text: string;
   votes: number;
   mine: boolean;
+  /**
+   * Who picked it and when, oldest first — the faces on the card and "View votes".
+   * Optional: a message the browser already held before this field existed
+   * (an open tab across a deploy or a hot reload) arrives without it.
+   */
+  voters?: { id: string; at: string }[];
 }
 export interface PollData {
   question: string;
@@ -48,7 +54,11 @@ export interface EventData {
   /** hh:mm, or null for an all-day event. */
   event_time: string | null;
   location: string | null;
+  /** 0824: the sender called it off — the card stays, struck through, answers frozen. */
+  cancelled: boolean;
   going: number;
+  /** Who answered Going, oldest first — the faces beside "N going". Optional: see PollOption.voters. */
+  going_ids?: string[];
   maybe: number;
   no: number;
   mine: RsvpAnswer | null;

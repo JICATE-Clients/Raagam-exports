@@ -533,12 +533,14 @@ async function cardData(
   if (pollIds.length) {
     const [pR, vR] = await Promise.all([
       s.from("comm_polls").select("message_id, question, options, multi").in("message_id", pollIds),
-      s.from("comm_poll_votes").select("message_id, option_idx, user_id").in("message_id", pollIds),
+      s.from("comm_poll_votes").select("message_id, option_idx, user_id, created_at").in("message_id", pollIds),
     ]);
     if (!missing(pR.error) && !missing(vR.error)) {
       if (pR.error) fail("polls", pR.error);
       if (vR.error) fail("poll votes", vR.error);
-      const votes = (vR.data ?? []) as { message_id: string; option_idx: number; user_id: string }[];
+      const votes = ((vR.data ?? []) as { message_id: string; option_idx: number; user_id: string; created_at: string }[]).sort((a, b) =>
+        a.created_at.localeCompare(b.created_at),
+      );
       for (const p of (pR.data ?? []) as { message_id: string; question: string; options: string[]; multi: boolean }[]) {
         const mineV = votes.filter((v) => v.message_id === p.message_id);
         polls.set(p.message_id, {
@@ -549,6 +551,7 @@ async function cardData(
             text,
             votes: mineV.filter((v) => v.option_idx === i).length,
             mine: mineV.some((v) => v.option_idx === i && v.user_id === me),
+            voters: mineV.filter((v) => v.option_idx === i).map((v) => ({ id: v.user_id, at: v.created_at })),
           })),
         });
       }
@@ -556,7 +559,8 @@ async function cardData(
   }
   if (eventIds.length) {
     const [eR, aR] = await Promise.all([
-      s.from("comm_events").select("message_id, name, description, event_date, event_time, location").in("message_id", eventIds),
+      // 0824's cancelled_at is read with "*" so a database without 0824 still loads its events.
+      s.from("comm_events").select("*").in("message_id", eventIds),
       s.from("comm_event_rsvps").select("message_id, user_id, answer").in("message_id", eventIds),
     ]);
     if (!missing(eR.error) && !missing(aR.error)) {
@@ -565,6 +569,7 @@ async function cardData(
       const answers = (aR.data ?? []) as { message_id: string; user_id: string; answer: RsvpAnswer }[];
       for (const e of (eR.data ?? []) as {
         message_id: string; name: string; description: string | null; event_date: string; event_time: string | null; location: string | null;
+        cancelled_at?: string | null;
       }[]) {
         const mineA = answers.filter((a) => a.message_id === e.message_id);
         events.set(e.message_id, {
@@ -573,7 +578,9 @@ async function cardData(
           event_date: e.event_date,
           event_time: e.event_time ? e.event_time.slice(0, 5) : null,
           location: e.location,
+          cancelled: !!e.cancelled_at,
           going: mineA.filter((a) => a.answer === "going").length,
+          going_ids: mineA.filter((a) => a.answer === "going").map((a) => a.user_id),
           maybe: mineA.filter((a) => a.answer === "maybe").length,
           no: mineA.filter((a) => a.answer === "no").length,
           mine: mineA.find((a) => a.user_id === me)?.answer ?? null,
