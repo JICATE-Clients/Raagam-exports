@@ -304,7 +304,7 @@ export function KnittingReceiptPanel({
   const lossTone = a.over_limit ? "text-destructive" : "text-success";
 
   return (
-    <section className="max-w-[72rem] space-y-3 rounded-lg border border-border p-3">
+    <section className="space-y-3 rounded-lg border border-border p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold">3. Fabric Receipt &amp; Yarn Return</h3>
         {doc.close_pending ? <StatusPill tone="warning">Close waiting for MD</StatusPill> : null}

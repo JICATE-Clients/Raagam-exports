@@ -430,13 +430,15 @@ export function KnittingEditor({
         }
       />
 
-      {/* 72rem: the 1016px yarn grid plus the frame's padding. */}
+      {/* FULL PAGE (user 2026-11-11: "use the full page screen instead of this layout section").
+          It was capped at 72rem; the frame now takes the pane's whole width and at least its
+          height, so the sticky bottom bar sits on the window's edge even on a short order. */}
       {/* A SECTION, NOT A <form> (2026-11-11): tab 2 holds the Job Work DC form and tab 3 the
           receipt, each with its own buttons — and `<Button>` defaults to type="submit", so inside
           a form every one of them would also submit the order. Save is an explicit click; Enter
           off the last field and Ctrl+S still press the footer's last button (lib/focus.ts). */}
-      <div className={`${DOC_FRAME} max-w-[72rem]`} data-focus-scope="">
-        <div className="space-y-4 p-4">
+      <div className={`${DOC_FRAME} flex min-h-[calc(100dvh-10rem)] flex-col`} data-focus-scope="">
+        <div className="flex-1 space-y-4 p-4">
           {/*
            * KO No 112 · KO Date 144 · RE No 176 · Customer 176 · Knitter 200 · Delivery 144 ·
            * Allowed Loss 88 = 1040 + 6 x 10 gap = 1100px. That fits the full 72rem frame only; on a
@@ -826,7 +828,7 @@ export function KnittingEditor({
           {/* The DCs already raised — only once there are some (user 2026-11-11: an empty
               "No yarn has been sent yet" box above the DC form said nothing the form doesn't). */}
           {tab === "2" && doc && issued && doc.dcs.length > 0 ? (
-            <section className="max-w-[62.5rem] space-y-2 rounded-lg border border-border p-3">
+            <section className="space-y-2 rounded-lg border border-border p-3">
               <h3 className="text-sm font-semibold">Yarn DCs on this order</h3>
               {(
                 <table className="w-full text-sm">
@@ -894,7 +896,7 @@ export function KnittingEditor({
           {/* STEP 3 — inside the frame, under its tab. Its Post is its own button, not a submit. */}
           {tab === "3" && doc && receivable ? <KnittingReceiptPanel doc={doc} stores={stores} bins={bins} canEdit={canEdit} today={today} /> : null}
 
-          {tab === "1" ? <DocRemarksLine maxWidthClass="max-w-[62.5rem]" value={notes} readOnly={readOnly} onChange={setNotes} /> : null}
+          {tab === "1" ? <DocRemarksLine maxWidthClass="max-w-none" value={notes} readOnly={readOnly} onChange={setNotes} /> : null}
         </div>
 
         <div className={DOC_BOTTOM_BAR} data-focus-region="footer">
