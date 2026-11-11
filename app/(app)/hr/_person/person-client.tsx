@@ -67,6 +67,12 @@ import { DataIoToolbar } from "@/components/data-io/data-io-toolbar";
 import { BulkDeleteBar } from "@/components/data-io/bulk-delete-bar";
 import { useRowSelection } from "@/lib/data-io/use-row-selection";
 import { useMasterFilter } from "@/lib/masters/use-master-filter";
+// spell-suggest: exempt -- the ID No is an identifier, not a name
+import {
+  dupFieldProps,
+  useDuplicateName,
+} from "@/lib/masters/use-duplicate-check";
+import { DuplicateError } from "@/components/ui/duplicate-error";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 import {
@@ -529,10 +535,10 @@ const WORKER_DEFAULTS: WorkerInput = {
  *
  * ## THE TRIGGER IS STILL THE AUTHORITY; THIS IS A PREVIEW
  *
- * `code` is assigned by `hr_assign_person_code` on insert (0555) and the form
- * never sends it, which is what keeps two operators saving at the same moment
- * from both claiming 03 — a sequence settles that, and `code` is `text unique`
- * besides. So this computes what the box should SHOW, not what gets stored.
+ * STAFF: `code` is assigned by `hr_assign_person_code` on insert (0555) and the
+ * form never sends it, so this computes what the box should SHOW, not what gets
+ * stored. WORKERS (user 2026-11-11): the box is editable and its value IS saved,
+ * so this is the suggested number, read over every unit's IDs (`takenCodes`).
  *
  * ## IT READS THE ROWS, NOT THE SEQUENCE, AND CAN THEREFORE DRIFT
  *
@@ -547,9 +553,9 @@ const WORKER_DEFAULTS: WorkerInput = {
  * tables carry `STF-0001` / `WRK-0001` rows from before 0555, and an import may
  * bring its own ID No, both of which `Number()` reads as NaN.
  */
-function nextCodePreview(rows: PersonRow[]): string {
-  const highest = rows.reduce((max, r) => {
-    const n = Number((r.code ?? "").trim());
+function nextCodePreview(codes: (string | null)[]): string {
+  const highest = codes.reduce((max, c) => {
+    const n = Number((c ?? "").trim());
     return Number.isInteger(n) && n > max ? n : max;
   }, 0);
   // `padStart(2, "0")` only PADS — 99 is followed by 100, not by a wrap.
@@ -613,6 +619,7 @@ const COPY = {
 export default function PersonClient({
   kind,
   rows,
+  takenCodes = [],
   locations,
   departments,
   divisions,
@@ -629,6 +636,8 @@ export default function PersonClient({
 }: {
   kind: PersonKind;
   rows: PersonRow[];
+  /** Workers only — every worker's ID No in every unit (`listWorkerCodes`). */
+  takenCodes?: string[];
   locations: LocationOption[];
   departments: MasterOption[];
   divisions: MasterOption[];
@@ -689,12 +698,26 @@ export default function PersonClient({
   });
   const [editId, setEditId] = useState<string | null>(null);
   /**
-   * The record's ID No. Not part of `form`: `staff.code` is assigned by a
-   * database trigger on insert (`trg_staff_code`, 0013), so the form never
-   * sends it and there is nothing for the operator to edit. Held separately for
-   * the same reason the descriptor engine keeps `autoId` off its `fields`.
+   * The record's ID No. Not part of `form`, which is the shape staff and
+   * workers share: `staff.code` is assigned by a database trigger on insert
+   * (`trg_staff_code`, 0013) and is never sent. A worker's is typed here and
+   * joins the payload in `submit` (user 2026-11-11). `savedCode` is what the
+   * dirty flag compares it with.
    */
   const [editCode, setEditCode] = useState<string | null>(null);
+  const [savedCode, setSavedCode] = useState<string | null>(null);
+  const codeEditable = isWorker && !selfRow;
+  const codeDup = useDuplicateName({
+    table: "workers",
+    name: editCode ?? "",
+    nameColumn: "code",
+    excludeId: editId ?? undefined,
+    label: "ID No",
+    enabled: showForm && codeEditable,
+    // Every unit's IDs, minus the one this record already holds.
+    rows: takenCodes.filter((c) => c !== savedCode),
+    rowValue: (c) => c,
+  });
   const [form, setForm] = useState<PersonInput>(DEFAULTS);
   const shellRef = useRef<MasterFullScreenHandle>(null);
   /** Below `xl`, where the profile column is hidden: the profile opens in a
@@ -738,8 +761,9 @@ export default function PersonClient({
    * silent PWA auto-update off for as long as anyone sat on the screen.
    */
   const dirty = useMemo(
-    () => JSON.stringify(form) !== JSON.stringify(saved),
-    [form, saved],
+    () =>
+      JSON.stringify(form) !== JSON.stringify(saved) || editCode !== savedCode,
+    [form, saved, editCode, savedCode],
   );
 
   /**
@@ -788,7 +812,11 @@ export default function PersonClient({
     setLanguages([]);
     setEditId(null);
     // Not `null`: the box shows the number this record is about to be given.
-    setEditCode(nextCodePreview(rows));
+    const preview = nextCodePreview(
+      isWorker ? takenCodes : rows.map((r) => r.code),
+    );
+    setEditCode(preview);
+    setSavedCode(preview);
     setShowForm(true);
   }
 
@@ -817,6 +845,7 @@ export default function PersonClient({
     setSaved(next);
     setEditId(s.id);
     setEditCode(s.code);
+    setSavedCode(s.code);
     setShowForm(true);
 
     /**
@@ -956,6 +985,7 @@ export default function PersonClient({
 
   function submit() {
     const children = childPayload;
+    const workerPayload = { ...(form as WorkerInput), code: editCode };
     startTransition(async () => {
       /**
        * THE ONE PLACE THE TWO TABLES PART. `personInput` is the shared shape;
@@ -966,8 +996,8 @@ export default function PersonClient({
         ? await updateMyProfile(form, children)
         : isWorker
         ? editId
-          ? await updateWorker(editId, form as WorkerInput, children)
-          : await createWorker(form as WorkerInput, children)
+          ? await updateWorker(editId, workerPayload, children)
+          : await createWorker(workerPayload, children)
         : editId
           ? await updateStaff(editId, form, children)
           : await createStaff(form, children);
@@ -1841,6 +1871,13 @@ export default function PersonClient({
     fields: [
       {
         section: "detail-person",
+        id: "st-code",
+        label: "ID No",
+        required: codeEditable,
+        empty: () => !(editCode ?? "").trim(),
+      },
+      {
+        section: "detail-person",
         id: "st-name",
         label: "Name",
         required: true,
@@ -1873,6 +1910,11 @@ export default function PersonClient({
    * not just a message.
    */
   const revealFirstProblem = () => {
+    if (codeDup) {
+      toastError(codeDup);
+      shellRef.current?.goToSection("detail-person", { fieldId: "st-code" });
+      return;
+    }
     const p = validity.first;
     if (!p) return;
     toastError(p.message);
@@ -2006,17 +2048,30 @@ export default function PersonClient({
               */}
               <FieldGrid>
                 {/* Row 1 — who this person is */}
-                <Field label="ID No" size="xs" htmlFor="st-code" skipTab>
+                <Field
+                  label="ID No"
+                  size="xs"
+                  htmlFor="st-code"
+                  required={codeEditable}
+                >
                   {/*
-                    ON A NEW RECORD THIS IS A PREVIEW, not the stored value —
-                    see `nextCodePreview`. It used to sit blank, on the argument
-                    that a record with no row has no ID yet; the client asked for
-                    the number to be there while typing (2026-09-11), and a
-                    preview is how that is honest. Still `readOnly`: the trigger
-                    assigns the real one, so an editable box here would invite a
-                    value the save throws away.
+                    ON A NEW RECORD THIS STARTS FROM THE NEXT NUMBER — see
+                    `nextCodePreview` (client 2026-09-11). A WORKER'S IS EDITABLE
+                    and what is typed is saved (user 2026-11-11). A staff
+                    member's stays `readOnly`, which also takes it off the Tab
+                    path: the trigger assigns the real one, so an editable box
+                    there would invite a value the save throws away.
                   */}
-                  <Input id="st-code" value={editCode ?? ""} readOnly />
+                  <>
+                    <Input
+                      id="st-code"
+                      value={editCode ?? ""}
+                      readOnly={!codeEditable}
+                      onChange={(e) => setEditCode(e.target.value)}
+                      {...dupFieldProps(codeDup, "st-code")}
+                    />
+                    <DuplicateError error={codeDup} id="st-code" />
+                  </>
                 </Field>
 
                 <Field label="Name" size="md" required htmlFor="st-name">
@@ -4787,7 +4842,7 @@ export default function PersonClient({
               onSave: submit,
               // Names the ENTITY — a bare "Save" could belong to any record.
               saveLabel: `Save ${copy.lower}`,
-              canSave: validity.canSave,
+              canSave: validity.canSave && !codeDup,
               // Keeps Save clickable when blocked so it explains itself, and so
               // Ctrl+S and Enter-off-the-last-field reach the same handler.
               onBlockedSave: revealFirstProblem,
