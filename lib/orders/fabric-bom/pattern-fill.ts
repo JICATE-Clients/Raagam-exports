@@ -72,6 +72,51 @@ export type PatternFillPlan = {
 const norm = (s: string) => s.trim().toUpperCase();
 const panelKey = (p: ManualPanel) => `${p.coordinate_id ?? ""}|${p.component_id}`;
 
+/** One colourway of a style, with the fabric colours its components carry. */
+export type StyleComboColours = { style_ref_no: string; combo: string; colours: string[] };
+
+/**
+ * THE PATTERN SHEET NAMES FABRIC COLOURS; THE FABRIC BOM KEYS ON COLOURWAYS.
+ *
+ * CAD's colour picker offers the colours of the order's combo COMPONENTS
+ * (`cad-lifecycle/service.ts`, 0640) — DUTCH BLUE — while every Fabric BOM
+ * slice, Manual entry and requirement is keyed on the COMBO name — BLUE. On
+ * most orders the two are the same word, which is why passing the colour
+ * through unchanged looked right; HO/RE/26-27/0017 (combo BLUE, rib in DUTCH
+ * BLUE) is where it broke: the BOM stored DUTCH BLUE as a colourway and the
+ * requirement report refused every line (2026-11-11).
+ *
+ * So each colour is translated here, once, before any reader sees it:
+ *  - a colour that IS a combo name of the style stays as it is;
+ *  - otherwise it becomes every combo of the style whose components carry it
+ *    (a DUTCH BLUE rib shared by two colourways serves both);
+ *  - a colour no combo carries is kept unchanged, so the report still names
+ *    it — dropping it would empty the list and silently widen the line to
+ *    every colourway.
+ */
+export function coloursToCombos(
+  styleRef: string,
+  colours: readonly string[],
+  combos: readonly StyleComboColours[],
+): string[] {
+  const mine = combos.filter((c) => norm(c.style_ref_no) === norm(styleRef));
+  const out: string[] = [];
+  const add = (v: string) => {
+    if (!out.some((o) => norm(o) === norm(v))) out.push(v);
+  };
+  for (const colour of colours) {
+    const own = mine.find((c) => norm(c.combo) === norm(colour));
+    if (own) {
+      add(own.combo);
+      continue;
+    }
+    const carriers = mine.filter((c) => c.colours.some((x) => norm(x) === norm(colour)));
+    if (carriers.length === 0) add(colour);
+    else for (const c of carriers) add(c.combo);
+  }
+  return out;
+}
+
 /** Does this line say anything worth carrying? A line of parts alone is not a measurement. */
 export const lineHasFigures = (l: PatternFillLine) =>
   l.size_wise

@@ -23,7 +23,11 @@ import {
 } from "./types";
 import { getCadLifecycleFormData, listCadStyles } from "./service";
 import { notifyPatternReady } from "./notify";
-import type { PatternFillLine } from "@/lib/orders/fabric-bom/pattern-fill";
+import {
+  coloursToCombos,
+  type PatternFillLine,
+  type StyleComboColours,
+} from "@/lib/orders/fabric-bom/pattern-fill";
 
 /**
  * Orders ▸ CAD ▸ CAD Lifecycle — the writes (0628).
@@ -413,10 +417,11 @@ export type PatternForFabricBom =
 
 export async function loadPatternForFabricBom(garmentOrderId: string): Promise<PatternForFabricBom> {
   try {
-    const [canView, rows, locked] = await Promise.all([
+    const [canView, rows, locked, comboColours] = await Promise.all([
       can("orders", "view"),
       listCadStyles([garmentOrderId]),
       readPatternLock(garmentOrderId),
+      readComboColours(garmentOrderId),
     ]);
     if (!canView) return { ok: false, error: "Forbidden" };
     const lines: PatternFillLine[] = [];
@@ -435,7 +440,8 @@ export async function loadPatternForFabricBom(garmentOrderId: string): Promise<P
           fabric_category_id: l.fabric_category_id,
           width_form: l.width_form,
           parts: l.parts.map((p) => ({ coordinate_id: p.coordinate_id, component_id: p.component_id })),
-          colours: l.colours,
+          // Fabric colours → the order's colourways (see `coloursToCombos`).
+          colours: coloursToCombos(r.style_ref_no, l.colours, comboColours),
           size_wise: l.size_wise,
           table_dia: l.table_dia,
           avg_pcs_weight_g: l.avg_pcs_weight_g,
@@ -449,6 +455,33 @@ export async function loadPatternForFabricBom(garmentOrderId: string): Promise<P
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Could not read the Pattern Sheet for this order." };
   }
+}
+
+/** Each combo of the order with the fabric colours its components carry. */
+async function readComboColours(garmentOrderId: string): Promise<StyleComboColours[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("garment_order_amendment_combos")
+    .select(
+      "style_ref_no, combo, structures:garment_order_amendment_combo_structures(parts:garment_order_amendment_combo_components(color_name))",
+    )
+    .eq("amendment_id", garmentOrderId);
+  // A failed read is an error — passing the colours through untranslated is the bug this fixes.
+  if (error) throw new Error(error.message);
+  type Row = {
+    style_ref_no: string | null;
+    combo: string | null;
+    structures: { parts: { color_name: string | null }[] | null }[] | null;
+  };
+  return ((data ?? []) as Row[])
+    .filter((c) => (c.combo ?? "").trim() !== "")
+    .map((c) => ({
+      style_ref_no: c.style_ref_no ?? "",
+      combo: (c.combo ?? "").trim(),
+      colours: (c.structures ?? []).flatMap((st) =>
+        (st.parts ?? []).map((p) => (p.color_name ?? "").trim()).filter(Boolean),
+      ),
+    }));
 }
 
 // ---------------------------------------------------------------------------
