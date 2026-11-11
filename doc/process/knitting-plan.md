@@ -8,7 +8,7 @@ Status (2026-11-11): **Phase 1 BUILT** (0825 — Production ▸ Knitting, KO/26-
 yarn explosion, Issue). **Phase 2 BUILT** (0826 — Yarn DC: the Knitting Order's "Send yarn"
 opens Purchase ▸ Delivery Challans ▸ Job Work DC with the order picked; Bags column fills kg
 from the bag weight; lot picker lists lots on hand oldest-first and sets the bin; dispatch now
-books each line in its own lot and refuses a line larger than its lot). **Phase 3 BUILT** (0827 —
+books each line in its own lot and refuses a line larger than its lot). **Phase 3 BUILT** (0830 —
 `knitting_receipts` / `_fabrics` / `_yarns`, `knitting_receipt_post`: fabric in, yarn used =
 fabric × blend % drawn oldest-DC-first lot by lot, yarn return to the shelf, draft bill at fabric
 kg × rate; `knitting_order_close`: within Allowed Loss % closes now, past it the `knitting_close`

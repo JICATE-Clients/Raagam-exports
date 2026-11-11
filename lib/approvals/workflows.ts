@@ -106,7 +106,7 @@ export const WORKFLOWS: Record<WorkflowKey, WorkflowDecl> = {
   /* 0785 — cancelling a whole PO or part of its lines. Started by
      `requestPoCancellation`; decided in `po_cancellation_apply_decision`, which
      cuts the lines (reopening the requirement) only on the final approve. */
-  /* 0827 — closing a knitting order whose yarn loss is past its Allowed Loss % (user
+  /* 0830 — closing a knitting order whose yarn loss is past its Allowed Loss % (user
      2026-11-11, D1). Started by `closeKnittingOrder`; decided in
      `knitting_close_apply_decision`, which writes the balance off and closes. */
   knitting_close: {

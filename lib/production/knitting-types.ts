@@ -90,7 +90,7 @@ export type KnitYarn = {
   required_bags: number | null;
   /** What has gone out on Process DCs against this yarn (kg). */
   dispatched_kg: number;
-  /** Phase 3 (0827): knitted into fabric · back on the shelf · written off at close. */
+  /** Phase 3 (0830): knitted into fabric · back on the shelf · written off at close. */
   used_kg: number;
   returned_kg: number;
   written_off_kg: number;
@@ -117,12 +117,12 @@ export type KnitFabric = {
   expected_rolls: number | null;
   rate_per_kg: number;
   yarns: KnitYarn[];
-  /** Fabric received back so far (0827). */
+  /** Fabric received back so far (0830). */
   received_kg: number;
   received_rolls: number;
 };
 
-/** One fabric receipt (0827) — what the knitter delivered, on one of their DCs. */
+/** One fabric receipt (0830) — what the knitter delivered, on one of their DCs. */
 export type KnitReceipt = {
   id: string;
   code: string | null;
@@ -222,7 +222,7 @@ export type KnittingOrder = {
   fabrics: KnitFabric[];
   dcs: KnitDc[];
   receipts: KnitReceipt[];
-  /** 0827 — a close past the Allowed Loss % waits for the MD. */
+  /** 0830 — a close past the Allowed Loss % waits for the MD. */
   close_pending: boolean;
   close_reason: string | null;
   close_remark: string | null;
@@ -270,7 +270,7 @@ export type KnittingOrderInput = {
   }[];
 };
 
-/** What the receipt form sends (0827); the server derives every yarn figure. */
+/** What the receipt form sends (0830); the server derives every yarn figure. */
 export type KnitReceiptInput = {
   header: { receipt_date: string; vendor_dc_no: string | null; vendor_dc_date: string | null; vehicle_no: string | null; notes: string | null };
   fabrics: { knit_fabric_id: string; rolls: number | null; net_kg: number; gross_kg: number | null; received_dia: string | null; store_id: string; bin_id: string | null; lot_no: string | null }[];

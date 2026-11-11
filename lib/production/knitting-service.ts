@@ -130,7 +130,7 @@ export async function getKnittingOrder(id: string): Promise<KnittingOrder | null
     dcSum.set(l.delivery_challan_id, t);
   }
 
-  // Phase 3 (0827): what came back, and where each kilo of yarn went.
+  // Phase 3 (0830): what came back, and where each kilo of yarn went.
   const [rcRes, kyRes] = await Promise.all([
     s
       .from("knitting_receipts")

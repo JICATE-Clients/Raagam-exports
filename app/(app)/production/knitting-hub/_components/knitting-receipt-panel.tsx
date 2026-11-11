@@ -49,7 +49,7 @@ const n = (s: string) => {
 };
 
 /**
- * KNITTING HUB ▸ Step 3 — Fabric Receipt & Yarn Return, and the live analysis (DB 0827,
+ * KNITTING HUB ▸ Step 3 — Fabric Receipt & Yarn Return, and the live analysis (DB 0830,
  * doc/process/knitting-plan.md Phase 3; spec §2.4–2.5).
  *
  * The keeper types only what arrived: rolls and kg per fabric, and any yarn the knitter sent

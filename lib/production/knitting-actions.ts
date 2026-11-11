@@ -108,7 +108,7 @@ export async function cancelKnittingOrder(id: string): Promise<{ ok: true } | Fa
 }
 
 // ---------------------------------------------------------------------------
-// Phase 3 (0827) — fabric receipt, yarn return, close
+// Phase 3 (0830) — fabric receipt, yarn return, close
 // ---------------------------------------------------------------------------
 
 /**

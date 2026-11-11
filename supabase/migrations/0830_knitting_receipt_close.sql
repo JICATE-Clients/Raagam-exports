@@ -1,4 +1,4 @@
--- 0827 · KNITTING RECEIPT, YARN RETURN AND CLOSE — Knitting Hub Phase 3
+-- 0830 (was 0827 until 2026-11-11; renumbered beside 0827_delete_draft_order_without_number) · KNITTING RECEIPT, YARN RETURN AND CLOSE — Knitting Hub Phase 3
 -- (doc/process/knitting-plan.md §2.4, decisions D1 and D3, user 2026-11-11).
 --
 -- WHY NOT 0787's PROCESS RECEIPT. That is one DC line in, one item out: grey fabric to the
@@ -546,7 +546,7 @@ begin
     return;
   end if;
   if position(v_anchor in v_def) = 0 then
-    raise exception '0827: approval_apply_terminal final refusal not found — add the branch by hand.';
+    raise exception '0830: approval_apply_terminal final refusal not found — add the branch by hand.';
   end if;
   execute replace(v_def, v_anchor, v_branch || v_anchor);
 end $$;
