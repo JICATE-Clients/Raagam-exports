@@ -5,7 +5,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { notFound, redirect } from "next/navigation";
 import { can, requirePermission } from "@/lib/auth/server";
 import { listDcRegister } from "@/lib/purchase/dc-register";
-import { getProcessDc, listOpenProcessOrders } from "@/lib/stores/process-dc-service";
+import { getProcessDc, listBinStock, listLotStock, listOpenProcessOrders } from "@/lib/stores/process-dc-service";
 import { getProductionDc, getProductionDcSetup } from "@/lib/stores/production-dc-service";
 import { getItems } from "@/lib/stores/service";
 import { getVendorReturn, getVendorReturnLines, getItems as getReturnItems } from "@/lib/stores/extras-service";
@@ -180,10 +180,12 @@ async function drawer(sp: Search, type: string | null, rows: Awaited<ReturnType<
   if (!formType) return null;
 
   if (formType === "process") {
-    const [orders, setup, dc] = await Promise.all([
+    const [orders, setup, dc, lots, binStock] = await Promise.all([
       listOpenProcessOrders(),
       getProductionDcSetup(),
       sp.edit ? getProcessDc(sp.edit) : Promise.resolve(null),
+      listLotStock(),
+      listBinStock(),
     ]);
     if (sp.edit && !dc) notFound();
     return (
@@ -194,6 +196,8 @@ async function drawer(sp: Search, type: string | null, rows: Awaited<ReturnType<
             stores={setup.stores}
             bins={setup.bins}
             stock={setup.stock}
+            lots={lots}
+            binStock={binStock}
             existing={dc && dc.status === "draft" ? dc : null}
             initialOrderId={sp.order ?? null}
             home={`/purchase/dc?type=process`}

@@ -57,7 +57,6 @@ begin;
 delete from public.stock_ledger              where id::text like 'decade00-%';
 delete from public.stock_balances            where item_id::text like 'decade00-%';
 delete from public.packing_lists             where id::text like 'decade00-%';
-delete from public.knitting_programs         where id::text like 'decade00-%';
 delete from public.production_entries        where id::text like 'decade00-%';
 delete from public.shipments                 where id::text like 'decade00-%';
 delete from public.receivable_receipts       where id::text like 'decade00-%';
@@ -483,20 +482,8 @@ cross join lateral (
   select id from public.production_lines where is_active order by code offset (n % 6) limit 1
 ) l;
 
-insert into public.knitting_programs
-  (id, code, sales_order_id, fabric_desc, yarn_desc, gsm, planned_qty, uom, machine,
-   start_date, status, created_at)
-select ('decade00-0000-4000-8000-' || lpad(to_hex(22000000 + n), 12, '0'))::uuid,
-       'KP/26-27/' || lpad((30 + n)::text, 4, '0'),
-       ('decade00-0000-4000-8000-' || lpad(to_hex(4000000 + 60 + n), 12, '0'))::uuid,
-       (array['Single Jersey 180 GSM','Interlock 220 GSM','Pique 200 GSM',
-              '1x1 Lycra Rib 240 GSM','Single Jersey 160 GSM'])[n],
-       '34''S Cotton Combed', (160 + n * 20)::numeric,
-       round((2800 + n * 640)::numeric, 2), 'Kg', 'KM-' || lpad(n::text, 2, '0'),
-       current_date - ((n * 4) || ' days')::interval,
-       case when n <= 3 then 'running' else 'completed' end,
-       current_date - ((n * 4) || ' days')::interval
-from generate_series(1, 5) as n;
+-- knitting_programs was dropped in 0828 — a knitting order is a process order of type
+-- knitting now (0825, Production ▸ Knitting); no demo rows are seeded for it.
 
 insert into public.packing_lists (id, code, sales_order_id, packing_date, status, created_at)
 select ('decade00-0000-4000-8000-' || lpad(to_hex(23000000 + n), 12, '0'))::uuid,

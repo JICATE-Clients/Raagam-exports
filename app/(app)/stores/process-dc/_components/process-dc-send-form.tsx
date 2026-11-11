@@ -18,11 +18,12 @@ import {
 } from "@/components/purchase/doc-surface";
 import { Field, FieldError, FieldRow, FIELD_WIDTH_CSS } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Combobox } from "@/components/ui/combobox";
 import { Truncated } from "@/components/ui/truncated";
 import { StoreBinPickCell } from "@/components/purchase/store-bin-editor";
 import { useToast } from "@/components/ui/toast";
 import { saveProcessDc } from "@/lib/stores/process-dc-actions";
-import type { OpenProcessOrder, ProcessDc } from "@/lib/stores/process-dc-service";
+import type { BinStockOption, KnitLineMeta, LotStockOption, OpenProcessOrder, ProcessDc } from "@/lib/stores/process-dc-service";
 import type { BinOption, StockOption, StoreOption } from "@/lib/stores/production-dc-service";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { today } from "@/lib/calendar";
@@ -53,7 +54,27 @@ type Line = {
   storeId: string;
   binId: string;
   lotNo: string;
+  /** Knitting yarn (0825): sealed bags counted, and the kg in one — null on other process orders. */
+  bags: string;
+  /** Kg in one bag — the order's, editable here when the order did not state one. */
+  bagWt: string;
+  /** The knitting program behind this yarn (0825), or null on another process. */
+  knit: KnitLineMeta | null;
 };
+
+/** "DIA 23 / FIN 24 · OPEN WIDTH · 24 GG · LL 2.9 (REF 2.9) · 300 GSM · SINGLE" — blanks left off. */
+function knitSpecLine(k: KnitLineMeta): string {
+  return [
+    k.knit_dia ? `DIA ${k.knit_dia}${k.finished_dia ? ` / FIN ${k.finished_dia}` : ""}` : k.finished_dia ? `FIN ${k.finished_dia}` : null,
+    k.width_form === "open_width" ? "Open Width" : k.width_form === "tubular" ? "Tubular" : null,
+    k.gauge ? `${k.gauge}${/gg|gauge/i.test(k.gauge) ? "" : " GG"}` : null,
+    k.loop_length != null ? `LL ${fmtNumber(k.loop_length)}${k.loop_length_ref != null ? ` (ref ${fmtNumber(k.loop_length_ref)})` : ""}` : null,
+    k.gsm != null ? `${fmtNumber(k.gsm)} GSM` : null,
+    k.ply,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
 
 function num(s: string): number {
   const n = parseFloat(s);
@@ -65,10 +86,26 @@ export function ProcessDcSendForm({
   stores,
   bins,
   stock,
+  lots = [],
+  binStock,
   existing,
   initialOrderId,
   home = "/purchase/dc",
+  embedded = false,
+  onDone,
 }: {
+  /**
+   * EMBEDDED in a document that owns the order (Knitting Order ▸ tab 2, user 2026-11-11: "we need
+   * this same here in same tab"): the order is fixed, so the rail of other orders is not drawn,
+   * there is no Cancel back to the hub, and a save calls `onDone` instead of navigating away.
+   */
+  embedded?: boolean;
+  onDone?: (dcId: string, dispatched: boolean) => void;
+  /** Lots on hand (FIFO) — a line picks one and its bin follows (Knitting Hub Phase 2). */
+  lots?: LotStockOption[];
+  /** Stock by bin. When given, a line's bin list is only the bins holding that item, and its
+   *  "in stock" is the chosen bin's (spec: "Available Stock in the selected bin"). */
+  binStock?: BinStockOption[];
   /** Where Cancel and a saved draft go back to — the Delivery Challans hub. */
   home?: string;
   orders: OpenProcessOrder[];
@@ -104,6 +141,9 @@ export function ProcessDcSendForm({
           storeId: was?.from_store_id ?? defaultStore,
           binId: was?.bin_id ?? "",
           lotNo: was?.lot_no ?? "",
+          bags: was?.bags != null ? String(was.bags) : "",
+          bagWt: l.bag_weight_kg != null ? String(l.bag_weight_kg) : "",
+          knit: l.knit,
         };
       });
   };
@@ -120,7 +160,17 @@ export function ProcessDcSendForm({
   const [dirty, setDirty] = useState(false);
   useUnsavedGuard(dirty || isPending);
 
-  const have = (l: Line) => stock.find((s) => s.store_id === l.storeId && s.item_id === l.itemId)?.qty ?? 0;
+  const storeHas = (l: Line) => stock.find((s) => s.store_id === l.storeId && s.item_id === l.itemId)?.qty ?? 0;
+  /** In the chosen BIN when bin stock is known and a bin is picked; else the whole store. */
+  const have = (l: Line) =>
+    binStock && l.binId
+      ? binStock.filter((b) => b.store_id === l.storeId && b.bin_id === l.binId && b.item_id === l.itemId).reduce((t, b) => t + b.qty, 0)
+      : storeHas(l);
+  /** Bins of the line's store that hold its item — plus the one already chosen. */
+  const binsFor = (l: Line) =>
+    binStock
+      ? bins.filter((b) => b.id === l.binId || binStock.some((x) => x.bin_id === b.id && x.store_id === l.storeId && x.item_id === l.itemId))
+      : bins;
   function update(key: string, patch: Partial<Omit<Line, "key">>) {
     setDirty(true);
     setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));
@@ -134,10 +184,17 @@ export function ProcessDcSendForm({
     const o = orders.find((x) => x.id === v);
     if (o?.expected_date) setExpected(o.expected_date);
   }
+  const lotsOf = (l: Line) => lots.filter((x) => x.store_id === l.storeId && x.item_id === l.itemId);
+  const lotHeld = (l: Line) =>
+    l.lotNo.trim()
+      ? lots.find((x) => x.store_id === l.storeId && x.item_id === l.itemId && x.lot_no === l.lotNo.trim().toUpperCase() && (x.bin_id ?? "") === l.binId)
+      : undefined;
   const problemOf = (l: Line): string | null => {
     const q = num(l.qty);
     if (q <= 0) return null;
     if (q > l.balance + 1e-9) return `Only ${fmtNumber(l.balance)} left on the order`;
+    const lot = lotHeld(l);
+    if (lot && q > lot.qty + 1e-9) return `Lot ${lot.lot_no} holds only ${fmtNumber(lot.qty)}`;
     if (q > have(l) + 1e-9) return `Only ${fmtNumber(have(l))} in this store`;
     return null;
   };
@@ -165,6 +222,8 @@ export function ProcessDcSendForm({
             from_store_id: l.storeId,
             bin_id: l.binId || null,
             lot_no: l.lotNo.trim() || null,
+            bags: l.bags.trim() ? Math.trunc(num(l.bags)) : null,
+            bag_weight_kg: num(l.bagWt) > 0 ? num(l.bagWt) : null,
           })),
         },
         dispatch,
@@ -172,7 +231,8 @@ export function ProcessDcSendForm({
       if (result.ok) {
         setDirty(false);
         success(dispatch ? "Dispatched — the goods are at the processor" : "Saved as a draft");
-        router.push(dispatch ? `/stores/process-dc/${result.id}/print` : home);
+        if (onDone) onDone(result.id, dispatch);
+        else router.push(dispatch ? `/stores/process-dc/${result.id}/print` : home);
       } else {
         toastError(result.error);
         router.refresh();
@@ -181,13 +241,31 @@ export function ProcessDcSendForm({
   }
 
   /*
-   * BESIDE THE ORDER RAIL: Item 176 · Ordered 88 · Balance 88 · Send Qty 112 · From Store · Bin
-   * 176 (one button, 2026-11-03) · Lot No 112 = 752, + 40 (`#`; no ✕ — the rows are the
-   * order's own lines) = 792 <= 1155 -> tableFrom="5xl". Was Item 288 (952) with no rail. Send Qty is `range`
+   * BESIDE THE ORDER RAIL: Item 200 · Ordered 88 · Balance 88 · [Bag Wt 88 · Bags 72 — knitting
+   * only] · Send Qty 112 · From Store · Bin 176 (one button, 2026-11-03) · Lot No 112 = 936, + 40
+   * (`#`; no ✕ — the rows are the order's own lines) = 976 <= 1155 -> tableFrom="5xl".
+   * Item went 176 → 200 on 2026-11-11 for the knitting program's two sub-lines. Was Item 288 (952) with no rail. Send Qty is `range`
    * for its two refusals.
    */
   const columns: ChildGridColumn<Line>[] = [
-    { header: "Item", width: FIELD_WIDTH_CSS.term, cell: (l) => <Truncated className="text-sm">{l.item}</Truncated> },
+    {
+      header: "Item",
+      width: FIELD_WIDTH_CSS.party,
+      // A knitter's yarn carries its program (spec "Program Technical Specs"): the blend and the
+      // fabric it is knitted into, then the construction — read off the order, never typed here.
+      cell: (l) =>
+        l.knit ? (
+          <div className="leading-tight">
+            <Truncated className="text-sm font-medium">{l.item}</Truncated>
+            <Truncated className="text-[11px] text-muted-foreground">
+              {fmtNumber(l.knit.blend_pct)}% of {l.knit.fabric}
+            </Truncated>
+            {knitSpecLine(l.knit) ? <Truncated className="text-[11px] text-muted-foreground">{knitSpecLine(l.knit)}</Truncated> : null}
+          </div>
+        ) : (
+          <Truncated className="text-sm">{l.item}</Truncated>
+        ),
+    },
     {
       header: "Ordered",
       width: FIELD_WIDTH_CSS.hug,
@@ -202,6 +280,57 @@ export function ProcessDcSendForm({
       ),
     },
     { header: "Balance", width: FIELD_WIDTH_CSS.hug, align: "right", cell: (l) => <span className="tabular-nums text-sm font-semibold">{fmtNumber(l.balance)}</span> },
+    // BAGS ON EVERY KNITTING LINE (spec "Dispatched Bags & Bag Weight"): typing bags fills the
+    // kg from the bag weight; the kg stays editable for the scale. The order line's balance is
+    // the +1-bag cap set at Issue (0825), so a bag weight typed only here cannot raise it.
+    ...(lines.some((l) => l.knit)
+      ? [
+          {
+            header: "Bag Wt",
+            width: FIELD_WIDTH_CSS.hug,
+            align: "right" as const,
+            cell: (l: Line) =>
+              l.knit ? (
+                <Input
+                  type="number"
+                  min={0}
+                  step="any"
+                  aria-label={`Kg in one bag, ${l.item}`}
+                  className="h-8 text-right tabular-nums"
+                  value={l.bagWt}
+                  onChange={(e) => {
+                    const w = e.target.value;
+                    update(l.key, { bagWt: w, qty: l.bags.trim() && num(w) > 0 ? String(Math.round(num(l.bags) * num(w) * 1000) / 1000) : l.qty });
+                  }}
+                />
+              ) : (
+                <span className="text-sm text-muted-foreground">—</span>
+              ),
+          },
+          {
+            header: "Bags",
+            width: FIELD_WIDTH_CSS.num,
+            align: "right" as const,
+            cell: (l: Line) =>
+              l.knit ? (
+                <Input
+                  type="number"
+                  min={0}
+                  step={1}
+                  aria-label={`Bags, ${l.item}`}
+                  className="h-8 text-right tabular-nums"
+                  value={l.bags}
+                  onChange={(e) => {
+                    const b = e.target.value;
+                    update(l.key, { bags: b, qty: b.trim() && num(l.bagWt) > 0 ? String(Math.round(num(b) * num(l.bagWt) * 1000) / 1000) : l.qty });
+                  }}
+                />
+              ) : (
+                <span className="text-sm text-muted-foreground">—</span>
+              ),
+          },
+        ]
+      : []),
     {
       header: "Send Qty",
       width: FIELD_WIDTH_CSS.range,
@@ -237,19 +366,44 @@ export function ProcessDcSendForm({
           parent="DC"
           stores={sendStores}
           storeId={l.storeId}
-          onStore={(v) => update(l.key, { storeId: v })}
+          onStore={(v) => update(l.key, { storeId: v, binId: "", lotNo: "" })}
           storeLabel="From store"
-          bins={bins}
+          bins={binsFor(l)}
           binId={l.binId}
           onBin={(v) => update(l.key, { binId: v })}
-          note={`in stock ${fmtNumber(have(l))}`}
+          note={binStock && l.binId ? `in this bin ${fmtNumber(have(l))}` : `in stock ${fmtNumber(have(l))}`}
         />
       ),
     },
     {
       header: "Lot No",
       width: FIELD_WIDTH_CSS.range,
-      cell: (l) => <Input aria-label={`Lot No, ${l.item}`} className="h-8" value={l.lotNo} onChange={(e) => update(l.key, { lotNo: e.target.value })} />,
+      // pick-once: exempt -- one yarn may leave from the same lot on two lines of different bins
+      cell: (l) => {
+        const here = lotsOf(l);
+        // No lot on hand for this item here: the lot stays typed, as before.
+        if (here.length === 0) {
+          return <Input aria-label={`Lot No, ${l.item}`} className="h-8" value={l.lotNo} onChange={(e) => update(l.key, { lotNo: e.target.value })} />;
+        }
+        // Lots on hand, oldest first (FIFO): picking one sets its bin too — only bins that hold it.
+        return (
+          <Combobox
+            compact
+            options={here.map((x) => ({
+              value: `${x.bin_id ?? ""}|${x.lot_no}`,
+              label: x.lot_no,
+              sublabel: [x.bin_code ?? "No bin", `${fmtNumber(x.qty)} on hand`].join(" · "),
+            }))}
+            value={l.lotNo ? `${l.binId}|${l.lotNo.trim().toUpperCase()}` : ""}
+            onChange={(v) => {
+              const [bin, ...lot] = v.split("|");
+              update(l.key, { binId: bin, lotNo: lot.join("|") });
+            }}
+            placeholder="Pick a lot"
+            clearable
+          />
+        );
+      },
     },
   ];
 
@@ -359,8 +513,8 @@ export function ProcessDcSendForm({
         </div>
 
         {/* THE OPEN PROCESS ORDERS beside the lines (Raise PO's rail). */}
-        <div className={cn(DOC_RULE, "md:grid md:grid-cols-[11.5rem_minmax(0,1fr)]")}>
-          <nav aria-label="Process Orders" className="border-b border-[#dde4eb] bg-[#fafbfc] md:border-r md:border-b-0">
+        <div className={cn(DOC_RULE, !embedded && "md:grid md:grid-cols-[11.5rem_minmax(0,1fr)]")}>
+          <nav aria-label="Process Orders" className={cn("border-b border-[#dde4eb] bg-[#fafbfc] md:border-r md:border-b-0", embedded && "hidden")}>
             <div className="flex h-8 items-center gap-1.5 border-b border-[#dde4eb] bg-white px-2.5 text-xs whitespace-nowrap text-muted-foreground">
               <span className="font-semibold text-foreground">Process Orders</span>
               <span className="tabular-nums">{railOrders.length}</span>
@@ -455,9 +609,11 @@ export function ProcessDcSendForm({
               </span>
             ) : null}
           </div>
-          <Button variant="ghost" onClick={() => router.push(home)} disabled={isPending}>
-            Cancel
-          </Button>
+          {!embedded ? (
+            <Button variant="ghost" onClick={() => router.push(home)} disabled={isPending}>
+              Cancel
+            </Button>
+          ) : null}
           <Button variant="outline" onClick={() => save(false)} disabled={!canSave}>
             Save draft
           </Button>

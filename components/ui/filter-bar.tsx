@@ -85,7 +85,9 @@ export function FilterBar({
   const hasFilters = !!children || showDate || !!panel;
 
   return (
-    <div className="space-y-2">
+    // `data-beside-header`: the one box allowed to rise beside PageHeader's
+    // floated buttons — everything else clears them (globals.css, 2026-11-11).
+    <div className="space-y-2" data-beside-header="">
       <div className="flex flex-wrap items-center gap-2">
         {leading}
         <Input

@@ -6,6 +6,7 @@ import { can } from "@/lib/auth/server";
 import { isOwnProfileOnly, myStaffId } from "@/lib/hr/own-profile";
 import { SELF_CHILDREN, SELF_COLUMNS } from "@/lib/hr/self-profile";
 import { createAdminClient } from "@/lib/supabase/server";
+import { checkDuplicateName } from "@/lib/masters/dup-guard";
 import {
   contractorInput,
   workerInput,
@@ -70,6 +71,35 @@ function missingPhoto(data: { photo_url?: string | null }): Result | null {
 
 /* ---- Workers ---- */
 
+/**
+ * THE ID NO IS UNIQUE ACROSS EVERY UNIT, AND RLS ONLY SHOWS ONE. `workers.code`
+ * is a table-wide unique key while `workers_read` is scoped to the current
+ * location, so the operator's own client cannot see a clash with another unit.
+ * The privileged client asks the question and returns only yes or no.
+ */
+async function workerCodeProblem(
+  code: string | null | undefined,
+  excludeId?: string,
+): Promise<Result | null> {
+  if (!code?.trim()) return { ok: false, error: "ID No is required." };
+  const dup = await checkDuplicateName(createAdminClient(), "workers", code, {
+    nameColumn: "code",
+    excludeId,
+    label: "ID No",
+  });
+  return dup.ok ? null : { ok: false, error: dup.error };
+}
+
+/** Two operators saving one ID at once: the guard passed, the unique key did not. */
+function workerSaveError(
+  error: { code?: string; message: string },
+  code: string | null | undefined,
+): Result {
+  return error.code === "23505" && error.message.includes("workers_code_key")
+    ? { ok: false, error: `"${code}" already exists. Use a different ID No.` }
+    : { ok: false, error: error.message };
+}
+
 export async function createWorker(
   data: WorkerInput,
   children?: StaffChildren,
@@ -81,13 +111,15 @@ export async function createWorker(
   }
   const noPhoto = missingPhoto(parsed.data);
   if (noPhoto) return noPhoto;
+  const badCode = await workerCodeProblem(parsed.data.code);
+  if (badCode) return badCode;
   const supabase = await createClient();
   const { data: row, error } = await supabase
     .from("workers")
     .insert(withoutBlankLocation(parsed.data))
     .select("id")
     .single();
-  if (error) return { ok: false, error: error.message };
+  if (error) return workerSaveError(error, parsed.data.code);
   if (children) {
     const childErr = await replacePersonChildren(supabase, "worker", row.id, children);
     if (childErr) return { ok: false, error: childErr };
@@ -108,12 +140,14 @@ export async function updateWorker(
   }
   const noPhoto = missingPhoto(parsed.data);
   if (noPhoto) return noPhoto;
+  const badCode = await workerCodeProblem(parsed.data.code, id);
+  if (badCode) return badCode;
   const supabase = await createClient();
   const { error } = await supabase
     .from("workers")
     .update(withoutBlankLocation(parsed.data))
     .eq("id", id);
-  if (error) return { ok: false, error: error.message };
+  if (error) return workerSaveError(error, parsed.data.code);
   if (children) {
     const childErr = await replacePersonChildren(supabase, "worker", id, children);
     if (childErr) return { ok: false, error: childErr };

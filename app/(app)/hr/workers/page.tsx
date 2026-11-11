@@ -1,6 +1,7 @@
 import { requirePermission, can } from "@/lib/auth/server";
 import {
   listWorkers,
+  listWorkerCodes,
   listContractors,
   getLocations,
 } from "@/lib/hr/masters-service";
@@ -20,6 +21,7 @@ export default async function WorkersPage() {
 
   const [
     workers,
+    takenCodes,
     contractors,
     locations,
     departments,
@@ -34,6 +36,7 @@ export default async function WorkersPage() {
     canDelete,
   ] = await Promise.all([
     listWorkers(),
+    listWorkerCodes(),
     listContractors(),
     getLocations(),
     listDepartments(),
@@ -77,6 +80,7 @@ export default async function WorkersPage() {
     <PersonClient
       kind="worker"
       rows={workers}
+      takenCodes={takenCodes}
       locations={locations}
       departments={opt(departments, (d) => d.name ?? d.short_name)}
       divisions={opt(divisions, (d) => d.division_name)}

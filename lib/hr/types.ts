@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { capsName } from "@/lib/validation/formats";
+import { capsName, capsTextNullable } from "@/lib/validation/formats";
 
 export const WORKER_TYPES = [
   "shift",
@@ -937,6 +937,13 @@ export type StaffInput = PersonInput;
  * be overwritten on the same statement.
  */
 export const workerInput = personInput.extend({
+  /**
+   * The ID No, typed by the operator (user 2026-11-11). Optional HERE because
+   * `lib/data-io` parses a spreadsheet with this schema and its rows carry no
+   * ID, so `hr_assign_person_code` fills one. The screen's door requires it:
+   * see `workerCodeProblem` in masters-actions.ts.
+   */
+  code: capsTextNullable(),
   worker_type: z.enum(WORKER_TYPES),
   contractor_id: optUuid,
   shift_wage_per_day: money,
