@@ -37,6 +37,7 @@ import {
   type SeededAmendmentChildren,
 } from "./order-seed";
 import { componentProblems, toleranceStated } from "./combo-rules";
+import { comboCitationProblem } from "./combo-citations";
 /* The Style master's rules, read by the SAVE as well as by the screen — the
    "ONE DECLARATION, THREE ENFORCERS" that file's header describes. A
    `lib/data-io` import reaches this action and not the screen, so a rule the
@@ -2276,6 +2277,35 @@ export async function updateAmendment(
   return saveUnderOverride(id, override, () => saveAmendment(id, data));
 }
 
+/** Every colourway name the order's Fabric BOM(s) use — lines and Manual
+ *  entries. A failed read is an error, never "uses nothing", or the guard
+ *  would wave the rename through exactly when it could not look. */
+async function fabricBomCombos(
+  s: Awaited<ReturnType<typeof createClient>>,
+  orderId: string,
+): Promise<{ ok: true; combos: string[] } | { ok: false; error: string }> {
+  const { data: boms, error } = await s
+    .from("order_fabric_boms")
+    .select("id")
+    .eq("garment_order_id", orderId);
+  if (error) return { ok: false, error: `Could not read the order's Fabric BOM: ${error.message}` };
+  const bomIds = ((boms ?? []) as { id: string }[]).map((b) => b.id);
+  if (bomIds.length === 0) return { ok: true, combos: [] };
+  const [lines, manual] = await Promise.all([
+    s.from("order_fabric_bom_lines").select("combo").in("bom_id", bomIds),
+    s
+      .from("order_fabric_bom_manual_combos")
+      .select("combo, order_fabric_bom_manual_entries!inner(bom_id)")
+      .in("order_fabric_bom_manual_entries.bom_id", bomIds),
+  ]);
+  const err = lines.error ?? manual.error;
+  if (err) return { ok: false, error: `Could not read the Fabric BOM's colourways: ${err.message}` };
+  const combos = [...(lines.data ?? []), ...(manual.data ?? [])]
+    .map((r) => (r as { combo: string | null }).combo)
+    .filter((c): c is string => !!c);
+  return { ok: true, combos };
+}
+
 async function saveAmendment(
   id: string,
   data: AmendmentInput,
@@ -2324,6 +2354,16 @@ async function saveAmendment(
   const qtyProblem = p.data.is_draft ? null : qtyBalanceProblem(p.data);
   if (qtyProblem) return fail(qtyProblem);
   const s = await createClient();
+  /* A colourway the Fabric BOM uses cannot be renamed or removed here — the
+     BOM names it as text, and the requirement report breaks on every line
+     (HO/RE/26-27/0017, 2026-11-11). Draft or not: the BOM breaks either way.
+     Skipped only where the scope leaves the combos grid untouched. */
+  if (!scope || scopeAllowsRewrite(scope, "garment_order_amendment_combos")) {
+    const cited = await fabricBomCombos(s, id);
+    if (!cited.ok) return cited;
+    const citedProblem = comboCitationProblem(cited.combos, p.data.combos);
+    if (citedProblem) return fail(citedProblem);
+  }
   /**
    * NEVER BLANK THE ORDER LINK. `sales_order_id` is nullable on input because a
    * CREATE cannot supply it (the SC No does not exist yet) — but an update
