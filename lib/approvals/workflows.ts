@@ -32,6 +32,7 @@ export type WorkflowKey =
   | "purchase_order"
   | "po_rate_amendment"
   | "po_cancellation"
+  | "knitting_close"
   | "hr_fine"
   | "sample_costing"
   | "sample_revision"
@@ -105,6 +106,15 @@ export const WORKFLOWS: Record<WorkflowKey, WorkflowDecl> = {
   /* 0785 — cancelling a whole PO or part of its lines. Started by
      `requestPoCancellation`; decided in `po_cancellation_apply_decision`, which
      cuts the lines (reopening the requirement) only on the final approve. */
+  /* 0827 — closing a knitting order whose yarn loss is past its Allowed Loss % (user
+     2026-11-11, D1). Started by `closeKnittingOrder`; decided in
+     `knitting_close_apply_decision`, which writes the balance off and closes. */
+  knitting_close: {
+    key: "knitting_close",
+    subjectTable: "process_orders",
+    label: "Knitting Close",
+    href: "/production/knitting-hub/:id",
+  },
   po_cancellation: {
     key: "po_cancellation",
     subjectTable: "po_cancellation_requests",

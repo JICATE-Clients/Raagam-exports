@@ -25,6 +25,9 @@ const lineInput = z.object({
   from_store_id: z.string().uuid({ message: "Pick a store on every line" }),
   bin_id: z.string().uuid().nullable().optional(),
   lot_no: capsTextNullable(),
+  /** 0825 — sealed bags of a knitter's yarn, and the kg in one; the kg sent is still `sent_qty` (the scale). */
+  bags: z.coerce.number().int().nonnegative().nullable().optional(),
+  bag_weight_kg: z.coerce.number().positive().nullable().optional(),
 });
 
 const dcInput = z.object({
@@ -104,6 +107,8 @@ export async function saveProcessDc(id: string | null, payload: ProcessDcInput, 
     }
     await writeAudit({ action: "process_dc.dispatched", entityType: "delivery_challan", entityId: dcId! });
     revalidatePath("/stores/process-orders");
+    // A knitting order shows its Yarn DCs and the kg sent (Knitting Hub, 0825).
+    revalidatePath("/production/knitting-hub", "layout");
   } else {
     await writeAudit({ action: id ? "process_dc.updated" : "process_dc.created", entityType: "delivery_challan", entityId: dcId! });
   }

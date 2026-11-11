@@ -56,6 +56,24 @@ export default async function ProcessDcPrintPage({ params }: { params: Promise<{
     ? [a.street, a.config_lookups?.name, a.states?.name, a.pin].filter((x) => !!x && String(x).trim()).join(", ")
     : null;
   const total = dc.lines.reduce((t, l) => t + l.sent_qty, 0);
+  /* A KNITTER'S CHALLAN carries the program (spec "Program Technical Specs", user 2026-11-11):
+     the knitter reads gauge, loop length and dia off the paper that came with the yarn. */
+  const knitting = dc.lines.some((l) => l.knit);
+  const bagsTotal = dc.lines.reduce((t, l) => t + (l.bags ?? 0), 0);
+  const specOf = (l: (typeof dc.lines)[number]) => {
+    const k = l.knit;
+    if (!k) return null;
+    return [
+      k.knit_dia ? `DIA ${k.knit_dia}${k.finished_dia ? ` / FIN ${k.finished_dia}` : ""}` : null,
+      k.width_form === "open_width" ? "OPEN WIDTH" : k.width_form === "tubular" ? "TUBULAR" : null,
+      k.gauge ? `${k.gauge}${/gg|gauge/i.test(k.gauge) ? "" : " GG"}` : null,
+      k.loop_length != null ? `LL ${fmtNumber(k.loop_length)}${k.loop_length_ref != null ? ` (REF ${fmtNumber(k.loop_length_ref)})` : ""}` : null,
+      k.gsm != null ? `${fmtNumber(k.gsm)} GSM` : null,
+      k.ply ? k.ply.toUpperCase() : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  };
   const uoms = [...new Set(dc.lines.map((l) => l.uom).filter(Boolean))];
   const companyName = cs("company_name") ?? cs("company_short_name") ?? "RAAGAM EXPORTS";
 
@@ -113,6 +131,7 @@ export default async function ProcessDcPrintPage({ params }: { params: Promise<{
                 <Th>Item</Th>
                 <Th>HSN</Th>
                 <Th>Lot No</Th>
+                {knitting ? <Th right>Bags</Th> : null}
                 <Th right>Qty</Th>
               </tr>
             </thead>
@@ -124,9 +143,18 @@ export default async function ProcessDcPrintPage({ params }: { params: Promise<{
                   </Td>
                   <Td>
                     <span className="font-semibold">{l.item_name}</span>
+                    {l.knit ? (
+                      <>
+                        <div className="text-[10.5px] text-[#4b5563]">
+                          {fmtNumber(l.knit.blend_pct)}% of {l.knit.fabric}
+                        </div>
+                        {specOf(l) ? <div className="text-[10.5px] text-[#4b5563]">{specOf(l)}</div> : null}
+                      </>
+                    ) : null}
                   </Td>
                   <Td mono>{l.hsn ?? ""}</Td>
                   <Td>{l.lot_no ?? ""}</Td>
+                  {knitting ? <Td right>{l.bags ?? ""}</Td> : null}
                   <Td right>
                     {fmtNumber(l.sent_qty)} <span className="text-[10.5px] text-[#7b8594]">{l.uom ?? ""}</span>
                   </Td>
@@ -136,6 +164,7 @@ export default async function ProcessDcPrintPage({ params }: { params: Promise<{
                 <Td colSpan={4} right>
                   Total
                 </Td>
+                {knitting ? <Td right>{bagsTotal || ""}</Td> : null}
                 <Td right>
                   {fmtNumber(total)}
                   {uoms.length === 1 ? <span className="text-[10.5px] text-[#7b8594]"> {uoms[0]}</span> : null}

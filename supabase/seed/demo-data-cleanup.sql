@@ -22,7 +22,6 @@ begin;
 delete from public.stock_ledger              where id::text like 'decade00-%';
 delete from public.stock_balances            where item_id::text like 'decade00-%';
 delete from public.packing_lists             where id::text like 'decade00-%';
-delete from public.knitting_programs         where id::text like 'decade00-%';
 delete from public.production_entries        where id::text like 'decade00-%';
 delete from public.shipments                 where id::text like 'decade00-%';
 delete from public.receivable_receipts       where id::text like 'decade00-%';

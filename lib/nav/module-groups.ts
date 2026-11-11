@@ -1339,6 +1339,9 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           { href: "/production/despatch", label: "Despatch", description: "Despatch finished goods to Logistics" },
         ],
       },
+      // Knitting Hub (0825, doc/process/knitting-plan.md): its own sub-module — program,
+      // yarn DC and fabric receipt for an outside knitter, on one order.
+      { kind: "link", href: "/production/knitting-hub", label: "Knitting" },
       { kind: "link", href: "/production/masters", label: "Planning Masters" },
     ],
   },

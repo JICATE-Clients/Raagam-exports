@@ -612,13 +612,19 @@ export async function getManufacturing(
     }),
 
     cell(caps.production, async () => {
+      // Knitting in progress: a knitting order is a process order of type knitting since
+      // 0825 (0828 dropped the old knitting_programs table). "Running" = yarn has gone out.
       const { data, count } = await sb
-        .from("knitting_programs")
-        .select("planned_qty", { count: "exact" })
-        .eq("status", "running");
+        .from("process_orders")
+        .select("fabrics:process_order_knit_fabrics(programmed_kg)", { count: "exact" })
+        .eq("process_type", "knitting")
+        .in("status", ["in_process", "partially_received"]);
       return {
         count: count ?? 0,
-        planned: rows({ data }).reduce((t, r) => t + n(r.planned_qty), 0),
+        planned: rows({ data }).reduce(
+          (t, r) => t + ((r.fabrics as { programmed_kg: number }[] | null) ?? []).reduce((u, f) => u + n(f.programmed_kg), 0),
+          0,
+        ),
       };
     }),
 

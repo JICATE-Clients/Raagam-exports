@@ -1,6 +1,7 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { withCreators } from "@/lib/created-by";
+import { getCurrentLocation } from "@/lib/auth/location";
 
 /**
  * PROCESS DC — job work sent out against a Process Order (doc/stores/dc-plan.md Phase 2,
@@ -21,6 +22,100 @@ export type OpenOrderLine = {
   /** ordered − sent on dispatched DCs: the most a new DC may carry. */
   balance: number;
   rate: number;
+  /** Knitting orders (0825): kg in one sealed bag of this yarn, so the DC can count bags.
+   *  Null on every other process order. */
+  bag_weight_kg: number | null;
+  /** Knitting orders (0825): the program behind this yarn line — what the knitter knits it into. */
+  knit: KnitLineMeta | null;
+};
+
+/**
+ * THE KNITTING PROGRAM BEHIND ONE ORDER LINE (spec "Program Technical Specs (Linked Metadata)",
+ * user 2026-11-11). Read off the order, never typed on the DC, so the challan and the knitting
+ * order cannot disagree.
+ */
+export type KnitLineMeta = {
+  blend_pct: number;
+  bag_weight_kg: number | null;
+  fabric: string;
+  knit_dia: string | null;
+  finished_dia: string | null;
+  width_form: string | null;
+  gauge: string | null;
+  loop_length: number | null;
+  loop_length_ref: number | null;
+  gsm: number | null;
+  ply: string | null;
+};
+
+/** What a bin of this unit holds (`stock_bin_balances`) — the DC's per-bin stock and bin list. */
+export type BinStockOption = { store_id: string; bin_id: string | null; item_id: string; qty: number };
+
+/** Knitting facts for these order lines (empty map for any other process). */
+export async function knitMetaByLine(lineIds: readonly string[]): Promise<Map<string, KnitLineMeta>> {
+  const out = new Map<string, KnitLineMeta>();
+  const ids = [...new Set(lineIds.filter(Boolean))];
+  if (!ids.length) return out;
+  const s = await createClient();
+  const { data, error } = await s
+    .from("process_order_knit_yarns")
+    .select(
+      "process_order_line_id, blend_pct, bag_weight_kg, " +
+        "fabric:process_order_knit_fabrics!inner(knit_dia, finished_dia, width_form, loop_length, loop_length_ref, gsm, ply, " +
+        "item:items!fabric_item_id(name), gauge:config_lookups!gauge_id(name))",
+    )
+    .in("process_order_line_id", ids);
+  if (error) throw new Error(`Knitting program for the DC: ${error.message}`);
+  const one = <T,>(v: T | T[] | null | undefined): T | null => (Array.isArray(v) ? (v[0] ?? null) : (v ?? null));
+  const nn = (v: unknown) => (v == null ? null : Number(v));
+  for (const r of (data ?? []) as unknown as Record<string, unknown>[]) {
+    const f = one(r.fabric as Record<string, unknown> | Record<string, unknown>[] | null) as Record<string, unknown> | null;
+    if (!r.process_order_line_id || !f) continue;
+    out.set(r.process_order_line_id as string, {
+      blend_pct: Number(r.blend_pct) || 0,
+      bag_weight_kg: nn(r.bag_weight_kg),
+      fabric: one(f.item as { name: string } | null)?.name ?? "",
+      knit_dia: (f.knit_dia as string | null) ?? null,
+      finished_dia: (f.finished_dia as string | null) ?? null,
+      width_form: (f.width_form as string | null) ?? null,
+      gauge: one(f.gauge as { name: string } | null)?.name ?? null,
+      loop_length: nn(f.loop_length),
+      loop_length_ref: nn(f.loop_length_ref),
+      gsm: nn(f.gsm),
+      ply: (f.ply as string | null) ?? null,
+    });
+  }
+  return out;
+}
+
+/** Stock by bin in this unit's holding stores (positive balances only). */
+export async function listBinStock(): Promise<BinStockOption[]> {
+  const s = await createClient();
+  const { location } = await getCurrentLocation();
+  if (!location) return [];
+  const { data, error } = await s
+    .from("stock_bin_balances")
+    .select("store_id, bin_id, item_id, quantity")
+    .eq("location_id", location.id)
+    .gt("quantity", 0);
+  if (error) throw new Error(`Bin stock: ${error.message}`);
+  return ((data ?? []) as { store_id: string; bin_id: string | null; item_id: string; quantity: number }[]).map((b) => ({
+    store_id: b.store_id,
+    bin_id: b.bin_id,
+    item_id: b.item_id,
+    qty: Number(b.quantity) || 0,
+  }));
+}
+
+/** One lot on hand in a store of this unit (`stock_lot_balances`, 0790) — the DC's lot pick. */
+export type LotStockOption = {
+  store_id: string;
+  bin_id: string | null;
+  bin_code: string | null;
+  item_id: string;
+  lot_no: string;
+  qty: number;
+  first_in_date: string | null;
 };
 
 export type OpenProcessOrder = {
@@ -68,6 +163,10 @@ export type ProcessDcLine = {
   hsn: string | null;
   /** What the order expects back for this line (0786) — the receipt's default output item. */
   output_item_id: string | null;
+  /** Sealed bags on the line (0825, a knitter's yarn); null when not counted. */
+  bags: number | null;
+  /** Knitting orders: the program behind the yarn — printed on the challan for the knitter. */
+  knit: KnitLineMeta | null;
 };
 
 export type ProcessDc = ProcessDcRow & {
@@ -146,7 +245,11 @@ export async function listOpenProcessOrders(): Promise<OpenProcessOrder[]> {
     sent_qty: number;
     rate: number;
   }[];
-  const items = await itemInfo(s, [...new Set(lines.map((l) => l.item_id).filter((x): x is string => !!x))]);
+  const [items, knitByLine] = await Promise.all([
+    itemInfo(s, [...new Set(lines.map((l) => l.item_id).filter((x): x is string => !!x))]),
+    // Knitting orders (0825): the program behind each yarn line, and its bag weight.
+    knitMetaByLine(lines.map((l) => l.id)),
+  ]);
   const so = new Map(((soRes.data ?? []) as { id: string; order_number: string | null }[]).map((o) => [o.id, o.order_number]));
   return rows
     .map((r) => ({
@@ -173,10 +276,44 @@ export async function listOpenProcessOrders(): Promise<OpenProcessOrder[]> {
             sent: done,
             balance: Math.max(0, Math.round((ordered - done) * 1000) / 1000),
             rate: Number(l.rate) || 0,
+            bag_weight_kg: knitByLine.get(l.id)?.bag_weight_kg ?? null,
+            knit: knitByLine.get(l.id) ?? null,
           };
         }),
     }))
     .filter((o) => o.lines.some((l) => l.balance > 0 && l.item_id));
+}
+
+/**
+ * Every lot on hand in a holding store of this unit, oldest first (FIFO) — so a DC line can
+ * be sent from a lot that is really there, and its bin follows the lot (Knitting Hub Phase 2:
+ * "only bins with stock"). 0826 refuses a line larger than its lot.
+ */
+export async function listLotStock(): Promise<LotStockOption[]> {
+  const s = await createClient();
+  const { location } = await getCurrentLocation();
+  if (!location) return [];
+  const { data, error } = await s
+    .from("stock_lot_balances")
+    .select("store_id, bin_id, item_id, lot_no, quantity, first_in_date")
+    .eq("location_id", location.id)
+    .not("lot_no", "is", null)
+    .gt("quantity", 0)
+    .order("first_in_date", { ascending: true });
+  if (error) throw new Error(`Lot stock: ${error.message}`);
+  const rows = (data ?? []) as { store_id: string; bin_id: string | null; item_id: string; lot_no: string; quantity: number; first_in_date: string | null }[];
+  const binIds = [...new Set(rows.map((r) => r.bin_id).filter((x): x is string => !!x))];
+  const bins = binIds.length ? ((await s.from("bins").select("id, bin_code").in("id", binIds)).data ?? []) : [];
+  const binCode = new Map((bins as { id: string; bin_code: string }[]).map((b) => [b.id, b.bin_code]));
+  return rows.map((r) => ({
+    store_id: r.store_id,
+    bin_id: r.bin_id,
+    bin_code: r.bin_id ? (binCode.get(r.bin_id) ?? null) : null,
+    item_id: r.item_id,
+    lot_no: r.lot_no,
+    qty: Number(r.quantity) || 0,
+    first_in_date: r.first_in_date,
+  }));
 }
 
 export async function listProcessDcs(): Promise<ProcessDcRow[]> {
@@ -232,7 +369,7 @@ export async function getProcessDc(id: string): Promise<ProcessDc | null> {
     s.from("delivery_challans").select("*").eq("id", id).eq("dc_kind", "process").maybeSingle(),
     s
       .from("dc_line_items")
-      .select("id, item_id, description, sent_qty, returned_qty, from_store_id, bin_id, lot_no, process_order_line_id, rate")
+      .select("id, item_id, description, sent_qty, returned_qty, from_store_id, bin_id, lot_no, process_order_line_id, rate, bags")
       .eq("delivery_challan_id", id)
       .order("sort_order"),
   ]);
@@ -251,6 +388,7 @@ export async function getProcessDc(id: string): Promise<ProcessDc | null> {
     lot_no: string | null;
     process_order_line_id: string | null;
     rate: number | null;
+    bags: number | null;
   }[];
   const poId = str("process_order_id");
   const [items, vendors, storeRes, poRes] = await Promise.all([
@@ -261,7 +399,10 @@ export async function getProcessDc(id: string): Promise<ProcessDc | null> {
   ]);
   const p = (poRes.data ?? null) as { code: string | null; sales_order_id: string | null; allowed_loss_pct: number | null } | null;
   const polIds = raw.map((l) => l.process_order_line_id).filter((x): x is string => !!x);
-  const outRes = polIds.length ? await s.from("process_order_lines").select("id, output_item_id").in("id", polIds) : { data: [] };
+  const [outRes, knitByLine] = await Promise.all([
+    polIds.length ? s.from("process_order_lines").select("id, output_item_id").in("id", polIds) : Promise.resolve({ data: [] }),
+    knitMetaByLine(polIds),
+  ]);
   const outOf = new Map(((outRes.data ?? []) as { id: string; output_item_id: string | null }[]).map((x) => [x.id, x.output_item_id]));
   const so = p?.sales_order_id ? (await s.from("sales_orders").select("order_number").eq("id", p.sales_order_id).maybeSingle()).data : null;
   const stores = new Map(((storeRes.data ?? []) as { id: string; name: string }[]).map((x) => [x.id, x.name]));
@@ -274,6 +415,8 @@ export async function getProcessDc(id: string): Promise<ProcessDc | null> {
     returned_qty: Number(l.returned_qty) || 0,
     from_store: l.from_store_id ? (stores.get(l.from_store_id) ?? null) : null,
     rate: l.rate == null ? null : Number(l.rate),
+    bags: l.bags == null ? null : Number(l.bags),
+    knit: l.process_order_line_id ? (knitByLine.get(l.process_order_line_id) ?? null) : null,
     output_item_id: l.process_order_line_id ? (outOf.get(l.process_order_line_id) ?? null) : null,
   }));
   return {
