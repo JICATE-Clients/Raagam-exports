@@ -94,6 +94,9 @@ export function PageHeader({
        * reads this and native Tab order is unchanged.
        */
       data-focus-region="header"
+      /* Read by globals.css "ONLY A TOOLBAR SHARES THE PAGE HEADER'S LINE":
+         what follows clears this float unless it is the filter bar. */
+      data-page-header=""
       /* `mb-3`, down from `mb-4` (client 2026-09-05: "compact it" — this
          component sits above every page in the app, so a smaller step than
          the footer's, applied here rather than per screen. */

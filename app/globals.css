@@ -1263,6 +1263,30 @@ body {
 }
 
 /* ============================================================================
+ * ONLY A TOOLBAR SHARES THE PAGE HEADER'S LINE (user 2026-11-11)
+ * ============================================================================
+ *
+ * `PageHeader` floats right (page-header.tsx, 2026-10-01 "see the gap?") so the
+ * search / Filters row can rise into the line beside "← Back / + Add". But a
+ * float lets ANY following box rise, and every flex, grid or overflow box
+ * narrows to fit beside it — so on a list with no filter bar the TABLE, a card
+ * row or a form came up beside the buttons, squeezed to the left (Knitting,
+ * screenshot 4110: "happening in application full").
+ *
+ * So the float is now OPT-IN for what follows: a sibling of the header clears
+ * it unless it IS the filter bar (`data-beside-header`, stamped once in
+ * filter-bar.tsx) or holds it within two levels (a master's
+ * `flex … <FilterBar/> <DataIoToolbar/>` row, a list shell's root). A screen
+ * written next month is correct without knowing this rule exists, and the
+ * failure left open is the safe one: an unmarked toolbar drops one line below
+ * the buttons instead of the content being crushed beside them. To let a new
+ * kind of toolbar rise, stamp `data-beside-header` on its root — never on a
+ * box that holds content. */
+[data-page-header] ~ :not([data-beside-header], :has(> [data-beside-header]), :has(> * > [data-beside-header])) {
+  clear: both;
+}
+
+/* ============================================================================
  * THE RAAGAM SKIN — the client's reference design, opt-in one screen at a time
  * ============================================================================
  *
