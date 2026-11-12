@@ -193,8 +193,8 @@ export default async function ProcessDcPrintPage({ params }: { params: Promise<{
         {/* Reached from the Knitting Analysis' report strip (user 2026-11-12), so Back returns there
             when the DC carries one knitting order; a DC for several orders goes back to the DC list. */}
         <PoPrintToolbar
-          backHref={koList.length === 1 ? `/process/knitting-hub/${koList[0].order_id}/report` : "/stores/process-dc"}
-          backLabel={koList.length === 1 ? "Knitting Analysis" : "Job Work DC"}
+          backHref={koList.length ? `/process/knitting-hub/${koList[0].order_id}/report` : "/stores/process-dc"}
+          backLabel={koList.length ? "Knitting Analysis" : "Job Work DC"}
           printable={dc.status !== "draft"}
         />
         <DocumentPrintStyles scope="po" />
