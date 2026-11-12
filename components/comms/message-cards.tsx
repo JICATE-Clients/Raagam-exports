@@ -2,13 +2,13 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type CSSProperties } from "react";
-import { CalendarDays, CalendarPlus, CalendarX2, Check, Loader2, MessageCircle } from "lucide-react";
+import { CalendarCheck, CalendarDays, CalendarX2, Check, Loader2, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { openDirect } from "@/lib/comms/actions";
 import { votePoll } from "@/lib/comms/card-actions";
-import { googleCalendarUrl, type EventData, type PollData } from "@/lib/comms/cards";
+import type { EventData, PollData } from "@/lib/comms/cards";
 import type { CommMessage } from "@/lib/comms/types";
 import { fmtDateTime } from "@/lib/format";
 import { glowVars } from "@/lib/ui/buyer-glow";
@@ -310,22 +310,17 @@ export function EventCard({
           </span>
         </div>
       </div>
-      {!off && (
-        // Add to Google Calendar (user 2026-11-12): a template link opened in a new tab —
-        // the operator's own Google account saves it; nothing here signs in to Google.
-        <a
-          href={googleCalendarUrl(event)}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={cn(STRIP, "mt-1 border-t border-black/10 dark:border-white/10")}
-        >
-          <CalendarPlus className="h-4 w-4" aria-hidden />
-          Add to Google Calendar
-        </a>
+      {event.in_google && !off && (
+        // Straight into Google Calendar (user 2026-11-12, option A): no button and no Save in
+        // Google — the server sent it to every member when the event was posted.
+        <span className={cn("flex items-center gap-1.5 px-2 pt-2 text-xs font-semibold", GREEN)}>
+          <CalendarCheck className="h-3.5 w-3.5" aria-hidden />
+          Added to Google Calendar
+        </span>
       )}
       {canEdit && (
         // button-shape: exempt -- the action strip under a card, WhatsApp's "Edit event" (user 2026-11-10)
-        <button type="button" onClick={() => setEditing(true)} className={cn(STRIP, "border-t border-black/10 dark:border-white/10")}>
+        <button type="button" onClick={() => setEditing(true)} className={cn(STRIP, "mt-1 border-t border-black/10 dark:border-white/10")}>
           Edit event
         </button>
       )}
@@ -334,9 +329,10 @@ export function EventCard({
           messageId={message.id}
           event={event}
           onClose={() => setEditing(false)}
-          onSaved={(fresh) => {
+          onSaved={(fresh, googleError) => {
             if (fresh) onReplace?.(fresh);
-            toast.success("Event updated.");
+            if (googleError) toast.error(`Saved in the chat, but Google Calendar was not updated: ${googleError}`);
+            else toast.success("Event updated.");
           }}
         />
       )}
