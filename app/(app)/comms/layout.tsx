@@ -4,7 +4,7 @@ import { isCommsMissing, listMyConversations, listMyThreads } from "@/lib/comms/
 import { getWorkspace } from "@/lib/comms/workspace-service";
 import { listMyCommunities } from "@/lib/comms/community-service";
 import type { Workspace } from "@/lib/comms/workspace";
-import { getUserPhotos } from "@/lib/comms/photos";
+import { getChannelPhotos, getUserPhotos } from "@/lib/comms/photos";
 import { CommsShell } from "@/components/comms/comms-shell";
 import { CommsNotInstalled } from "@/components/comms/comms-not-installed";
 import { WorkspaceBar, WorkspaceDeactivated } from "@/components/comms/workspace-bar";
@@ -42,13 +42,13 @@ export default async function CommsLayout({ children }: { children: ReactNode })
   }
   // 0811: the list's Threads section. A failed read leaves the section out
   // rather than taking the whole hub down with it.
-  const [photos, threads] = await Promise.all([getUserPhotos(), listMyThreads().catch(() => [])]);
+  const [photos, channelPhotos, threads] = await Promise.all([getUserPhotos(), getChannelPhotos(), listMyThreads().catch(() => [])]);
   if (workspace?.my_status === "deactivated") return <WorkspaceDeactivated workspace={workspace} />;
   // `chats` feeds Pulse's list pane (comms-shell.tsx, "PULSE IS TWO PANES").
   // The workspace name bar is hidden (user 2026-11-02: remove the "RAAGAM"
   // strip); it only shows while the workspace is suspended, to carry the Paused pill.
   return (
-    <CommsShell top={workspace?.status === "suspended" ? <WorkspaceBar workspace={workspace} /> : null} chats={chats} threads={threads} communities={communities} photos={photos}>
+    <CommsShell top={workspace?.status === "suspended" ? <WorkspaceBar workspace={workspace} /> : null} chats={chats} threads={threads} communities={communities} photos={photos} channelPhotos={channelPhotos}>
       {children}
     </CommsShell>
   );

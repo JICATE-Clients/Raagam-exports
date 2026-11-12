@@ -9,6 +9,7 @@ import {
   Bell,
   BellOff,
   Bookmark,
+  Camera,
   Building2,
   Check,
   Crown,
@@ -40,7 +41,7 @@ import { Toggle } from "@/components/ui/toggle";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { addMembers, leaveConversation, openDirect, removeMember, setMemberRole, syncDepartmentMembers } from "@/lib/comms/actions";
-import { setChannelArchived, setConversationPrefs, transferChannelOwnership, updateChannel } from "@/lib/comms/channel-actions";
+import { setChannelArchived, setChannelPhoto, setConversationPrefs, transferChannelOwnership, updateChannel } from "@/lib/comms/channel-actions";
 import {
   CHANNEL_DESC_MAX,
   CHANNEL_NAME_MAX,
@@ -57,7 +58,8 @@ import type { CommMember, ConversationDetail, DirectoryPerson, MemberRole } from
 import { fmtDate, fmtDateTime } from "@/lib/format";
 import { loadPulseFiles } from "@/lib/comms/pulse-actions";
 import type { PulseFile } from "@/lib/comms/files-service";
-import { Face } from "./person-photo";
+import { Face, PhotoImg, useChannelPhoto } from "./person-photo";
+import { ChannelPhotoCrop, photoFileProblem, saveChannelPhoto, usePhotoFile } from "./channel-photo";
 import { PeoplePicker } from "./people-picker";
 import { announceChannelsChanged } from "./sidebar-channels";
 import { WithPresence } from "./presence";
@@ -118,6 +120,14 @@ export function ChannelDetailsSheet({
   const [showAllMembers, setShowAllMembers] = useState(false);
   const [findingMember, setFindingMember] = useState(false);
   const [memberQuery, setMemberQuery] = useState("");
+  // 0839: the channel's profile photo — the picked file while it is being cropped.
+  const channelPhoto = useChannelPhoto(c.id);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const photoPicker = usePhotoFile((f) => {
+    const why = photoFileProblem(f);
+    if (why) toast.error(why);
+    else setPhotoFile(f);
+  });
   // This channel's files for "Media, links and docs" — read when the sheet opens, through
   // the same RLS-scoped reader Pulse's Files filter uses. null = not read yet.
   const [files, setFiles] = useState<PulseFile[] | null>(null);
@@ -199,9 +209,50 @@ export function ChannelDetailsSheet({
     <Sheet open={open} onClose={onClose} title="Channel info" size="sm" alignToPane>
       <div className="-mx-4 -mt-2 divide-y divide-border">
         <section className="flex flex-col items-center px-5 pb-4 pt-2 text-center">
-          <span className="flex h-28 w-28 items-center justify-center rounded-full bg-primary text-primary-foreground">
-            {c.visibility === "private" ? <Lock className="h-12 w-12" aria-hidden /> : <Hash className="h-12 w-12" aria-hidden />}
+          {/* 0839: the channel's own photo when set (a rounded square, never a
+              person's circle); owners and moderators change it from here. */}
+          <span className="relative inline-flex">
+            <span className="flex h-28 w-28 items-center justify-center overflow-hidden rounded-3xl bg-primary text-primary-foreground">
+              {channelPhoto ? (
+                <PhotoImg src={channelPhoto} />
+              ) : c.visibility === "private" ? (
+                <Lock className="h-12 w-12" aria-hidden />
+              ) : (
+                <Hash className="h-12 w-12" aria-hidden />
+              )}
+            </span>
+            {can.edit_info && (
+              // button-shape: exempt -- a round camera badge on the photo, like WhatsApp's
+              <button
+                type="button"
+                onClick={photoPicker.open}
+                disabled={pending}
+                aria-label={channelPhoto ? "Change channel photo" : "Add channel photo"}
+                title={channelPhoto ? "Change photo" : "Add photo"}
+                className="absolute -bottom-1 -right-1 grid h-9 w-9 place-items-center rounded-full border-[3px] border-surface bg-primary text-primary-foreground hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <Camera className="h-4 w-4" aria-hidden />
+              </button>
+            )}
           </span>
+          {photoPicker.input}
+          {can.edit_info && channelPhoto && (
+            // button-shape: exempt -- an inline text link under the photo
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => run(() => setChannelPhoto(c.id, null), "Photo removed.")}
+              className="mt-2 text-xs font-semibold text-danger hover:underline"
+            >
+              Remove photo
+            </button>
+          )}
+          <ChannelPhotoCrop
+            file={photoFile}
+            busy={pending}
+            onCancel={() => setPhotoFile(null)}
+            onUse={(blob) => run(() => saveChannelPhoto(c.id, blob), "Photo updated.", () => setPhotoFile(null))}
+          />
           <div className="mt-4 flex max-w-full items-center gap-2">
             <h2 className="min-w-0 break-words text-2xl text-heading">{c.name ?? "channel"}</h2>
             {can.edit_info && (

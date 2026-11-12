@@ -645,9 +645,12 @@ export async function loadPinned(conversationId: string): Promise<{ ok: true; me
   }
 }
 
-export async function findPeople(query: string): Promise<{ ok: true; people: DirectoryPerson[] } | Fail> {
+export async function findPeople(query: string, limit = 20): Promise<{ ok: true; people: DirectoryPerson[] } | Fail> {
+  // `limit` is browser input: the New chat panel lists the directory A–Z
+  // (new-chat-panel.tsx) and asks for more than a picker's 20, never unbounded.
+  const n = Number.isFinite(limit) ? Math.min(Math.max(Math.trunc(limit), 1), 300) : 20;
   try {
-    return { ok: true, people: await searchDirectory(query, 20) };
+    return { ok: true, people: await searchDirectory(query, n) };
   } catch {
     return fail("People could not be searched. Try again.");
   }

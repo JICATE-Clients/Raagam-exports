@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { CommunitySummary, ConversationSummary, ThreadSummary } from "@/lib/comms/types";
 import { cn } from "@/lib/utils";
 import { ConversationList } from "./conversation-list";
+import { NewChatPanel, type NewChatMode } from "./new-chat-panel";
 import { NewConversationSheet } from "./new-conversation-sheet";
 import { PhotosProvider } from "./person-photo";
 
@@ -55,6 +56,7 @@ export function CommsShell({
   communities,
   threads,
   photos,
+  channelPhotos,
 }: {
   children: ReactNode;
   top?: ReactNode;
@@ -66,6 +68,8 @@ export function CommsShell({
   threads?: ThreadSummary[];
   /** userId → HR photo URL (lib/comms/photos.ts). */
   photos?: Record<string, string>;
+  /** 0839: conversationId → channel photo URL. */
+  channelPhotos?: Record<string, string>;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -78,8 +82,17 @@ export function CommsShell({
   // the sheet straight in group mode. Read from the live URL: the intent runs
   // before it strips `new` and `a`.
   const [composeGroup, setComposeGroup] = useState(false);
+  // WhatsApp's New chat (user 2026-11-12): where the chat list is on screen,
+  // ?new=1 slides the New chat panel in over it instead of opening the sheet.
+  // The sheet stays for the hub views that show no list (Channels, Search …).
+  const [newChat, setNewChat] = useState<NewChatMode | null>(null);
   useCreateIntent(() => {
-    setComposeGroup(new URLSearchParams(window.location.search).get("a") === "group");
+    const group = new URLSearchParams(window.location.search).get("a") === "group";
+    if (chats && window.location.pathname === "/comms") {
+      setNewChat(group ? "group" : "direct");
+      return;
+    }
+    setComposeGroup(group);
     setComposing(true);
   });
 
@@ -137,7 +150,7 @@ export function CommsShell({
   // (app/(app)/layout.tsx). Pulse runs edge to edge under the tab strip, as
   // WhatsApp Web does.
   return (
-    <PhotosProvider photos={photos ?? {}}>
+    <PhotosProvider photos={photos ?? {}} channelPhotos={channelPhotos ?? {}}>
     <div
       data-focus-scope="off"
       data-comms-frame=""
@@ -155,7 +168,7 @@ export function CommsShell({
               PANE,
               // WhatsApp's width (user 2026-10-31, screenshot 122843): 460px wide fits
               // All · Unread · Favourites · Groups · ▾ on one line.
-              "@3xl/comms:flex @3xl/comms:w-[18rem] @3xl/comms:shrink-0 @3xl/comms:border-r @3xl/comms:border-border",
+              "relative @3xl/comms:flex @3xl/comms:w-[18rem] @3xl/comms:shrink-0 @3xl/comms:border-r @3xl/comms:border-border",
               isHome ? "flex w-full" : "hidden",
             )}
           >
@@ -169,6 +182,13 @@ export function CommsShell({
               communities={communities}
               activeCommunityId={communityId}
               activeFileId={fileId}
+              onNewChat={setNewChat}
+            />
+            {/* WhatsApp's New chat slides in over the list, same width. */}
+            <NewChatPanel
+              open={newChat !== null}
+              startMode={newChat ?? "direct"}
+              onClose={() => setNewChat(null)}
             />
           </aside>
           {/* `data-pulse`: a conversation shown here has the sidebar beside it

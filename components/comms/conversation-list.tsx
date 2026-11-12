@@ -73,7 +73,7 @@ import { cn } from "@/lib/utils";
 import { clockTime, fileSize, initials } from "./message-body";
 import { CommunityAvatar } from "./community-avatar";
 import { NewCommunitySheet } from "./new-community-sheet";
-import { PhotoImg, useUserPhoto } from "./person-photo";
+import { PhotoImg, useChannelPhoto, useUserPhoto } from "./person-photo";
 import { ShortScrollbar } from "./short-scrollbar";
 import { nameCase } from "@/lib/comms/name-case";
 import { WithPresence } from "./presence";
@@ -181,6 +181,7 @@ export function ConversationList({
   communities,
   activeCommunityId = null,
   activeFileId = null,
+  onNewChat,
 }: {
   conversations: ConversationSummary[];
   /** 0811: threads the caller started or replied in, newest reply first. */
@@ -195,6 +196,9 @@ export function ConversationList({
   activeId?: string | null;
   /** /comms/new — the New message screen is open beside the list. */
   composing?: boolean;
+  /** Slide the New chat panel in over this list (new-chat-panel.tsx), in
+   *  direct or group mode. Given by comms-shell.tsx. */
+  onNewChat?: (mode: "direct" | "group") => void;
   /** /comms — the Home feed is open beside the list (lights the Home shortcut). */
   home?: boolean;
   /** /comms/mentions — Pulse ▸ Mentions is open beside the list (lights its shortcut). */
@@ -410,9 +414,9 @@ export function ConversationList({
       ? [{ label: "Delete section", icon: Trash2, danger: true, onClick: () => saveSections(mySections.filter((x) => x.id !== s.mine?.id)) }]
       : s.key === "direct"
         ? [
-            { label: "Start direct message", icon: MessageCircle, onClick: () => router.push("/comms?new=1") },
+            { label: "Start direct message", icon: MessageCircle, onClick: () => (onNewChat ? onNewChat("direct") : router.push("/comms?new=1")) },
             // New group moved here with the group chats when Groups lost its heading.
-            { label: "New group", icon: Users, onClick: () => router.push("/comms?new=1&a=group") },
+            { label: "New group", icon: Users, onClick: () => (onNewChat ? onNewChat("group") : router.push("/comms?new=1&a=group")) },
           ]
         : // Channels ⋮ (user 2026-11-05, artifact "Channels ⋮ menu"): Create a
             // channel · Create new section. Browse channels was removed the same
@@ -784,22 +788,25 @@ export function ConversationList({
             </button>
           )}
         </div>
-        {/* "＋ NEW" ON THE SEARCH ROW (user 2026-11-05, artifact "＋ New pill",
-            proposed placement): a small tinted pill replacing the big New chat
-            button and its row. The To: screen is the right-hand pane, so a phone
-            (one pane at a time) gets the tap-a-person sheet instead. */}
-        <Link
-          href="/comms/new"
-          aria-current={composing ? "page" : undefined}
-          aria-label="New chat"
-          title="New chat"
-          className={cn(NEW_CHAT, "hidden @3xl/comms:inline-flex")}
-        >
-          <Plus className="h-4 w-4" aria-hidden /> New
-        </Link>
-        <Link href="/comms?new=1" aria-label="New chat" title="New chat" className={cn(NEW_CHAT, "inline-flex @3xl/comms:hidden")}>
-          <Plus className="h-4 w-4" aria-hidden /> New
-        </Link>
+        {/* "＋ NEW" ON THE SEARCH ROW (user 2026-11-05, artifact "＋ New pill").
+            Since 2026-11-12 (user, WhatsApp's New chat, artifact "Comms New Chat
+            Panel") it slides the New chat panel in over this list on every
+            width — no more /comms/new To: screen on wide and sheet on narrow. */}
+        {onNewChat ? (
+          <button type="button" onClick={() => onNewChat("direct")} aria-label="New chat" title="New chat" className={cn(NEW_CHAT, "inline-flex")}>
+            <Plus className="h-4 w-4" aria-hidden /> New
+          </button>
+        ) : (
+          <Link
+            href="/comms/new"
+            aria-current={composing ? "page" : undefined}
+            aria-label="New chat"
+            title="New chat"
+            className={cn(NEW_CHAT, "inline-flex")}
+          >
+            <Plus className="h-4 w-4" aria-hidden /> New
+          </Link>
+        )}
         </div>
 
         {/* NO FILTER CHIPS (user 2026-11-05: "remove this"). What they did now
@@ -1701,7 +1708,10 @@ export function preview(c: ConversationSummary): string {
 }
 
 export function ChatAvatar({ c, size }: { c: ConversationSummary; size: "row" | "sm" | "md" | "lg" | "compact" }) {
-  const photo = useUserPhoto(c.kind === "direct" ? c.other_user_id : null);
+  const userPhoto = useUserPhoto(c.kind === "direct" ? c.other_user_id : null);
+  // 0839: a channel's own profile photo, when one is set.
+  const channelPhoto = useChannelPhoto(c.kind === "channel" ? c.id : null);
+  const photo = userPhoto ?? channelPhoto;
   const channel = c.kind === "channel";
   // A CHANNEL SHOWS ITS LETTER, NOT A "#" (user 2026-11-04), the same as the
   // sidebar's ChannelAvatar; a private one keeps a small lock on the corner.

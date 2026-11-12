@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { Field, FieldRow } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Segmented, ToggleGroup } from "@/components/ui/segmented";
-import { Select } from "@/components/ui/select";
 import { Sheet } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
@@ -18,7 +17,6 @@ import {
   CHANNEL_DESC_MAX,
   CHANNEL_NAME_MAX,
   CHANNEL_ROLE_LABEL,
-  CHANNEL_TOPIC_MAX,
   channelNameProblem,
   normalizeChannelName,
   type ChannelScope,
@@ -27,6 +25,7 @@ import {
 import type { DirectoryPerson, Visibility } from "@/lib/comms/types";
 import { fmtDate } from "@/lib/format";
 import { PeoplePicker } from "./people-picker";
+import { ChannelPhotoSlot, saveChannelPhoto } from "./channel-photo";
 import { announceChannelsChanged } from "./sidebar-channels";
 
 /**
@@ -41,13 +40,11 @@ import { announceChannelsChanged } from "./sidebar-channels";
 export function ChannelBrowser({
   initial,
   initialTotal,
-  departments,
   canCreate,
   openCreate,
 }: {
   initial: DiscoveredChannel[];
   initialTotal: number;
-  departments: { id: string; name: string }[];
   canCreate: boolean;
   openCreate: boolean;
 }) {
@@ -209,7 +206,7 @@ export function ChannelBrowser({
         )}
       </div>
 
-      {canCreate && <CreateChannelSheet open={creating} departments={departments} onClose={() => setCreating(false)} />}
+      {canCreate && <CreateChannelSheet open={creating} onClose={() => setCreating(false)} />}
     </div>
   );
 }
@@ -230,21 +227,19 @@ function newKey(): string {
  */
 function CreateChannelSheet({
   open,
-  departments,
   onClose,
 }: {
   open: boolean;
-  departments: { id: string; name: string }[];
   onClose: () => void;
 }) {
   const router = useRouter();
   const toast = useToast();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [topic, setTopic] = useState("");
   const [visibility, setVisibility] = useState<Visibility>("public");
-  const [departmentId, setDepartmentId] = useState("");
   const [members, setMembers] = useState<DirectoryPerson[]>([]);
+  // 0839: the cropped photo, uploaded once the channel exists.
+  const [photo, setPhoto] = useState<Blob | null>(null);
   const [createKey, setCreateKey] = useState(newKey);
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
@@ -255,10 +250,9 @@ function CreateChannelSheet({
   function close() {
     setName("");
     setDescription("");
-    setTopic("");
     setVisibility("public");
-    setDepartmentId("");
     setMembers([]);
+    setPhoto(null);
     setError(null);
     setCreateKey(newKey());
     onClose();
@@ -270,14 +264,24 @@ function CreateChannelSheet({
         name,
         visibility,
         description: description || null,
-        topic: topic || null,
-        department_id: departmentId || null,
+        // No Topic or Department on the New channel form (user 2026-11-12,
+        // screenshot 144112: "remove topic and department"). Topic can still
+        // be set later in the channel's details.
+        topic: null,
+        department_id: null,
         member_ids: members.map((m) => m.id),
         create_key: createKey,
       });
       if (!r.ok) {
         setError(r.error);
         return;
+      }
+      // The photo needs the channel's id, so it goes up second. A failed photo
+      // never undoes the channel: it is created, and the photo can be set again
+      // from Channel info.
+      if (photo && r.id) {
+        const p = await saveChannelPhoto(r.id, photo);
+        if (!p.ok) toast.error(`#${slug} was created, but its photo was not saved. ${p.error}`);
       }
       toast.success(`#${slug} created.`);
       announceChannelsChanged();
@@ -294,43 +298,61 @@ function CreateChannelSheet({
       size="sm"
       alignToPane
       footer={
-        <div className="flex items-center justify-end gap-2">
-          <Button variant="outline" onClick={close} disabled={pending}>
-            Cancel
-          </Button>
-          <Button onClick={submit} disabled={pending || !slug || !!problem}>
-            {pending && <Loader2 className="h-4 w-4 animate-spin" />} Create channel
-          </Button>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs tabular-nums text-muted-foreground" aria-live="polite">
+            {members.length === 0 ? "No one added" : `${members.length} ${members.length === 1 ? "person" : "people"} added`}
+          </span>
+          <span className="flex items-center gap-2">
+            <Button variant="outline" onClick={close} disabled={pending}>
+              Cancel
+            </Button>
+            <Button onClick={submit} disabled={pending || !slug || !!problem}>
+              {pending && <Loader2 className="h-4 w-4 animate-spin" />} Create channel
+            </Button>
+          </span>
         </div>
       }
     >
-      {/* Compact (user 2026-11-05): the sm sheet scrolled with one field per
-          line. Paired rows fit its ~408px body: party 200 + 12 gap + term 176
-          = 388px. align="start" because the paired hints wrap unevenly. */}
-      <div className="space-y-3">
-        <FieldRow align="start">
+      {/* COMPACT (user 2026-11-12, artifact "Compact New Channel"): 32px
+          fields, 10px between them; the Name carries a fixed # so the stored
+          form shows while typing; Description starts one line and grows; the
+          people search sits inside the people box (PeoplePicker `boxed`).
+          Paired row: party 200 + 12 gap + term 176 = 388px of the ~408px body. */}
+      <div className="space-y-2.5">
+        {/* 0839: the photo slot leads the row. 56 + 10 gap leaves ~342px:
+            Name term 176 + 12 gap + the Public/Private pair hugging ~140. */}
+        <div className="flex items-start gap-2.5">
+        <ChannelPhotoSlot letter={(slug.match(/[a-z0-9]/)?.[0] ?? "#").toUpperCase()} blob={photo} onChange={setPhoto} disabled={pending} />
+        <FieldRow align="start" className="min-w-0 flex-1">
           <Field
             label="Name"
             required
-            w="party"
-            hint={problem ?? (slug ? `Created as #${slug}; you own it.` : "Lowercase, numbers, - and _")}
+            w="term"
+            hint={problem ?? (slug ? `Created as #${slug}; you own it.` : undefined)}
           >
-            {/* caps-input: exempt -- a channel name is stored lowercase by rule (0751); capitals would be refused */}
-            <Input
-              uppercase={false}
-              value={name}
-              maxLength={CHANNEL_NAME_MAX + 20}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. cutting-room"
-              aria-invalid={!!problem}
-              autoFocus
-            />
+            <span className="relative block">
+              <span aria-hidden className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                #
+              </span>
+              {/* caps-input: exempt -- a channel name is stored lowercase by rule (0751); capitals would be refused */}
+              <Input
+                uppercase={false}
+                value={name}
+                maxLength={CHANNEL_NAME_MAX + 20}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="cutting-room"
+                aria-invalid={!!problem}
+                autoFocus
+                className="h-8 pl-6"
+              />
+            </span>
           </Field>
-          <Field label="Who can see it" w="term" hint={visibility === "public" ? "Anyone can find & join" : "Only people you add · can't go public later"}>
+          <Field label="Who can see it" w="hug" hint={visibility === "public" ? undefined : "Only people you add · can't go public later"}>
             <Segmented
               name="channel-visibility"
               value={visibility}
               onChange={setVisibility}
+              className="h-8"
               options={[
                 { value: "public", label: "Public" },
                 { value: "private", label: "Private" },
@@ -338,41 +360,29 @@ function CreateChannelSheet({
             />
           </Field>
         </FieldRow>
-        <Field label="Description">
+        </div>
+        <Field
+          label="Description"
+          labelSuffix={
+            <span className="ml-auto font-normal tabular-nums text-muted-foreground">
+              {description.length} / {CHANNEL_DESC_MAX}
+            </span>
+          }
+        >
           {/* caps-input: exempt -- display text read by people, like a chat message; nothing matches on it */}
           <Textarea
             uppercase={false}
-            rows={2}
+            rows={1}
             value={description}
             maxLength={CHANNEL_DESC_MAX}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="What it's for — shown in discovery"
+            placeholder="What it's for, shown in discovery"
+            className="max-h-24 min-h-8 resize-none py-1.5 [field-sizing:content]"
           />
         </Field>
-        <FieldRow align="start">
-          <Field label="Topic" w="party">
-            {/* caps-input: exempt -- display text read by people (a conversation name or topic), like a chat message; nothing matches on it */}
-            <Input uppercase={false} value={topic} maxLength={CHANNEL_TOPIC_MAX} onChange={(e) => setTopic(e.target.value)} placeholder="What's being discussed now" />
-          </Field>
-          <Field label="Department" w="term">
-            <Select
-              value={departmentId}
-              onChange={(e) => setDepartmentId(e.target.value)}
-              title="Optional. A department channel can add that department's logins in one step."
-            >
-              <option value="">None</option>
-              {departments.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        </FieldRow>
         <Field label="Add people (optional)">
-          {/* No border here: the picker's list draws its own, and two made a box in a box. */}
-          <div className="h-44">
-            <PeoplePicker selected={members} onChange={setMembers} />
+          <div className="h-56">
+            <PeoplePicker selected={members} onChange={setMembers} boxed />
           </div>
         </Field>
         {error && (

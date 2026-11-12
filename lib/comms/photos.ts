@@ -1,6 +1,6 @@
 import "server-only";
 import { cache } from "react";
-import { createAdminClient } from "@/lib/supabase/server";
+import { createAdminClient, createClient } from "@/lib/supabase/server";
 
 /**
  * HR PHOTOS IN PULSE (user 2026-11-03: "fetch HR module profile image to Pulse").
@@ -80,6 +80,41 @@ export const getUserPhotos = cache(async (): Promise<Record<string, string>> => 
       if (url) out[p.id] = url;
     }
     return out;
+  } catch {
+    return {};
+  }
+});
+
+/** 0839: the public bucket that holds channel profile photos. */
+export const CHANNEL_PHOTO_BUCKET = "comm-channel-photos";
+
+/**
+ * CHANNEL PHOTOS (user 2026-11-12, artifact "Channel Photo Upload"):
+ * conversationId → public URL, for the channels the CALLER may read (the
+ * table's own RLS decides — this runs as the caller, not the service role).
+ * Read beside comm_my_conversations rather than through it, so 0839 did not
+ * have to re-create that function. Never throws: before 0839 is applied the
+ * column is missing and every channel shows its letter, as before.
+ */
+export const getChannelPhotos = cache(async (): Promise<Record<string, string>> => {
+  try {
+    const s = await createClient();
+    const out: Record<string, string> = {};
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await s
+        .from("comm_conversations")
+        .select("id, photo_path")
+        .eq("kind", "channel")
+        .not("photo_path", "is", null)
+        .order("id")
+        .range(from, from + PAGE - 1);
+      if (error) return out;
+      const rows = (data ?? []) as { id: string; photo_path: string | null }[];
+      for (const r of rows) {
+        if (r.photo_path) out[r.id] = s.storage.from(CHANNEL_PHOTO_BUCKET).getPublicUrl(r.photo_path).data.publicUrl;
+      }
+      if (rows.length < PAGE) return out;
+    }
   } catch {
     return {};
   }

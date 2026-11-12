@@ -8,9 +8,29 @@ import { initials } from "./message-body";
  * Provided once by CommsShell; a person absent from it shows their initials.
  */
 const PhotosContext = createContext<Record<string, string>>({});
+/** 0839: conversationId → channel photo URL (lib/comms/photos.ts getChannelPhotos). */
+const ChannelPhotosContext = createContext<Record<string, string>>({});
 
-export function PhotosProvider({ photos, children }: { photos: Record<string, string>; children: ReactNode }) {
-  return <PhotosContext.Provider value={photos}>{children}</PhotosContext.Provider>;
+export function PhotosProvider({
+  photos,
+  channelPhotos = {},
+  children,
+}: {
+  photos: Record<string, string>;
+  channelPhotos?: Record<string, string>;
+  children: ReactNode;
+}) {
+  return (
+    <PhotosContext.Provider value={photos}>
+      <ChannelPhotosContext.Provider value={channelPhotos}>{children}</ChannelPhotosContext.Provider>
+    </PhotosContext.Provider>
+  );
+}
+
+/** The channel's profile photo URL, or null (none set, or not a channel). */
+export function useChannelPhoto(conversationId: string | null | undefined): string | null {
+  const photos = useContext(ChannelPhotosContext);
+  return (conversationId && photos[conversationId]) || null;
 }
 
 /** The person's HR photo URL, or null (no record, no photo, or not a person). */
