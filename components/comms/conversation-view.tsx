@@ -49,7 +49,7 @@ import { ForwardSheet } from "./forward-sheet";
 import { ChannelHeaderPeople } from "./add-channel-people";
 import { ChatSearchPanel } from "./chat-search-panel";
 import { suggestReplies } from "@/lib/comms/smart-reply-actions";
-import { PhotoImg, useUserPhoto } from "./person-photo";
+import { PhotoImg, useChannelPhoto, useUserPhoto } from "./person-photo";
 import { ruleReplies } from "@/lib/comms/smart-reply-rules";
 import { PRESENCE_WORD, WithPresence, usePresence } from "./presence";
 
@@ -133,6 +133,8 @@ export function ConversationView({
   // The other person's HR photo in a direct chat's header (lib/comms/photos.ts).
   const otherId = conversation.kind === "direct" ? (conversation.members.find((x) => x.user_id !== meId && !x.removed_at)?.user_id ?? null) : null;
   const headerPhoto = useUserPhoto(otherId);
+  // 0839: the channel's profile photo, when one is set.
+  const channelPhoto = useChannelPhoto(conversation.kind === "channel" ? conversation.id : null);
   const otherPresence = usePresence(otherId);
   const [cursor, setCursor] = useState<string | null>(initialPage.next_cursor);
   const [pending, setPending] = useState<Pending[]>([]);
@@ -676,7 +678,7 @@ export function ConversationView({
               style={avatarStyle(conversation.title)}
               className={cn("flex h-[30px] w-[30px] items-center justify-center overflow-hidden rounded-lg text-[12px] font-extrabold", AVATAR_TINT)}
             >
-              {(conversation.title.match(/[\p{L}\p{N}]/u)?.[0] ?? "#").toUpperCase()}
+              {channelPhoto ? <PhotoImg src={channelPhoto} /> : (conversation.title.match(/[\p{L}\p{N}]/u)?.[0] ?? "#").toUpperCase()}
             </span>
             {conversation.visibility === "private" && (
               <span className="absolute -bottom-0.5 -right-0.5 grid h-3.5 w-3.5 place-items-center rounded-full bg-surface text-muted-foreground ring-2 ring-surface">

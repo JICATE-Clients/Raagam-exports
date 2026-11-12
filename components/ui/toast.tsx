@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useState,
+  type Context,
   type ReactNode,
 } from "react";
 import { X } from "lucide-react";
@@ -45,7 +46,16 @@ interface ToastApi {
   error: (message: string) => void;
 }
 
-const ToastContext = createContext<ToastApi | null>(null);
+// ONE CONTEXT PER PROCESS (2026-11-12). A dev hot-reload can evaluate this
+// module twice — the Provider then publishes on one ToastContext and a freshly
+// recompiled screen reads the other, and the whole route dies with "useToast
+// must be used within a ToastProvider" though the Provider wraps every page
+// (app/providers.tsx). Pinning the instance on globalThis keeps both copies on
+// the same context. In production the module loads once and this is a no-op.
+const TOAST_CTX_KEY = Symbol.for("raagam.toast-context");
+const ToastContext: Context<ToastApi | null> =
+  ((globalThis as Record<symbol, unknown>)[TOAST_CTX_KEY] as Context<ToastApi | null> | undefined) ??
+  ((globalThis as Record<symbol, unknown>)[TOAST_CTX_KEY] = createContext<ToastApi | null>(null)) as Context<ToastApi | null>;
 
 let counter = 0;
 
