@@ -1,7 +1,5 @@
-import Link from "next/link";
 import { requirePermission, can } from "@/lib/auth/server";
 import { today } from "@/lib/calendar";
-import { PageHeader } from "@/components/ui/page-header";
 import { getProductionDcSetup } from "@/lib/stores/production-dc-service";
 import { getKnittingOrder, listKnitPartyTargets, listKnittingOrders } from "@/lib/production/knitting-service";
 import { KnitReceiptEntry } from "../../knitting-hub/_components/knit-receipt-entry";
@@ -22,13 +20,6 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ o
   // PARTY STOCK (0837): another knitter's open orders the yarn may go straight to.
   const partyTargets = doc ? await listKnitPartyTargets(doc.vendor_id, doc.id) : [];
   return (
-    <div className="space-y-4">
-      <PageHeader
-        title="New Yarn Return"
-        description={"Unknitted yarn the knitter sent back — it goes back on the shelf"}
-        actions={<Link href="/process/knitting-returns" className="text-sm text-primary hover:underline">← Yarn Returns</Link>}
-      />
-      <KnitReceiptEntry mode="yarn_return" orders={open} waiting={waiting} doc={doc} partyTargets={partyTargets} stores={setup.stores} bins={setup.bins} canEdit={canEdit} today={today()} />
-    </div>
+    <KnitReceiptEntry mode="yarn_return" orders={open} waiting={waiting} doc={doc} partyTargets={partyTargets} stores={setup.stores} bins={setup.bins} canEdit={canEdit} today={today()} />
   );
 }

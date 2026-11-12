@@ -57,30 +57,43 @@ export function KnitReceiptEntry({
       />
     </Field>
   );
+  const back = mode === "fabric" ? { href: "/process/knitting-receipts", label: "← Fabric Receipts" } : { href: "/process/knitting-returns", label: "← Yarn Returns" };
   return (
-    <div className={`${DOC_FRAME} space-y-4 p-4`} data-focus-scope="">
-      {doc ? null : <ReceiptHeaderRow isFabric={mode === "fabric"} orderField={orderField} knitter={null} disabled today={today} />}
-      {orders.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          {mode === "fabric" ? "Fabric" : "Yarn"} comes back only after yarn has gone to the knitter, and no Knitting Order has yarn out yet.
-          {waiting.length ? (
-            <>
-              {" "}
-              Issued, waiting for their yarn:{" "}
-              {waiting.map((o, i) => (
-                <span key={o.id}>
-                  {i ? ", " : ""}
-                  <Link href={`/process/knitting-hub/${o.id}`} className="text-primary hover:underline">
-                    {o.code ?? "(no number)"}
-                  </Link>
-                </span>
-              ))}
-              {" "}— send it from the order with Send Yarn.
-            </>
-          ) : null}
-        </p>
-      ) : null}
-      {doc ? <KnittingReceiptPanel key={`${mode}-${doc.id}`} mode={mode} doc={doc} orderField={orderField} partyTargets={partyTargets} stores={stores} bins={bins} canEdit={canEdit} today={today} /> : null}
+    // NO PAGE TITLE (user 2026-11-12, approved design): the back link above ONE frame.
+    <div className="space-y-2">
+      <div className="flex justify-end">
+        <Link href={back.href} className="text-sm text-primary hover:underline">
+          {back.label}
+        </Link>
+      </div>
+      <div className={DOC_FRAME} data-focus-scope="">
+        {doc ? null : (
+          <div className="space-y-3 p-4">
+            <ReceiptHeaderRow isFabric={mode === "fabric"} orderField={orderField} knitter={null} disabled today={today} />
+            {orders.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                {mode === "fabric" ? "Fabric" : "Yarn"} comes back only after yarn has gone to the knitter, and no Knitting Order has yarn out yet.
+                {waiting.length ? (
+                  <>
+                    {" "}
+                    Issued, waiting for their yarn:{" "}
+                    {waiting.map((o, i) => (
+                      <span key={o.id}>
+                        {i ? ", " : ""}
+                        <Link href={`/process/knitting-hub/${o.id}`} className="text-primary hover:underline">
+                          {o.code ?? "(no number)"}
+                        </Link>
+                      </span>
+                    ))}
+                    {" "}— send it from the order with Send Yarn.
+                  </>
+                ) : null}
+              </p>
+            ) : null}
+          </div>
+        )}
+        {doc ? <KnittingReceiptPanel key={`${mode}-${doc.id}`} mode={mode} doc={doc} orderField={orderField} partyTargets={partyTargets} stores={stores} bins={bins} canEdit={canEdit} today={today} /> : null}
+      </div>
     </div>
   );
 }
