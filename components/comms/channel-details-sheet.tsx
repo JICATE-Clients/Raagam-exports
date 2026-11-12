@@ -500,6 +500,15 @@ export function ChannelDetailsSheet({
           {can.add_members && (
             <MemberActionRow icon={UserPlus} label="Add people" onClick={() => setShowAdd((v) => !v)} expanded={showAdd} />
           )}
+          {/* OWNER ONLY ADDS (user 2026-11-12, artifact "Channel Add — Owner Only", option B):
+              a moderator or member sees no add control, and this one line says why, so the
+              missing button does not read as a fault. 0836 refuses the add in the database. */}
+          {!can.add_members && !c.is_archived && (
+            <p className="mx-5 mb-2 flex items-center gap-2 rounded-lg bg-surface-muted px-3 py-2.5 text-[13px] text-muted-foreground">
+              <Lock className="h-4 w-4 shrink-0" aria-hidden />
+              Only the channel owner can add people.
+            </p>
+          )}
           {showAdd && (
             <div className="mx-5 mb-2 space-y-2 rounded-lg border border-border p-2">
               <div className="h-64">
