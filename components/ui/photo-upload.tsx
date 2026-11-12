@@ -1,11 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
+import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
 import { useModalGuard } from "@/lib/reload-guard";
 
+/** Lets a surface that draws its own preview open the full photo (the HR
+ *  profile card's avatar). */
+export type PhotoUploadHandle = { view: () => void };
+
 type Props = {
+  ref?: Ref<PhotoUploadHandle>;
   /**
    * Draw the 80px thumbnail beside the button. Default true.
    *
@@ -57,6 +63,7 @@ const CAPTURE_MAX_EDGE = 1280;
  * file picker is right there. Never a dead end.
  */
 export function PhotoUpload({
+  ref,
   value,
   onChange,
   bucket = "employee-photos",
@@ -73,6 +80,9 @@ export function PhotoUpload({
   const [error, setError] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
   const [camError, setCamError] = useState<string | null>(null);
+  const [viewing, setViewing] = useState(false);
+
+  useImperativeHandle(ref, () => ({ view: () => setViewing(!!value) }), [value]);
 
   /* A hand-rolled overlay is invisible to the reload guard's DOM scan, so it
      declares itself — otherwise a deploy landing while the camera is open
@@ -194,12 +204,19 @@ export function PhotoUpload({
       {showPreview && (
         <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg border border-border bg-surface-muted">
           {value ? (
-            // eslint-disable-next-line @next/next/no-img-element -- a Supabase storage public URL.
-            <img
-              src={value}
-              alt="Photo"
-              className={`h-full w-full ${fit === "contain" ? "object-contain p-1" : "object-cover"}`}
-            />
+            <button
+              type="button"
+              aria-label="View the full photo"
+              onClick={() => setViewing(true)}
+              className="block h-full w-full cursor-zoom-in"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element -- a Supabase storage public URL. */}
+              <img
+                src={value}
+                alt="Photo"
+                className={`h-full w-full ${fit === "contain" ? "object-contain p-1" : "object-cover"}`}
+              />
+            </button>
           ) : (
             <div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
               {emptyLabel}
@@ -248,6 +265,28 @@ export function PhotoUpload({
           }}
         />
       </div>
+
+      <PhotoViewer
+        src={viewing ? value : null}
+        alt="Photo"
+        onClose={() => setViewing(false)}
+        onChange={
+          disabled
+            ? undefined
+            : () => {
+                setViewing(false);
+                void openPicker();
+              }
+        }
+        onRemove={
+          disabled
+            ? undefined
+            : () => {
+                setViewing(false);
+                void handleRemove();
+              }
+        }
+      />
 
       {picking && (
         <div
@@ -306,5 +345,81 @@ export function PhotoUpload({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * THE PHOTO, FULL SIZE (client 2026-11-06: "if i click the image it should pop
+ * up in full image so that i can drop or change anything, like other apps do").
+ *
+ * Open while `src` is set. Change and Remove are offered only when passed: a
+ * read-only profile shows the picture and Close. Esc, the backdrop and Close
+ * all shut it; Esc is caught in the capture phase so it closes THIS layer and
+ * does not also unwind the editor underneath (one layer per press).
+ */
+export function PhotoViewer({
+  src,
+  alt,
+  onClose,
+  onChange,
+  onRemove,
+}: {
+  src: string | null | undefined;
+  alt: string;
+  onClose: () => void;
+  onChange?: () => void;
+  onRemove?: () => void;
+}) {
+  const open = !!src;
+  // A hand-rolled overlay declares itself to the reload guard (AGENTS.md).
+  useModalGuard(open);
+  useEffect(() => {
+    if (!open) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      onClose();
+    }
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [open, onClose]);
+
+  if (!src || typeof document === "undefined") return null;
+  return createPortal(
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={alt}
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-black/80 p-4"
+      onClick={onClose}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element -- a Supabase storage public URL. */}
+      <img
+        src={src}
+        alt={alt}
+        className="max-h-[78vh] max-w-full rounded-xl object-contain shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      />
+      <div
+        className="flex flex-wrap justify-center gap-2 rounded-xl bg-surface p-2 shadow-lg"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {onChange && (
+          <Button type="button" variant="outline" onClick={onChange}>
+            Change
+          </Button>
+        )}
+        {onRemove && (
+          <Button type="button" variant="ghost" className="text-danger" onClick={onRemove}>
+            Remove
+          </Button>
+        )}
+        <Button type="button" variant="primary" autoFocus onClick={onClose}>
+          Close
+        </Button>
+      </div>
+    </div>,
+    document.body,
   );
 }

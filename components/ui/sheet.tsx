@@ -14,7 +14,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefO
 const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 import { createPortal } from "react-dom";
 import { useSkin } from "@/components/ui/skin";
-import { X } from "lucide-react";
+import { ArrowLeft, X } from "lucide-react";
 import { RequiredScope } from "@/components/ui/field";
 import { cn } from "@/lib/utils";
 import { focusFirstField, focusField } from "@/lib/focus";
@@ -159,11 +159,12 @@ export function Sheet({
   headerActions,
   zIndexBase = 90,
   fullScreen = true,
-  size = "lg",
+  size: sizeProp = "lg",
   maxWidthClass,
   fullBleed = false,
   origin,
   alignToPane = false,
+  asPage = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -373,6 +374,15 @@ export function Sheet({
    * half state: one `paneBox` decides it.
    */
   alignToPane?: boolean;
+  /**
+   * OPENS AS THE PAGE, NOT OVER IT (user 2026-11-10, Time Off: "i want more
+   * user friendly not pop up but in the page itself", choosing "form replaces
+   * the list"). The full-screen surface with nothing that reads as a dialog:
+   * no dimmed scrim and no slide-in — the form simply stands where the list
+   * was, under the workspace tabs — and the header leads with "← Back" in
+   * place of the ✕. Forces `size="lg"`, since only that variant fills the pane.
+   */
+  asPage?: boolean;
   /*
    * A RAIL JOIN WAS BUILT HERE AND WITHDRAWN ON 2026-08-28. Read this before
    * building a fourth one.
@@ -441,6 +451,8 @@ export function Sheet({
      below — a portal keeps React context, so this is the skin of the screen that
      OPENED the sheet, not of `document.body` where it lands. */
   const skin = useSkin();
+
+  const size = asPage ? "lg" : sizeProp;
 
   // Portal targets document.body, which doesn't exist during SSR. Render nothing
   // until mounted so the server and first client render agree (no hydration gap).
@@ -707,7 +719,9 @@ export function Sheet({
         onClick={onClose}
         style={{ zIndex: zIndexBase }}
         className={cn(
-          "fixed inset-0 bg-black/50 transition-opacity duration-200",
+          "fixed inset-0 transition-opacity duration-200",
+          // A page has nothing behind it to dim — see `asPage`.
+          asPage ? "bg-transparent" : "bg-black/50",
           fullPage && "md:top-[var(--below-strip-top,0px)] md:left-[var(--below-strip-left,0px)]",
           open ? "opacity-100" : "pointer-events-none opacity-0",
         )}
@@ -844,24 +858,40 @@ export function Sheet({
             aria-modal="true"
             style={{ zIndex: zIndexBase + 1 }}
             className={cn(
-              "fixed inset-0 flex flex-col bg-surface transition-[opacity,transform] duration-200 ease-out md:top-[var(--below-strip-top,0px)] md:left-[var(--below-strip-left,0px)]",
+              "fixed inset-0 flex flex-col bg-surface md:top-[var(--below-strip-top,0px)] md:left-[var(--below-strip-left,0px)]",
+              // A page does not slide in; it is simply there — see `asPage`.
+              !asPage && "transition-[opacity,transform] duration-200 ease-out",
               open ? "pointer-events-auto translate-y-0 opacity-100" : "pointer-events-none translate-y-3 opacity-0",
             )}
           >
             {/* header */}
             <div data-focus-region="header" className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-3.5 md:px-8">
-              <h2 className="ty-section-title truncate text-base font-semibold text-foreground md:text-lg">{title}</h2>
+              <div className="flex min-w-0 items-center gap-3">
+                {asPage && (
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-primary hover:underline"
+                  >
+                    <ArrowLeft className="h-4 w-4 shrink-0" />
+                    Back
+                  </button>
+                )}
+                <h2 className="ty-section-title truncate text-base font-semibold text-foreground md:text-lg">{title}</h2>
+              </div>
               <div className="flex shrink-0 items-center gap-1">
                 {headerActions}
-                {headerActions && <div className="mx-1 h-5 w-px bg-border" />}
-                <button
-                  type="button"
-                  onClick={onClose}
-                  aria-label="Close"
-                  className="rounded-md p-1 text-muted-foreground hover:bg-surface-muted hover:text-foreground"
-                >
-                  <X className="h-4 w-4 shrink-0" />
-                </button>
+                {headerActions && !asPage && <div className="mx-1 h-5 w-px bg-border" />}
+                {!asPage && (
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    aria-label="Close"
+                    className="rounded-md p-1 text-muted-foreground hover:bg-surface-muted hover:text-foreground"
+                  >
+                    <X className="h-4 w-4 shrink-0" />
+                  </button>
+                )}
               </div>
             </div>
             {/* content — the one scroll, and the footer rides INSIDE it (below) */}

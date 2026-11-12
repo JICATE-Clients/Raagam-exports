@@ -218,7 +218,7 @@ export function EncashmentScreen({ rows, types, people, selfOnly, canPay }: Prop
         open={open}
         onClose={() => setOpen(false)}
         title="Request leave encashment"
-        size="md"
+        asPage
         footer={
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="min-w-0 text-xs text-muted-foreground">
@@ -282,7 +282,7 @@ export function EncashmentScreen({ rows, types, people, selfOnly, canPay }: Prop
         open={!!viewFor}
         onClose={() => setViewFor(null)}
         title={viewFor ? `${viewFor.person_name} — Encashment` : "Encashment"}
-        size="md"
+        asPage
       >
         {viewFor && (
           <div className="space-y-5 text-sm">
@@ -323,7 +323,7 @@ export function EncashmentScreen({ rows, types, people, selfOnly, canPay }: Prop
         open={!!payFor}
         onClose={() => setPayFor(null)}
         title={`Mark paid — ${payFor?.person_name ?? ""}`}
-        size="sm"
+        asPage
         footer={
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setPayFor(null)}>

@@ -6,6 +6,7 @@ import { can } from "@/lib/auth/server";
 import { isOwnProfileOnly, myStaffId } from "@/lib/hr/own-profile";
 import { SELF_CHILDREN, SELF_COLUMNS } from "@/lib/hr/self-profile";
 import { createAdminClient } from "@/lib/supabase/server";
+import { deleteOrDeactivate } from "@/lib/masters/delete-guard";
 import { checkDuplicateName } from "@/lib/masters/dup-guard";
 import {
   contractorInput,
@@ -316,6 +317,24 @@ export async function updateStaff(
   }
   revalidatePath("/hr/staff");
   return { ok: true };
+}
+
+/**
+ * DELETE A STAFF ROW (user 2026-11-10: "add a del button here for the staffs").
+ * A record nothing points at is removed outright; one already used elsewhere
+ * (attendance, payroll, leave …) is switched off instead, so its history keeps
+ * its name — the masters' rule, `deleteOrDeactivate`.
+ */
+export async function deleteStaff(
+  id: string,
+): Promise<{ ok: true; inactive: boolean; usedBy?: string } | { ok: false; error: string }> {
+  if (!(await can("hr_payroll", "delete")) || (await isOwnProfileOnly())) {
+    return { ok: false, error: "Forbidden" };
+  }
+  const r = await deleteOrDeactivate(await createClient(), "staff", id);
+  if (!r.ok) return r;
+  revalidatePath("/hr/staff");
+  return { ok: true, inactive: r.inactive, usedBy: r.usedBy };
 }
 
 /* ---- My Profile ---- */

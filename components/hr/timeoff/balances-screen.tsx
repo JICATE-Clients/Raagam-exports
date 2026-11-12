@@ -256,7 +256,7 @@ export function BalancesScreen({ years, yearId, sheet, types, overrides, canEdit
         open={!!adjustFor}
         onClose={() => setAdjustFor(null)}
         title={adjustFor ? `Adjust balance — ${adjustFor.name}` : "Adjust balance"}
-        size="md"
+        asPage
         footer={
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="min-w-0 text-xs text-muted-foreground">

@@ -26,9 +26,10 @@ import { statusLabel, timeoffTone, type QueueItem } from "@/lib/hr/timeoff-types
 /**
  * HR ▸ Time Off ▸ Time Off Approvals (0770, MyJKKN `/hr/leave/approvals`).
  *
- * One queue for every kind: leave and permission requests and encashments are
- * decided through the approval engine (so only the person on the current step
- * may act, and the requester is told), comp-off claims directly by HR. Tick
+ * One queue for every kind: leave and permission requests, encashments and
+ * comp-off claims (0835) are decided through the approval engine (so only the
+ * person on the current step may act, and the requester is told); a claim filed
+ * before 0835 has no run and is still decided by HR directly. Tick
  * several to approve or reject them together. Items waiting on someone else's
  * step are listed under "Everything pending" for visibility, without buttons.
  */
@@ -82,7 +83,7 @@ export function ApprovalsScreen({ items }: Props) {
     viewing?.can_act && panel?.id === viewing.id ? panel.next : null;
   function openView(i: QueueItem) {
     setViewing(i);
-    if (i.kind !== "claim") loadTimeoffPanel(i.kind, i.id).then((p) => setPanel({ ...p, id: i.id }));
+    loadTimeoffPanel(i.kind, i.id).then((p) => setPanel({ ...p, id: i.id }));
   }
 
   const [deciding, setDeciding] = useState<Decision | null>(null);
@@ -94,11 +95,9 @@ export function ApprovalsScreen({ items }: Props) {
     startTransition(async () => {
       const one = list[0];
       const r =
-        action === "forward" && one.kind !== "claim"
+        action === "forward"
           ? await forwardTimeoff(one.kind, one.id, comment)
-          : action === "forward"
-            ? ({ ok: false, error: "A comp-off claim is decided by HR directly" } as const)
-            : await decideTimeoff(
+          : await decideTimeoff(
                 list.map((i) => ({ kind: i.kind, id: i.id })),
                 action,
                 comment,
@@ -245,7 +244,7 @@ export function ApprovalsScreen({ items }: Props) {
         open={!!viewing}
         onClose={() => setViewing(null)}
         title={viewing ? `${viewing.person_name} — ${KIND_LABEL[viewing.kind]}` : ""}
-        size="md"
+        asPage
         footer={
           viewing?.can_act ? (
             <div className="flex justify-end gap-2">
@@ -287,8 +286,8 @@ export function ApprovalsScreen({ items }: Props) {
                 {fmtDateTime(viewing.created_at)}
               </Fact>
             </dl>
-            {viewing.kind === "claim" ? (
-              <p className="text-muted-foreground">A comp-off claim is decided by HR directly — one step.</p>
+            {panel?.id === viewing.id && !panel.run && viewing.kind === "claim" ? (
+              <p className="text-muted-foreground">Filed before the three stages — decided by HR directly, one step.</p>
             ) : panel?.id === viewing.id ? (
               <ApprovalTrail panel={panel} subjectPath="/hr/time-off/approvals" decide={false} />
             ) : (
@@ -310,7 +309,7 @@ export function ApprovalsScreen({ items }: Props) {
               }`
             : ""
         }
-        size="sm"
+        asPage
         footer={
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setDeciding(null)}>

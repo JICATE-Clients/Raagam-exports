@@ -273,7 +273,7 @@ async function poChangeCards(rows: QueueRow[]): Promise<Record<string, PoChangeC
  * the run's own person (0817 `hr_approval_stage`), which also reaches an HOD
  * who cannot read the staff row.
  */
-const HR_PERSON_TABLES = new Set(["timeoff_requests", "timeoff_encashments"]);
+const HR_PERSON_TABLES = new Set(["timeoff_requests", "timeoff_encashments", "timeoff_comp_off_credits"]);
 
 /** run id → the person on an HR request, from the run's own context (0807).
  *  Read under 0808's policy: whoever can see the request sees its run. */

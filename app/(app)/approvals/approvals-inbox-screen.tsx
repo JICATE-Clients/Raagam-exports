@@ -67,7 +67,7 @@ const HR_TAB = "family:hr";
 const tabOf = (workflowKey: string) => (familyOf(workflowKey) === "hr" ? HR_TAB : workflowKey);
 
 /** The workflows whose stages escalate rather than all sign (0820). */
-const HR_FORWARD = new Set<string>(["timeoff_request", "timeoff_encashment"]);
+const HR_FORWARD = new Set<string>(["timeoff_request", "timeoff_encashment", "timeoff_comp_off"]);
 
 function useIsPhone(): boolean {
   return useSyncExternalStore(
@@ -458,7 +458,11 @@ export function ApprovalsInboxScreen({
                 to: hrNext.to,
                 send: (note) =>
                   forwardTimeoff(
-                    decideRow.workflow_key === WORKFLOWS.timeoff_encashment.key ? "encashment" : "request",
+                    decideRow.workflow_key === WORKFLOWS.timeoff_encashment.key
+                      ? "encashment"
+                      : decideRow.workflow_key === WORKFLOWS.timeoff_comp_off.key
+                        ? "claim"
+                        : "request",
                     decideRow.subject_id,
                     note,
                   ),

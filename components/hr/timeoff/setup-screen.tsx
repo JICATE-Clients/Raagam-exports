@@ -281,7 +281,7 @@ function TypesTab({ types: allTypes, canEdit, canDelete, group }: Props & { grou
         open={open}
         onClose={() => setOpen(false)}
         title={editId ? `Edit ${str("name")}` : `New ${G.noun.toLowerCase()}`}
-        size="md"
+        asPage
         footer={
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setOpen(false)}>
@@ -541,7 +541,7 @@ function YearsTab({ years, canEdit }: Props) {
         open={open}
         onClose={() => setOpen(false)}
         title={editId ? `Edit ${d.name}` : "New leave year"}
-        size="sm"
+        asPage
         footer={
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setOpen(false)}>
@@ -675,7 +675,7 @@ function BlackoutsTab({ blackouts, types, locations, canEdit, canDelete }: Props
         open={open}
         onClose={() => setOpen(false)}
         title={editId ? `Edit ${d.name}` : "New blackout"}
-        size="sm"
+        asPage
         footer={
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setOpen(false)}>

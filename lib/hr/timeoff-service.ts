@@ -394,7 +394,8 @@ export async function getTimeoffQueue(): Promise<QueueItem[]> {
       .filter(
         (q) =>
           q.subject_table === WORKFLOWS.timeoff_request.subjectTable ||
-          q.subject_table === WORKFLOWS.timeoff_encashment.subjectTable,
+          q.subject_table === WORKFLOWS.timeoff_encashment.subjectTable ||
+          q.subject_table === WORKFLOWS.timeoff_comp_off.subjectTable,
       )
       .map((q) => q.subject_id),
   );
@@ -464,19 +465,25 @@ export async function getTimeoffQueue(): Promise<QueueItem[]> {
     worker: PersonEmbed;
   };
   const isHrEditor = (await timeoffViewer()).canEdit;
-  for (const c of (credits.data ?? []) as unknown as CoRaw[]) {
+  const coRows = (credits.data ?? []) as unknown as CoRaw[];
+  const coStage = await stagesOf(WORKFLOWS.timeoff_comp_off.subjectTable, coRows.map((c) => c.id));
+  for (const c of coRows) {
+    // On the three stages (0835) the run says who decides; a claim filed
+    // before then has no run and is still HR's to decide.
+    const st = coStage.get(c.id);
+    const named = personOf(c).person_name;
     out.push({
       kind: "claim",
       id: c.id,
       code: c.code,
-      person_name: personOf(c).person_name,
+      person_name: named === "—" ? (st?.person ?? "—") : named,
       what: `Comp-off claim${c.had_punch ? " · punch found" : " · no punch that day"}`,
       when: `Worked ${fmtDate(c.worked_date)}`,
       amount: `${fmtDays(num(c.credit_days))} day credit`,
       reason: c.reason,
       created_at: c.created_at,
-      can_act: isHrEditor,
-      stage: "HR",
+      can_act: st ? onMyStep.has(c.id) : isHrEditor,
+      stage: st?.stage ?? "HR",
       status: "pending",
       staff_id: c.staff_id,
       worker_id: c.worker_id,
