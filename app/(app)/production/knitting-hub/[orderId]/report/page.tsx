@@ -117,7 +117,10 @@ export default async function KnittingAnalysisPage({ params }: { params: Promise
                           {f.width_form ? <span className={muted}> / {WIDTH_FORM_LABELS[f.width_form as keyof typeof WIDTH_FORM_LABELS] ?? f.width_form}</span> : null}
                         </Td>
                         <Td>KGS</Td>
-                        <Td>{f.ordered_dia ? `${f.ordered_dia} DIA` : ""}</Td>
+                        <Td>
+                          {f.ordered_dia ? `${f.ordered_dia} DIA` : ""}
+                          {f.finish_dia ? <div className={muted}>FIN {f.finish_dia}</div> : null}
+                        </Td>
                         <Td right>{fmtNumber(f.ordered_kg)}</Td>
                       </>
                     ) : (

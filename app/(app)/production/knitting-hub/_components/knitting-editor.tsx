@@ -22,8 +22,9 @@ import type { BinOption, StockOption, StoreOption } from "@/lib/stores/productio
 import type { BinStockOption, LotStockOption, OpenProcessOrder, ProcessDc } from "@/lib/stores/process-dc-service";
 import { ProcessDcSendForm } from "@/app/(app)/stores/process-dc/_components/process-dc-send-form";
 import { KnittingReceiptPanel } from "./knitting-receipt-panel";
+import { KnitAtKnitterPanel } from "./knit-at-knitter-panel";
 import { cancelKnittingOrder, issueKnittingOrder, loadKnitCandidates, saveKnittingOrder } from "@/lib/production/knitting-actions";
-import {
+import { type KnitYarnAtKnitter,
   KNIT_STATUS_LABELS,
   PLY_OPTIONS,
   WIDTH_FORM_LABELS,
@@ -128,7 +129,15 @@ export function KnittingEditor({
   dcSend,
 }: {
   /** Tab 2's Job Work DC form, for THIS order only (null order = nothing left to send). */
-  dcSend?: { order: OpenProcessOrder | null; stock: StockOption[]; lots: LotStockOption[]; binStock: BinStockOption[]; draft: ProcessDc | null };
+  dcSend?: {
+    order: OpenProcessOrder | null;
+    orders: OpenProcessOrder[];
+    atKnitter: KnitYarnAtKnitter[];
+    stock: StockOption[];
+    lots: LotStockOption[];
+    binStock: BinStockOption[];
+    draft: ProcessDc | null;
+  };
   /** Step 3's receive-into stores and bins (this unit's). */
   stores?: StoreOption[];
   bins?: BinOption[];
@@ -152,7 +161,7 @@ export function KnittingEditor({
   const receivable = !!doc && ["in_process", "partially_received", "received", "closed"].includes(doc.status);
   /* THE THREE TABS (spec §1.2, user 2026-11-11 "make them real tabs"). The order opens on the
      furthest step it has reached — a draft on 1, an issued order on 2, one with yarn out on 3. */
-  type Tab = "1" | "2" | "3";
+  type Tab = "1" | "2" | "3" | "4";
   const [tab, setTab] = useState<Tab>(receivable ? "3" : issued ? "2" : "1");
 
   const [salesOrderId, setSalesOrderId] = useState(doc?.sales_order_id ?? "");
@@ -224,7 +233,9 @@ export function KnittingEditor({
       fabric_item_id: c.fabric_item_id,
       fabric_name: c.fabric_name,
       width_form: c.width_form,
-      knit_dia: c.knit_dia ?? "",
+      // The BOM dia is the FINISHED dia; the knitting dia that gives it is typed here (client 11-11).
+      finished_dia: c.finish_dia ?? "",
+      knit_dia: "",
       gsm: str(c.gsm),
       // ATM-style: the BOM's balance still to knit, editable.
       programmed: balance ? String(balance) : "",
@@ -244,7 +255,8 @@ export function KnittingEditor({
   const blendOf = (r: FabricRow) => r.yarns.reduce((t, y) => t + (y.blend_pct ?? 0), 0);
   const blendBad = (r: FabricRow) => r.yarns.length === 0 || r.yarns.some((y) => y.blend_pct == null) || Math.abs(blendOf(r) - 100) > 0.01;
   const progBad = (r: FabricRow) => !((n(r.programmed) ?? 0) > 0);
-  const anyBad = typed.some((r) => !r.source_key || progBad(r) || blendBad(r));
+  const knitDiaBad = (r: FabricRow) => !r.knit_dia.trim();
+  const anyBad = typed.some((r) => !r.source_key || progBad(r) || knitDiaBad(r) || blendBad(r));
   const canSave = !readOnly && !!vendorId && !!salesOrderId && typed.length > 0 && !anyBad;
 
   const yarnCalc = (r: FabricRow, y: YarnRow) =>
@@ -337,7 +349,7 @@ export function KnittingEditor({
     value: c.key,
     label: c.fabric_name,
     sublabel: [
-      c.knit_dia ? `DIA ${c.knit_dia}` : "No dia",
+      c.finish_dia ? `FIN DIA ${c.finish_dia}` : "No dia",
       c.width_form ? WIDTH_FORM_LABELS[c.width_form] : null,
       `BOM ${fmtNumber(c.bom_kg)} kg`,
       c.programmed_elsewhere_kg ? `on other KOs ${fmtNumber(c.programmed_elsewhere_kg)} kg` : null,
@@ -383,6 +395,7 @@ export function KnittingEditor({
     if (!r.source_key) return null;
     if (r.yarns.length === 0) return { tone: "bad", text: "No composition on the fabric master" };
     if (blendBad(r)) return { tone: "bad", text: `Blend ${fmtNumber(blendOf(r))}% — must be 100%` };
+    if (knitDiaBad(r)) return { tone: "bad", text: `Knit Dia to fill${r.finished_dia ? ` for Fin Dia ${r.finished_dia}` : ""}` };
     if (progBad(r)) return { tone: "bad", text: "Program Kg to fill" };
     if (!r.gauge_id || !r.loop_length.trim()) return { tone: "warn", text: "Gauge / loop to fill" };
     return { tone: "ok", text: "Ready" };
@@ -409,7 +422,14 @@ export function KnittingEditor({
     },
     {
       value: "3",
-      label: "3. Fabric Receipt & Yarn Return",
+      label: "3. Fabric Receipt",
+      disabled: !receivable,
+      title: receivable ? undefined : "Opens once yarn has been dispatched to the knitter",
+    },
+    /* Separate from the receipt (client 2026-11-11, 0831): its own document, its own KYR number. */
+    {
+      value: "4",
+      label: "4. Yarn Return",
       disabled: !receivable,
       title: receivable ? undefined : "Opens once yarn has been dispatched to the knitter",
     },
@@ -578,8 +598,8 @@ export function KnittingEditor({
                                 <tr>
                                   <th className={TH}>Form</th>
                                   <th className={THR}>GSM</th>
-                                  <th className={THR}>Knit Dia</th>
-                                  <th className={TH}>Fin Dia</th>
+                                  <th className={THR}>Fin Dia</th>
+                                  <th className={THR}>Knit Dia *</th>
                                   <th className={TH}>Gauge</th>
                                   <th className={THR}>Loop</th>
                                   <th className={THR}>Loop Ref</th>
@@ -599,14 +619,24 @@ export function KnittingEditor({
                                   <td className={TD}>
                                     <span className={CELLR}>{f.gsm || "—"}</span>
                                   </td>
+                                  {/* FIN DIA is the BOM's (the width the garment needs); KNIT DIA is the
+                                      machine dia that knits to it — asked for, and holds the cursor until typed
+                                      (client 2026-11-11). */}
                                   <td className={TD}>
-                                    <span className={CELLR}>{f.knit_dia || "—"}</span>
+                                    <span className={CELLR}>{f.finished_dia || "—"}</span>
                                   </td>
                                   <td className={`${TD} w-24`}>
                                     {readOnly ? (
-                                      <span className={CELL}>{f.finished_dia || "—"}</span>
+                                      <span className={CELLR}>{f.knit_dia || "—"}</span>
                                     ) : (
-                                      <Input aria-label="Finished dia" value={f.finished_dia} onChange={(e) => setRow(f.key, { finished_dia: e.target.value })} />
+                                      <Input
+                                        aria-label={f.finished_dia ? `Knitting dia for finished dia ${f.finished_dia}` : "Knitting dia"}
+                                        className={NUM}
+                                        value={f.knit_dia}
+                                        required
+                                        placeholder={f.finished_dia ? `for ${f.finished_dia}` : undefined}
+                                        onChange={(e) => setRow(f.key, { knit_dia: e.target.value })}
+                                      />
                                     )}
                                   </td>
                                   <td className={`${TD} w-28`}>
@@ -845,7 +875,10 @@ export function KnittingEditor({
                   <tbody>
                     {doc.dcs.map((d) => (
                       <tr key={d.id} className="border-t border-border">
-                        <td className="py-1 font-mono text-xs">{d.code ?? "—"}</td>
+                        <td className="py-1 font-mono text-xs">
+                          {d.code ?? "—"}
+                          {d.moved_from ? <div className="font-sans text-[11px] text-muted-foreground">at the knitter, from {d.moved_from}</div> : null}
+                        </td>
                         <td className="py-1 tabular-nums">{fmtDate(d.dc_date)}</td>
                         <td className="py-1 text-right tabular-nums">{d.bags ?? "—"}</td>
                         <td className="py-1 text-right tabular-nums">{fmtNumber(d.kg)}</td>
@@ -878,7 +911,7 @@ export function KnittingEditor({
               <ProcessDcSendForm
                 key={`${doc.dcs.length}-${totals.sent}`}
                 embedded
-                orders={[dcSend.order]}
+                orders={dcSend.orders}
                 stores={stores}
                 bins={bins}
                 stock={dcSend.stock}
@@ -893,8 +926,13 @@ export function KnittingEditor({
             ) : null
           ) : null}
 
+          {/* YARN ALREADY AT THE KNITTER (client 2026-11-11, 0833) — moved here without a transport DC. */}
+          {tab === "2" && doc && issued && canEdit && dcSend?.atKnitter.length ? <KnitAtKnitterPanel doc={doc} rows={dcSend.atKnitter} /> : null}
+
           {/* STEP 3 — inside the frame, under its tab. Its Post is its own button, not a submit. */}
-          {tab === "3" && doc && receivable ? <KnittingReceiptPanel doc={doc} stores={stores} bins={bins} canEdit={canEdit} today={today} /> : null}
+          {(tab === "3" || tab === "4") && doc && receivable ? (
+            <KnittingReceiptPanel key={tab} mode={tab === "3" ? "fabric" : "yarn_return"} doc={doc} stores={stores} bins={bins} canEdit={canEdit} today={today} />
+          ) : null}
 
           {tab === "1" ? <DocRemarksLine maxWidthClass="max-w-none" value={notes} readOnly={readOnly} onChange={setNotes} /> : null}
         </div>

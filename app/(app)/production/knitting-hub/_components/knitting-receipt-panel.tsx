@@ -49,8 +49,10 @@ const n = (s: string) => {
 };
 
 /**
- * KNITTING HUB ▸ Step 3 — Fabric Receipt & Yarn Return, and the live analysis (DB 0830,
- * doc/process/knitting-plan.md Phase 3; spec §2.4–2.5).
+ * KNITTING HUB ▸ Step 3 Fabric Receipt / Step 4 Yarn Return, and the live analysis (DB 0830,
+ * doc/process/knitting-plan.md Phase 3; spec §2.4–2.5). The two are SEPARATE documents
+ * (client 2026-11-11, 0831): one panel, `mode` picks which half it posts and lists. Both
+ * belong to the same Knitting Order, so the analysis above reads the same on either tab.
  *
  * The keeper types only what arrived: rolls and kg per fabric, and any yarn the knitter sent
  * back. How much of each yarn the fabric used up is DERIVED (fabric kg × blend %) by
@@ -59,12 +61,14 @@ const n = (s: string) => {
  * for the MD (D1).
  */
 export function KnittingReceiptPanel({
+  mode,
   doc,
   stores,
   bins,
   canEdit,
   today,
 }: {
+  mode: "fabric" | "yarn_return";
   doc: KnittingOrder;
   stores: StoreOption[];
   bins: BinOption[];
@@ -118,8 +122,10 @@ export function KnittingReceiptPanel({
   const [confirm, setConfirm] = useState<"post" | "close" | null>(null);
   const [reason, setReason] = useState("");
 
-  const typedFabric = form.fabrics.filter((f) => n(f.net) > 0);
-  const typedYarn = form.yarns.filter((y) => n(y.kg) > 0);
+  const isFabric = mode === "fabric";
+  const typedFabric = isFabric ? form.fabrics.filter((f) => n(f.net) > 0) : [];
+  const typedYarn = isFabric ? [] : form.yarns.filter((y) => n(y.kg) > 0);
+  const docs = doc.receipts.filter((r) => r.kind === mode);
   const dirty = typedFabric.length > 0 || typedYarn.length > 0 || !!dcNo.trim();
   useUnsavedGuard(dirty || isPending);
 
@@ -157,7 +163,7 @@ export function KnittingReceiptPanel({
       });
       setConfirm(null);
       if (!res.ok) return toastError(res.error);
-      success("Received — fabric is in stock and the yarn it used is accounted for");
+      success(isFabric ? "Received — fabric is in stock and the yarn it used is accounted for" : "Yarn return posted — it is back on the shelf");
       setDcNo("");
       setDcDate("");
       setVehicle("");
@@ -306,7 +312,7 @@ export function KnittingReceiptPanel({
   return (
     <section className="space-y-3 rounded-lg border border-border p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold">3. Fabric Receipt &amp; Yarn Return</h3>
+        <h3 className="text-sm font-semibold">{isFabric ? "3. Fabric Receipt" : "4. Yarn Return"}</h3>
         {doc.close_pending ? <StatusPill tone="warning">Close waiting for MD</StatusPill> : null}
       </div>
 
@@ -325,29 +331,39 @@ export function KnittingReceiptPanel({
         </div>
       </div>
 
-      {doc.receipts.length ? (
+      {docs.length ? (
         <table className="w-full text-sm">
           <thead className="text-left text-xs text-muted-foreground">
             <tr>
-              <th className="py-1 font-medium">Receipt</th>
+              <th className="py-1 font-medium">{isFabric ? "Receipt" : "Return"}</th>
               <th className="py-1 font-medium">Date</th>
               <th className="py-1 font-medium">Knitter DC</th>
-              <th className="py-1 text-right font-medium">Rolls</th>
-              <th className="py-1 text-right font-medium">Fabric Kg</th>
-              <th className="py-1 text-right font-medium">Yarn Back Kg</th>
-              <th className="py-1 text-right font-medium">Draft Bill</th>
+              {isFabric ? (
+                <>
+                  <th className="py-1 text-right font-medium">Rolls</th>
+                  <th className="py-1 text-right font-medium">Fabric Kg</th>
+                  <th className="py-1 text-right font-medium">Draft Bill</th>
+                </>
+              ) : (
+                <th className="py-1 text-right font-medium">Yarn Back Kg</th>
+              )}
             </tr>
           </thead>
           <tbody>
-            {doc.receipts.map((r) => (
+            {docs.map((r) => (
               <tr key={r.id} className="border-t border-border">
                 <td className="py-1 font-mono text-xs">{r.code ?? "—"}</td>
                 <td className="py-1 tabular-nums">{fmtDate(r.receipt_date)}</td>
                 <td className="py-1">{r.vendor_dc_no ?? "—"}</td>
-                <td className="py-1 text-right tabular-nums">{r.rolls || "—"}</td>
-                <td className="py-1 text-right tabular-nums">{fmtNumber(r.fabric_kg)}</td>
-                <td className="py-1 text-right tabular-nums">{r.returned_kg ? fmtNumber(r.returned_kg) : "—"}</td>
-                <td className="py-1 text-right tabular-nums">{r.bill == null ? "—" : fmtMoney(r.bill)}</td>
+                {isFabric ? (
+                  <>
+                    <td className="py-1 text-right tabular-nums">{r.rolls || "—"}</td>
+                    <td className="py-1 text-right tabular-nums">{fmtNumber(r.fabric_kg)}</td>
+                    <td className="py-1 text-right tabular-nums">{r.bill == null ? "—" : fmtMoney(r.bill)}</td>
+                  </>
+                ) : (
+                  <td className="py-1 text-right tabular-nums">{fmtNumber(r.returned_kg)}</td>
+                )}
               </tr>
             ))}
           </tbody>
@@ -385,6 +401,7 @@ export function KnittingReceiptPanel({
           </FieldRow>
 
           {/* default-row: exempt -- one row per fabric on the order, derived */}
+          {isFabric ? (
           <div className={DENSE}>
             <ChildGrid<FabricIn>
               label="Fabric received"
@@ -400,8 +417,10 @@ export function KnittingReceiptPanel({
               onRemove={() => {}}
             />
           </div>
+          ) : null}
 
-          {form.yarns.length ? (
+          {!isFabric && !form.yarns.length ? <p className="text-sm text-muted-foreground">The knitter holds no yarn on this order — nothing to return.</p> : null}
+          {!isFabric && form.yarns.length ? (
             // default-row: exempt -- one row per yarn still at the knitter, derived
             <div className={DENSE}>
               <ChildGrid<YarnBack>
@@ -426,7 +445,7 @@ export function KnittingReceiptPanel({
               Close order…
             </Button>
             <Button type="button" disabled={isPending || !canPost} onClick={() => setConfirm("post")}>
-              Post receipt
+              {isFabric ? "Post receipt" : "Post return"}
             </Button>
           </div>
         </div>
@@ -434,10 +453,12 @@ export function KnittingReceiptPanel({
 
       <ConfirmDialog
         open={confirm === "post"}
-        title={`Post this receipt on ${doc.code ?? "the knitting order"}?`}
-        body={`${fmtNumber(typedFabric.reduce((t, f) => t + n(f.net), 0))} kg of fabric goes into stock, and the yarn it used (by blend %) comes off what the knitter holds. ${
-          typedYarn.length ? `${fmtNumber(typedYarn.reduce((t, y) => t + n(y.kg), 0))} kg of yarn goes back on the shelf. ` : ""
-        }A draft bill is raised at fabric kg × rate. A posted receipt cannot be changed.`}
+        title={isFabric ? `Post this fabric receipt on ${doc.code ?? "the knitting order"}?` : `Post this yarn return on ${doc.code ?? "the knitting order"}?`}
+        body={
+          isFabric
+            ? `${fmtNumber(typedFabric.reduce((t, f) => t + n(f.net), 0))} kg of fabric goes into stock, and the yarn it used (by blend %) comes off what the knitter holds. A draft bill is raised at fabric kg × rate. A posted receipt cannot be changed.`
+            : `${fmtNumber(typedYarn.reduce((t, y) => t + n(y.kg), 0))} kg of yarn comes back from the knitter onto the shelf. A posted return cannot be changed.`
+        }
         confirmLabel="Post"
         tone="primary"
         isPending={isPending}

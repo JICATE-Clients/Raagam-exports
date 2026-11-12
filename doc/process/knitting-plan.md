@@ -158,3 +158,21 @@ live without Phase 3, because a KO and its DCs make sense before any fabric is b
   only, as in the spec.
 - Dyeing after knitting. The grey fabric this receipt brings in goes out again on an
   ordinary Process DC.
+
+## 7. Client round 2 (recording 2026-11-11, built 2026-11-12)
+
+What the client asked, and what was built for each:
+
+| Ask | Built |
+|---|---|
+| Finishing Dia vs Knitting Dia | **Fixed.** The Fabric BOM's dia is the FINISHED dia; Tab 1 now shows it read-only as Fin Dia and asks for **Knit Dia** (required: star, cursor hold, Save and the server action). The DC print and the report show both. KO/26-27/0001 and 0002 were saved before the fix, so their "knit dia" is the BOM's finished dia — check them by eye. |
+| Separate Fabric Receipt and Yarn Return | **0831.** Tab 3 Fabric Receipt (PRC-n) and Tab 4 Yarn Return (KYR-n, own sequence); `knitting_receipts.kind`; `knitting_receipt_post` refuses a document carrying both. |
+| Blend explosion | Already built (Phase 1). |
+| Several RE numbers on one DC | **0832.** A knitting DC may carry lines of several Knitting Orders of the same knitter and unit ("+ Add Knitting Order" on the DC; each line names its KO and RE; the print lists them). Each KO stays one RE, so each RE keeps its own loss. Every reader of "an order's DCs" now goes through the LINES, never `delivery_challans.process_order_id` (dispatch, balance, write-off, close, DC status, the order's DC list, the report, Cancel, the DC's balance-to-send). The stock owner is each line's own order. Other processes keep one order per DC (0787's receipt reads one). |
+| Partial DCs against a big program | Already built (Phase 2). |
+| Bin stock on the DC | Already built (0826 / 0829). |
+| Reconciliation | Already built (Phase 3/4); now also counts yarn moved at the knitter. |
+| Yarn already at the knitter | **0833 / 0834.** Read as OUR yarn left at the knitter on another open KO (the knitter's own yarn would be a purchase — not built). Tab 2 lists it; "Move here" calls `knitting_transfer_at_knitter`: the kg comes off the source order's DC lines (kind `transferred`, not loss), a PAPER DC (`delivery_challans.knit_transfer_from`) carries it onto this order within its +1-bag cap, the stock stays in Processing with its owner changed. 0834: the source's loss % leaves moved yarn out of "sent". |
+
+Not yet: registers of Fabric Receipts / Yarn Returns as their own sidebar rows (they live on
+the order's tabs); browser test of a shared DC and a move.

@@ -59,12 +59,15 @@ export default async function ProcessDcPrintPage({ params }: { params: Promise<{
   /* A KNITTER'S CHALLAN carries the program (spec "Program Technical Specs", user 2026-11-11):
      the knitter reads gauge, loop length and dia off the paper that came with the yarn. */
   const knitting = dc.lines.some((l) => l.knit);
+  // ONE DC, SEVERAL KNITTING ORDERS (0832): each line names its KO and RE; the header lists them all.
+  const koList = [...new Map(dc.lines.filter((l) => l.knit).map((l) => [l.knit!.order_id, l.knit!])).values()];
+  const manyOrders = koList.length > 1;
   const bagsTotal = dc.lines.reduce((t, l) => t + (l.bags ?? 0), 0);
   const specOf = (l: (typeof dc.lines)[number]) => {
     const k = l.knit;
     if (!k) return null;
     return [
-      k.knit_dia ? `DIA ${k.knit_dia}${k.finished_dia ? ` / FIN ${k.finished_dia}` : ""}` : null,
+      k.knit_dia || k.finished_dia ? [k.knit_dia ? `KNIT DIA ${k.knit_dia}` : null, k.finished_dia ? `FIN DIA ${k.finished_dia}` : null].filter(Boolean).join(" / ") : null,
       k.width_form === "open_width" ? "OPEN WIDTH" : k.width_form === "tubular" ? "TUBULAR" : null,
       k.gauge ? `${k.gauge}${/gg|gauge/i.test(k.gauge) ? "" : " GG"}` : null,
       k.loop_length != null ? `LL ${fmtNumber(k.loop_length)}${k.loop_length_ref != null ? ` (REF ${fmtNumber(k.loop_length_ref)})` : ""}` : null,
@@ -85,8 +88,8 @@ export default async function ProcessDcPrintPage({ params }: { params: Promise<{
     },
     { label: "Process", value: (dc.process_type ?? "").toUpperCase() },
     { label: "DC Date", value: dc.dc_date ? fmtDate(dc.dc_date) : null, mono: true },
-    { label: "Process Order", value: dc.process_order_code, mono: true },
-    { label: "RE No", value: dc.order_no, mono: true },
+    { label: manyOrders ? "Knitting Orders" : "Process Order", value: manyOrders ? koList.map((k) => k.order_code ?? "").join(", ") : dc.process_order_code, mono: true },
+    { label: "RE No", value: manyOrders ? [...new Set(koList.map((k) => k.re_no).filter(Boolean))].join(", ") : dc.order_no, mono: true },
     { label: "Expected Return", value: dc.expected_return_date ? fmtDate(dc.expected_return_date) : null, mono: true },
     { label: "Vehicle No", value: dc.vehicle_no, mono: true },
     { label: "Transporter", value: dc.transporter },
@@ -101,7 +104,7 @@ export default async function ProcessDcPrintPage({ params }: { params: Promise<{
         <div className="po-keep">
           <SheetMasthead
             company={{ name: companyName, unit: u?.name ?? null, logo: letterheadLogoOf(c) }}
-            kind="Delivery Challan — Job Work"
+            kind={dc.knit_transfer_from ? "Yarn Transfer at Knitter — not a transport challan" : "Delivery Challan — Job Work"}
             reNo={dc.code}
             meta={<span className="tabular-nums">{fmtDate(dc.dc_date)}</span>}
             dense
@@ -149,6 +152,12 @@ export default async function ProcessDcPrintPage({ params }: { params: Promise<{
                           {fmtNumber(l.knit.blend_pct)}% of {l.knit.fabric}
                         </div>
                         {specOf(l) ? <div className="text-[10.5px] text-[#4b5563]">{specOf(l)}</div> : null}
+                        {manyOrders && l.knit ? (
+                          <div className="text-[10.5px] font-semibold text-[#4b5563]">
+                            {l.knit.order_code ?? ""}
+                            {l.knit.re_no ? ` · RE ${l.knit.re_no}` : ""}
+                          </div>
+                        ) : null}
                       </>
                     ) : null}
                   </Td>

@@ -14,6 +14,7 @@ import {
   type KnittingOrder,
   type KnittingOrderListRow,
   type KnittingOrderStatus,
+  type KnitYarnAtKnitter,
 } from "./knitting-types";
 
 /**
@@ -109,18 +110,24 @@ export async function getKnittingOrder(id: string): Promise<KnittingOrder | null
     }
   }
 
-  // The Yarn DCs raised against this order (separate reads: delivery_challans carries several
-  // FKs to the same tables, AGENTS.md "A SECOND FK").
-  const { data: dcRows, error: dcListErr } = await s
-    .from("delivery_challans")
-    .select("id, code, dc_date, status, created_at")
-    .eq("process_order_id", id)
-    .order("created_at", { ascending: true });
-  if (dcListErr) throw new Error(`Could not read the yarn DCs: ${dcListErr.message}`);
-  const dcIds = ((dcRows ?? []) as { id: string }[]).map((d) => d.id);
-  const dcLines = dcIds.length
-    ? await s.from("dc_line_items").select("delivery_challan_id, sent_qty, bags").in("delivery_challan_id", dcIds)
+  // The Yarn DCs carrying this order's lines (0832: one DC may carry several Knitting Orders,
+  // so never `delivery_challans.process_order_id`) — and only THIS order's kg on each. Separate
+  // reads: delivery_challans carries several FKs to the same tables (AGENTS.md "A SECOND FK").
+  const dcLines = lineIds.length
+    ? await s.from("dc_line_items").select("delivery_challan_id, sent_qty, bags").in("process_order_line_id", lineIds)
     : { data: [], error: null };
+  const dcIds = [...new Set(((dcLines.data ?? []) as { delivery_challan_id: string }[]).map((l) => l.delivery_challan_id))];
+  const { data: dcRows, error: dcListErr } = dcIds.length
+    ? await s.from("delivery_challans").select("id, code, dc_date, status, created_at, knit_transfer_from").in("id", dcIds).order("created_at", { ascending: true })
+    : { data: [], error: null };
+  if (dcListErr) throw new Error(`Could not read the yarn DCs: ${dcListErr.message}`);
+  // A paper DC (0833) names the order its yarn was moved from.
+  const fromIds = [...new Set(((dcRows ?? []) as { knit_transfer_from: string | null }[]).map((d) => d.knit_transfer_from).filter((x): x is string => !!x))];
+  const movedFromCode = new Map<string, string>();
+  if (fromIds.length) {
+    const { data: fromRows } = await s.from("process_orders").select("id, code").in("id", fromIds);
+    for (const f of (fromRows ?? []) as { id: string; code: string | null }[]) movedFromCode.set(f.id, f.code ?? "another order");
+  }
   if (dcLines.error) throw new Error(`Could not read the yarn DC lines: ${dcLines.error.message}`);
   const dcSum = new Map<string, { kg: number; bags: number | null }>();
   for (const l of (dcLines.data ?? []) as { delivery_challan_id: string; sent_qty: number; bags: number | null }[]) {
@@ -134,20 +141,20 @@ export async function getKnittingOrder(id: string): Promise<KnittingOrder | null
   const [rcRes, kyRes] = await Promise.all([
     s
       .from("knitting_receipts")
-      .select("id, code, receipt_date, vendor_dc_no, created_at, payable_id, fabrics:knitting_receipt_fabrics(knit_fabric_id, rolls, net_kg)")
+      .select("id, kind, code, receipt_date, vendor_dc_no, created_at, payable_id, fabrics:knitting_receipt_fabrics(knit_fabric_id, rolls, net_kg)")
       .eq("process_order_id", id)
       .order("created_at", { ascending: true }),
     s.from("knitting_receipt_yarns").select("receipt_id, knit_yarn_id, kind, qty_kg").eq("process_order_id", id),
   ]);
   if (rcRes.error) throw new Error(`Could not read the fabric receipts: ${rcRes.error.message}`);
   if (kyRes.error) throw new Error(`Could not read the yarn accounting: ${kyRes.error.message}`);
-  type RcRow = { id: string; code: string | null; receipt_date: string; vendor_dc_no: string | null; payable_id: string | null; fabrics: { knit_fabric_id: string; rolls: number | null; net_kg: number }[] | null };
+  type RcRow = { id: string; kind: "fabric" | "yarn_return"; code: string | null; receipt_date: string; vendor_dc_no: string | null; payable_id: string | null; fabrics: { knit_fabric_id: string; rolls: number | null; net_kg: number }[] | null };
   const receiptsRaw = (rcRes.data ?? []) as unknown as RcRow[];
-  const yarnMoves = (kyRes.data ?? []) as { receipt_id: string | null; knit_yarn_id: string; kind: "used" | "returned" | "written_off"; qty_kg: number }[];
-  const byYarn = new Map<string, { used: number; returned: number; written_off: number }>();
+  const yarnMoves = (kyRes.data ?? []) as { receipt_id: string | null; knit_yarn_id: string; kind: "used" | "returned" | "written_off" | "transferred"; qty_kg: number }[];
+  const byYarn = new Map<string, { used: number; returned: number; written_off: number; transferred: number }>();
   const returnedByReceipt = new Map<string, number>();
   for (const m of yarnMoves) {
-    const t = byYarn.get(m.knit_yarn_id) ?? { used: 0, returned: 0, written_off: 0 };
+    const t = byYarn.get(m.knit_yarn_id) ?? { used: 0, returned: 0, written_off: 0, transferred: 0 };
     t[m.kind] += num(m.qty_kg);
     byYarn.set(m.knit_yarn_id, t);
     if (m.kind === "returned" && m.receipt_id) returnedByReceipt.set(m.receipt_id, (returnedByReceipt.get(m.receipt_id) ?? 0) + num(m.qty_kg));
@@ -211,17 +218,20 @@ export async function getKnittingOrder(id: string): Promise<KnittingOrder | null
           required_kg: num(y.required_kg),
           bag_weight_kg: numN(y.bag_weight_kg),
           required_bags: numN(y.required_bags),
+          process_order_line_id: y.process_order_line_id,
           dispatched_kg: y.process_order_line_id ? (sentByLine.get(y.process_order_line_id) ?? 0) : 0,
           used_kg: r3(byYarn.get(y.id)?.used ?? 0),
           returned_kg: r3(byYarn.get(y.id)?.returned ?? 0),
           written_off_kg: r3(byYarn.get(y.id)?.written_off ?? 0),
+          transferred_kg: r3(byYarn.get(y.id)?.transferred ?? 0),
           at_knitter_kg: r3(
             Math.max(
               0,
               (y.process_order_line_id ? (sentByLine.get(y.process_order_line_id) ?? 0) : 0) -
                 (byYarn.get(y.id)?.used ?? 0) -
                 (byYarn.get(y.id)?.returned ?? 0) -
-                (byYarn.get(y.id)?.written_off ?? 0),
+                (byYarn.get(y.id)?.written_off ?? 0) -
+                (byYarn.get(y.id)?.transferred ?? 0),
             ),
           ),
         })),
@@ -230,6 +240,7 @@ export async function getKnittingOrder(id: string): Promise<KnittingOrder | null
     })),
     receipts: receiptsRaw.map((rc) => ({
       id: rc.id,
+      kind: rc.kind,
       code: rc.code,
       receipt_date: rc.receipt_date,
       vendor_dc_no: rc.vendor_dc_no,
@@ -241,11 +252,12 @@ export async function getKnittingOrder(id: string): Promise<KnittingOrder | null
     close_pending: !!r.close_pending,
     close_reason: (r.close_reason as string | null) ?? null,
     close_remark: (r.close_remark as string | null) ?? null,
-    dcs: ((dcRows ?? []) as { id: string; code: string | null; dc_date: string | null; status: string }[]).map((d) => ({
+    dcs: ((dcRows ?? []) as { id: string; code: string | null; dc_date: string | null; status: string; knit_transfer_from: string | null }[]).map((d) => ({
       id: d.id,
       code: d.code,
       dc_date: d.dc_date,
       status: d.status,
+      moved_from: d.knit_transfer_from ? (movedFromCode.get(d.knit_transfer_from) ?? "another order") : null,
       kg: Math.round((dcSum.get(d.id)?.kg ?? 0) * 1000) / 1000,
       bags: dcSum.get(d.id)?.bags ?? null,
     })),
@@ -372,7 +384,7 @@ export async function getKnitCandidates(salesOrderId: string, excludeOrderId: st
     const held = slices.get(key) ?? {
       key,
       fabric_item_id: r.item_id as string,
-      knit_dia: dia,
+      finish_dia: dia,
       width_form: widthForm,
       gsm: null,
       bom_kg: 0,
@@ -411,7 +423,7 @@ export async function getKnitCandidates(salesOrderId: string, excludeOrderId: st
         })),
       };
     })
-    .sort((a, b) => a.fabric_name.localeCompare(b.fabric_name) || (a.knit_dia ?? "").localeCompare(b.knit_dia ?? ""));
+    .sort((a, b) => a.fabric_name.localeCompare(b.fabric_name) || (a.finish_dia ?? "").localeCompare(b.finish_dia ?? ""));
 
   // Names for a fabric with no composition (the composition helper names only what it found).
   const unnamed = candidates.filter((c) => !c.fabric_name).map((c) => c.fabric_item_id);
@@ -446,7 +458,9 @@ export type KnitAnalysisSheet = {
     id: string;
     item: string;
     width_form: string | null;
+    /** Knitting dia, then the finished dia it knits to. */
     ordered_dia: string | null;
+    finish_dia: string | null;
     ordered_kg: number;
     receipts: { grn: string | null; grn_date: string; supp_dc: string | null; supp_dt: string | null; dia: string | null; rolls: number | null; kg: number }[];
   }[];
@@ -480,7 +494,13 @@ export async function getKnitAnalysisSheet(doc: KnittingOrder): Promise<KnitAnal
       .eq("process_order_id", doc.id)
       .eq("kind", "returned"),
     dcIds.length
-      ? s.from("dc_line_items").select("delivery_challan_id, item_id, sent_qty, bags, lot_no, sort_order").in("delivery_challan_id", dcIds).order("sort_order")
+      ? s
+          .from("dc_line_items")
+          .select("delivery_challan_id, item_id, sent_qty, bags, lot_no, sort_order")
+          .in("delivery_challan_id", dcIds)
+          // only this order's lines of a DC it shares with another Knitting Order (0832)
+          .in("process_order_line_id", doc.fabrics.flatMap((f) => f.yarns.map((y) => y.process_order_line_id)).filter((x): x is string => !!x))
+          .order("sort_order")
       : Promise.resolve({ data: [], error: null }),
   ]);
   for (const [what, res] of [["the receipts", rcRes], ["the yarn returned", retRes], ["the yarn DCs", dclRes]] as const) {
@@ -559,7 +579,9 @@ export async function getKnitAnalysisSheet(doc: KnittingOrder): Promise<KnitAnal
     .map(({ at: _at, ...r }) => (void _at, r));
 
   const r3 = (n: number) => Math.round(n * 1000) / 1000;
-  const issued = r3(dcl.reduce((t, l) => t + num(l.sent_qty), 0));
+  // Yarn moved at the knitter onto another order (0833) leaves this order's issue.
+  const moved = r3(doc.fabrics.reduce((t, f) => t + f.yarns.reduce((u, y) => u + y.transferred_kg, 0), 0));
+  const issued = r3(dcl.reduce((t, l) => t + num(l.sent_qty), 0) - moved);
   const fabric = r3(doc.fabrics.reduce((t, f) => t + f.received_kg, 0));
   const returned = r3(returns.reduce((t, r) => t + r.kg, 0));
   const off = r3(doc.fabrics.reduce((t, f) => t + f.yarns.reduce((u, y) => u + y.written_off_kg, 0), 0));
@@ -572,6 +594,7 @@ export async function getKnitAnalysisSheet(doc: KnittingOrder): Promise<KnitAnal
       item: f.fabric_name,
       width_form: f.width_form,
       ordered_dia: f.knit_dia,
+      finish_dia: f.finished_dia,
       ordered_kg: f.programmed_kg,
       receipts: rcByFabric.get(f.id) ?? [],
     })),
@@ -584,4 +607,125 @@ export async function getKnitAnalysisSheet(doc: KnittingOrder): Promise<KnitAnal
     to_return_kg: toReturn,
     to_return_pct: issued > 0 ? Math.round((toReturn / issued) * 100 * 1000) / 1000 : null,
   };
+}
+
+/**
+ * YARN ALREADY AT THIS KNITTER (client 2026-11-11, 0833): the same yarns as this order's, at the
+ * same knitter on its OTHER open Knitting Orders — what Tab 2 offers to move here without a
+ * transport DC. "At the knitter" is per order line: sent on its DCs − used − returned − written
+ * off − moved on (the DC lines' returned/shortage carry all four).
+ */
+export async function listYarnAtKnitter(doc: KnittingOrder): Promise<KnitYarnAtKnitter[]> {
+  const yarnIds = [...new Set(doc.fabrics.flatMap((f) => f.yarns.map((y) => y.yarn_item_id)))];
+  if (!doc.vendor_id || !yarnIds.length) return [];
+  const s = await createClient();
+  const { data: others, error } = await s
+    .from("process_orders")
+    .select(
+      "id, code, so:sales_orders!sales_order_id(order_number), " +
+        "fabrics:process_order_knit_fabrics(fabric:items!fabric_item_id(name), " +
+        "yarns:process_order_knit_yarns(id, yarn_item_id, process_order_line_id, yarn:items!yarn_item_id(name)))",
+    )
+    .eq("process_type", "knitting")
+    .eq("vendor_id", doc.vendor_id)
+    .in("status", ["in_process", "partially_received"])
+    .eq("close_pending", false)
+    .neq("id", doc.id);
+  if (error) throw new Error(`Yarn at the knitter: ${error.message}`);
+  type Y = { id: string; yarn_item_id: string; process_order_line_id: string | null; yarn: { name: string } | { name: string }[] | null };
+  type O = { id: string; code: string | null; so: unknown; fabrics: { fabric: unknown; yarns: Y[] | null }[] | null };
+  const rows: (Omit<KnitYarnAtKnitter, "at_knitter_kg"> & { pol: string })[] = [];
+  for (const o of (others ?? []) as unknown as O[]) {
+    const re = one(o.so as { order_number: string | null } | { order_number: string | null }[] | null)?.order_number ?? null;
+    for (const f of o.fabrics ?? []) {
+      for (const y of f.yarns ?? []) {
+        if (!y.process_order_line_id || !yarnIds.includes(y.yarn_item_id)) continue;
+        rows.push({
+          from_yarn_id: y.id,
+          from_order_code: o.code,
+          from_re_no: re,
+          yarn_item_id: y.yarn_item_id,
+          yarn_name: one(y.yarn)?.name ?? "",
+          fabric: one(f.fabric as { name: string } | { name: string }[] | null)?.name ?? "",
+          pol: y.process_order_line_id,
+        });
+      }
+    }
+  }
+  if (!rows.length) return [];
+  const { data: lines, error: lErr } = await s
+    .from("dc_line_items")
+    .select("process_order_line_id, sent_qty, returned_qty, shortage_qty, dc:delivery_challans!inner(status)")
+    .in("process_order_line_id", rows.map((r) => r.pol))
+    .in("dc.status", ["issued", "partially_returned"]);
+  if (lErr) throw new Error(`Yarn at the knitter: ${lErr.message}`);
+  const held = new Map<string, number>();
+  for (const l of (lines ?? []) as unknown as { process_order_line_id: string; sent_qty: number; returned_qty: number | null; shortage_qty: number | null }[]) {
+    held.set(l.process_order_line_id, (held.get(l.process_order_line_id) ?? 0) + num(l.sent_qty) - num(l.returned_qty) - num(l.shortage_qty));
+  }
+  return rows
+    .map(({ pol, ...r }) => ({ ...r, at_knitter_kg: Math.round((held.get(pol) ?? 0) * 1000) / 1000 }))
+    .filter((r) => r.at_knitter_kg > 0.0005);
+}
+
+/** One posted Fabric Receipt or Yarn Return, for its register (0831: separate menus). */
+export type KnitReceiptListRow = {
+  id: string;
+  code: string | null;
+  receipt_date: string;
+  vendor_dc_no: string | null;
+  order_id: string;
+  order_code: string | null;
+  re_no: string | null;
+  knitter: string | null;
+  rolls: number;
+  kg: number;
+  created_at: string;
+  created_by: string | null;
+};
+
+/**
+ * Production ▸ Knitting ▸ Fabric Receipts / Yarn Returns (client 2026-11-11: "distinct
+ * screens/menus"). Each document belongs to its Knitting Order, which is where it is posted;
+ * the register lists them across orders, in entry order.
+ */
+export async function listKnittingReceipts(kind: "fabric" | "yarn_return"): Promise<KnitReceiptListRow[]> {
+  const s = await createClient();
+  const { data, error } = await s
+    .from("knitting_receipts")
+    .select(
+      "id, code, receipt_date, vendor_dc_no, created_at, created_by, process_order_id, " +
+        "ko:process_orders!process_order_id(code, vendor:master_vendors!vendor_id(name), so:sales_orders!sales_order_id(order_number)), " +
+        "fabrics:knitting_receipt_fabrics(rolls, net_kg), yarns:knitting_receipt_yarns(kind, qty_kg)",
+    )
+    .eq("kind", kind)
+    .order("created_at", { ascending: true });
+  if (error) throw new Error(`Could not read the knitting ${kind === "fabric" ? "receipts" : "yarn returns"}: ${error.message}`);
+  type R = {
+    id: string; code: string | null; receipt_date: string; vendor_dc_no: string | null; created_at: string; created_by: string | null;
+    process_order_id: string; ko: unknown;
+    fabrics: { rolls: number | null; net_kg: number }[] | null; yarns: { kind: string; qty_kg: number }[] | null;
+  };
+  return withCreators(
+    ((data ?? []) as unknown as R[]).map((r) => {
+      const ko = one(r.ko as { code: string | null; vendor: unknown; so: unknown } | null);
+      return {
+        id: r.id,
+        code: r.code,
+        receipt_date: r.receipt_date,
+        vendor_dc_no: r.vendor_dc_no,
+        order_id: r.process_order_id,
+        order_code: ko?.code ?? null,
+        re_no: one(ko?.so as { order_number: string | null } | null)?.order_number ?? null,
+        knitter: one(ko?.vendor as { name: string } | null)?.name ?? null,
+        rolls: (r.fabrics ?? []).reduce((t, f) => t + num(f.rolls), 0),
+        kg:
+          kind === "fabric"
+            ? Math.round((r.fabrics ?? []).reduce((t, f) => t + num(f.net_kg), 0) * 1000) / 1000
+            : Math.round((r.yarns ?? []).filter((y) => y.kind === "returned").reduce((t, y) => t + num(y.qty_kg), 0) * 1000) / 1000,
+        created_at: r.created_at,
+        created_by: r.created_by,
+      };
+    }),
+  );
 }
