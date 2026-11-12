@@ -11,7 +11,7 @@ import { isPieceDyed, isYarnDyed, missingFabricLineFields } from "./fabric-line-
    async Server Functions — so this file cannot be the home of a predicate two
    readers share. See its own header for the drift that made it one function. */
 import { colouredStageIds, processRowInScope, stageRouteProblems } from "./processes";
-import { yarnShadesOfRows } from "./yarn-dyed";
+import { withYdRepeatBlend, yarnShadesOfRows, type YdBlendRepeat } from "./yarn-dyed";
 import { colorLossesForStorage } from "./color-loss";
 import { yarnStageProblems } from "./yarn-stage-routes";
 import {
@@ -1853,7 +1853,7 @@ async function writeLines(
     bomId,
     data,
     fabricGrossOf(requirement, savedEntries, data.lines),
-    await compositionMapFor(saved, looseFabricIds),
+    await compositionMapFor(saved, looseFabricIds, data.yd_repeats ?? []),
     decimals.size ? decimals : await uomDecimalMap(s),
   );
   if (!grossRes.ok) return grossRes;
@@ -1969,10 +1969,13 @@ async function compositionMapFor(
   /** The linked LOOSE FABRICS (0633) — on no line, but their greige yarn is
    *  bought, so their blend is read like any cloth's. */
   looseFabricIds: readonly string[] = [],
+  /** This BOM's Yarn Dyed Details — a yarn-dyed cloth with no Mixing % on the
+   *  master takes its blend from them (`withYdRepeatBlend`, RE 22 2026-11-12). */
+  ydRepeats: readonly YdBlendRepeat[] = [],
 ): Promise<Map<string, FabricComposition>> {
   const ids = [...lines.map((l) => l.item_id).filter((id): id is string => !!id), ...looseFabricIds];
   const { compositions } = await getBomYarnComposition(ids);
-  return new Map(compositions.map((c) => [c.fabric_id, c]));
+  return withYdRepeatBlend(new Map(compositions.map((c) => [c.fabric_id, c])), ydRepeats);
 }
 
 /**
@@ -3006,7 +3009,7 @@ async function planFabricBomRecalc(
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Could not read the conversion process" };
   }
-  const compositions = await compositionMapFor(saved, looseFabricIdsOf(data, unravelling));
+  const compositions = await compositionMapFor(saved, looseFabricIdsOf(data, unravelling), data.yd_repeats ?? []);
   let processKinds: ReadonlyMap<string, { is_knitting: boolean; is_dyeing: boolean; is_print?: boolean }>;
   try {
     processKinds = await processKindsOf(s, data);

@@ -271,7 +271,7 @@ import {
   type YdCombinationRow,
 } from "@/components/orders/yarn-dyed-panels";
 import { FabricBomReportsSheet } from "@/components/orders/fabric-bom-reports-sheet";
-import { yarnShadesFrom, type YdRepeatRow } from "@/lib/orders/fabric-bom/yarn-dyed";
+import { withYdRepeatBlend, yarnShadesFrom, type YdRepeatRow } from "@/lib/orders/fabric-bom/yarn-dyed";
 import {
   isPieceDyed,
   isYarnDyed,
@@ -7928,9 +7928,12 @@ export function FabricBomScreen({
     return [...byBucket.values()];
   }, [preview, entries, lines]);
 
+  /* A yarn-dyed cloth with no Mixing % on the master takes its blend from this
+     BOM's own Yarn Dyed Details (RE 22, 2026-11-12) — `withYdRepeatBlend`, the
+     same call the Save makes on the same repeats. */
   const compositionById = useMemo(
-    () => new Map((comp?.compositions ?? []).map((c) => [c.fabric_id, c])),
-    [comp],
+    () => withYdRepeatBlend(new Map((comp?.compositions ?? []).map((c) => [c.fabric_id, c])), ydRepeats),
+    [comp, ydRepeats],
   );
 
   /**

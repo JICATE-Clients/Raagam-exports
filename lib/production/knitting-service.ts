@@ -4,6 +4,7 @@ import { withCreators } from "@/lib/created-by";
 import { isInactive } from "@/lib/masters/inactive";
 import { currentFabricBom } from "@/lib/orders/fabric-requirement/service";
 import { getBomYarnComposition, getGaugeRows } from "@/lib/orders/fabric-bom/service";
+import { withYdRepeatBlend, type YdBlendRepeat } from "@/lib/orders/fabric-bom/yarn-dyed";
 import {
   knitSourceKey,
   type KnitCandidate,
@@ -312,7 +313,7 @@ export async function getKnitCandidates(salesOrderId: string, excludeOrderId: st
   const { go, bom } = current;
   const s = await createClient();
 
-  const [reqRes, entryRes, scopeRes, structRes, elseRes] = await Promise.all([
+  const [reqRes, entryRes, scopeRes, structRes, elseRes, ydRes] = await Promise.all([
     s.from("order_fabric_bom_requirements").select("item_id, entry_id, size_id, required_qty").eq("bom_id", bom.id),
     s.from("order_fabric_bom_manual_entries").select("id, width_form, structure_id").eq("bom_id", bom.id),
     s.from("order_fabric_bom_process_scope").select("item_id, source").eq("bom_id", bom.id),
@@ -325,6 +326,8 @@ export async function getKnitCandidates(salesOrderId: string, excludeOrderId: st
       .select("source_key, fabric_item_id, finished_dia, width_form, programmed_kg, po:process_orders!inner(id, code, sales_order_id, status)")
       .eq("po.sales_order_id", salesOrderId)
       .neq("po.status", "cancelled"),
+    // Yarn Dyed Details — a yarn-dyed fabric's blend when the master holds no Mixing %.
+    s.from("order_fabric_bom_yd_repeats").select("item_id, yd_part, yarn_item_id, value").eq("bom_id", bom.id),
   ]);
   for (const [what, res] of [
     ["the requirement", reqRes],
@@ -332,6 +335,7 @@ export async function getKnitCandidates(salesOrderId: string, excludeOrderId: st
     ["the fabric sources", scopeRes],
     ["the order's GSM", structRes],
     ["the knitting already programmed", elseRes],
+    ["the Yarn Dyed Details", ydRes],
   ] as const) {
     if (res.error) return { ok: false, error: `Could not read ${what}: ${res.error.message}` };
   }
@@ -421,7 +425,12 @@ export async function getKnitCandidates(salesOrderId: string, excludeOrderId: st
 
   const fabricIds = [...new Set([...slices.values()].map((x) => x.fabric_item_id))];
   const { compositions, yarns } = await getBomYarnComposition(fabricIds);
-  const compByFabric = new Map(compositions.map((c) => [c.fabric_id, c]));
+  /* A YARN-DYED fabric's master hides Mixing %; its blend is this BOM's Yarn Dyed Details
+     (RE 22, 2026-11-12) — the same `withYdRepeatBlend` the Fabric BOM's own Save uses. */
+  const compByFabric = withYdRepeatBlend(
+    new Map(compositions.map((c) => [c.fabric_id, c])),
+    (ydRes.data ?? []) as YdBlendRepeat[],
+  );
   const yarnName = new Map(yarns.map((y) => [y.id, y.name]));
 
   const candidates: KnitCandidate[] = [...slices.values()]

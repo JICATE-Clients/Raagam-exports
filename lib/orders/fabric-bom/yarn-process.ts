@@ -508,11 +508,17 @@ export function yarnShareOf(
     return 1;
   }
 
+  /* A YARN-DYED cloth's master has no Mixing % box (it is hidden there), so its
+     fix is the BOM's Yarn Dyed Details — `withYdRepeatBlend` reads the blend off
+     their Values (RE 22, 2026-11-12). Sending the operator to a box that is not
+     on screen is how this message read as a bug. */
   return {
     refused:
       `${fabric.fabric_name || "This fabric"} names ${fabric.components.length} yarns ` +
       "with no blend percentages, so its weight cannot be split between them — " +
-      "enter the Mixing % on the material master",
+      (fabric.yarn_dyed
+        ? "enter a Value for every one of its yarns on the Fabric BOM's Yarn Dyed Details"
+        : "enter the Mixing % on the material master"),
   };
 }
 
