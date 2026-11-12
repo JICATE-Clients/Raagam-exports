@@ -6,7 +6,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useSta
 import { CHAT_WALL_MASK } from "@/lib/comms/chat-wall";
 import { ArrowLeft, Hash, Loader2, Lock, Megaphone, MoreVertical, Pin, RotateCw, Users, WifiOff, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { PulseConfirm } from "./pulse-confirm";
 import { DropdownMenu, type DropdownItem } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/components/ui/toast";
 import { Truncated } from "@/components/ui/truncated";
@@ -1075,10 +1075,9 @@ export function ConversationView({
       ) : (
         <DetailsSheet open={detailsOpen} conversation={conversation} meId={meId} onClose={() => setDetailsOpen(false)} />
       )}
-      <ConfirmDialog
+      <PulseConfirm
         open={confirmLeave}
         title={`Leave ${conversation.title}?`}
-        body="You keep what was said before you left. Someone can add you back later."
         confirmLabel={conversation.kind === "channel" ? "Leave channel" : "Leave group"}
         isPending={menuBusy}
         onCancel={() => setConfirmLeave(false)}

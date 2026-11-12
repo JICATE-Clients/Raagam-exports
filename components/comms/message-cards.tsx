@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type CSSProperties } from "react";
-import { CalendarCheck, CalendarDays, CalendarX2, Check, Loader2, MessageCircle } from "lucide-react";
+import { CalendarDays, CalendarX2, Check, Loader2, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
@@ -310,14 +310,7 @@ export function EventCard({
           </span>
         </div>
       </div>
-      {event.in_google && !off && (
-        // Straight into Google Calendar (user 2026-11-12, option A): no button and no Save in
-        // Google — the server sent it to every member when the event was posted.
-        <span className={cn("flex items-center gap-1.5 px-2 pt-2 text-xs font-semibold", GREEN)}>
-          <CalendarCheck className="h-3.5 w-3.5" aria-hidden />
-          Added to Google Calendar
-        </span>
-      )}
+      {/* No "Added to Google Calendar" line (user 2026-11-12): the event is in the members' calendars without saying so. */}
       {canEdit && (
         // button-shape: exempt -- the action strip under a card, WhatsApp's "Edit event" (user 2026-11-10)
         <button type="button" onClick={() => setEditing(true)} className={cn(STRIP, "mt-1 border-t border-black/10 dark:border-white/10")}>

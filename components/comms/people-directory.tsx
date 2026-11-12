@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useState, useTransition, type FormEvent } from "react";
 import { ArrowLeft, Loader2, MessageSquare, Search, ShieldCheck, UserCheck, UserX } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { PulseConfirm } from "./pulse-confirm";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -380,10 +380,9 @@ function ProfileSheet({
         </div>
       )}
 
-      <ConfirmDialog
+      <PulseConfirm
         open={confirmDeactivate}
         title={`Deactivate ${person?.full_name ?? "this member"}?`}
-        body="They will no longer be able to read or send messages. Everything they wrote stays, under their name, and reactivating them returns them to their conversations."
         confirmLabel="Deactivate"
         isPending={pending}
         onConfirm={() => setActive(false)}

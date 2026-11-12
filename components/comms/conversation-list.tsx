@@ -50,7 +50,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { PulseConfirm } from "./pulse-confirm";
 import { DropdownMenu, type DropdownItem } from "@/components/ui/dropdown-menu";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -606,10 +606,9 @@ export function ConversationList({
 
   const leaveDialog = (
     <>
-    <ConfirmDialog
+    <PulseConfirm
       open={!!leaving}
       title={`Leave ${leaving?.title ?? ""}?`}
-      body="You keep what was said before you left. Someone can add you back later."
       confirmLabel={leaving?.kind === "channel" ? "Leave channel" : "Exit group"}
       isPending={menuBusy}
       onCancel={() => setLeaving(null)}
@@ -626,10 +625,9 @@ export function ConversationList({
         );
       }}
     />
-    <ConfirmDialog
+    <PulseConfirm
       open={!!blocking}
       title={`Block ${blocking?.title ?? ""}?`}
-      body="Neither of you can send messages in this chat until you unblock them. Groups and channels are not affected."
       confirmLabel="Block"
       isPending={menuBusy}
       onCancel={() => setBlocking(null)}
@@ -639,11 +637,10 @@ export function ConversationList({
         runMenu(() => setBlocked(c.other_user_id as string, true), `${c.title} blocked`, () => setBlocking(null));
       }}
     />
-    <ConfirmDialog
+    <PulseConfirm
       open={!!deleting}
       title={`Delete chat with ${deleting?.title ?? ""}?`}
-      body="The chat and its messages are removed from your Pulse only. The other person keeps them. The chat comes back if they write again."
-      confirmLabel="Delete conversation"
+      confirmLabel="Delete"
       isPending={menuBusy}
       onCancel={() => setDeleting(null)}
       onConfirm={() => {
