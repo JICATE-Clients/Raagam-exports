@@ -2,6 +2,9 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useTransition } from "react";
+import { useToast } from "@/components/ui/toast";
+import { deleteKnittingOrder } from "@/lib/production/knitting-actions";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { FileText } from "lucide-react";
@@ -13,8 +16,23 @@ import { KNIT_STATUS_LABELS, type KnittingOrderListRow } from "@/lib/production/
 
 const BASE = "/process/knitting-hub";
 
-export function KnittingOrdersList({ rows, canEdit }: { rows: KnittingOrderListRow[]; canEdit: boolean }) {
+export function KnittingOrdersList({ rows, canEdit, canDelete = false }: { rows: KnittingOrderListRow[]; canEdit: boolean; canDelete?: boolean }) {
   const router = useRouter();
+  const [, startTransition] = useTransition();
+  const { success, error: toastError } = useToast();
+  /* A row the yarn has gone out on keeps its bin GREYED with the reason (AGENTS.md "Row actions":
+     hiding is for missing permission only). An issued order whose DC was raised is refused by
+     the server with its own sentence. */
+  const deleteBlocked = (r: KnittingOrderListRow) =>
+    ["draft", "issued", "cancelled"].includes(r.status) ? null : `${KNIT_STATUS_LABELS[r.status]} — yarn is at the knitter, cancel or close it instead`;
+  const remove = (r: KnittingOrderListRow) =>
+    startTransition(async () => {
+      const res = await deleteKnittingOrder(r.id);
+      if (res.ok) {
+        success(`${r.code ?? "Knitting order"} deleted`);
+        router.refresh();
+      } else toastError(res.error);
+    });
   const columns: Column<KnittingOrderListRow>[] = [
     {
       header: "KO No",
@@ -43,7 +61,9 @@ export function KnittingOrdersList({ rows, canEdit }: { rows: KnittingOrderListR
           canEdit={canEdit}
           onEdit={() => router.push(`${BASE}/${r.id}`)}
           editDisabledReason={r.status === "draft" ? null : `${KNIT_STATUS_LABELS[r.status]} — read-only`}
-          canDelete={false}
+          canDelete={canDelete}
+          onDelete={() => remove(r)}
+          deleteDisabledReason={deleteBlocked(r)}
         />
       ),
     },

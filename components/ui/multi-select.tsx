@@ -155,6 +155,7 @@ export function MultiSelect({
   summarizeLabels = false,
   summaryNoun,
   onCreate,
+  autoOpenClose = false,
 }: {
   id?: string;
   label: string;
@@ -336,6 +337,14 @@ export function MultiSelect({
    * typed.
    */
   onCreate?: (name: string) => Promise<{ id: string; label: string } | { error: string }>;
+  /**
+   * OPEN ON ARRIVAL, CLOSE ON A PICK (Knitting Order RE No, user 2026-11-12: "make it auto open
+   * and close"). Opt-in: the list opens when the box gets focus (click or Tab) and closes after
+   * each tick or untick, the way a single-select does. To add another, the operator clicks the
+   * box again (or presses ↓). Off by default, because a size grid picks several in one go and
+   * closing between ticks would cost it a click each.
+   */
+  autoOpenClose?: boolean;
 }) {
   // A locked record cannot be changed (`LockScope`, field.tsx) — disabled with it.
   const locked = useLocked();
@@ -350,6 +359,10 @@ export function MultiSelect({
      `rootRef` — every "is this inside the control?" test has to ask both. */
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
+  /** `autoOpenClose`: the focus that opened the list is followed by a click — that click keeps it open. */
+  const openedByFocus = useRef(false);
+  /** A mouse button is down on the box — so the focus about to arrive came from a click. */
+  const pressing = useRef(false);
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState<string | null>(null);
   /**
@@ -782,6 +795,7 @@ export function MultiSelect({
         // what lets Shift+↓ keep growing one selection instead of restarting it
         // from wherever the highlight last stopped.
         setAnchorId(highlight);
+        if (autoOpenClose) close();
       }
       return;
     }
@@ -873,7 +887,26 @@ export function MultiSelect({
           // A click anywhere in the box opens the list and a second one closes it
           // (client 2026-10-30; the user's 2026-11-03 "only the ▼" was withdrawn
           // the same day: "when I click dept it is showing to type a letter").
-          onClick={() => (open ? close() : openList())}
+          onMouseDown={() => {
+            pressing.current = true;
+          }}
+          onFocus={() => {
+            const byMouse = pressing.current;
+            pressing.current = false;
+            if (!autoOpenClose || open) return;
+            // A mouse focus is followed by a click; that click must not shut what the focus opened.
+            // A Tab focus has no click after it, so it sets nothing.
+            openedByFocus.current = byMouse;
+            openList();
+          }}
+          onClick={() => {
+            if (openedByFocus.current) {
+              openedByFocus.current = false;
+              return;
+            }
+            if (open) close();
+            else openList();
+          }}
           onChange={(e) => {
             setQuery(e.target.value);
             setCreateError(null);
@@ -1078,6 +1111,7 @@ export function MultiSelect({
                         } else {
                           toggle(o.id);
                           setAnchorId(o.id);
+                          if (autoOpenClose) close();
                         }
                         setHighlight(o.id);
                       }}

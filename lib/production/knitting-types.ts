@@ -62,6 +62,9 @@ export const knitSourceKey = (fabricId: string, dia: string | null, widthForm: s
 /** One fabric the order's current Fabric BOM needs knitted — a pick for Tab 1. */
 export type KnitCandidate = {
   key: string;
+  /** The RE this slice is on (0836: one Knitting Order may hold fabrics of several REs). */
+  sales_order_id: string;
+  re_no: string | null;
   fabric_item_id: string;
   fabric_name: string;
   /** The Fabric BOM's dia is the FINISHED width the garment needs (client 2026-11-11) —
@@ -93,6 +96,8 @@ export type KnitYarn = {
   required_kg: number;
   bag_weight_kg: number | null;
   required_bags: number | null;
+  /** DC CAP typed by the store (0837); null = the calculated cap (whole bags). */
+  dc_cap_override_kg: number | null;
   /** The Process Order line behind the yarn — what a Yarn DC line points at (0825). */
   process_order_line_id: string | null;
   /** What has gone out on Process DCs against this yarn (kg). */
@@ -110,6 +115,9 @@ export type KnitYarn = {
 export type KnitFabric = {
   id: string;
   sno: number;
+  /** The RE this fabric is knitted for (0836) — its stock belongs to that RE. */
+  sales_order_id: string | null;
+  re_no: string | null;
   fabric_item_id: string;
   fabric_name: string;
   source_key: string | null;
@@ -238,8 +246,12 @@ export type KnittingOrder = {
   status: KnittingOrderStatus;
   vendor_id: string;
   vendor_name: string | null;
+  /** The FIRST RE of the order (0836 keeps the header column for lists and filters). */
   sales_order_id: string | null;
+  /** Every RE on the order, joined — "HO/RE/26-27/0017, HO/RE/26-27/0013". */
   order_number: string | null;
+  /** The REs on the order, in the order their fabrics were added (0836). */
+  res: { id: string; order_number: string | null }[];
   order_date: string | null;
   expected_date: string | null;
   allowed_loss_pct: number | null;
@@ -281,6 +293,8 @@ export type KnittingOrderInput = {
   allowed_loss_pct: number | null;
   notes: string | null;
   fabrics: {
+    /** The fabric's own RE (0836); blank = the header's. */
+    sales_order_id: string | null;
     fabric_item_id: string;
     source_key: string | null;
     width_form: KnitWidthForm | null;
@@ -296,15 +310,28 @@ export type KnittingOrderInput = {
     programmed_kg: number;
     roll_weight_kg: number | null;
     rate_per_kg: number;
-    yarns: { yarn_item_id: string; blend_pct: number; allowance_pct: number; bag_weight_kg: number | null }[];
+    /** `dc_cap_kg`: the store's DC Cap (0837); null = calculated. */
+    yarns: { yarn_item_id: string; blend_pct: number; allowance_pct: number; bag_weight_kg: number | null; dc_cap_kg: number | null }[];
   }[];
 };
 
 /** What the receipt form sends (0830); the server derives every yarn figure. */
 export type KnitReceiptInput = {
-  header: { receipt_date: string; vendor_dc_no: string | null; vendor_dc_date: string | null; vehicle_no: string | null; notes: string | null };
+  /** `transporter` (0837). A FABRIC receipt needs vendor_dc_no + vendor_dc_date (0837). */
+  header: { receipt_date: string; vendor_dc_no: string | null; vendor_dc_date: string | null; vehicle_no: string | null; transporter?: string | null; notes: string | null };
   fabrics: { knit_fabric_id: string; rolls: number | null; net_kg: number; gross_kg: number | null; received_dia: string | null; store_id: string; bin_id: string | null; lot_no: string | null }[];
   returns: { knit_yarn_id: string; kg: number; bags: number | null; store_id: string; bin_id: string | null }[];
+  /** PARTY STOCK (0837): yarn this knitter sends straight to another knitter's Knitting Order. */
+  party?: { knit_yarn_id: string; to_order_id: string; kg: number }[];
+};
+
+/** An open Knitting Order of ANOTHER knitter that Party Stock yarn may go to (0837). */
+export type KnitPartyTarget = {
+  id: string;
+  code: string | null;
+  vendor_name: string | null;
+  /** The yarn items it carries — Party Stock must be a yarn the target uses. */
+  yarn_item_ids: string[];
 };
 
 /** One yarn row's Send Qty on the program (user 2026-11-12) — by position, see dispatchKnittingYarn. */

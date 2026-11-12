@@ -65,7 +65,7 @@ export async function knitMetaByLine(lineIds: readonly string[]): Promise<Map<st
     .from("process_order_knit_yarns")
     .select(
       "process_order_line_id, blend_pct, bag_weight_kg, " +
-        "fabric:process_order_knit_fabrics!inner(process_order_id, knit_dia, finished_dia, width_form, loop_length, loop_length_ref, gsm, ply, " +
+        "fabric:process_order_knit_fabrics!inner(process_order_id, knit_dia, finished_dia, width_form, loop_length, loop_length_ref, gsm, ply, fso:sales_orders!sales_order_id(order_number), " +
         "item:items!fabric_item_id(name), gauge:config_lookups!gauge_id(name), " +
         "ko:process_orders!process_order_id(code, so:sales_orders!sales_order_id(order_number)))",
     )
@@ -80,7 +80,8 @@ export async function knitMetaByLine(lineIds: readonly string[]): Promise<Map<st
     out.set(r.process_order_line_id as string, {
       order_id: f.process_order_id as string,
       order_code: ko?.code ?? null,
-      re_no: one(ko?.so ?? null)?.order_number ?? null,
+      // The FABRIC's RE (0836: one Knitting Order may carry several), else the order's.
+      re_no: one(f.fso as { order_number: string | null } | null)?.order_number ?? one(ko?.so ?? null)?.order_number ?? null,
       blend_pct: Number(r.blend_pct) || 0,
       bag_weight_kg: nn(r.bag_weight_kg),
       fabric: one(f.item as { name: string } | null)?.name ?? "",

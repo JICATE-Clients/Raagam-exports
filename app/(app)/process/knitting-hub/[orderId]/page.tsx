@@ -22,7 +22,8 @@ export default async function KnittingOrderPage({ params }: { params: Promise<{ 
     getKnitters(doc.vendor_id),
     getKnitGauges(),
     can("stores", "edit"),
-    doc.sales_order_id ? getKnitCandidates(doc.sales_order_id, doc.id) : Promise.resolve(null),
+    // Every RE on the order (0836) — its fabrics' picks come from each RE's own Fabric BOM.
+    Promise.all(doc.res.map((re) => getKnitCandidates(re.id, doc.id).then((c) => ({ re: re.id, c })))),
     getProductionDcSetup(),
     dcOpen ? listBinStock() : Promise.resolve([]),
     dcOpen && doc.status !== "draft" ? listYarnAtKnitter(doc) : Promise.resolve([]),
@@ -33,8 +34,8 @@ export default async function KnittingOrderPage({ params }: { params: Promise<{ 
       orders={orders}
       knitters={knitters}
       gauges={gauges}
-      initialCandidates={cand && cand.ok ? cand.candidates : []}
-      initialCustomer={cand && cand.ok ? cand.customer : null}
+      initialCandidates={cand.flatMap(({ c }) => (c.ok ? c.candidates : []))}
+      initialCustomers={Object.fromEntries(cand.map(({ re, c }) => [re, c.ok ? c.customer : null]))}
       today={today()}
       canEdit={canEdit}
       stores={setup.stores}

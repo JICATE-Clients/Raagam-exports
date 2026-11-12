@@ -17,7 +17,15 @@ const BASE = "/process/knitting-hub";
 export function KnittingReceiptsRegister({ kind, rows, canCreate }: { kind: "fabric" | "yarn_return"; rows: KnitReceiptListRow[]; canCreate: boolean }) {
   const fabric = kind === "fabric";
   const columns: Column<KnitReceiptListRow>[] = [
-    { header: fabric ? "Receipt No" : "Return No", cell: (r) => <span className="font-mono text-xs font-medium">{r.code ?? "—"}</span> },
+    {
+      header: fabric ? "Receipt No" : "Return No",
+      // Opens the document (user 2026-11-12: "need to show the exact screen for the receipt and return").
+      cell: (r) => (
+        <Link href={`${fabric ? "/process/knitting-receipts" : "/process/knitting-returns"}/${r.id}`} className="font-mono text-xs font-medium text-primary hover:underline">
+          {r.code ?? "—"}
+        </Link>
+      ),
+    },
     { header: "Date", cell: (r) => <span className="tabular-nums text-sm">{fmtDate(r.receipt_date)}</span> },
     {
       header: "KO No",

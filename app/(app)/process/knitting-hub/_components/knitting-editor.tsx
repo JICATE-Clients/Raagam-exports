@@ -1,27 +1,29 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { Fragment, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { Plus, Printer, X } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { Field, FieldRow } from "@/components/ui/field";
+import { Truncated } from "@/components/ui/truncated";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusPill } from "@/components/ui/status-pill";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { DOC_BOTTOM_BAR, DOC_FRAME, DocRemarksLine } from "@/components/purchase/doc-surface";
-import { fmtDate, fmtMoney, fmtNumber } from "@/lib/format";
+import { fmtMoney, fmtNumber } from "@/lib/format";
 import { statusTone } from "@/lib/ui/status-tone";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import type { BinOption, StoreOption } from "@/lib/stores/production-dc-service";
 import type { BinStockOption } from "@/lib/stores/process-dc-service";
 import { FieldError } from "@/components/ui/field";
 import { KnitAtKnitterPanel } from "./knit-at-knitter-panel";
-import { cancelKnittingOrder, dispatchKnittingYarn, issueKnittingOrder, loadKnitCandidates, saveKnittingOrder } from "@/lib/production/knitting-actions";
+import { cancelKnittingOrder, dispatchKnittingYarn, issueKnittingOrder, loadKnitCandidates, saveKnittingOrder, setKnittingDcCap } from "@/lib/production/knitting-actions";
 import { type KnitYarnAtKnitter,
   KNIT_STATUS_LABELS,
   PLY_OPTIONS,
@@ -43,6 +45,10 @@ type YarnRow = {
   blend_pct: number | null;
   allowance: string;
   bag_weight: string;
+  /** DC CAP typed by the store (0837) — blank = the calculated cap (whole bags). */
+  cap: string;
+  /** The override as last saved — an issued order commits `cap` on blur when the two differ. */
+  cap_saved: string;
   /** Sent on Process DCs so far (saved orders only). */
   dispatched_kg: number;
   /* SEND FROM HERE (user 2026-11-12): the store and bin it leaves from, and the kg going now. */
@@ -53,7 +59,11 @@ type YarnRow = {
 
 type FabricRow = {
   key: string;
+  /** "<RE id>#<BOM slice key>" for a pick, "saved:<id>" for a saved line with no slice (0836). */
   source_key: string;
+  /** The RE this fabric is knitted for (0836: one Knitting Order, several REs). */
+  sales_order_id: string;
+  re_no: string;
   fabric_item_id: string;
   fabric_name: string;
   width_form: KnitWidthForm | null;
@@ -78,13 +88,19 @@ const n = (s: string): number | null => {
   return Number.isFinite(v) ? v : null;
 };
 const str = (v: number | null | undefined) => (v == null ? "" : String(v));
+/** A BOM slice is unique only within its RE, so a pick is keyed "<RE>#<slice>" (0836). */
+const pickKey = (re: string | null | undefined, sliceKey: string) => `${re ?? ""}#${sliceKey}`;
+/** The BOM slice key the database stores — the part after the RE. */
+const sliceOf = (pick: string) => (pick.includes("#") ? pick.slice(pick.indexOf("#") + 1) : pick);
 /** Nothing the operator chose — the blank end row. */
 const isBlank = (r: FabricRow) => !r.source_key && !r.programmed.trim();
 
 function rowsFromDoc(doc: KnittingOrder): FabricRow[] {
   return doc.fabrics.map((f) => ({
     key: f.id,
-    source_key: f.source_key ?? `saved:${f.id}`,
+    source_key: f.source_key ? pickKey(f.sales_order_id ?? doc.sales_order_id, f.source_key) : `saved:${f.id}`,
+    sales_order_id: f.sales_order_id ?? doc.sales_order_id ?? "",
+    re_no: f.re_no ?? "",
     fabric_item_id: f.fabric_item_id,
     fabric_name: f.fabric_name,
     width_form: f.width_form,
@@ -105,6 +121,8 @@ function rowsFromDoc(doc: KnittingOrder): FabricRow[] {
       blend_pct: y.blend_pct,
       allowance: str(y.allowance_pct),
       bag_weight: str(y.bag_weight_kg),
+      cap: str(y.dc_cap_override_kg),
+      cap_saved: str(y.dc_cap_override_kg),
       dispatched_kg: y.dispatched_kg,
       store_id: "",
       bin_id: "",
@@ -130,7 +148,8 @@ export function KnittingEditor({
   knitters,
   gauges,
   initialCandidates,
-  initialCustomer,
+  initialCustomers,
+  nextCode = null,
   today,
   canEdit,
   stores = [],
@@ -150,7 +169,11 @@ export function KnittingEditor({
   knitters: KnitOption[];
   gauges: KnitOption[];
   initialCandidates: KnitCandidate[];
-  initialCustomer: string | null;
+  /** Each RE's customer, keyed by RE id (0836). */
+  initialCustomers: Record<string, string | null>;
+  /** The KO No a NEW order will most likely get (next_knitting_order_no, read-only peek). The real
+   *  number is minted on Save, so a second user saving first can take it. */
+  nextCode?: string | null;
   today: string;
   canEdit: boolean;
 }) {
@@ -167,14 +190,17 @@ export function KnittingEditor({
   /** Send FROM a holding store, never Processing (the knitter's side) or Transit. */
   const sendStores = stores.filter((x) => x.store_type !== "processing" && x.store_type !== "transit");
 
-  const [salesOrderId, setSalesOrderId] = useState(doc?.sales_order_id ?? "");
+  /* SEVERAL REs ON ONE ORDER (client 2026-11-12, 0836): the fabrics of every RE picked here are
+     offered, each tagged with its RE, and each saved line keeps its own RE. */
+  const [reIds, setReIds] = useState<string[]>(() => doc?.res.map((r) => r.id) ?? []);
   const [vendorId, setVendorId] = useState(doc?.vendor_id ?? "");
   const [orderDate, setOrderDate] = useState(doc?.order_date ?? today);
   const [expectedDate, setExpectedDate] = useState(doc?.expected_date ?? "");
   const [allowedLoss, setAllowedLoss] = useState(str(doc?.allowed_loss_pct));
   const [notes, setNotes] = useState(doc?.notes ?? "");
   const [candidates, setCandidates] = useState<KnitCandidate[]>(initialCandidates);
-  const [customer, setCustomer] = useState<string | null>(initialCustomer);
+  const [customerByRe, setCustomerByRe] = useState<Record<string, string | null>>(initialCustomers);
+  const customer = [...new Set(reIds.map((id) => customerByRe[id]).filter((x): x is string => !!x))].join(", ") || null;
   const [note, setNote] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<"issue" | "send" | "cancel" | null>(null);
   const [dcDate, setDcDate] = useState(today);
@@ -192,13 +218,13 @@ export function KnittingEditor({
   });
 
   const typed = rows.filter((r) => !isBlank(r));
-  const current = JSON.stringify([salesOrderId, vendorId, orderDate, expectedDate, allowedLoss, notes.trim().toUpperCase(), typed.map((r) => ({ ...r, key: undefined, yarns: r.yarns.map((y) => ({ ...y, store_id: undefined, bin_id: undefined, send: undefined })) }))]);
+  const current = JSON.stringify([reIds, vendorId, orderDate, expectedDate, allowedLoss, notes.trim().toUpperCase(), typed.map((r) => ({ ...r, key: undefined, yarns: r.yarns.map((y) => ({ ...y, store_id: undefined, bin_id: undefined, send: undefined })) }))]);
   const [baseline, setBaseline] = useState(current);
   const dirty = !readOnly && current !== baseline;
   const sendTyped = rows.some((r) => r.yarns.some((y) => y.send.trim() !== ""));
   useUnsavedGuard(dirty || sendTyped || isPending);
 
-  const candByKey = useMemo(() => new Map(candidates.map((c) => [c.key, c])), [candidates]);
+  const candByKey = useMemo(() => new Map(candidates.map((c) => [pickKey(c.sales_order_id, c.key), c])), [candidates]);
 
   function setRow(key: string, patch: Partial<FabricRow>) {
     setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
@@ -209,23 +235,34 @@ export function KnittingEditor({
     );
   }
 
-  function pickOrder(id: string) {
-    setSalesOrderId(id);
-    // The fabrics came off the old order's Fabric BOM — they go with it.
-    setRows([blankRow()]);
-    setCandidates([]);
-    setCustomer(null);
-    setNote(null);
-    if (!id) return;
+  function pickOrders(next: string[]) {
+    const added = next.filter((id) => !reIds.includes(id));
+    const removed = new Set(reIds.filter((id) => !next.includes(id)));
+    setReIds(next);
+    // A removed RE takes its fabrics with it; the other REs' fabrics stay.
+    if (removed.size) {
+      setRows((rs) => {
+        const kept = rs.filter((r) => !removed.has(r.sales_order_id));
+        return kept.length ? kept : [blankRow()];
+      });
+      setCandidates((cs) => cs.filter((c) => !removed.has(c.sales_order_id)));
+    }
+    if (!next.length) setNote(null);
+    if (!added.length) return;
     startLoad(async () => {
-      const res = await loadKnitCandidates(id, doc?.id ?? null);
-      if (!res.ok) {
-        setNote(res.error);
-        return;
+      const got = await Promise.all(added.map((id) => loadKnitCandidates(id, doc?.id ?? null).then((res) => ({ id, res }))));
+      const notes: string[] = [];
+      const reNo = (id: string) => orders.find((o) => o.id === id)?.order_number ?? "This RE";
+      for (const { id, res } of got) {
+        if (!res.ok) {
+          notes.push(`${reNo(id)}: ${res.error}`);
+          continue;
+        }
+        if (res.note) notes.push(next.length > 1 ? `${reNo(id)}: ${res.note}` : res.note);
+        setCandidates((cs) => [...cs.filter((c) => c.sales_order_id !== id), ...res.candidates]);
+        setCustomerByRe((m) => ({ ...m, [id]: res.customer }));
       }
-      setCandidates(res.candidates);
-      setCustomer(res.customer);
-      setNote(res.note);
+      setNote(notes.length ? notes.join(" · ") : null);
     });
   }
 
@@ -234,7 +271,9 @@ export function KnittingEditor({
     if (!c) return setRow(rowKey, { source_key: "" });
     const balance = Math.max(0, Math.round((c.bom_kg - c.programmed_elsewhere_kg) * 1000) / 1000);
     setRow(rowKey, {
-      source_key: c.key,
+      source_key: pickKey(c.sales_order_id, c.key),
+      sales_order_id: c.sales_order_id,
+      re_no: c.re_no ?? "",
       fabric_item_id: c.fabric_item_id,
       fabric_name: c.fabric_name,
       width_form: c.width_form,
@@ -252,6 +291,8 @@ export function KnittingEditor({
         blend_pct: y.blend_pct,
         allowance: allowedLoss,
         bag_weight: "",
+        cap: "",
+        cap_saved: "",
         dispatched_kg: 0,
         store_id: "",
         bin_id: "",
@@ -266,10 +307,31 @@ export function KnittingEditor({
   const progBad = (r: FabricRow) => !((n(r.programmed) ?? 0) > 0);
   const knitDiaBad = (r: FabricRow) => !r.knit_dia.trim();
   const anyBad = typed.some((r) => !r.source_key || progBad(r) || knitDiaBad(r) || blendBad(r));
-  const canSave = !readOnly && !!vendorId && !!salesOrderId && typed.length > 0 && !anyBad;
+  const canSave = !readOnly && !!vendorId && reIds.length > 0 && typed.length > 0 && !anyBad;
 
-  const yarnCalc = (r: FabricRow, y: YarnRow) =>
-    yarnRequirement(n(r.programmed) ?? 0, y.blend_pct ?? 0, n(y.allowance) ?? 0, n(y.bag_weight));
+  /** `calc` is the calculated cap (whole bags); `cap` is what binds — the store's override, else calc (0837). */
+  const yarnCalc = (r: FabricRow, y: YarnRow) => {
+    const base = yarnRequirement(n(r.programmed) ?? 0, y.blend_pct ?? 0, n(y.allowance) ?? 0, n(y.bag_weight));
+    const typed = n(y.cap);
+    return { ...base, calc: base.cap, cap: typed != null && typed > 0 ? typed : base.cap };
+  };
+
+  /** An issued order's DC Cap, committed on blur (0837): blank = back to the calculated cap. */
+  function commitCap(f: FabricRow, y: YarnRow) {
+    if (!doc || y.cap.trim() === y.cap_saved.trim()) return;
+    const kg = n(y.cap);
+    start(async () => {
+      const res = await setKnittingDcCap(doc.id, y.key, kg);
+      if (!res.ok) {
+        toastError(res.error);
+        setYarn(f.key, y.key, { cap: y.cap_saved });
+        return;
+      }
+      setYarn(f.key, y.key, { cap_saved: y.cap });
+      success(kg == null ? `${y.yarn_name}: DC Cap back to ${fmtNumber(res.cap)} kg` : `${y.yarn_name}: DC Cap set to ${fmtNumber(res.cap)} kg`);
+      router.refresh();
+    });
+  }
   const totals = typed.reduce(
     (t, r) => {
       t.fabric += n(r.programmed) ?? 0;
@@ -375,14 +437,16 @@ export function KnittingEditor({
   function payload() {
     return {
         vendor_id: vendorId,
-        sales_order_id: salesOrderId || null,
+        // The header keeps the FIRST RE (0836); each fabric names its own.
+        sales_order_id: reIds[0] ?? null,
         order_date: orderDate || null,
         expected_date: expectedDate || null,
         allowed_loss_pct: n(allowedLoss),
         notes: notes.trim() || null,
         fabrics: typed.map((r) => ({
+          sales_order_id: r.sales_order_id || reIds[0] || null,
           fabric_item_id: r.fabric_item_id,
-          source_key: r.source_key.startsWith("saved:") ? null : r.source_key,
+          source_key: r.source_key.startsWith("saved:") ? null : sliceOf(r.source_key),
           width_form: r.width_form,
           knit_dia: r.knit_dia || null,
           finished_dia: r.finished_dia || null,
@@ -399,6 +463,7 @@ export function KnittingEditor({
             blend_pct: y.blend_pct ?? 0,
             allowance_pct: n(y.allowance) ?? 0,
             bag_weight_kg: n(y.bag_weight),
+            dc_cap_kg: n(y.cap),
           })),
         })),
     };
@@ -455,7 +520,8 @@ export function KnittingEditor({
     });
   }
 
-  const orderOptions: ComboboxOption[] = orders.map((o) => ({ value: o.id, label: o.order_number ?? "(no RE No)" }));
+  const reOptions = orders.map((o) => ({ id: o.id, label: o.order_number ?? "(no RE No)" }));
+  const manyRes = reIds.length > 1 || new Set(rows.map((r) => r.sales_order_id).filter(Boolean)).size > 1;
   const knitterOptions: ComboboxOption[] = knitters
     .filter((k) => !k.inactive || k.id === vendorId)
     .map((k) => ({ value: k.id, label: k.inactive ? `${k.name} (not a knitter)` : k.name }));
@@ -466,10 +532,12 @@ export function KnittingEditor({
      A block already holding it keeps it (that option is the block's own value); a draft elsewhere
      does not block. The database refuses it too (0835 `knitting_fabric_placed_by`). */
   const candidateOptions: ComboboxOption[] = candidates.map((c) => ({
-    value: c.key,
+    value: pickKey(c.sales_order_id, c.key),
     label: c.placed_on ? `${c.fabric_name} (Program Placed — ${c.placed_on})` : c.fabric_name,
     disabled: c.placed_on ? true : undefined,
     sublabel: [
+      // Which RE the fabric is on, once the order holds more than one (0836).
+      reIds.length > 1 && c.re_no ? `RE ${c.re_no}` : null,
       c.finish_dia ? `FIN DIA ${c.finish_dia}` : "No dia",
       c.width_form ? WIDTH_FORM_LABELS[c.width_form] : null,
       `BOM ${fmtNumber(c.bom_kg)} kg`,
@@ -501,11 +569,11 @@ export function KnittingEditor({
 
   /** The store's view: the same yarn across fabrics, added up (kg and whole bags). */
   const byYarn = (() => {
-    const m = new Map<string, { name: string; kg: number; bags: number; noBag: boolean }>();
+    const m = new Map<string, { id: string; name: string; kg: number; bags: number; noBag: boolean }>();
     for (const r of typed) {
       for (const y of r.yarns) {
         const c = yarnCalc(r, y);
-        const t = m.get(y.yarn_item_id) ?? { name: y.yarn_name, kg: 0, bags: 0, noBag: false };
+        const t = m.get(y.yarn_item_id) ?? { id: y.yarn_item_id, name: y.yarn_name, kg: 0, bags: 0, noBag: false };
         t.kg += c.required;
         if (c.bags == null) t.noBag = true;
         else t.bags += c.bags;
@@ -513,6 +581,41 @@ export function KnittingEditor({
       }
     }
     return [...m.values()].sort((x, y) => y.kg - x.kg);
+  })();
+  /** The order of the REs on screen: as picked, then any a saved line names that is no longer picked. */
+  const reRank = (re: string) => {
+    const i = reIds.indexOf(re);
+    return i === -1 ? reIds.length : i;
+  };
+  /* ONE RE AFTER ANOTHER (screenshot 4126, user 2026-11-12: "mixed yarn listing … no clear
+     separation"): with several REs the fabric blocks are drawn grouped by RE under its own
+     heading, and the yarn summary is split by RE with a subtotal each. Display order only — the
+     rows keep the order they were added in, which is what Save numbers. */
+  const ordered = manyRes ? [...rows].sort((a, b) => reRank(a.sales_order_id) - reRank(b.sales_order_id)) : rows;
+  const reLabel = (re: string) => orders.find((o) => o.id === re)?.order_number ?? rows.find((r) => r.sales_order_id === re)?.re_no ?? "RE";
+  const yarnByRe = (() => {
+    const groups = new Map<string, { re: string; kg: number; bags: number; noBag: boolean; yarns: Map<string, { id: string; name: string; kg: number; bags: number; noBag: boolean }> }>();
+    for (const r of typed) {
+      const g = groups.get(r.sales_order_id) ?? { re: r.sales_order_id, kg: 0, bags: 0, noBag: false, yarns: new Map() };
+      for (const y of r.yarns) {
+        const c = yarnCalc(r, y);
+        const t = g.yarns.get(y.yarn_item_id) ?? { id: y.yarn_item_id, name: y.yarn_name, kg: 0, bags: 0, noBag: false };
+        t.kg += c.required;
+        g.kg += c.required;
+        if (c.bags == null) {
+          t.noBag = true;
+          g.noBag = true;
+        } else {
+          t.bags += c.bags;
+          g.bags += c.bags;
+        }
+        g.yarns.set(y.yarn_item_id, t);
+      }
+      groups.set(r.sales_order_id, g);
+    }
+    return [...groups.values()]
+      .sort((a, b) => reRank(a.re) - reRank(b.re))
+      .map((g) => ({ ...g, yarns: [...g.yarns.values()].sort((x, y) => y.kg - x.kg) }));
   })();
   const totalBags = typed.reduce((t, r) => t + r.yarns.reduce((u, y) => u + (yarnCalc(r, y).bags ?? 0), 0), 0);
 
@@ -529,6 +632,11 @@ export function KnittingEditor({
   const TONE = { ok: "text-success", warn: "text-warning", bad: "text-destructive" } as const;
   const TH = "whitespace-nowrap border border-[var(--table-head-border)] bg-[var(--table-head-bg)] px-2 py-1.5 text-left text-[11px] font-semibold text-[var(--table-head-fg)]";
   const THR = `${TH} text-right`;
+  /** A heading that may wrap to two lines — the fixed-layout spec table (screenshot 4117). */
+  /* `!` because the sheet stylesheet (globals.css, `[data-grid-style="sheet"] thead th`) forces
+     nowrap + ellipsis on every heading, which turned "Finishing GSM" into "Finishing…" (4118). */
+  const THW = `${TH.replace("whitespace-nowrap", "")} !whitespace-normal !overflow-visible leading-tight align-bottom`;
+  const THWR = `${THW} text-right`;
   const TD = "h-9 border border-border p-0 align-middle";
   const CELL = "block whitespace-nowrap px-2 text-sm";
   const CELLR = "block px-2 text-right text-sm tabular-nums";
@@ -561,26 +669,30 @@ export function KnittingEditor({
       <div className={`${DOC_FRAME} flex min-h-[calc(100dvh-10rem)] flex-col`} data-focus-scope="">
         <div className="flex-1 space-y-4 p-4">
           {/*
-           * KO No 112 · KO Date 144 · RE No 176 · Customer 176 · Knitter 200 · Delivery 144 ·
-           * Allowed Loss 88 = 1040 + 6 x 10 gap = 1100px. That fits the full 72rem frame only; on a
-           * narrower pane it scrolled sideways (KO/26-27/0001, 2026-11-11), so the row WRAPS.
+           * KO No 144 · KO Date 144 · RE No 176 · Knitter 200 · Delivery 144 · Allowed Loss 112
+           * = 920 + 5 x 12 gap = 980px. KO No at 112 cut "KO/26-27/0001" off, and "Allowed Loss %"
+           * at 88 wrapped its label to two lines and dropped its box below the row (screenshot
+           * 4115, 2026-11-12) — both are one step wider now. It was 1100px with a Customer box, and on the client's
+           * laptop Allowed Loss % fell to a second line (2026-11-12). Customer is read-only and
+           * follows the RE, so it now rides under RE No as the field's hint instead of costing
+           * 186px of the row. align="start" keeps the boxes level while that hint shows.
            */}
-          <FieldRow>
-            <Field label="KO No" w="range">
-              <Input readOnly value={doc?.code ?? "(auto)"} />
+          <FieldRow align="start">
+            <Field label="KO No" w="code">
+              <Input readOnly value={doc?.code ?? nextCode ?? "(auto)"} title={doc ? undefined : "Given on Save"} />
             </Field>
             <Field label="KO Date" required w="code">
               <Input type="date" value={orderDate} readOnly={readOnly} onChange={(e) => setOrderDate(e.target.value)} required />
             </Field>
-            <Field label="RE No" required w="term">
+            {/* THE REs SIT IN THE BOX (screenshot 4124): the chip line stacked one RE per row under a
+                176px box and pushed the whole header down. Up to two RE Nos read in the box, a third
+                counts ("3 REs selected"), and every fabric block below carries its own RE tag. */}
+            <Field label="RE No" required w="party" hint={customer ? <Truncated text={customer} /> : undefined}>
               {readOnly ? (
                 <Input readOnly value={doc?.order_number ?? "—"} />
               ) : (
-                <Combobox options={orderOptions} value={salesOrderId} onChange={pickOrder} placeholder="Pick the order" required />
+                <MultiSelect compact label="RE No" options={reOptions} values={reIds} onChange={pickOrders} required summarizeLabels hideChips summaryNoun="REs" autoOpenClose />
               )}
-            </Field>
-            <Field label="Customer" w="term">
-              <Input readOnly value={customer ?? "—"} />
             </Field>
             <Field label="Knitter" required w="party">
               {readOnly ? (
@@ -592,7 +704,7 @@ export function KnittingEditor({
             <Field label="Delivery Date" w="code">
               <Input type="date" value={expectedDate} readOnly={readOnly} onChange={(e) => setExpectedDate(e.target.value)} />
             </Field>
-            <Field label="Allowed Loss %" w="hug">
+            <Field label="Allowed Loss %" w="range">
               <Input type="number" min="0" max="99" step="any" value={allowedLoss} readOnly={readOnly} onChange={(e) => setAllowedLoss(e.target.value)} />
             </Field>
           </FieldRow>
@@ -631,7 +743,7 @@ export function KnittingEditor({
           {(
             <div className="flex flex-wrap items-start gap-4">
               <div className="min-w-0 flex-[999_1_640px] space-y-3">
-                {rows.map((f, i) => {
+                {ordered.map((f, i) => {
                   const st = blockState(f);
                   const picked = !!f.source_key;
                   const sum = f.yarns.reduce(
@@ -647,7 +759,22 @@ export function KnittingEditor({
                   );
                   const SUM_TD = `${TD} bg-[var(--table-head-bg)]/30`;
                   return (
-                    <section key={f.key} className="overflow-hidden rounded-lg border border-[var(--table-head-border)]" aria-label={`Fabric ${i + 1}`}>
+                    <Fragment key={f.key}>
+                    {manyRes && f.sales_order_id && (i === 0 || ordered[i - 1].sales_order_id !== f.sales_order_id) ? (
+                      <div className={`flex items-baseline gap-3 border-b-2 border-primary/60 pb-1 ${i === 0 ? "" : "pt-3"}`}>
+                        <span className="font-mono text-sm font-bold text-primary">{reLabel(f.sales_order_id)}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {[
+                            customerByRe[f.sales_order_id],
+                            `${ordered.filter((x) => x.sales_order_id === f.sales_order_id && x.source_key).length} fabric(s)`,
+                            `${fmtNumber(ordered.filter((x) => x.sales_order_id === f.sales_order_id).reduce((t, x) => t + (n(x.programmed) ?? 0), 0))} kg`,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </span>
+                      </div>
+                    ) : null}
+                    <section className="overflow-hidden rounded-lg border border-[var(--table-head-border)]" aria-label={`Fabric ${i + 1}`}>
                       {/* TITLE LINE: number, the fabric (or its picker), its blend, what is left to do */}
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-[var(--table-head-border)] bg-[var(--table-head-bg)]/40 px-3 py-2">
                         <span className="text-sm font-bold">{i + 1}</span>
@@ -663,11 +790,15 @@ export function KnittingEditor({
                               }
                               value={f.source_key}
                               onChange={(v) => pickFabric(f.key, v)}
-                              placeholder={salesOrderId ? (isLoading ? "Loading…" : candidates.length ? "Pick a fabric from the BOM" : "Nothing to knit on this order") : "Pick the RE No first"}
-                              disabled={!salesOrderId}
+                              placeholder={reIds.length ? (isLoading ? "Loading…" : candidates.length ? "Pick a fabric from the BOM" : "Nothing to knit on this order") : "Pick the RE No first"}
+                              disabled={!reIds.length}
                             />
                           </div>
                         )}
+                        {/* WHICH RE (0836) — on every block once the order holds more than one. */}
+                        {picked && manyRes && f.re_no ? (
+                          <span className="rounded bg-[var(--table-head-bg)] px-1.5 py-0.5 font-mono text-[11px] font-semibold text-[var(--table-head-fg)]">RE {f.re_no}</span>
+                        ) : null}
                         {/* The blend, unless the fabric's own name already spells it (most masters
                             compose the name from the mixing grid, "… (COTTON 95%, …)"). */}
                         {picked && f.yarns.length && !f.fabric_name.includes("%") ? (
@@ -688,25 +819,48 @@ export function KnittingEditor({
                         <>
                           {/* THE FABRIC'S ONE ROW — facts from the BOM read-only, then what is typed */}
                           <div className="overflow-x-auto" data-grid-style="sheet" data-grid-cells="flat">
-                            <table className="w-full border-collapse">
+                            {/* FITS WITHOUT SCROLLING (user 2026-11-12, screenshot 4117): twelve one-line
+                                headings set the width and the row scrolled sideways once the yarn
+                                rail took its share. Fixed layout splits the pane between the
+                                columns, and a heading too long for its share wraps to two lines
+                                (THW) instead of widening it. Labels stay the client's words. */}
+                            <table className="w-full table-fixed border-collapse">
+                              {/* Form holds "Open Width" / "Tubular" (it spilled into the next cell at an
+                                  even share, 4118); the rest share what is left. */}
+                              <colgroup>
+                                <col className="w-[6.5rem]" />
+                                {/* Finishing Dia … Roll Wt share what is left; Program Qty holds "1,234.567"
+                                    (it clipped 319.75 to "319.7" at an even share, 4124). */}
+                                <col />
+                                <col />
+                                <col />
+                                <col />
+                                <col />
+                                <col />
+                                <col />
+                                <col />
+                                <col className="w-[6.5rem]" />
+                                <col />
+                                <col />
+                              </colgroup>
                               <thead>
                                 <tr>
                                   {/* COLUMN ORDER (client 2026-11-12, doc/process/knitting update.md §2.2):
                                       Finishing Dia · Knitting Dia · Finishing GSM · Knitting GSM · Gauge ·
                                       Loop Length · Ply · Roll Wt · Program Qty · Rate · Value. Loop Ref and
                                       Rolls are gone from entry (their columns stay in the DB). */}
-                                  <th className={TH}>Form</th>
-                                  <th className={THR}>Finishing Dia</th>
-                                  <th className={THR}>Knitting Dia *</th>
-                                  <th className={THR}>Finishing GSM</th>
-                                  <th className={THR}>Knitting GSM</th>
-                                  <th className={TH}>Gauge</th>
-                                  <th className={THR}>Loop Length</th>
-                                  <th className={TH}>Ply</th>
-                                  <th className={THR}>Roll Wt (kg)</th>
-                                  <th className={THR}>Program Qty (kg) *</th>
-                                  <th className={THR}>Rate/kg</th>
-                                  <th className={THR}>Value</th>
+                                  <th className={THW}>Form</th>
+                                  <th className={THWR}>Finishing Dia</th>
+                                  <th className={THWR}>Knitting Dia *</th>
+                                  <th className={THWR}>Finishing GSM</th>
+                                  <th className={THWR}>Knitting GSM</th>
+                                  <th className={THW}>Gauge</th>
+                                  <th className={THWR}>Loop Length</th>
+                                  <th className={THW}>Ply</th>
+                                  <th className={THWR}>Roll Wt (kg)</th>
+                                  <th className={THWR}>Program Qty (kg) *</th>
+                                  <th className={THWR}>Rate/kg</th>
+                                  <th className={THWR}>Value</th>
                                 </tr>
                               </thead>
                               <tbody>
@@ -832,22 +986,46 @@ export function KnittingEditor({
 
                           {/* ITS YARNS, STRAIGHT UNDER IT — blend from the fabric master; kg and bags derived */}
                           <div className="overflow-x-auto" data-grid-style="sheet" data-grid-cells="flat">
-                            <table className="w-full border-collapse">
+                            {/* FITS ITS BLOCK (screenshot 4124): auto layout made the yarn row wider than the
+                                fabric row above it, so it scrolled sideways and Send Qty sat off screen.
+                                Fixed layout: the numbers get set widths, the yarn name takes the rest and
+                                truncates with a reveal, long headings wrap (THW). */}
+                            <table className="w-full table-fixed border-collapse">
+                              {/* SHARES, NOT FIXED rem: at ~800px fixed widths left the yarn name 0px. The
+                                  yarn name and From Bin ("MAT06 — 300") hold a share; the figures split
+                                  the rest evenly. */}
+                              <colgroup>
+                                <col className={sendable ? "w-[20%]" : "w-[28%]"} />
+                                <col />
+                                <col />
+                                <col />
+                                <col />
+                                <col />
+                                <col />
+                                {issued ? <col /> : null}
+                                {sendable ? (
+                                  <>
+                                    <col className="w-[15%]" />
+                                    <col />
+                                    <col />
+                                  </>
+                                ) : null}
+                              </colgroup>
                               <thead>
                                 <tr>
-                                  <th className={`${TH} min-w-56 pl-7`}>↳ Yarn</th>
-                                  <th className={THR}>Blend %</th>
-                                  <th className={THR}>Allow %</th>
-                                  <th className={THR}>Required Kg</th>
-                                  <th className={THR}>Bag Wt</th>
-                                  <th className={THR}>Bags</th>
-                                  <th className={THR}>DC Cap Kg</th>
-                                  {issued ? <th className={THR}>Sent Kg</th> : null}
+                                  <th className={`${THW} pl-7`}>↳ Yarn</th>
+                                  <th className={THWR}>Blend %</th>
+                                  <th className={THWR}>Allow %</th>
+                                  <th className={THWR}>Required Kg</th>
+                                  <th className={THWR}>Bag Wt</th>
+                                  <th className={THWR}>Bags</th>
+                                  <th className={THWR}>DC Cap Kg</th>
+                                  {issued ? <th className={THWR}>Sent Kg</th> : null}
                                   {sendable ? (
                                     <>
-                                      <th className={TH}>From Bin</th>
-                                      <th className={THR}>In Stock</th>
-                                      <th className={THR}>Send Qty</th>
+                                      <th className={THW}>From Bin</th>
+                                      <th className={THWR}>In Stock</th>
+                                      <th className={THWR}>Send Qty</th>
                                     </>
                                   ) : null}
                                 </tr>
@@ -858,12 +1036,12 @@ export function KnittingEditor({
                                   return (
                                     <tr key={y.key}>
                                       <td className={TD}>
-                                        <span className={`${CELL} pl-7`}>{y.yarn_name || "—"}</span>
+                                        <Truncated className="block px-2 pl-7 text-sm" text={y.yarn_name || "—"} />
                                       </td>
                                       <td className={TD}>
                                         <span className={`${CELLR} ${y.blend_pct == null ? "text-destructive" : ""}`}>{y.blend_pct == null ? "None" : fmtNumber(y.blend_pct)}</span>
                                       </td>
-                                      <td className={`${TD} w-20`}>
+                                      <td className={TD}>
                                         {readOnly ? (
                                           <span className={CELLR}>{y.allowance || "0"}</span>
                                         ) : (
@@ -873,7 +1051,7 @@ export function KnittingEditor({
                                       <td className={TD}>
                                         <span className={`${CELLR} font-semibold`}>{fmtNumber(c.required)}</span>
                                       </td>
-                                      <td className={`${TD} w-20`}>
+                                      <td className={TD}>
                                         {readOnly ? (
                                           <span className={CELLR}>{y.bag_weight || "—"}</span>
                                         ) : (
@@ -883,8 +1061,32 @@ export function KnittingEditor({
                                       <td className={TD}>
                                         <span className={CELLR}>{c.bags ?? "—"}</span>
                                       </td>
-                                      <td className={TD}>
-                                        <span className={`${CELLR} text-muted-foreground`}>{fmtNumber(c.cap)}</span>
+                                      {/* DC CAP — CALCULATED, OR TYPED BY THE STORE (client 2026-11-12, 0837): the truck
+                                          or the lot released may say otherwise. Blank shows the calculated cap as its
+                                          placeholder; a typed one reads amber. A draft saves it with the order; an
+                                          issued order commits it on leaving the box. */}
+                                      <td className={TD} title={`Calculated: ${fmtNumber(c.calc)} kg (whole bags)`}>
+                                        {!readOnly || (issued && sendable) ? (
+                                          <Input
+                                            type="number"
+                                            min="0"
+                                            step="any"
+                                            aria-label={`DC Cap kg, ${y.yarn_name}`}
+                                            className={`${NUM} ${n(y.cap) != null ? "text-warning font-semibold" : ""}`}
+                                            /* Placeholders are off app-wide, so the box SHOWS the calculated cap until
+                                               the store types another; typing the calculated figure back (or clearing
+                                               the box) drops the override. */
+                                            value={y.cap !== "" ? y.cap : String(c.calc)}
+                                            onFocus={(e) => e.target.select()}
+                                            onChange={(e) => {
+                                              const v = e.target.value;
+                                              setYarn(f.key, y.key, { cap: v === "" || n(v) === c.calc ? "" : v });
+                                            }}
+                                            onBlur={() => (readOnly ? commitCap(f, y) : undefined)}
+                                          />
+                                        ) : (
+                                          <span className={`${CELLR} ${n(y.cap) != null ? "text-warning font-semibold" : "text-muted-foreground"}`}>{fmtNumber(c.cap)}</span>
+                                        )}
                                       </td>
                                       {issued ? (
                                         <td className={TD}>
@@ -893,7 +1095,7 @@ export function KnittingEditor({
                                       ) : null}
                                       {sendable ? (
                                         <>
-                                          <td className={`${TD} w-44`}>
+                                          <td className={TD}>
                                             {placesOf(y).length ? (
                                               <Select
                                                 aria-label={`From store · bin, ${y.yarn_name}`}
@@ -917,7 +1119,7 @@ export function KnittingEditor({
                                           <td className={TD}>
                                             <span className={`${CELLR} ${inStock(y) > 0 ? "" : "text-destructive"}`}>{fmtNumber(inStock(y))}</span>
                                           </td>
-                                          <td className={`${TD} w-28`}>
+                                          <td className={TD}>
                                             <Input
                                               type="number"
                                               min="0"
@@ -970,10 +1172,11 @@ export function KnittingEditor({
                         </>
                       ) : null}
                     </section>
+                    </Fragment>
                   );
                 })}
                 {!readOnly ? (
-                  <Button type="button" variant="outline" data-row-add="" onClick={addFabric} disabled={!salesOrderId}>
+                  <Button type="button" variant="outline" data-row-add="" onClick={addFabric} disabled={!reIds.length}>
                     <Plus className="size-4" aria-hidden />
                     Add a fabric from the BOM
                   </Button>
@@ -983,106 +1186,88 @@ export function KnittingEditor({
 
               {/* THE STORE'S VIEW — the same yarn across fabrics, added up; stays beside the blocks */}
               {byYarn.length ? (
-                <aside className="sticky top-4 max-w-[21rem] min-w-60 flex-[1_1_260px] space-y-2 rounded-lg border border-border bg-[var(--table-head-bg)]/20 p-3" aria-label="Yarn by count">
-                  <h3 className="text-[11px] font-bold tracking-wide text-muted-foreground uppercase">For the store — by yarn</h3>
-                  <p className="text-xs text-muted-foreground">The same yarn across fabrics, added up</p>
-                  <ul className="space-y-1.5 text-sm">
-                    {byYarn.map((y) => (
-                      <li key={y.name} className="flex justify-between gap-3">
-                        <span>{y.name}</span>
-                        <span className="shrink-0 font-semibold tabular-nums">
-                          {fmtNumber(y.kg)}
-                          {y.noBag ? "" : ` · ${y.bags} bag${y.bags === 1 ? "" : "s"}`}
-                        </span>
-                      </li>
-                    ))}
-                    <li className="flex justify-between gap-3 border-t border-border pt-1.5 font-semibold">
-                      <span>Total</span>
-                      <span className="tabular-nums">
-                        {fmtNumber(totals.yarn)} kg{totalBags ? ` · ${totalBags} bags` : ""}
-                      </span>
-                    </li>
-                  </ul>
+                /* A HEADED TABLE, NOT A LIST (user 2026-11-12: "this section need some clear view"):
+                   it was name / bare number pairs with no unit and no column names. Now each yarn
+                   reads Need kg · Bags · In Stock (this unit's sending stores, every bin); a yarn the
+                   store cannot cover shows its In Stock in red. No title (user, same day: "keep it
+                   clean") — the column heads say what it is. */
+                <aside className="sticky top-4 max-w-[26rem] min-w-[20rem] flex-[1_1_320px] overflow-hidden rounded-lg border border-border" aria-label="Yarn to issue, all fabrics">
+                  {/* FIXED LAYOUT (screenshot 4116): auto layout let the four columns outgrow the
+                      ~330px rail and `overflow-hidden` cut In Stock off. The numbers get set widths
+                      and the yarn name takes what is left, truncating with a reveal. The head band
+                      is painted on each <th> from the shared tokens — the thead fill did not show. */}
+                  <table className="w-full table-fixed text-sm">
+                    <colgroup>
+                      <col />
+                      <col className="w-[5rem]" />
+                      <col className="w-[3rem]" />
+                      <col className="w-[4.5rem]" />
+                    </colgroup>
+                    <thead>
+                      <tr className="text-xs">
+                        <th className="bg-[var(--table-head-bg)] px-2 py-1.5 text-left font-medium text-[var(--table-head-fg)]">Yarn</th>
+                        <th className="bg-[var(--table-head-bg)] px-2 py-1.5 text-right font-medium text-[var(--table-head-fg)]">Need kg</th>
+                        <th className="bg-[var(--table-head-bg)] px-2 py-1.5 text-right font-medium text-[var(--table-head-fg)]">Bags</th>
+                        <th className="bg-[var(--table-head-bg)] px-2 py-1.5 text-right font-medium text-[var(--table-head-fg)]">In Stock</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {/* One block per RE once there are several (screenshot 4126); In Stock is the store's
+                          whole stock of that yarn, and reads red when the ORDER's total need of it is short. */}
+                      {(manyRes ? yarnByRe : [{ re: "", kg: totals.yarn, bags: totalBags, noBag: false, yarns: byYarn }]).map((g) => (
+                        <Fragment key={g.re || "all"}>
+                          {manyRes ? (
+                            <tr className="border-t-2 border-border bg-[var(--table-head-bg)]/40">
+                              <td colSpan={4} className="px-2 py-1 font-mono text-xs font-bold text-primary">
+                                {g.re ? reLabel(g.re) : "No RE"}
+                              </td>
+                            </tr>
+                          ) : null}
+                          {g.yarns.map((y) => {
+                            const stock = binStock
+                              .filter((b) => b.item_id === y.id && b.qty > 0 && storeName.has(b.store_id))
+                              .reduce((t, b) => t + b.qty, 0);
+                            const short = (byYarn.find((t) => t.id === y.id)?.kg ?? y.kg) - stock;
+                            return (
+                              <tr key={y.id} className="border-t border-border align-top">
+                                <td className="min-w-0 px-2 py-1.5">
+                                  <Truncated text={y.name} />
+                                </td>
+                                <td className="px-2 py-1.5 text-right font-semibold tabular-nums">{fmtNumber(y.kg)}</td>
+                                <td className="px-2 py-1.5 text-right tabular-nums">{y.noBag ? "—" : y.bags}</td>
+                                <td className={`px-2 py-1.5 text-right tabular-nums ${short > 1e-9 ? "text-destructive" : ""}`}>{fmtNumber(stock)}</td>
+                              </tr>
+                            );
+                          })}
+                          {manyRes ? (
+                            <tr className="border-t border-border text-xs text-muted-foreground">
+                              <td className="px-2 py-1">Subtotal</td>
+                              <td className="px-2 py-1 text-right tabular-nums">{fmtNumber(g.kg)}</td>
+                              <td className="px-2 py-1 text-right tabular-nums">{g.noBag ? "—" : g.bags || "—"}</td>
+                              <td />
+                            </tr>
+                          ) : null}
+                        </Fragment>
+                      ))}
+                      <tr className="border-t-2 border-border font-semibold">
+                        <td className="px-2 py-1.5">Total</td>
+                        <td className="px-2 py-1.5 text-right tabular-nums">{fmtNumber(totals.yarn)}</td>
+                        <td className="px-2 py-1.5 text-right tabular-nums">{totalBags || "—"}</td>
+                        <td className="px-2 py-1.5" />
+                      </tr>
+                    </tbody>
+                  </table>
                 </aside>
               ) : null}
             </div>
           )}
 
-          {/* STEP 2 — OUTWARD YARN DC (Phase 2). A Yarn DC is a Process DC against this order:
-              the form lists its yarns with the balance still to send (whole bags, 0825), a lot
-              picker that only offers lots on hand (oldest first), and dispatch moves the yarn to
-              the knitter (0826, lot by lot). */}
-          {/* The DCs already raised — only once there are some (user 2026-11-11: an empty
-              "No yarn has been sent yet" box above the DC form said nothing the form doesn't). */}
-          {doc && issued && doc.dcs.length > 0 ? (
-            <section className="space-y-2 rounded-lg border border-border p-3">
-              <h3 className="text-sm font-semibold">Yarn DCs on this order</h3>
-              {(
-                <table className="w-full text-sm">
-                  <thead className="text-left text-xs text-muted-foreground">
-                    <tr>
-                      <th className="py-1 font-medium">DC No</th>
-                      <th className="py-1 font-medium">Date</th>
-                      <th className="py-1 text-right font-medium">Bags</th>
-                      <th className="py-1 text-right font-medium">Kg</th>
-                      <th className="py-1 font-medium">Status</th>
-                      <th className="py-1" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {doc.dcs.map((d) => (
-                      <tr key={d.id} className="border-t border-border">
-                        <td className="py-1 font-mono text-xs">
-                          {d.code ?? "—"}
-                          {d.moved_from ? <div className="font-sans text-[11px] text-muted-foreground">at the knitter, from {d.moved_from}</div> : null}
-                        </td>
-                        <td className="py-1 tabular-nums">{fmtDate(d.dc_date)}</td>
-                        <td className="py-1 text-right tabular-nums">{d.bags ?? "—"}</td>
-                        <td className="py-1 text-right tabular-nums">{fmtNumber(d.kg)}</td>
-                        <td className="py-1">
-                          <StatusPill tone={statusTone(d.status)}>{d.status === "draft" ? "Draft" : d.status === "cancelled" ? "Cancelled" : "Dispatched"}</StatusPill>
-                        </td>
-                        <td className="py-1 text-right">
-                          {d.status === "draft" ? (
-                            <Link href={`/purchase/dc/${d.id}`} className="text-primary hover:underline">
-                              Open draft
-                            </Link>
-                          ) : d.status !== "cancelled" ? (
-                            <Link
-                              href={`/stores/process-dc/${d.id}/print`}
-                              className="inline-flex items-center gap-1 text-primary hover:underline"
-                              aria-label={`Print DC ${d.code ?? ""}`.trim()}
-                            >
-                              <Printer className="size-4" aria-hidden />
-                              Print DC
-                            </Link>
-                          ) : null}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </section>
-          ) : null}
-
+          {/* NO "Yarn DCs on this order" TABLE, NO RECEIPTS SENTENCE (user 2026-11-12: "remove it from
+              here"). The order's DCs print from its report (the list's Report icon → Knitting
+              Analysis, whose strip names every DC); a draft DC is on Purchase ▸ Job Work DC; fabric
+              and returned yarn are posted on Process ▸ Knitting ▸ Fabric Receipts / Yarn Returns. */}
           {/* YARN ALREADY AT THE KNITTER (client 2026-11-11, 0833) — moved here without a transport DC. */}
           {doc && issued && canEdit && atKnitter.length ? <KnitAtKnitterPanel doc={doc} rows={atKnitter} /> : null}
-
-          {/* FABRIC RECEIPTS AND YARN RETURNS ARE THEIR OWN SCREENS (user 2026-11-12). */}
-          {doc && ["in_process", "partially_received", "received", "closed"].includes(doc.status) ? (
-            <p className="text-sm text-muted-foreground">
-              Fabric back from the knitter goes on{" "}
-              <Link href={`/process/knitting-receipts/new?order=${doc.id}`} className="text-primary hover:underline">
-                Process ▸ Knitting ▸ Fabric Receipts
-              </Link>
-              ; unknitted yarn on{" "}
-              <Link href={`/process/knitting-returns/new?order=${doc.id}`} className="text-primary hover:underline">
-                Yarn Returns
-              </Link>
-              .
-            </p>
-          ) : null}
 
           <DocRemarksLine maxWidthClass="max-w-none" value={notes} readOnly={readOnly} onChange={setNotes} />
         </div>
@@ -1184,6 +1369,8 @@ export function KnittingEditor({
 function blankRowStatic(): Omit<FabricRow, "key"> {
   return {
     source_key: "",
+    sales_order_id: "",
+    re_no: "",
     fabric_item_id: "",
     fabric_name: "",
     width_form: null,

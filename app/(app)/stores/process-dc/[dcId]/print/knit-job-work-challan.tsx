@@ -34,6 +34,9 @@ export type KnitChallanLine = {
   item_name: string;
   uom: string | null;
   ko: string | null;
+  /** The RE the yarn is for — on every line, so the gate and the knitter can tell whose bags
+   *  these are when one DC carries several orders (client 2026-11-12). */
+  re: string | null;
   program_qty: number | null;
   prev_sent: number;
   send_qty: number;
@@ -178,7 +181,11 @@ export function KnitJobWorkChallan({
                 </Td>
                 <Td>
                   <span className="font-semibold">{l.item_name}</span>
-                  {manyOrders && l.ko ? <div className="text-[10.5px] font-semibold text-[#4b5563]">{l.ko}</div> : null}
+                  {l.re || (manyOrders && l.ko) ? (
+                    <div className="text-[10.5px] font-semibold text-[#4b5563]">
+                      {[manyOrders ? l.ko : null, l.re ? `RE ${l.re}` : null].filter(Boolean).join(" · ")}
+                    </div>
+                  ) : null}
                 </Td>
                 <Td right>{kg(l.program_qty)}</Td>
                 <Td right>{kg(l.prev_sent)}</Td>

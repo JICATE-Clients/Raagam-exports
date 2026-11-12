@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requirePermission } from "@/lib/auth/server";
 import { createClient } from "@/lib/supabase/server";
@@ -50,10 +51,31 @@ export default async function KnittingAnalysisPage({ params }: { params: Promise
   const issuedBags = sheet.issues.reduce((t, d) => t + d.lines.reduce((u, l) => u + (l.bags ?? 0), 0), 0);
   const returnedBags = sheet.returns.reduce((t, r) => t + (r.bags ?? 0), 0);
   const muted = "text-[10.5px] text-[#4b5563]";
+  // Dispatched yarn DCs only — a draft or cancelled DC has no challan to print.
+  const dcPrints = doc.dcs.filter((d) => d.status !== "draft" && d.status !== "cancelled");
 
   return (
     <div>
       <PoPrintToolbar backHref={`/process/knitting-hub/${doc.id}`} backLabel={doc.code ?? "Knitting Order"} />
+      {/* THE ORDER'S PRINTS, ONE STRIP (user 2026-11-12: "if the report icon is clicked show the
+          knitting analysis and this dc"). The list's report icon lands here; every yarn DC sent on
+          this order is one click away as its Job Work DC print. Never printed itself. */}
+      {dcPrints.length ? (
+        <nav className="mb-3 flex flex-wrap items-center gap-2 text-sm print:hidden" aria-label="Reports for this order">
+          <span className="text-muted-foreground">Reports:</span>
+          <span className="rounded-control bg-primary px-3 py-1.5 font-medium text-primary-foreground">Knitting Analysis</span>
+          {dcPrints.map((d) => (
+            <Link
+              key={d.id}
+              href={`/stores/process-dc/${d.id}/print`}
+              className="rounded-control border border-border px-3 py-1.5 font-medium text-primary hover:bg-muted"
+            >
+              Job Work DC · {d.code ?? "—"}
+              {d.dc_date ? <span className="ml-1 text-xs text-muted-foreground">{fmtDate(d.dc_date)}</span> : null}
+            </Link>
+          ))}
+        </nav>
+      ) : null}
       <DocumentPrintStyles scope="po" />
       <article className="po-sheet mx-auto max-w-[1100px] space-y-3 bg-white pb-6 text-[12px] text-[#17202b]">
         <div className="po-keep space-y-2">
@@ -243,7 +265,7 @@ export default async function KnittingAnalysisPage({ params }: { params: Promise
             Issued {fmtNumber(sheet.issued_kg)} − Fabric {fmtNumber(sheet.fabric_kg)} − Returned {fmtNumber(sheet.returned_kg)}
             {" · "}
             {doc.allowed_loss_pct == null ? "no Allowed Loss % set" : `allowed ${fmtNumber(doc.allowed_loss_pct)} %`}
-            {over ? " · OVER — closing needs the MD's approval" : ""}
+            {over ? " · OVER THE ALLOWED LOSS" : ""}
             {sheet.written_off_kg ? ` · ${fmtNumber(sheet.written_off_kg)} kg written off at close${doc.close_reason ? ` (${doc.close_reason})` : ""}` : ""}
           </div>
         </div>

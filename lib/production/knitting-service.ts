@@ -11,6 +11,7 @@ import {
   type KnitCandidatesResult,
   type KnitFabric,
   type KnitOption,
+  type KnitPartyTarget,
   type KnitWidthForm,
   type KnittingOrder,
   type KnittingOrderListRow,
@@ -30,6 +31,20 @@ const num = (v: unknown): number => (v == null || v === "" ? 0 : Number(v));
 const numN = (v: unknown): number | null => (v == null || v === "" ? null : Number(v));
 const one = <T,>(v: T | T[] | null | undefined): T | null => (Array.isArray(v) ? (v[0] ?? null) : (v ?? null));
 
+/** Distinct RE numbers in first-seen order, joined — or null when there are none. */
+const reNumbers = (xs: (string | null)[]): string | null => {
+  const u = [...new Set(xs.filter((x): x is string => !!x))];
+  return u.length ? u.join(", ") : null;
+};
+
+/** A Knitting Order's REs from its fabric lines (0836), else its header's — for a receipt's RE No. */
+const koReNos = (ko: { so?: unknown; kf?: unknown } | null): string | null =>
+  reNumbers(
+    ((ko?.kf as { fso: unknown }[] | null) ?? []).map((f) => one(f.fso as { order_number: string | null } | null)?.order_number ?? null),
+  ) ??
+  one(ko?.so as { order_number: string | null } | null)?.order_number ??
+  null;
+
 /** DC statuses that mean the goods have left (a draft has moved nothing; a cancelled one never will). */
 const SENT_DC = ["issued", "dispatched", "partially_returned", "received", "closed"];
 
@@ -40,7 +55,7 @@ export async function listKnittingOrders(): Promise<KnittingOrderListRow[]> {
     .select(
       "id, code, status, order_date, expected_date, created_at, created_by, " +
         "vendor:master_vendors!vendor_id(name), so:sales_orders!sales_order_id(order_number), " +
-        "fabrics:process_order_knit_fabrics(programmed_kg)",
+        "fabrics:process_order_knit_fabrics(programmed_kg, so:sales_orders!sales_order_id(order_number))",
     )
     .eq("process_type", "knitting")
     // LISTED IN ENTRY ORDER — 1, 2, 3 (user 2026-09-22).
@@ -49,13 +64,17 @@ export async function listKnittingOrders(): Promise<KnittingOrderListRow[]> {
 
   return withCreators(
     ((data ?? []) as unknown as Record<string, unknown>[]).map((r) => {
-      const fabrics = (r.fabrics as { programmed_kg: number }[] | null) ?? [];
+      const fabrics = (r.fabrics as { programmed_kg: number; so: unknown }[] | null) ?? [];
       return {
         id: r.id as string,
         code: (r.code as string | null) ?? null,
         status: r.status as KnittingOrderStatus,
         vendor_name: one(r.vendor as { name: string } | null)?.name ?? null,
-        order_number: one(r.so as { order_number: string | null } | null)?.order_number ?? null,
+        // Every RE on the order (0836), the header's when no fabric names one.
+        order_number:
+          reNumbers(fabrics.map((f) => one(f.so as { order_number: string | null } | null)?.order_number ?? null)) ??
+          one(r.so as { order_number: string | null } | null)?.order_number ??
+          null,
         order_date: (r.order_date as string | null) ?? null,
         expected_date: (r.expected_date as string | null) ?? null,
         programmed_kg: fabrics.reduce((t, f) => t + num(f.programmed_kg), 0),
@@ -74,9 +93,9 @@ export async function getKnittingOrder(id: string): Promise<KnittingOrder | null
     .select(
       "id, code, status, process_type, vendor_id, sales_order_id, order_date, expected_date, allowed_loss_pct, notes, total_amount, created_at, created_by, close_pending, close_reason, close_remark, " +
         "vendor:master_vendors!vendor_id(name), so:sales_orders!sales_order_id(order_number), " +
-        "fabrics:process_order_knit_fabrics(id, sno, fabric_item_id, source_key, width_form, knit_dia, finished_dia, gsm, knit_gsm, loop_length, loop_length_ref, gauge_id, ply, programmed_kg, roll_weight_kg, expected_rolls, rate_per_kg, " +
-        "fabric:items!fabric_item_id(name), " +
-        "yarns:process_order_knit_yarns(id, sno, yarn_item_id, blend_pct, allowance_pct, required_kg, bag_weight_kg, required_bags, process_order_line_id, yarn:items!yarn_item_id(name)))",
+        "fabrics:process_order_knit_fabrics(id, sno, sales_order_id, fabric_item_id, source_key, width_form, knit_dia, finished_dia, gsm, knit_gsm, loop_length, loop_length_ref, gauge_id, ply, programmed_kg, roll_weight_kg, expected_rolls, rate_per_kg, " +
+        "fabric:items!fabric_item_id(name), fso:sales_orders!sales_order_id(order_number), " +
+        "yarns:process_order_knit_yarns(id, sno, yarn_item_id, blend_pct, allowance_pct, required_kg, bag_weight_kg, required_bags, dc_cap_override_kg, process_order_line_id, yarn:items!yarn_item_id(name)))",
     )
     .eq("id", id)
     .maybeSingle();
@@ -87,11 +106,12 @@ export async function getKnittingOrder(id: string): Promise<KnittingOrder | null
 
   type YarnRow = {
     id: string; sno: number; yarn_item_id: string; blend_pct: number; allowance_pct: number; required_kg: number;
-    bag_weight_kg: number | null; required_bags: number | null; process_order_line_id: string | null;
+    bag_weight_kg: number | null; required_bags: number | null; dc_cap_override_kg: number | null; process_order_line_id: string | null;
     yarn: { name: string } | { name: string }[] | null;
   };
-  type FabricRow = Omit<KnitFabric, "fabric_name" | "yarns"> & {
+  type FabricRow = Omit<KnitFabric, "fabric_name" | "yarns" | "re_no"> & {
     fabric: { name: string } | { name: string }[] | null;
+    fso: { order_number: string | null } | { order_number: string | null }[] | null;
     yarns: YarnRow[] | null;
   };
   const fabricRows = ((r.fabrics as FabricRow[] | null) ?? []).sort((a, b) => a.sno - b.sno);
@@ -182,7 +202,17 @@ export async function getKnittingOrder(id: string): Promise<KnittingOrder | null
     vendor_id: r.vendor_id as string,
     vendor_name: one(r.vendor as { name: string } | null)?.name ?? null,
     sales_order_id: (r.sales_order_id as string | null) ?? null,
-    order_number: one(r.so as { order_number: string | null } | null)?.order_number ?? null,
+    order_number:
+      reNumbers(fabricRows.map((f) => one(f.fso)?.order_number ?? null)) ??
+      one(r.so as { order_number: string | null } | null)?.order_number ??
+      null,
+    res: (() => {
+      const seen = new Map<string, string | null>();
+      for (const f of fabricRows) if (f.sales_order_id && !seen.has(f.sales_order_id)) seen.set(f.sales_order_id, one(f.fso)?.order_number ?? null);
+      const head = (r.sales_order_id as string | null) ?? null;
+      if (head && !seen.size) seen.set(head, one(r.so as { order_number: string | null } | null)?.order_number ?? null);
+      return [...seen].map(([id, order_number]) => ({ id, order_number }));
+    })(),
     order_date: (r.order_date as string | null) ?? null,
     expected_date: (r.expected_date as string | null) ?? null,
     allowed_loss_pct: numN(r.allowed_loss_pct),
@@ -193,6 +223,8 @@ export async function getKnittingOrder(id: string): Promise<KnittingOrder | null
     fabrics: fabricRows.map((f) => ({
       id: f.id,
       sno: f.sno,
+      sales_order_id: f.sales_order_id ?? ((r.sales_order_id as string | null) ?? null),
+      re_no: one(f.fso)?.order_number ?? one(r.so as { order_number: string | null } | null)?.order_number ?? null,
       fabric_item_id: f.fabric_item_id,
       fabric_name: one(f.fabric)?.name ?? "",
       source_key: f.source_key,
@@ -220,6 +252,7 @@ export async function getKnittingOrder(id: string): Promise<KnittingOrder | null
           required_kg: num(y.required_kg),
           bag_weight_kg: numN(y.bag_weight_kg),
           required_bags: numN(y.required_bags),
+          dc_cap_override_kg: numN(y.dc_cap_override_kg),
           process_order_line_id: y.process_order_line_id,
           dispatched_kg: y.process_order_line_id ? (sentByLine.get(y.process_order_line_id) ?? 0) : 0,
           used_kg: r3(byYarn.get(y.id)?.used ?? 0),
@@ -273,6 +306,41 @@ export async function getKnittingOrder(id: string): Promise<KnittingOrder | null
  * (`master_vendor_processes` → `processes.is_knitting`). The vendor a saved order already
  * names always survives (AGENTS.md, Disabled rows).
  */
+/**
+ * PARTY STOCK TARGETS (0837): the open Knitting Orders (issued · in knitting · partly received,
+ * not waiting on a close) of a knitter OTHER than `vendorId`, in this unit, with the yarn items
+ * each carries — a Yarn Return line can send yarn straight there. The server refuses a target
+ * without the yarn (`knitting_transfer_to_party`); this list only offers ones that have it.
+ */
+// created-by: exempt -- an options feeder for the Party Stock picker, not a listing
+export async function listKnitPartyTargets(vendorId: string | null, excludeOrderId: string): Promise<KnitPartyTarget[]> {
+  const s = await createClient();
+  const { data, error } = await s
+    .from("process_orders")
+    .select("id, code, vendor_id, close_pending, vendor:master_vendors!vendor_id(name), fabrics:process_order_knit_fabrics(yarns:process_order_knit_yarns(yarn_item_id))")
+    .eq("process_type", "knitting")
+    .in("status", ["issued", "in_process", "partially_received"])
+    .neq("id", excludeOrderId)
+    .order("created_at", { ascending: true });
+  if (error) throw new Error(`Could not read the other knitters' orders: ${error.message}`);
+  type Row = {
+    id: string;
+    code: string | null;
+    vendor_id: string | null;
+    close_pending: boolean | null;
+    vendor: { name: string } | { name: string }[] | null;
+    fabrics: { yarns: { yarn_item_id: string }[] | null }[] | null;
+  };
+  return ((data ?? []) as unknown as Row[])
+    .filter((r) => !r.close_pending && r.vendor_id !== vendorId)
+    .map((r) => ({
+      id: r.id,
+      code: r.code,
+      vendor_name: one(r.vendor)?.name ?? null,
+      yarn_item_ids: [...new Set((r.fabrics ?? []).flatMap((f) => (f.yarns ?? []).map((y) => y.yarn_item_id)))],
+    }));
+}
+
 export async function getKnitters(currentVendorId?: string | null): Promise<KnitOption[]> {
   const s = await createClient();
   const { data, error } = await s
@@ -313,7 +381,7 @@ export async function getKnitCandidates(salesOrderId: string, excludeOrderId: st
   const { go, bom } = current;
   const s = await createClient();
 
-  const [reqRes, entryRes, scopeRes, structRes, elseRes, ydRes] = await Promise.all([
+  const [reqRes, entryRes, scopeRes, structRes, elseRes, ydRes, soRes] = await Promise.all([
     s.from("order_fabric_bom_requirements").select("item_id, entry_id, size_id, required_qty").eq("bom_id", bom.id),
     s.from("order_fabric_bom_manual_entries").select("id, width_form, structure_id").eq("bom_id", bom.id),
     s.from("order_fabric_bom_process_scope").select("item_id, source").eq("bom_id", bom.id),
@@ -324,10 +392,11 @@ export async function getKnitCandidates(salesOrderId: string, excludeOrderId: st
     s
       .from("process_order_knit_fabrics")
       .select("source_key, fabric_item_id, finished_dia, width_form, programmed_kg, po:process_orders!inner(id, code, sales_order_id, status)")
-      .eq("po.sales_order_id", salesOrderId)
+      .eq("sales_order_id", salesOrderId) // the FABRIC line's RE (0836)
       .neq("po.status", "cancelled"),
     // Yarn Dyed Details — a yarn-dyed fabric's blend when the master holds no Mixing %.
     s.from("order_fabric_bom_yd_repeats").select("item_id, yd_part, yarn_item_id, value").eq("bom_id", bom.id),
+    s.from("sales_orders").select("order_number").eq("id", salesOrderId).maybeSingle(),
   ]);
   for (const [what, res] of [
     ["the requirement", reqRes],
@@ -336,6 +405,7 @@ export async function getKnitCandidates(salesOrderId: string, excludeOrderId: st
     ["the order's GSM", structRes],
     ["the knitting already programmed", elseRes],
     ["the Yarn Dyed Details", ydRes],
+    ["the RE No", soRes],
   ] as const) {
     if (res.error) return { ok: false, error: `Could not read ${what}: ${res.error.message}` };
   }
@@ -380,7 +450,7 @@ export async function getKnitCandidates(salesOrderId: string, excludeOrderId: st
     }
   }
 
-  const slices = new Map<string, Omit<KnitCandidate, "fabric_name" | "yarns" | "programmed_elsewhere_kg" | "placed_on"> & { gsms: Set<number> }>();
+  const slices = new Map<string, Omit<KnitCandidate, "fabric_name" | "yarns" | "programmed_elsewhere_kg" | "placed_on" | "sales_order_id" | "re_no"> & { gsms: Set<number> }>();
   for (const r of reqs) {
     const e = entries.get(r.entry_id as string);
     const widthForm = (e?.width_form === "open_width" || e?.width_form === "tubular" ? e.width_form : null) as KnitWidthForm | null;
@@ -438,6 +508,8 @@ export async function getKnitCandidates(salesOrderId: string, excludeOrderId: st
       const comp = compByFabric.get(x.fabric_item_id);
       return {
         ...x,
+        sales_order_id: salesOrderId,
+        re_no: (soRes.data as { order_number: string | null } | null)?.order_number ?? null,
         gsm: gsms.size === 1 ? [...gsms][0] : null,
         bom_kg: Math.round(x.bom_kg * 1000) / 1000,
         fabric_name: comp?.fabric_name ?? "",
@@ -726,7 +798,8 @@ export async function listKnittingReceipts(kind: "fabric" | "yarn_return"): Prom
     .from("knitting_receipts")
     .select(
       "id, code, receipt_date, vendor_dc_no, created_at, created_by, process_order_id, " +
-        "ko:process_orders!process_order_id(code, vendor:master_vendors!vendor_id(name), so:sales_orders!sales_order_id(order_number)), " +
+        "ko:process_orders!process_order_id(code, vendor:master_vendors!vendor_id(name), so:sales_orders!sales_order_id(order_number), " +
+        "kf:process_order_knit_fabrics(fso:sales_orders!sales_order_id(order_number))), " +
         "fabrics:knitting_receipt_fabrics(rolls, net_kg), yarns:knitting_receipt_yarns(kind, qty_kg)",
     )
     .eq("kind", kind)
@@ -747,7 +820,8 @@ export async function listKnittingReceipts(kind: "fabric" | "yarn_return"): Prom
         vendor_dc_no: r.vendor_dc_no,
         order_id: r.process_order_id,
         order_code: ko?.code ?? null,
-        re_no: one(ko?.so as { order_number: string | null } | null)?.order_number ?? null,
+        // Every RE on the Knitting Order (0836), else its header RE.
+        re_no: koReNos(ko),
         knitter: one(ko?.vendor as { name: string } | null)?.name ?? null,
         rolls: (r.fabrics ?? []).reduce((t, f) => t + num(f.rolls), 0),
         kg:
@@ -759,4 +833,101 @@ export async function listKnittingReceipts(kind: "fabric" | "yarn_return"): Prom
       };
     }),
   );
+}
+
+/** One posted Fabric Receipt / Yarn Return, with its lines — the read-only document screen. */
+export type KnitReceiptDoc = {
+  id: string;
+  kind: "fabric" | "yarn_return";
+  code: string | null;
+  receipt_date: string;
+  vendor_dc_no: string | null;
+  vendor_dc_date: string | null;
+  vehicle_no: string | null;
+  notes: string | null;
+  created_at: string;
+  created_by: string | null;
+  order_id: string;
+  order_code: string | null;
+  re_no: string | null;
+  knitter: string | null;
+  fabrics: { id: string; fabric: string; rolls: number | null; net_kg: number; gross_kg: number | null; dia: string | null; store: string | null; bin: string | null; lot: string | null }[];
+  yarns: { id: string; yarn: string; kind: "used" | "returned" | "written_off"; qty_kg: number; bags: number | null; lot: string | null; store: string | null; bin: string | null; reason: string | null }[];
+};
+
+/**
+ * Open a posted receipt or return (user 2026-11-12: "need to show the exact screen for the
+ * receipt and return") — the register had no way into the document it listed.
+ */
+export async function getKnittingReceiptDoc(id: string): Promise<KnitReceiptDoc | null> {
+  const s = await createClient();
+  const { data, error } = await s
+    .from("knitting_receipts")
+    .select(
+      "id, kind, code, receipt_date, vendor_dc_no, vendor_dc_date, vehicle_no, notes, created_at, created_by, process_order_id, " +
+        "ko:process_orders!process_order_id(code, vendor:master_vendors!vendor_id(name), so:sales_orders!sales_order_id(order_number), " +
+        "kf:process_order_knit_fabrics(fso:sales_orders!sales_order_id(order_number))), " +
+        "fabrics:knitting_receipt_fabrics!receipt_id(id, rolls, net_kg, gross_kg, received_dia, lot_no, sort_order, item:items!fabric_item_id(name), store:stores!store_id(name), bin:bins!bin_id(bin_code)), " +
+        "yarns:knitting_receipt_yarns!receipt_id(id, kind, qty_kg, bags, lot_no, reason, created_at, item:items!yarn_item_id(name), store:stores!store_id(name), bin:bins!bin_id(bin_code))",
+    )
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw new Error(`Could not read the knitting receipt: ${error.message}`);
+  if (!data) return null;
+  type Named = { name: string } | null;
+  type R = {
+    id: string; kind: "fabric" | "yarn_return"; code: string | null; receipt_date: string; vendor_dc_no: string | null;
+    vendor_dc_date: string | null; vehicle_no: string | null; notes: string | null; created_at: string; created_by: string | null;
+    process_order_id: string; ko: unknown;
+    fabrics: { id: string; rolls: number | null; net_kg: number; gross_kg: number | null; received_dia: string | null; lot_no: string | null; sort_order: number; item: unknown; store: unknown; bin: unknown }[] | null;
+    yarns: { id: string; kind: "used" | "returned" | "written_off"; qty_kg: number; bags: number | null; lot_no: string | null; reason: string | null; created_at: string; item: unknown; store: unknown; bin: unknown }[] | null;
+  };
+  const r = data as unknown as R;
+  const ko = one(r.ko as { code: string | null; vendor: unknown; so: unknown } | null);
+  const [doc] = await withCreators([
+    {
+      id: r.id,
+      kind: r.kind,
+      code: r.code,
+      receipt_date: r.receipt_date,
+      vendor_dc_no: r.vendor_dc_no,
+      vendor_dc_date: r.vendor_dc_date,
+      vehicle_no: r.vehicle_no,
+      notes: r.notes,
+      created_at: r.created_at,
+      created_by: r.created_by,
+      order_id: r.process_order_id,
+      order_code: ko?.code ?? null,
+      // Every RE on the Knitting Order (0836), else its header RE.
+        re_no: koReNos(ko),
+      knitter: one(ko?.vendor as Named)?.name ?? null,
+      fabrics: [...(r.fabrics ?? [])]
+        .sort((a, b) => a.sort_order - b.sort_order)
+        .map((f) => ({
+          id: f.id,
+          fabric: one(f.item as Named)?.name ?? "—",
+          rolls: f.rolls,
+          net_kg: num(f.net_kg),
+          gross_kg: numN(f.gross_kg),
+          dia: f.received_dia,
+          store: one(f.store as Named)?.name ?? null,
+          bin: one(f.bin as { bin_code: string } | null)?.bin_code ?? null,
+          lot: f.lot_no,
+        })),
+      yarns: [...(r.yarns ?? [])]
+        .sort((a, b) => a.created_at.localeCompare(b.created_at))
+        .map((y) => ({
+          id: y.id,
+          yarn: one(y.item as Named)?.name ?? "—",
+          kind: y.kind,
+          qty_kg: num(y.qty_kg),
+          bags: y.bags,
+          lot: y.lot_no,
+          store: one(y.store as Named)?.name ?? null,
+          bin: one(y.bin as { bin_code: string } | null)?.bin_code ?? null,
+          reason: y.reason,
+        })),
+    } satisfies KnitReceiptDoc,
+  ]);
+  return doc;
 }
