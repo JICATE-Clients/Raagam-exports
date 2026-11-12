@@ -100,6 +100,7 @@ async function loadKnitChallanExtras(s: Sb, dc: Dc): Promise<{ fabrics: KnitChal
       item_name: l.item_name,
       uom: l.uom,
       ko: k?.order_code ?? null,
+      re: k?.re_no ?? dc.order_no ?? null,
       program_qty: y?.required_kg != null ? Number(y.required_kg) : l.process_order_line_id ? (orderedOf.get(l.process_order_line_id) ?? null) : null,
       prev_sent: l.process_order_line_id ? (prevOf.get(l.process_order_line_id) ?? 0) : 0,
       send_qty: l.sent_qty,
@@ -189,7 +190,13 @@ export default async function ProcessDcPrintPage({ params }: { params: Promise<{
     const extra = await loadKnitChallanExtras(s, dc);
     return (
       <div>
-        <PoPrintToolbar backHref="/stores/process-dc" backLabel="Job Work DC" printable={dc.status !== "draft"} />
+        {/* Reached from the Knitting Analysis' report strip (user 2026-11-12), so Back returns there
+            when the DC carries one knitting order; a DC for several orders goes back to the DC list. */}
+        <PoPrintToolbar
+          backHref={koList.length === 1 ? `/process/knitting-hub/${koList[0].order_id}/report` : "/stores/process-dc"}
+          backLabel={koList.length === 1 ? "Knitting Analysis" : "Job Work DC"}
+          printable={dc.status !== "draft"}
+        />
         <DocumentPrintStyles scope="po" />
         <KnitJobWorkChallan
           dc={dc}

@@ -13,7 +13,7 @@ import { KnittingOrdersList } from "./_components/knitting-orders-list";
  */
 export default async function KnittingHubPage() {
   await requirePermission("stores", "view");
-  const [rows, canCreate, canEdit] = await Promise.all([listKnittingOrders(), can("stores", "create"), can("stores", "edit")]);
+  const [rows, canCreate, canEdit, canDelete] = await Promise.all([listKnittingOrders(), can("stores", "create"), can("stores", "edit"), can("stores", "delete")]);
   return (
     <div className="space-y-4">
       <PageHeader
@@ -28,7 +28,7 @@ export default async function KnittingHubPage() {
           ) : null
         }
       />
-      <KnittingOrdersList rows={rows} canEdit={canEdit} />
+      <KnittingOrdersList rows={rows} canEdit={canEdit} canDelete={canDelete} />
     </div>
   );
 }

@@ -202,3 +202,18 @@ row uses the `stores` permission the screens always asked, so access did not cha
   bill, analysis, Close). The order links to both once yarn is out.
 - The yarn-at-knitter panel and the order's DC list sit under the program. Multi-order DCs are
   still raised from Purchase ▸ Delivery Challans ▸ Job Work DC.
+
+## 10. One Knitting Order, several REs (0836, client 2026-11-12)
+
+- The RE moved down to the fabric line: `process_order_knit_fabrics.sales_order_id`
+  (backfilled). `process_orders.sales_order_id` stays and holds the FIRST RE, so lists and
+  filters keep working; screens show every RE (`order_number` is the REs joined).
+- Stock owner per line: `knit_line_owner` / `knit_fabric_owner`. Dispatch, receipt (fabric and
+  yarn used), yarn return, write-off at close and the move at the knitter each post under the
+  line's own RE. The four functions were re-created from their live bodies with that one
+  statement swapped (each swap must match exactly once).
+- "Program Placed" is per fabric line's RE; the same BOM slice may sit on one KO for two REs.
+- Screen: RE No is a multi-select; the fabric picker lists every picked RE's fabrics (tagged
+  "RE …"), each block shows its RE, removing an RE removes its fabrics. The Job Work DC print
+  names the RE on every yarn line.
+- Sample work orders (SWO) are not offered — they have no Fabric BOM to read.

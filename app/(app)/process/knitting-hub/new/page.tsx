@@ -27,7 +27,7 @@ export default async function NewKnittingOrderPage() {
       knitters={knitters}
       gauges={gauges}
       initialCandidates={[]}
-      initialCustomer={null}
+      initialCustomers={{}}
       nextCode={next.error ? null : ((next.data as string | null) ?? null)}
       today={today()}
       canEdit
