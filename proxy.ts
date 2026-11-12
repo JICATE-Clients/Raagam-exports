@@ -69,6 +69,24 @@ export async function proxy(request: NextRequest) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("redirect", pathname);
+    /**
+     * A SERVER ACTION WHOSE SESSION HAS ENDED (2026-11-06). A 307 here makes the
+     * browser's action fetch follow it to the /login HTML page, and Next's
+     * action client — which only accepts `text/x-component` — throws "An
+     * unexpected response was received from the server." over whatever the
+     * operator clicked (seen when the refresh token was refused: "Invalid
+     * Refresh Token: Refresh Token Not Found"). `x-action-redirect` is the
+     * header Next's own action redirects use; with an empty body the client
+     * does a full navigation to /login, so the operator lands on the sign-in
+     * page instead of an error overlay. Nothing is let through: no session
+     * still means the action never runs.
+     */
+    if (request.method === "POST" && request.headers.has("next-action")) {
+      return new NextResponse(null, {
+        status: 200,
+        headers: { "x-action-redirect": `${url.pathname}${url.search};replace`, "content-type": "text/plain" },
+      });
+    }
     return NextResponse.redirect(url);
   }
 

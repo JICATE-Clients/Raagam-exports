@@ -10,5 +10,7 @@ import { requirePermission } from "@/lib/auth/server";
    at the module root rather than one hop later. */
 export default async function AdminPage() {
   await requirePermission("system_admin", "view");
-  redirect("/admin/users");
+  /* OPENS ON ITS OVERVIEW since 2026-11-06 (wave 2); Users stays the first screen in the
+     sidebar under it. Same gate, so nobody is sent where they would be refused. */
+  redirect("/admin/overview");
 }

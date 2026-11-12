@@ -16,7 +16,7 @@ import type {
  *
  * PostgREST returns Postgres `numeric` as strings to preserve precision — every
  * measure is coerced here so downstream arithmetic and Excel exports get real
- * numbers. This is the same coercion `lib/analytics/service.ts` performs.
+ * numbers. Every other numeric RPC reader coerces the same way.
  */
 
 const n = (v: unknown): number => (v == null ? 0 : Number(v));

@@ -261,7 +261,7 @@ async function refuseUnreadyOrders(
   });
   return stale.length === 0
     ? null
-    : fail(`Recalculate before sending this for approval — ${stale.join("; ")}. Open the document, save it, then Refresh from BOMs here`);
+    : fail(`Recalculate before sending this for approval — ${stale.join("; ")}. Open the document and save it, then open this budget again — it updates from the BOMs by itself`);
 }
 
 /**
@@ -533,7 +533,7 @@ export async function submitBudget(id: string): Promise<Result> {
   }
   /* THE BUDGET SENT FOR APPROVAL IS THE BOMs' CURRENT ANSWER (0591). A pulled
      line's quantity is read-only on the screen, so it is only right while it
-     still matches the BOM. The screen offers "Refresh from BOMs"; this is the
+     still matches the BOM. The screen refreshes a draft as it opens; this is the
      half a stale tab cannot skip. The same `mergePulled` the screen applies,
      run against the STORED lines: anything it would change (a moved quantity, a
      new BOM line, a stale one, a re-fit fabric process) refuses the submit. */
@@ -575,7 +575,7 @@ export async function submitBudget(id: string): Promise<Result> {
     if (!pullMergeIsEmpty(drift)) {
       const n = pullMergeSize(drift);
       return fail(
-        `The BOMs have changed since this budget was filled (${n} line${n === 1 ? "" : "s"}) — open it, press Refresh from BOMs, and save before sending it`,
+        `The BOMs have changed since this budget was saved (${n} line${n === 1 ? "" : "s"}) — open it again (it updates from the BOMs by itself), check it and Save, then send`,
       );
     }
   }

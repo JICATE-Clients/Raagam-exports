@@ -23,6 +23,7 @@ import {
   UserCog,
   Headset,
   MessagesSquare,
+  Workflow,
   type LucideIcon,
 } from "lucide-react";
 import type { Module } from "@/lib/auth/types";
@@ -48,6 +49,9 @@ export interface NavItem {
   icon: LucideIcon;
   /** Sub-modules shown as an expandable tree under the module. */
   children?: SubNavItem[];
+  /** Kept OFF the rail and the phone bar, but still a module: its routes,
+   *  permission and active-module matching are unchanged. */
+  hidden?: boolean;
 }
 
 /**
@@ -122,6 +126,15 @@ export const NAV: NavItem[] = [
     icon: ShoppingCart,
     children: moduleNavChildren("/purchase"),
   },
+  // PROCESS (user 2026-11-12): job work at outside processors — Knitting first. Its own row,
+  // directly UNDER Purchase (user 2026-11-12: "move process as under purchase"); the knitting screens' `stores` permission.
+  {
+    href: "/process",
+    label: "Process",
+    module: "stores",
+    icon: Workflow,
+    children: moduleNavChildren("/process"),
+  },
   {
     href: "/stores",
     label: "Stores",
@@ -191,6 +204,18 @@ export const NAV: NavItem[] = [
     label: "Analytics",
     module: "reports",
     icon: ChartNoAxesCombined,
+    /* ONE BOARD PER QUESTION (Phase 1, user 2026-11-05). The module row opens the
+       Overview, so it is not repeated as a child. Each board also needs the screen
+       its figures come from (lib/analytics/sources.ts). */
+    children: [
+      { href: "/analytics/orders", label: "Orders & Buyers" },
+      { href: "/analytics/profitability", label: "Profitability" },
+      { href: "/analytics/purchase", label: "Purchase & Vendors" },
+      { href: "/analytics/stock", label: "Stock" },
+      { href: "/analytics/delivery", label: "Delivery & T&A" },
+      { href: "/analytics/samples", label: "Samples & Enquiries" },
+      { href: "/analytics/people", label: "People & Workplace" },
+    ],
   },
   {
     /* APPROVALS — the engine's own two screens (0500–0503).
@@ -206,6 +231,9 @@ export const NAV: NavItem[] = [
     module: "approvals",
     icon: Stamp, // was BadgeCheck (user 2026-11-03): approving is signing off
     children: [{ href: "/approvals/flows", label: "Approval Flows" }],
+    // HIDDEN FOR NOW (user 2026-11-06): the queue is worked from Pulse ▸ My
+    // Approvals (/comms/approvals). /approvals and /approvals/flows keep their URLs.
+    hidden: true,
   },
   {
     href: "/resolve",

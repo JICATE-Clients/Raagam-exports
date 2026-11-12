@@ -1068,6 +1068,32 @@ one Button five heights — 59 of them `size="sm" className="h-7"`.
   with its own corners. Use `<Button>` or `buttonClasses()`; review catches the
   rest until the check learns to tell an action button from a row or a tile.
 
+## Editable grids are Excel sheets (STANDING)
+
+**Every editable table draws as a spreadsheet: the gridline is the box, the field inside a
+cell has none** (user 2026-11-06: "we need to make it as tightened excel kind of cell — in
+future also the table should create like that format"). Focus is the blue inset of the
+active cell; an error or a held mandatory cell keeps a red inset.
+
+- **It is `ChildGrid`'s default** (`cells = "sheet"`), which stamps
+  `data-grid-style="sheet" data-grid-cells="flat"` on the grid's root — the same markers 31
+  screens had added by hand since 2026-10-08, and the same globals.css block. A new grid is a
+  sheet without doing anything; never add the wrapper to a `ChildGrid` again.
+- **Opting out is `cells="boxed"`** with a `grid-cells: exempt -- <reason>` comment.
+  `npm run check:grid-cells` (inside `build:check`) fails a silent opt-out and a primitive
+  that loses the default. Verified by being made to FAIL first.
+- **Its floor:** a hand-rolled `<table>` grid (~22 screens) never reaches `ChildGrid`; give it
+  the two markers on its wrapper. Listings (`DataTable`) are read-only rows, not in scope.
+- **A cell's second line is TINTED, in every table** (user 2026-11-06: "Pending 20 …
+  10005GD47 · WHITE — some colouring difference, overall application"). Write it as
+  `text-muted-foreground` and the one rule in globals.css (`table td .text-muted-foreground`
+  → `--cell-detail`, slate-blue) colours it; never pick a colour per screen. A figure still
+  OWED (Pending, a balance) is a status, not a detail: `text-warning`.
+- **Every table's title row is the blue band** (user 2026-11-06: "clear colour difference,
+  better title section impact"). Sheet grids and `DataTable` listings read the same
+  `--table-head-bg / -fg / -border` tokens (globals.css) — tune the band THERE, once, never with
+  a header class on one screen. Never grey (the 10-15 instruction still stands).
+
 ## Active leads the form (STANDING)
 
 **A record's Active / Inactive status is the FIRST field of its editor** (user

@@ -11,6 +11,7 @@ import {
   Ban,
   Eye,
   EyeOff,
+  Mail,
   MessageSquareDot,
   MessageSquareText,
   Repeat,
@@ -49,13 +50,12 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { PulseConfirm } from "./pulse-confirm";
 import { DropdownMenu, type DropdownItem } from "@/components/ui/dropdown-menu";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Segmented } from "@/components/ui/segmented";
 import { Sheet } from "@/components/ui/sheet";
-import { Toggle } from "@/components/ui/toggle";
 import { Truncated } from "@/components/ui/truncated";
 import { useToast } from "@/components/ui/toast";
 import { useAppUser } from "@/lib/auth/permission-context";
@@ -76,6 +76,7 @@ import { NewCommunitySheet } from "./new-community-sheet";
 import { PhotoImg, useUserPhoto } from "./person-photo";
 import { ShortScrollbar } from "./short-scrollbar";
 import { nameCase } from "@/lib/comms/name-case";
+import { WithPresence } from "./presence";
 
 type Filter = "all" | "unread" | "favorites" | "groups" | "communities" | "channels" | "files";
 
@@ -176,6 +177,7 @@ export function ConversationList({
   activeId = null,
   composing = false,
   home = false,
+  mentionsOpen = false,
   communities,
   activeCommunityId = null,
   activeFileId = null,
@@ -195,6 +197,8 @@ export function ConversationList({
   composing?: boolean;
   /** /comms — the Home feed is open beside the list (lights the Home shortcut). */
   home?: boolean;
+  /** /comms/mentions — Pulse ▸ Mentions is open beside the list (lights its shortcut). */
+  mentionsOpen?: boolean;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -389,8 +393,11 @@ export function ConversationList({
   const loose = shown.filter((c) => !placed.has(c.id));
   const sections: { key: string; title: string; items: ConversationSummary[]; mine?: MySection }[] = [
     ...mySections.map((ms) => ({ key: `my-${ms.id}`, title: ms.name, items: shown.filter((c) => placed.get(c.id) === ms.id), mine: ms })),
-    { key: "direct", title: "Direct messages", items: loose.filter((c) => c.kind === "direct") },
-    { key: "group", title: "Groups", items: loose.filter((c) => c.kind !== "direct" && c.kind !== "channel") },
+    // NO GROUPS HEADING (user 2026-11-05, screenshot 160050: "remove this
+    // groups field"). Group chats, announcements and community groups now sit
+    // with the person chats under Direct messages, in the same newest-first
+    // order — the heading went, the chats did not.
+    { key: "direct", title: "Direct messages", items: loose.filter((c) => c.kind !== "channel") },
     { key: "channel", title: "Channels", items: loose.filter((c) => c.kind === "channel") },
   ];
   const takenNames = new Set(["DIRECT MESSAGES", "GROUPS", "CHANNELS", ...mySections.map((ms) => ms.name.toUpperCase())]);
@@ -402,10 +409,12 @@ export function ConversationList({
     ...(s.mine
       ? [{ label: "Delete section", icon: Trash2, danger: true, onClick: () => saveSections(mySections.filter((x) => x.id !== s.mine?.id)) }]
       : s.key === "direct"
-        ? [{ label: "Start direct message", icon: MessageCircle, onClick: () => router.push("/comms?new=1") }]
-        : s.key === "group"
-          ? [{ label: "New group", icon: Users, onClick: () => router.push("/comms?new=1&a=group") }]
-          : // Channels ⋮ (user 2026-11-05, artifact "Channels ⋮ menu"): Create a
+        ? [
+            { label: "Start direct message", icon: MessageCircle, onClick: () => router.push("/comms?new=1") },
+            // New group moved here with the group chats when Groups lost its heading.
+            { label: "New group", icon: Users, onClick: () => router.push("/comms?new=1&a=group") },
+          ]
+        : // Channels ⋮ (user 2026-11-05, artifact "Channels ⋮ menu"): Create a
             // channel · Create new section. Browse channels was removed the same
             // day at the user's request; the heading's 🔍 ＋ icons left it too.
             [
@@ -597,10 +606,9 @@ export function ConversationList({
 
   const leaveDialog = (
     <>
-    <ConfirmDialog
+    <PulseConfirm
       open={!!leaving}
       title={`Leave ${leaving?.title ?? ""}?`}
-      body="You keep what was said before you left. Someone can add you back later."
       confirmLabel={leaving?.kind === "channel" ? "Leave channel" : "Exit group"}
       isPending={menuBusy}
       onCancel={() => setLeaving(null)}
@@ -617,10 +625,9 @@ export function ConversationList({
         );
       }}
     />
-    <ConfirmDialog
+    <PulseConfirm
       open={!!blocking}
       title={`Block ${blocking?.title ?? ""}?`}
-      body="Neither of you can send messages in this chat until you unblock them. Groups and channels are not affected."
       confirmLabel="Block"
       isPending={menuBusy}
       onCancel={() => setBlocking(null)}
@@ -630,11 +637,10 @@ export function ConversationList({
         runMenu(() => setBlocked(c.other_user_id as string, true), `${c.title} blocked`, () => setBlocking(null));
       }}
     />
-    <ConfirmDialog
+    <PulseConfirm
       open={!!deleting}
       title={`Delete chat with ${deleting?.title ?? ""}?`}
-      body="The chat and its messages are removed from your Pulse only. The other person keeps them. The chat comes back if they write again."
-      confirmLabel="Delete conversation"
+      confirmLabel="Delete"
       isPending={menuBusy}
       onCancel={() => setDeleting(null)}
       onConfirm={() => {
@@ -928,7 +934,9 @@ export function ConversationList({
             </h2>
             <ul hidden={!!folded.shortcuts}>
               <Shortcut href="/comms" icon={House} label="Home" on={home} />
-              <Shortcut href="/comms/notifications" icon={AtSign} label="Mentions" count={mentions} />
+              {/* Pulse ▸ Mentions, not Notifications (user 2026-11-06): the badge
+                  counts unread @mentions, so the page lists exactly those. */}
+              <Shortcut href="/comms/mentions" icon={AtSign} label="Mentions" count={mentions} on={mentionsOpen} />
               {/* Starred = the chats wearing the star (the Favourites flag, 0764)
                   — user 2026-11-05: Saved, Favourites, Communities and Files
                   removed from the card, Starred added. Saved messages stay
@@ -997,14 +1005,11 @@ export function ConversationList({
                       )}
                     >
                       {canNarrow && (
-                        <span title="Unread only" className="flex items-center">
-                          <Toggle
-                            checked={only}
-                            onChange={(v) => setUnreadOnly((m) => ({ ...m, [s.key]: v }))}
-                            ariaLabel={`Show only unread in ${s.title}`}
-                            className="min-h-0"
-                          />
-                        </span>
+                        <UnreadOnlyButton
+                          on={only}
+                          onChange={(v) => setUnreadOnly((m) => ({ ...m, [s.key]: v }))}
+                          label={`Show only unread in ${s.title}`}
+                        />
                       )}
                       <DropdownMenu
                         label={`Section actions for ${s.title}`}
@@ -1104,9 +1109,29 @@ export function ConversationList({
                   },
                 ]
               : []),
+            // The ⋮ gained two items (user 2026-11-10, artifact "Threads Menu"): the unread
+            // switch in words — the icon beside ⋮ is easy to miss on a phone — and the
+            // whole list, which otherwise only a row at the foot of the peek opens.
+            {
+              label: "Show only unread",
+              icon: MessageSquareDot,
+              checked: only,
+              onClick: () => setUnreadOnly((m) => ({ ...m, threads: !only })),
+            },
+            ...(!shut && list.length > SECTION_PEEK
+              ? [
+                  {
+                    label: open ? "Show fewer" : "Show all threads",
+                    icon: open ? ChevronsDownUp : ChevronsUpDown,
+                    ...(open ? {} : { count: list.length }),
+                    onClick: () => setExpanded((m) => ({ ...m, threads: !open })),
+                  },
+                ]
+              : []),
             {
               label: shut ? "Expand section" : "Collapse section",
               icon: shut ? ChevronsUpDown : ChevronsDownUp,
+              separatorBefore: true,
               onClick: () => toggleFold("threads"),
             },
           ];
@@ -1126,14 +1151,11 @@ export function ConversationList({
                       : "opacity-0 focus-within:opacity-100 group-hover/sec:opacity-100 has-[[aria-expanded=true]]:opacity-100 [@media(hover:none)]:opacity-100",
                   )}
                 >
-                  <span title="Unread only" className="flex items-center">
-                    <Toggle
-                      checked={only}
-                      onChange={(v) => setUnreadOnly((m) => ({ ...m, threads: v }))}
-                      ariaLabel="Show only unread threads"
-                      className="min-h-0"
-                    />
-                  </span>
+                  <UnreadOnlyButton
+                    on={only}
+                    onChange={(v) => setUnreadOnly((m) => ({ ...m, threads: v }))}
+                    label="Show only unread threads"
+                  />
                   <DropdownMenu
                     label="Section actions for Threads"
                     trigger={<EllipsisVertical className="h-4 w-4" aria-hidden />}
@@ -1315,6 +1337,32 @@ function FoldToggle({ title, folded, onToggle, disabled = false }: { title: stri
     >
       <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 transition-transform", folded && "-rotate-90")} strokeWidth={2.4} aria-hidden />
       <span className="min-w-0 break-words">{title}</span>
+    </button>
+  );
+}
+
+/**
+ * A heading's "Unread only" control — an envelope, not a switch (user
+ * 2026-11-06, artifact "Pulse: Unread-only switch → icon", option A). Off:
+ * grey. On: tinted like the open chat, with a dot, and the tooltip says how to
+ * go back. Same 28px round as the ⋮ beside it, so the heading does not move.
+ */
+export function UnreadOnlyButton({ on, onChange, label }: { on: boolean; onChange: (on: boolean) => void; label: string }) {
+  return (
+    // button-shape: exempt -- a 28px round heading icon beside the section ⋮, drawn like that ⋮
+    <button
+      type="button"
+      aria-pressed={on}
+      aria-label={label}
+      title={on ? "Show all chats" : "Unread only"}
+      onClick={() => onChange(!on)}
+      className={cn(
+        "relative grid h-7 w-7 place-items-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        on ? "bg-primary-soft text-primary" : "text-muted-foreground hover:bg-surface-muted hover:text-foreground",
+      )}
+    >
+      <Mail className="h-4 w-4" aria-hidden />
+      {on && <span aria-hidden className="absolute right-1 top-1 h-[7px] w-[7px] rounded-full border-[1.5px] border-surface bg-primary" />}
     </button>
   );
 }
@@ -1676,6 +1724,8 @@ export function ChatAvatar({ c, size }: { c: ConversationSummary; size: "row" | 
       {photo ? <PhotoImg src={photo} /> : Icon ? <Icon className="h-5 w-5" /> : (letter ?? initials(c.title.replace(/^#/, "")))}
     </span>
   );
+  // The online dot on a direct chat (user 2026-11-12, option C).
+  if (c.kind === "direct") return <WithPresence userId={c.other_user_id} size={size === "row" || size === "compact" ? "sm" : "md"}>{box}</WithPresence>;
   if (!(channel && c.visibility === "private")) return box;
   return (
     <span className="relative inline-flex shrink-0">

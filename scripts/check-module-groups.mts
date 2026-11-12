@@ -499,6 +499,10 @@ const OLD_NAV_LEAVES: Record<string, string[]> = {
 // through MODULE_GROUPS and never consults this table — an entry for it now
 // would be dead weight that reads as a live rule.
 const REDIRECTED: Record<string, string> = {
+  // Knitting MOVED to its own Process module (user 2026-11-12). Old addresses keep working.
+  "/production/knitting-hub": "/process/knitting-hub",
+  "/production/knitting-receipts": "/process/knitting-receipts",
+  "/production/knitting-returns": "/process/knitting-returns",
   // Purchase Orders came off the Procurement menu (user 2026-11-03). Raise PO is
   // where a PO is raised now; a PO's own page under this address still answers.
   "/purchase/orders": "/purchase/requirement-po",

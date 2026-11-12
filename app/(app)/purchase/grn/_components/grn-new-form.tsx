@@ -235,6 +235,15 @@ function kgPatch(l: { bagWt: string }, todayRecd: string) {
 }
 const accepted = (l: DraftLine) => acceptedFrom(num(l.todayRecd), l.fail?.qty ?? 0);
 
+/** A PO line's description is one string — "SOLID 1X1 LYCRA RIB (24'S … 5%) 100% · DIA 30".
+ *  Display only: the name is everything before the first " (" or " · ", the spec the rest. */
+function splitDescription(d: string): { name: string; spec: string } {
+  const cut = [d.indexOf(" ("), d.indexOf(" · ")].filter((i) => i > 0);
+  if (cut.length === 0) return { name: d, spec: "" };
+  const at = Math.min(...cut);
+  return { name: d.slice(0, at), spec: d.slice(at + 1).trim() };
+}
+
 /** The line's own refusals — each shown UNDER the field it is about. */
 function excessProblem(l: DraftLine): string | null {
   return num(l.todayRecd) > l.pending + 1e-9
@@ -665,7 +674,7 @@ export function GrnNewForm({
 
   /*
    * BESIDE THE PO RAIL (user 2026-11-02, Raise PO's layout), COMPACTED TO RAISE PO'S WIDTHS
-   * (user 2026-11-03): Item 144, capped · PO Qty 88 · Today Recd 88 (yarn's bags × kg boxes 36 each;
+   * (user 2026-11-03): Item 144, capped (256 and wrapped since 2026-11-06 — see the column) · PO Qty 88 · Today Recd 88 (yarn's bags × kg boxes 36 each;
    * its Part / Full pill under the box) · QC 112 · Bin 176 (Bin picker with its Qty box beside
    * it — no Store, the header's Received Store is the line's) · Lot No 88 · Close bal. 72 =
    * 768, + 40 chrome (the `#`; no ✕) = 808 — under tableFrom="4xl" (896). `autoFit`: each
@@ -681,18 +690,22 @@ export function GrnNewForm({
     {
       header: "Item Description",
       width: FIELD_WIDTH_CSS.code,
-      /* CAPPED AT 144 (user 2026-11-03: "Item Description — compact it"). Under `autoFit` a
-         width is only a floor and a long name would widen the column, so the cell's root
-         carries the cap (child-grid.tsx's own advice); the name cuts with its reveal. */
-      cell: (l) =>
-        poIds.length > 1 ? (
-          <div className="w-36 min-w-0 leading-tight">
-            <Truncated className="block text-sm">{l.description}</Truncated>
-            <div className="font-mono text-[11px] text-muted-foreground">{l.poCode ?? ""}</div>
+      /* THE WHOLE ITEM, WRAPPED — NEVER CUT (client 2026-11-06, screenshot 4088). At the
+         11-03 cap of 144 the line read "SOLID 1X1 LYCRA RI…" while ~130px sat blank right of
+         the table, and the part cut away (composition, DIA) is what the keeper matches the
+         goods against. Now: the name on line 1, the spec under it in muted text, wrapping
+         inside a 256px cap. Still capped on the cell's root — under `autoFit` a width is
+         only a floor — so the table stays inside the rail-narrowed pane (~990px at 125%). */
+      cell: (l) => {
+        const { name, spec } = splitDescription(l.description);
+        return (
+          <div className="w-64 min-w-0 whitespace-normal break-words leading-tight">
+            <div className="text-sm font-medium">{name}</div>
+            {spec ? <div className="mt-0.5 text-[11px] text-muted-foreground">{spec}</div> : null}
+            {poIds.length > 1 ? <div className="mt-0.5 font-mono text-[11px] text-muted-foreground">{l.poCode ?? ""}</div> : null}
           </div>
-        ) : (
-          <Truncated className="block w-36 text-sm">{l.description}</Truncated>
-        ),
+        );
+      },
     },
     {
       // PO QTY AND ITS UNIT, and what is still pending for this GRN — one cell, two lines.
@@ -709,7 +722,8 @@ export function GrnNewForm({
             {fmtNumber(isRepl ? l.pending : l.ordered)}
             {l.uomCode ? <span className="ml-1 text-xs text-muted-foreground">{l.uomCode}</span> : null}
           </div>
-          {isRepl ? null : <div className="text-[11px] text-muted-foreground">Pending {fmtNumber(l.pending)}</div>}
+          {isRepl ? null : /* Still OWED, so the warning amber — not the tinted detail line (globals.css). */
+            <div className="text-[11px] font-medium text-warning">Pending {fmtNumber(l.pending)}</div>}
         </div>
       ),
     },

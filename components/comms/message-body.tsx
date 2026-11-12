@@ -3,6 +3,7 @@ import { fmtTime } from "@/lib/format";
 import { parseBlocks, parseInline, type Inline } from "@/lib/comms/format";
 import { bodyPieces, linkPieces } from "@/lib/comms/types";
 import { cn } from "@/lib/utils";
+import { nameCase } from "@/lib/comms/name-case";
 import { RecordChip } from "./record-chip";
 
 /**
@@ -160,14 +161,17 @@ function tokens(text: string, ctx: Ctx): ReactNode[] {
     ) : "record" in p ? (
       <RecordChip key={i} kind={p.record.kind} id={p.record.id} link={ctx.recordLinks} />
     ) : (
+      // SMALL CHIPS (user 2026-11-06, screenshot 114031 and the "smaller
+      // @mention chips" artifact): 12px medium on a round pill, the name in
+      // Title Case — display only, the stored name and the token are untouched.
       <span
         key={i}
         className={cn(
-          "rounded px-0.5 font-semibold",
+          "inline-block rounded-full px-1.5 align-[1px] text-[12px] font-medium leading-[17px]",
           p.mention === ctx.meId ? "bg-warning-soft text-warning" : "bg-primary-soft text-primary",
         )}
       >
-        @{ctx.names.get(p.mention) ?? "someone"}
+        @{nameCase(ctx.names.get(p.mention) ?? "someone")}
       </span>
     ),
   );

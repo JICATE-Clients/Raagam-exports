@@ -259,6 +259,14 @@ export interface ModuleLink {
    * A `link` has no `todo` state on purpose: a route that does not exist yet has
    * no business being a sidebar row of its own.
    */
+  /**
+   * THE ROW TAKES THE MODULE GRANT, NOT A SCREEN TICK OF ITS OWN — a module's Overview
+   * (user 2026-11-06). Every card on it is already gated by the screen its figures come
+   * from (`canViewHref` in `lib/analytics/sources.ts`), so the page itself shows nobody
+   * anything they could not open, and a role granted screen by screen keeps its landing
+   * page without a new tick. `buildScreenCatalog` leaves such a row out of the tree.
+   */
+  moduleGrant?: true;
   status?: "unavailable";
   /** Why it cannot be used, in the operator's words. Same contract as
    *  `GroupChild.unavailableNote` — required in practice, optional in the type
@@ -313,6 +321,10 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
     description:
       "The garment order flow — styles and BOMs, entry, amendments, confirmation, execution and closure",
     entries: [
+      // OVERVIEW — FIRST (user 2026-11-06: "add an overview page in sidebar"). The module's
+      // landing page: the sentence, the strip, the picture and what needs doing
+      // (plan https://claude.ai/artifact/5e8SGWe8DPHC7Ua2fQyaiW). `/orders` redirects here.
+      { kind: "link", href: "/orders/overview", label: "Overview", icon: LayoutDashboard, moduleGrant: true },
       // THE LEGACY 14-STEP GARMENT ORDERS HUB IS GONE (client 2026-08-13).
       //
       // It was restored as a group on 2026-08-08, hidden from the sidebar on
@@ -1034,6 +1046,8 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
     label: "Sample",
     module: "sales",
     entries: [
+      // OVERVIEW — FIRST (wave 2, 2026-11-06). The module's landing page; `/sales` redirects here.
+      { kind: "link", href: "/sales/overview", label: "Overview", icon: LayoutDashboard, moduleGrant: true },
       {
         kind: "group",
         slug: "management",
@@ -1059,6 +1073,10 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
     label: "Planning",
     module: "planning",
     entries: [
+      // OVERVIEW — FIRST (user 2026-11-06: "add an overview page in sidebar"). The module's
+      // landing page: the sentence, the strip, the picture and what needs doing
+      // (plan https://claude.ai/artifact/5e8SGWe8DPHC7Ua2fQyaiW). `/planning` redirects here.
+      { kind: "link", href: "/planning/overview", label: "Overview", icon: LayoutDashboard, moduleGrant: true },
       {
         kind: "group",
         slug: "bom",
@@ -1168,6 +1186,10 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
     label: "Purchase",
     module: "materials_purchase",
     entries: [
+      // OVERVIEW — FIRST (user 2026-11-06: "add an overview page in sidebar"). The module's
+      // landing page: the sentence, the strip, the picture and what needs doing
+      // (plan https://claude.ai/artifact/5e8SGWe8DPHC7Ua2fQyaiW). `/purchase` redirects here.
+      { kind: "link", href: "/purchase/overview", label: "Overview", icon: LayoutDashboard, moduleGrant: true },
       {
         kind: "group",
         slug: "procurement",
@@ -1263,6 +1285,8 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
     label: "Stores",
     module: "stores",
     entries: [
+      // OVERVIEW — FIRST (wave 3, 2026-11-06). The module's landing page; `/stores` redirects here.
+      { kind: "link", href: "/stores/overview", label: "Overview", icon: LayoutDashboard, moduleGrant: true },
       // Stock Setup and Issues & Requisitions, CSP Receipts and Transfers moved to
       // Purchase (user 2026-11-02); their old hub and screen addresses redirect.
       {
@@ -1316,6 +1340,31 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         ],
       },
       { kind: "link", href: "/production/masters", label: "Planning Masters" },
+    ],
+  },
+
+  /* PROCESS — its own module (user 2026-11-12: "knitting need to move as new module as
+     process … like purchase, production, process also module"). Job work at OUTSIDE
+     processors. Knitting is its first sub-module (0825, doc/process/knitting-plan.md); it came
+     out of Production, whose old addresses redirect here. Same `stores` permission the
+     knitting screens have always asked, so nobody gains or loses access by the move. */
+  "/process": {
+    label: "Process",
+    module: "stores",
+    description: "Job work at outside processors — knitting orders, the yarn sent and the fabric back",
+    entries: [
+      {
+        kind: "group",
+        slug: "knitting",
+        label: "Knitting",
+        icon: Layers,
+        description: "Knitting orders to outside knitters, the fabric they send back and the yarn they return",
+        children: [
+          { href: "/process/knitting-hub", label: "Knitting Orders", description: "Program, yarn DC, fabric receipt and yarn return — one order per RE" },
+          { href: "/process/knitting-receipts", label: "Fabric Receipts", description: "Knitted fabric received from the knitters" },
+          { href: "/process/knitting-returns", label: "Yarn Returns", description: "Unknitted yarn the knitters sent back" },
+        ],
+      },
     ],
   },
 
@@ -1483,6 +1532,9 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           { href: "/hr/conduct/policies", label: "Policies", description: "Written policies, their versions, and who has read them" },
         ],
       },
+      // 0823 (2026-11-06): events sent as real Google Calendar invitations,
+      // guests picked by Employee ID. One screen, so a standalone row.
+      { kind: "link", href: "/hr/events", label: "Events", icon: CalendarClock },
     ],
   },
 
@@ -1540,6 +1592,8 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
     description: "Vehicles, trip requests, dispatch and the fleet board",
     module: "logistics",
     entries: [
+      // OVERVIEW — FIRST (wave 2, 2026-11-06). The module's landing page; `/logistics/transport` redirects here.
+      { kind: "link", href: "/logistics/transport/overview", label: "Overview", icon: LayoutDashboard, moduleGrant: true },
       {
         kind: "group",
         slug: "operations",
@@ -1571,6 +1625,8 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
     label: "Finance",
     module: "finance",
     entries: [
+      // OVERVIEW — FIRST (wave 3, 2026-11-06). The module's landing page; `/finance` redirects here.
+      { kind: "link", href: "/finance/overview", label: "Overview", icon: LayoutDashboard, moduleGrant: true },
       {
         kind: "group",
         slug: "setup",
@@ -1723,6 +1779,8 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
     label: "Administration",
     module: "system_admin",
     entries: [
+      // OVERVIEW — FIRST (wave 2, 2026-11-06). The module's landing page; `/admin` redirects here.
+      { kind: "link", href: "/admin/overview", label: "Overview", icon: LayoutDashboard, moduleGrant: true },
       // USERS & ACCESS LEADS THE MODULE (user 2026-10-01, "struggling to find
       // the user and access control" — https://claude.ai/artifact/TMbj3C6rLF8NSMsenKf6J2).
       // The sidebar folds groups to one open at a time, and as the SECOND group

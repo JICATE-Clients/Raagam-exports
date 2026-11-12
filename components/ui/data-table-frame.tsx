@@ -117,7 +117,12 @@ export function DataTableFrame({
       ref={cardRef}
       className={cn(
         wrapperClassName,
-        "flex flex-col overflow-hidden",
+        /* `clear-both`: PageHeader floats right so a TOOLBAR can rise beside it
+           (page-header.tsx, 2026-10-01). `overflow-hidden` makes this frame a
+           block formatting context too, so on a list with no toolbar the TABLE
+           rose instead and narrowed beside "← Back / + Add" (user 2026-11-11,
+           Knitting). A table never shares the header's line; a toolbar still does. */
+        "clear-both flex flex-col overflow-hidden",
         // Meeting the window's edge: no bottom rule, no rounded bottom corners.
         fill && fill.bleed > 0 && "rounded-b-none border-b-0",
       )}

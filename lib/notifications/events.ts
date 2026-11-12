@@ -495,7 +495,7 @@ export const EVENT_MODULE_LABEL: Record<NotificationEventDef["module"], string> 
   orders: "Orders",
   cad: "CAD",
   ta: "T&A",
-  comms: "Huddle",
+  comms: "Pulse", // was "Huddle" — the rail calls the module Pulse (2026-11-06)
   admin: "Administration",
   resolve: "Help & Repairs",
   logistics: "Logistics",

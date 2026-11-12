@@ -1,6 +1,6 @@
 import { withCreators } from "@/lib/created-by";
 import "server-only";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { PARENT_COLUMN, type PersonKind } from "./types";
 import type {
   Contractor,
@@ -81,6 +81,20 @@ export async function listWorkers(): Promise<WorkerRow[]> {
         designation_name: desig?.name ?? null,
       };
     }),
+  );
+}
+
+/**
+ * Every worker's ID No in EVERY unit, and nothing else about them. The key is
+ * unique table-wide while `listWorkers` sees one unit, so the next-number
+ * preview and the live duplicate check on the editor need this wider view.
+ */
+// created-by: exempt -- a list of ID strings for the editor, not a listing of records
+export async function listWorkerCodes(): Promise<string[]> {
+  const { data, error } = await createAdminClient().from("workers").select("code");
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as { code: string | null }[]).flatMap((r) =>
+    r.code ? [r.code] : [],
   );
 }
 

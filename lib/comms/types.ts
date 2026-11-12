@@ -220,6 +220,10 @@ export interface CommMember {
   mentionable?: boolean;
   /** When this member last opened the conversation — drives the blue ticks on a sender's messages. */
   last_read_at?: string | null;
+  /** 0737: who put them in — NULL for a self-join, and equal to user_id for a
+   *  creator. Drives a channel's "Roja added Ramesh" notes. */
+  added_by?: string | null;
+  added_by_name?: string | null;
 }
 
 export interface ConversationDetail {
@@ -293,6 +297,8 @@ export interface CommMessage {
   saved: boolean;
   attachments: CommAttachment[];
   reactions: CommReaction[];
+  /** 0812: sent on from another chat (Forward). Absent before 0812 is applied. */
+  forwarded?: boolean;
   /** 0776: the poll / event this message carries (lib/comms/cards.ts). */
   poll?: PollData | null;
   event?: EventData | null;

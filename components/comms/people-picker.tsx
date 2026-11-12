@@ -8,6 +8,7 @@ import type { DirectoryPerson } from "@/lib/comms/types";
 import { Truncated } from "@/components/ui/truncated";
 import { cn } from "@/lib/utils";
 import { Face } from "./person-photo";
+import { WithPresence } from "./presence";
 
 /**
  * Pick colleagues from `comm_directory` — the narrow, messaging-only people
@@ -130,9 +131,11 @@ export function PeoplePicker({
                       on && "bg-primary-soft/60",
                     )}
                   >
+                    <WithPresence userId={p.id}>
                     <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-muted text-xs font-semibold text-muted-foreground">
                       <Face userId={p.id} name={p.full_name} />
                     </span>
+                    </WithPresence>
                     <span className="min-w-0 flex-1">
                       <Truncated text={p.full_name} className="block text-sm font-medium text-foreground" touch={false} />
                       <Truncated

@@ -155,11 +155,31 @@ export function budgetBaselineIndex(lines: readonly BudgetScopeLine[]): BudgetBa
   return { byKey, own };
 }
 
+/**
+ * THE APPROVED PRICE THIS LINE MUST KEEP — or null when it is free to take one.
+ *
+ * A rate is per UNIT, so it holds only while the line is still counted in the
+ * unit it was approved in (REV/26-27/0003, 2026-11-06). Sewing thread was
+ * approved at ₹0.50 per MTR; material lines then began pulling the PURCHASE
+ * unit (CONE, 2026-10-23), the refresh on open voided the per-MTR rate, as it
+ * must — and this rule still demanded ₹0.50, now per cone. The rate cell was
+ * locked and blank, Save refused a blank, and any rate typed was refused as
+ * "stays as approved": a line that could be neither priced nor saved. The
+ * approved version never priced the line in the new unit, so it is exactly the
+ * "line the approved version did not price" that takes a new rate — and the
+ * MD sees the change in the revision's margin delta.
+ */
+function approvedPriceOf(ix: BudgetBaselineIndex, l: BudgetScopeLine): BudgetScopeLine | null {
+  const was = ix.byKey.get(budgetLineKey(l));
+  if (!was || !wasRated(was)) return null;
+  if ((was.uom_id || null) !== (l.uom_id || null)) return null;
+  return was;
+}
+
 /** Is this line's RATE locked by the amendment? (Screen: the rate cells go read-only.) */
 export function rateLockedByAmendment(ix: BudgetBaselineIndex, l: BudgetScopeLine): boolean {
   if (isOwnBudgetSource(l.source)) return true;
-  const was = ix.byKey.get(budgetLineKey(l));
-  return !!was && wasRated(was);
+  return approvedPriceOf(ix, l) !== null;
 }
 
 /**
@@ -195,8 +215,8 @@ export function budgetScopeProblem(v: {
       remaining.set(b, n - 1);
       continue;
     }
-    const was = ix.byKey.get(budgetLineKey(l));
-    if (was && wasRated(was) && rateDiffers(was, l)) {
+    const was = approvedPriceOf(ix, l);
+    if (was && rateDiffers(was, l)) {
       return `${head}the approved rate on "${txt(l.description) || txt(was.description) || "a line"}" stays as approved. Only a line the approved version did not price takes a new rate.${tail}`;
     }
   }

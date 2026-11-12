@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition, type ReactNode } from "react";
 import { ArrowLeft, Check, ChevronRight, Loader2, Megaphone, MoreVertical, Pencil, Plus, UserPlus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { PulseConfirm } from "./pulse-confirm";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -290,10 +290,9 @@ export function CommunityView({ community }: { community: CommunityDetail }) {
       <EditSheet open={sheet === "edit"} community={community} onClose={() => setSheet(null)} />
       <InviteSheet open={sheet === "invite"} community={community} onClose={() => setSheet(null)} />
       <AddGroupsSheet open={sheet === "groups"} community={community} onClose={() => setSheet(null)} />
-      <ConfirmDialog
+      <PulseConfirm
         open={leaving}
         title={`Leave ${community.name}?`}
-        body="You will leave its Announcements and every group of this community you are in. You can be added back later."
         confirmLabel="Leave community"
         isPending={pending}
         onCancel={() => setLeaving(false)}

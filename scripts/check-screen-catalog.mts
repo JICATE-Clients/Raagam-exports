@@ -63,6 +63,20 @@ function check(cond: boolean, msg: string) {
  * back to its module's grant — say why that is right.
  */
 const UNREGISTERED: Record<string, string> = {
+  // Knitting moved to the Process module (user 2026-11-12) — old addresses redirect (check-module-groups REDIRECTED).
+  "/production/knitting-hub": "redirect() to Process ▸ Knitting ▸ Knitting Orders — moved 2026-11-12",
+  "/production/knitting-hub/new": "redirect() to Process ▸ Knitting ▸ Knitting Orders (new) — moved 2026-11-12",
+  "/production/knitting-receipts": "redirect() to Process ▸ Knitting ▸ Fabric Receipts — moved 2026-11-12",
+  "/production/knitting-returns": "redirect() to Process ▸ Knitting ▸ Yarn Returns — moved 2026-11-12",
+  // Module overviews (user 2026-11-06) — `moduleGrant` rows: each card is gated by its own source screen.
+  "/purchase/overview": "module Overview — takes the module grant (ModuleLink.moduleGrant); every card is gated by its source screen",
+  "/orders/overview": "module Overview — takes the module grant (ModuleLink.moduleGrant); every card is gated by its source screen",
+  "/planning/overview": "module Overview — takes the module grant (ModuleLink.moduleGrant); every card is gated by its source screen",
+  "/sales/overview": "module Overview — takes the module grant (ModuleLink.moduleGrant); every card is gated by its source screen",
+  "/logistics/transport/overview": "module Overview — takes the module grant (ModuleLink.moduleGrant); every card is gated by its source screen",
+  "/admin/overview": "module Overview — takes the module grant (ModuleLink.moduleGrant); its figures need system_admin:view, the module's own gate",
+  "/stores/overview": "module Overview — takes the module grant (ModuleLink.moduleGrant); stock comes from the Stock Statement RPCs, which decide access themselves",
+  "/finance/overview": "module Overview — takes the module grant (ModuleLink.moduleGrant); payables / receivables are each read only when their screen is viewable",
   "/resolve/my-work": "redirect() to Resolve ▸ Inbox — the per-lane lists folded into one Inbox 2026-10-26",
   "/resolve/requirements": "redirect() to Resolve ▸ Inbox — the per-lane lists folded into one Inbox 2026-10-26",
   "/resolve/my-complaints": "redirect() to Resolve ▸ My Reports — named complaints joined it 2026-10-26",

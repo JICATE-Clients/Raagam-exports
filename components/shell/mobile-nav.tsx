@@ -81,7 +81,8 @@ const ENTITY_ICON: Record<SearchEntity, LucideIcon> = {
  * Home · Purchase. NO ALERTS TAB still holds (user 2026-10-03): the bell is in
  * the top bar.
  */
-const PREFERRED: readonly string[] = ["/orders", "/approvals"];
+// "/comms" replaced "/approvals" (2026-11-06): the queue is Pulse ▸ My Approvals now.
+const PREFERRED: readonly string[] = ["/orders", "/comms"];
 /** Home + 4 is the five a phone bar holds; a fifth module turns slot 4 into More. */
 const MAX_MODULE_TABS = 4;
 /** A module's bar label when it differs from its sidebar label. */
@@ -261,14 +262,19 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
   if (modules.length === 0 || editorOpen) return null;
 
   const storeLinks: SubNavItem[] = stores.map((s) => ({ href: `/stores/${s.id}`, label: s.name }));
-  const childrenFor = (moduleHref: string, children?: SubNavItem[]) =>
-    moduleHref === "/stores" ? [...storeLinks, ...(children ?? [])] : (children ?? []);
+  // The live stores go under the module's Overview (2026-11-06), which stays the first row.
+  const childrenFor = (moduleHref: string, children?: SubNavItem[]) => {
+    if (moduleHref !== "/stores") return children ?? [];
+    const [first, ...rest] = children ?? [];
+    return first?.href === "/stores/overview" ? [first, ...storeLinks, ...rest] : [...storeLinks, ...(children ?? [])];
+  };
 
   const activeModule = moduleOf(pathname, modules);
   const homeModule = modules.find((m) => m.href === "/");
+  const shown = modules.filter((m) => !m.hidden);
   const others = [
-    ...PREFERRED.map((href) => modules.find((m) => m.href === href)).filter((m): m is NavItem => !!m),
-    ...modules.filter((m) => m.href !== "/" && !PREFERRED.includes(m.href)),
+    ...PREFERRED.map((href) => shown.find((m) => m.href === href)).filter((m): m is NavItem => !!m),
+    ...shown.filter((m) => m.href !== "/" && !PREFERRED.includes(m.href)),
   ];
   const overflow = others.length > MAX_MODULE_TABS;
   const tabs = overflow ? others.slice(0, MAX_MODULE_TABS - 1) : others;

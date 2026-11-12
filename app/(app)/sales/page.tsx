@@ -22,5 +22,9 @@ export default async function SalesRootRedirectPage({
     for (const one of Array.isArray(v) ? v : v == null ? [] : [v]) q.append(k, one);
   }
   const qs = q.toString();
-  redirect(`/sales/sample-entry${qs ? `?${qs}` : ""}`);
+  /* A BARE /sales OPENS THE OVERVIEW (2026-11-06, wave 2). Anything carrying a query is a
+     quick action or a deep link (`?new=1&a=…`, `?pd=…`) and still goes straight to Sample
+     Entry with it, exactly as before — the overview has no use for those words. */
+  if (!qs) redirect("/sales/overview");
+  redirect(`/sales/sample-entry?${qs}`);
 }

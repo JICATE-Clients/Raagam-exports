@@ -2,7 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRightLeft, X } from "lucide-react";
+import { ArrowRightLeft, Warehouse, X } from "lucide-react";
+import { STORE_ICON, type DashBin, type DashStore } from "./store-icons";
+
+
 import { facetGroups } from "@/components/reports/stock-statement-view";
 import { storeStyle } from "@/components/masters/bin-rack";
 import { FilterBar } from "@/components/ui/filter-bar";
@@ -54,8 +57,7 @@ import {
  * with Stores create + edit, which the post needs.
  */
 
-export type DashBin = { id: string; bin_code: string | null; store_id: string; inactive: boolean; description: string | null };
-export type DashStore = { id: string; name: string; store_type: string };
+export type { DashBin, DashStore };
 
 const GROUPS = facetGroups();
 const NO_BIN = "—";
@@ -114,6 +116,7 @@ export function InventoryDashboard({
   unit,
   withValue,
   canMove,
+  initialStoreId,
 }: {
   rows: Row[];
   bins: DashBin[];
@@ -122,6 +125,8 @@ export function InventoryDashboard({
   unit: string;
   withValue: boolean;
   canMove: boolean;
+  /** `?store=` — Stores ▸ Overview's store tiles open their own store (2026-11-06). Else the busiest. */
+  initialStoreId?: string | null;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
@@ -168,6 +173,7 @@ export function InventoryDashboard({
       .sort((a, b) => Number(binsByStore.has(b.id)) - Number(binsByStore.has(a.id)) || a.name.localeCompare(b.name));
   }, [stores, binsByStore, rows]);
   const [storeId, setStoreId] = useState<string>(() => {
+    if (initialStoreId && stores.some((x) => x.id === initialStoreId)) return initialStoreId;
     const busiest = [...rows].sort((a, b) => b.qty - a.qty)[0]?.store;
     return storeByName.get(busiest ?? "")?.id ?? storeTabs[0]?.id ?? "";
   });
@@ -672,16 +678,38 @@ export function InventoryDashboard({
             <VizCard
               className="xl:flex xl:h-full xl:min-h-0 xl:flex-col"
               title="Where is everything?"
+              /* THE STORE IS THE CARD'S TITLE (user 2026-11-06: "move as title … proper button
+                 direction"). Which store is picked is what the rack shows, so the tabs read first,
+                 on the left, where a title is read; how to draw it (Rack / List) is secondary and
+                 stays on the right. A tablist, since each word swaps the whole panel. The count is
+                 a quieter chip after the name — "4/32 bins", bins in use of bins in the store. */
+              lead={
+                storeTabs.length ? (
+                  <ToggleGroup<string>
+                    label="Store"
+                    role="tablist"
+                    value={storeId}
+                    onChange={pickStore}
+                    options={storeTabs.map((s) => {
+                      const used = usedByStore.get(s.id) ?? 0;
+                      const total = binsByStore.get(s.id)?.length ?? 0;
+                      return {
+                        value: s.id,
+                        label: s.name,
+                        icon: STORE_ICON[s.store_type] ?? Warehouse,
+                        title: `${used} of ${total} bins in use`,
+                        after: (
+                          <span className="rounded-full bg-black/10 px-1.5 text-[11px] font-medium tabular-nums opacity-90">
+                            {used}/{total} bins
+                          </span>
+                        ),
+                      };
+                    })}
+                  />
+                ) : undefined
+              }
               right={
                 <span className="flex flex-wrap items-center gap-2">
-                  {storeTabs.length ? (
-                    <ToggleGroup<string>
-                      label="Store"
-                      value={storeId}
-                      onChange={pickStore}
-                      options={storeTabs.map((s) => ({ value: s.id, label: `${s.name} · ${usedByStore.get(s.id) ?? 0}/${binsByStore.get(s.id)?.length ?? 0}` }))}
-                    />
-                  ) : null}
                   {storeBins.length ? (
                     <ToggleGroup<"rack" | "list">
                       label="Bins as"

@@ -6,7 +6,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useSta
 import { CHAT_WALL_MASK } from "@/lib/comms/chat-wall";
 import { ArrowLeft, Hash, Loader2, Lock, Megaphone, MoreVertical, Pin, RotateCw, Users, WifiOff, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { PulseConfirm } from "./pulse-confirm";
 import { DropdownMenu, type DropdownItem } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/components/ui/toast";
 import { Truncated } from "@/components/ui/truncated";
@@ -44,10 +44,13 @@ import { MessageBody, dayKey, initials } from "./message-body";
 import { AVATAR_TINT, avatarStyle } from "./conversation-list";
 import { PinnedSheet } from "./pinned-sheet";
 import { ThreadPanel } from "./thread-panel";
+import { ForwardSheet } from "./forward-sheet";
+import { ChannelHeaderPeople } from "./add-channel-people";
 import { ChatSearchPanel } from "./chat-search-panel";
 import { suggestReplies } from "@/lib/comms/smart-reply-actions";
 import { PhotoImg, useUserPhoto } from "./person-photo";
 import { ruleReplies } from "@/lib/comms/smart-reply-rules";
+import { PRESENCE_WORD, WithPresence, usePresence } from "./presence";
 
 type Pending = {
   client_id: string;
@@ -127,7 +130,9 @@ export function ConversationView({
   const [messages, setMessages] = useState<CommMessage[]>(initialPage.messages);
   const [fill, setFill] = useState<{ text: string; n: number } | null>(null);
   // The other person's HR photo in a direct chat's header (lib/comms/photos.ts).
-  const headerPhoto = useUserPhoto(conversation.kind === "direct" ? (conversation.members.find((x) => x.user_id !== meId && !x.removed_at)?.user_id ?? null) : null);
+  const otherId = conversation.kind === "direct" ? (conversation.members.find((x) => x.user_id !== meId && !x.removed_at)?.user_id ?? null) : null;
+  const headerPhoto = useUserPhoto(otherId);
+  const otherPresence = usePresence(otherId);
   const [cursor, setCursor] = useState<string | null>(initialPage.next_cursor);
   const [pending, setPending] = useState<Pending[]>([]);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -135,6 +140,8 @@ export function ConversationView({
   const [liveError, setLiveError] = useState<string | null>(null);
   const [connected, setConnected] = useState(true);
   const [threadOf, setThreadOf] = useState<CommMessage | null>(null);
+  // 0812: the message whose photos the Forward sheet is sending on.
+  const [forwardOf, setForwardOf] = useState<CommMessage | null>(null);
   const [threadVersion, setThreadVersion] = useState(0);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [pinnedOpen, setPinnedOpen] = useState(false);
@@ -165,6 +172,7 @@ export function ConversationView({
     () => new Map(conversation.members.map((m) => [m.user_id, m.full_name] as const)),
     [conversation.members],
   );
+  const memberIds = useMemo(() => conversation.members.filter((m) => !m.removed_at).map((m) => m.user_id), [conversation.members]);
 
   const refreshLatest = useCallback(async () => {
     const r = await loadMessages(id, null);
@@ -399,6 +407,7 @@ export function ConversationView({
 
   const actions: MessageActions = {
     onOpenFile: (a) => void openFile(a),
+    onForward: (m) => setForwardOf(m),
     // 0776: a vote / an answer comes back as the message with fresh counts.
     onReplace: (fresh) => setMessages((prev) => prev.map((x) => (x.id === fresh.id ? fresh : x))),
     // One side panel at a time: a thread replaces Search messages.
@@ -571,6 +580,46 @@ export function ConversationView({
   // Pulse's direct and group chats wear the redesign (2026-10-29): bubbles, a
   // coloured avatar in the header, quick replies. A channel keeps its rows.
   const chat = conversation.kind === "channel" ? null : conversation.kind;
+  // A CHANNEL WEARS THE WALL TOO (user 2026-11-06, "apply" on the channel
+  // artifacts): the doodle, WhatsApp's day chips and centred notes — and,
+  // later the same day ("remove this … i need this", the "bubbles instead of
+  // full-width cards" artifact), the GROUP BUBBLES: others on the left with a
+  // photo and a coloured name, yours on the right. The full-width white cards
+  // tried first are gone. Quick replies and the header stay chat-only.
+  const channel = conversation.kind === "channel";
+  const wall = !!chat || channel;
+  const bubble = chat ?? "group";
+
+  // ONLY "WHO ADDED WHOM" IN A CHANNEL (same day, "remove the channel only
+  // added and add panna person"): the one event note a channel shows is
+  // "Roja added Ramesh", drawn from the member rows (0737's added_by /
+  // joined_at) — nothing new is written. Every other system line is hidden in
+  // a channel; chats keep theirs. Notes before the oldest LOADED message wait
+  // until "Load earlier" reaches them, so a note never sits above history it
+  // came after.
+  const timeline = useMemo(() => {
+    type Row = { kind: "msg"; at: string; m: CommMessage } | { kind: "added"; at: string; key: string; by: string; who: string[] };
+    const shown: Row[] = messages
+      .filter((m) => !(channel && m.kind === "system"))
+      .map((m) => ({ kind: "msg" as const, at: m.created_at, m }));
+    if (!channel) return shown;
+    const floor = cursor && messages[0] ? messages[0].created_at : null;
+    const notes: Row[] = [];
+    const adds = conversation.members
+      .filter((x) => x.added_by && x.added_by !== x.user_id)
+      .sort((a, b) => a.joined_at.localeCompare(b.joined_at));
+    for (const x of adds) {
+      const who = x.full_name ?? "Someone";
+      const last = notes[notes.length - 1];
+      // One note for people added together: same adder, within a minute.
+      if (last?.kind === "added" && last.key.startsWith(`${x.added_by}|`) && Date.parse(x.joined_at) - Date.parse(last.at) < 60_000) {
+        last.who.push(who);
+        continue;
+      }
+      notes.push({ kind: "added", at: x.joined_at, key: `${x.added_by}|${x.user_id}|${x.joined_at}`, by: x.added_by === meId ? "You" : (x.added_by_name ?? "Someone"), who: [who] });
+    }
+    return [...shown, ...notes.filter((n) => !floor || n.at >= floor)].sort((a, b) => a.at.localeCompare(b.at));
+  }, [messages, channel, cursor, conversation.members, meId]);
 
   return (
     // `data-chat-page`: on a phone the conversation takes the whole screen and
@@ -602,12 +651,33 @@ export function ConversationView({
             <Megaphone className="h-4 w-4" />
           </span>
         ) : chat ? (
+          <WithPresence userId={otherId} size="md">
           <span
             aria-hidden
             style={avatarStyle(conversation.title)}
             className={cn("flex h-[30px] w-[30px] shrink-0 items-center justify-center overflow-hidden text-[11.5px] font-bold", AVATAR_TINT, chat === "group" ? "rounded-lg" : "rounded-full")}
           >
             {headerPhoto ? <PhotoImg src={headerPhoto} /> : chat === "group" && !conversation.name ? <Users className="h-4 w-4" /> : initials(conversation.title)}
+          </span>
+          </WithPresence>
+        ) : conversation.kind === "channel" ? (
+          // A CHANNEL'S PROFILE TILE, NOT A "#" (user 2026-11-06: "remove the #",
+          // then "give profile in channel"): its first letter on its own colour,
+          // the same tile and colour the chat list's ChatAvatar draws for it, so
+          // the row you clicked and the header you land on match. A private
+          // channel keeps the small 🔒 on the corner, as in the list.
+          <span className="relative inline-flex shrink-0" aria-hidden>
+            <span
+              style={avatarStyle(conversation.title)}
+              className={cn("flex h-[30px] w-[30px] items-center justify-center overflow-hidden rounded-lg text-[12px] font-extrabold", AVATAR_TINT)}
+            >
+              {(conversation.title.match(/[\p{L}\p{N}]/u)?.[0] ?? "#").toUpperCase()}
+            </span>
+            {conversation.visibility === "private" && (
+              <span className="absolute -bottom-0.5 -right-0.5 grid h-3.5 w-3.5 place-items-center rounded-full bg-surface text-muted-foreground ring-2 ring-surface">
+                <Lock className="h-2 w-2" />
+              </span>
+            )}
           </span>
         ) : (
           <KindIcon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
@@ -616,7 +686,22 @@ export function ConversationView({
           <h1 className="break-words text-[13.5px] font-semibold leading-snug text-heading">
             {announcement ? "Announcements" : conversation.kind === "channel" ? conversation.title.replace(/^#/, "") : conversation.title}
           </h1>
-          {(conversation.kind !== "direct" || !!conversation.community) && (
+          {otherId && (
+            // Online / Away / Offline under a direct chat's name (user 2026-11-12, option C).
+            <p
+              className={cn(
+                "text-[11.5px] leading-tight",
+                otherPresence === "online" ? "font-semibold text-[#1e8e3e] dark:text-[#4cc274]" : otherPresence === "away" ? "text-[#a86f00] dark:text-[#f0b35a]" : "text-muted-foreground",
+              )}
+            >
+              {PRESENCE_WORD[otherPresence]}
+            </p>
+          )}
+          {/* NO LINE UNDER A CHANNEL'S NAME (user 2026-11-06: "remove this 6
+              member and raagam") — the member count and the topic tag are gone;
+              both are still in ⋮ › Channel info, and the topic in the intro card.
+              A community's channel keeps the line for its community link. */}
+          {((conversation.kind !== "direct" && conversation.kind !== "channel") || !!conversation.community) && (
           <p className="break-words text-[11.5px] leading-tight text-muted-foreground">
             {/* 0775: a community's group or Announcements names its community, linked to it. */}
             {conversation.community && (
@@ -630,23 +715,7 @@ export function ConversationView({
                 {" · "}
               </>
             )}
-            {conversation.kind === "direct" ? null : conversation.kind === "channel" ? (
-              // CHANNEL HEADER (user 2026-11-04, the Pulse channel-page board):
-              // the size and department, then the topic as a small tag, so the
-              // intro card no longer has to say them.
-              <>
-                {activeCount} {activeCount === 1 ? "member" : "members"}
-                {conversation.department_name && ` · ${conversation.department_name}`}
-                {(conversation.topic ?? conversation.description) && (
-                  <Truncated
-                    text={(conversation.topic ?? conversation.description)!}
-                    className="ml-1.5 inline-block max-w-[12rem] rounded bg-primary-soft px-1.5 align-middle text-[10.5px] font-medium leading-4 text-primary"
-                  />
-                )}
-              </>
-            ) : (
-              subtitle
-            )}
+            {conversation.kind === "direct" || conversation.kind === "channel" ? null : subtitle}
           </p>
           )}
         </div>
@@ -654,6 +723,17 @@ export function ConversationView({
           <span className="flex items-center gap-1 text-xs text-warning" role="status">
             <WifiOff className="h-3.5 w-3.5" aria-hidden /> Reconnecting…
           </span>
+        )}
+        {/* Option A of the "add members to a channel" board (user 2026-11-05):
+            the member faces (→ Channel info) and 👤+ Add, for those who may add. */}
+        {conversation.kind === "channel" && !announcement && (
+          <ChannelHeaderPeople
+            conversationId={conversation.id}
+            channelName={conversation.title.replace(/^#/, "")}
+            members={conversation.members}
+            canAdd={!!abilities?.add_members && !conversation.is_archived}
+            onOpenInfo={() => setDetailsOpen(true)}
+          />
         )}
         {/* No magnifier in the header (user 2026-11-02) — Search is in the ⋮ menu. */}
         <DropdownMenu
@@ -694,16 +774,16 @@ export function ConversationView({
           // (lib/comms/chat-wall.ts). It sits on this non-scrolling column, so
           // the drawings hold still while messages scroll; the message box and
           // quick replies carry their own surface over it.
-          chat &&
+          wall &&
             "relative isolate bg-[color-mix(in_srgb,var(--primary)_5%,var(--surface-muted))] before:pointer-events-none before:absolute before:inset-0 before:-z-10 before:bg-primary before:opacity-[.11] before:content-[''] before:[-webkit-mask:var(--pulse-wall)_0_0/240px_240px_repeat] before:[mask:var(--pulse-wall)_0_0/240px_240px_repeat] dark:before:opacity-[.09]",
         )}
-        style={chat ? ({ "--pulse-wall": CHAT_WALL_MASK } as CSSProperties) : undefined}
+        style={wall ? ({ "--pulse-wall": CHAT_WALL_MASK } as CSSProperties) : undefined}
       >
 
       <div
         ref={listRef}
         onScroll={onScroll}
-        className={cn("scrollbar-pulse min-h-0 flex-1 overflow-y-auto py-3", chat && "@3xl/comms:px-[7%]")}
+        className={cn("scrollbar-pulse min-h-0 flex-1 overflow-y-auto py-3", wall && "@3xl/comms:px-[7%]")}
         role="log"
         aria-live="polite"
         aria-label={`Messages in ${conversation.title}`}
@@ -732,7 +812,7 @@ export function ConversationView({
           (introOpen || !me?.active) && (
             <section
               aria-label={`About ${conversation.title}`}
-              className="mx-3 mb-1 mt-1 flex items-center gap-2.5 rounded-[10px] bg-surface-muted px-2.5 py-2 text-[12.5px] text-muted-foreground"
+              className="mx-3 mb-1 mt-1 flex items-center gap-2.5 rounded-[10px] bg-surface px-2.5 py-2 text-[12.5px] text-muted-foreground shadow-[0_1px_.5px_rgba(11,20,26,.13)]"
             >
               <span
                 aria-hidden
@@ -780,17 +860,45 @@ export function ConversationView({
           </div>
         )}
 
-        {messages.map((m, i) => {
-          const prev = messages[i - 1];
-          const newDay = !prev || dayKey(prev.created_at) !== dayKey(m.created_at);
+        {timeline.map((row, i) => {
+          const before = timeline[i - 1];
+          const newDay = !before || dayKey(before.at) !== dayKey(row.at);
+          const dayChip = newDay && wall && (
+            // WhatsApp's day chip: 12.5px, 7.5px corners, 12px above; the
+            // bubble below brings its own 12px.
+            <div className="mt-2 flex justify-center px-3" role="separator">
+              <span className="rounded-full border border-border bg-surface px-3 pb-[5px] pt-1 text-xs font-semibold leading-tight text-muted-foreground">{dayLabel(row.at)}</span>
+            </div>
+          );
+          if (row.kind === "added") {
+            return (
+              <div key={row.key}>
+                {dayChip}
+                <div className="flex justify-center px-3 py-1">
+                  {/* THE "ADDED" NOTE ON A LIGHT GRAY CHIP (user 2026-11-06, the
+                      "added-chip" board, "Lightest #F8F9FA"): WhatsApp's system
+                      note — 7.5px corners, a faint shadow, plain gray text, the
+                      names not bold. The wall and the day chip are unchanged. */}
+                  <p className="max-w-[80%] rounded-[7.5px] bg-[#f8f9fa] px-3 pb-1.5 pt-[5px] text-center text-[12.5px] leading-tight text-[#54656f] shadow-[0_1px_.5px_rgba(11,20,26,.13)] dark:bg-surface dark:text-muted-foreground">
+                    <b className="font-normal">{row.by}</b> added{" "}
+                    {row.who.map((w, k) => (
+                      <span key={k}>
+                        {k > 0 && (k === row.who.length - 1 ? " and " : ", ")}
+                        <b className="font-normal">{w}</b>
+                      </span>
+                    ))}
+                  </p>
+                </div>
+              </div>
+            );
+          }
+          const m = row.m;
+          // A note between two messages breaks the run, as a new sender does.
+          const prev = before?.kind === "msg" ? before.m : undefined;
           return (
             <div key={m.id}>
-              {newDay && chat ? (
-                // WhatsApp's day chip: 12.5px, 7.5px corners, 12px above; the
-                // bubble below brings its own 12px.
-                <div className="mt-3 flex justify-center px-3" role="separator">
-                  <span className="rounded-full border border-border bg-surface px-3 pb-[5px] pt-1 text-xs font-semibold leading-tight text-muted-foreground">{dayLabel(m.created_at)}</span>
-                </div>
+              {newDay && wall ? (
+                dayChip
               ) : newDay && (
                 <div className="my-2 flex items-center gap-3 px-3" role="separator">
                   <span className="h-px flex-1 bg-border" />
@@ -800,8 +908,9 @@ export function ConversationView({
               )}
               <MessageItem
                 message={m}
-                bubble={chat}
-                grouped={!newDay && grouped(m, prev)}
+                memberIds={memberIds}
+                bubble={bubble}
+                grouped={!newDay && !!prev && grouped(m, prev)}
                 names={names}
                 meId={meId}
                 canAct={canPost}
@@ -935,6 +1044,13 @@ export function ConversationView({
       />
       </div>
 
+      <ForwardSheet
+        message={forwardOf}
+        onClose={() => {
+          setForwardOf(null);
+          void refreshLatest();
+        }}
+      />
       <PinnedSheet
         open={pinnedOpen}
         conversationId={id}
@@ -950,14 +1066,18 @@ export function ConversationView({
           abilities={abilities}
           meId={meId}
           onClose={() => setDetailsOpen(false)}
+          onSearch={() => {
+            setThreadOf(null);
+            setSearchOpen(true);
+          }}
+          onPinned={() => setPinnedOpen(true)}
         />
       ) : (
         <DetailsSheet open={detailsOpen} conversation={conversation} meId={meId} onClose={() => setDetailsOpen(false)} />
       )}
-      <ConfirmDialog
+      <PulseConfirm
         open={confirmLeave}
         title={`Leave ${conversation.title}?`}
-        body="You keep what was said before you left. Someone can add you back later."
         confirmLabel={conversation.kind === "channel" ? "Leave channel" : "Leave group"}
         isPending={menuBusy}
         onCancel={() => setConfirmLeave(false)}
