@@ -33,7 +33,9 @@ type GoogleEnv = { clientId: string; clientSecret: string; redirectUri: string }
 export function googleEnv(): GoogleEnv | null {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  const redirectUri = process.env.GOOGLE_REDIRECT_URI;
+  // Either spelling: .env.local had it as NEXT_PUBLIC_… (2026-11-12), and the
+  // whole feature silently switched off over one missing prefix.
+  const redirectUri = process.env.GOOGLE_REDIRECT_URI || process.env.NEXT_PUBLIC_GOOGLE_REDIRECT_URI;
   if (!clientId || !clientSecret || !redirectUri) return null;
   return { clientId, clientSecret, redirectUri };
 }

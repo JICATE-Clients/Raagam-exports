@@ -30,7 +30,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { PulseConfirm } from "./pulse-confirm";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -649,7 +649,7 @@ export function ChannelDetailsSheet({
         </Sheet>
       </div>
 
-      <ConfirmDialog
+      <PulseConfirm
         open={!!confirm}
         title={
           confirm?.kind === "archive"
@@ -663,21 +663,6 @@ export function ChannelDetailsSheet({
                   : confirm?.kind === "transfer"
                     ? `Make ${confirm.member.full_name ?? "this member"} the owner?`
                     : ""
-        }
-        body={
-          confirm?.kind === "archive"
-            ? "Nobody can post, join or be added while it is archived. Every message, member and setting is kept, and an owner can restore it."
-            : confirm?.kind === "restore"
-              ? "It returns to discovery and everyone's sidebar exactly as it was."
-              : confirm?.kind === "leave"
-                ? "You keep what was said before you left. A public channel can be re-joined; a private one needs someone to add you back."
-                : confirm?.kind === "remove"
-                  ? "They keep what was said while they were here, but see nothing new."
-                  : confirm?.kind === "transfer"
-                    ? can.role === "owner"
-                      ? `You will become ${stepDown === "admin" ? "a moderator" : "a member"}.`
-                      : "They become an owner alongside any existing owners."
-                    : null
         }
         confirmLabel={
           confirm?.kind === "archive" ? "Archive" : confirm?.kind === "restore" ? "Restore" : confirm?.kind === "leave" ? "Leave" : confirm?.kind === "remove" ? "Remove" : "Transfer"

@@ -3,7 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { CalendarX2, Loader2, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { PulseConfirm } from "./pulse-confirm";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Sheet } from "@/components/ui/sheet";
@@ -278,9 +278,19 @@ export function EventSheet({
           {/* caps-input: exempt -- chat content read by people */}
           <Input uppercase={false} value={location} maxLength={120} onChange={(e) => setLocation(e.target.value)} placeholder="e.g. Unit 1 sample room" />
         </Field>
-        {google?.email && (
-          // No toggle (user 2026-11-12, option A): every event goes straight into the members' calendars.
-          <p className="text-xs text-muted-foreground">Goes straight into everyone&apos;s Google Calendar, sent from {google.email}.</p>
+        {google?.configured && !google.email && (
+          // Without a connected account the event reaches nobody's calendar — say so here
+          // rather than post it silently (2026-11-12: every event went nowhere unnoticed).
+          <p className="text-xs text-warning">
+            Not in Google Calendar yet.{" "}
+            <a
+              className="font-medium text-primary underline"
+              href={`/api/google/connect?next=${encodeURIComponent(typeof window === "undefined" ? "/comms" : window.location.pathname + window.location.search)}`}
+            >
+              Connect Google Calendar
+            </a>{" "}
+            once, then send the event.
+          </p>
         )}
         {error && (
           <p className="text-sm text-danger" role="alert">
@@ -415,10 +425,9 @@ export function EditEventSheet({
           <CalendarX2 className="h-4 w-4" aria-hidden /> Cancel this event
         </button>
       </div>
-      <ConfirmDialog
+      <PulseConfirm
         open={asking}
         title={`Cancel ${event.name}?`}
-        body="The card stays in the chat marked Cancelled, and nobody can answer it any more. Everyone sees a note."
         confirmLabel="Cancel event"
         cancelLabel="Keep it"
         isPending={pending}

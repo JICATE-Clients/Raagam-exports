@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { BellOff, Bell, Loader2, LogOut, UserMinus, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { PulseConfirm } from "./pulse-confirm";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -227,10 +227,9 @@ export function DetailsSheet({
         </section>
       </div>
 
-      <ConfirmDialog
+      <PulseConfirm
         open={confirmLeave}
         title={`Leave ${c.title}?`}
-        body="You keep what was said before you left, but you will not see anything new unless someone adds you back."
         confirmLabel="Leave"
         onConfirm={() => {
           setConfirmLeave(false);
