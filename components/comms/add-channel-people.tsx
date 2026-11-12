@@ -99,18 +99,21 @@ export function ChannelHeaderPeople({
         </span>
       </button>
       {canAdd && (
-        <Button
+        // button-shape: exempt -- a round icon-only "Add people" in the chat header (user 2026-11-10, option C of the
+        // "Chat Add Button" artifact): no word, a third of the old filled button. It borrows the primary button's own
+        // `ty-btn-*` markers so it follows the operator's colour preset like every filled button does.
+        <button
+          type="button"
           onClick={(e) => {
             setOrigin(e.currentTarget.getBoundingClientRect());
             setOpen(true);
           }}
           title="Add people"
           aria-label="Add people"
-          className="max-sm:px-2"
+          className="ty-btn-solid ty-btn-primary flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm transition-colors hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
           <UserPlus className="h-4 w-4" aria-hidden />
-          <span className="max-sm:sr-only">Add</span>
-        </Button>
+        </button>
       )}
 
       <Sheet

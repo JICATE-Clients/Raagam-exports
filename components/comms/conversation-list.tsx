@@ -1111,9 +1111,29 @@ export function ConversationList({
                   },
                 ]
               : []),
+            // The ⋮ gained two items (user 2026-11-10, artifact "Threads Menu"): the unread
+            // switch in words — the icon beside ⋮ is easy to miss on a phone — and the
+            // whole list, which otherwise only a row at the foot of the peek opens.
+            {
+              label: "Show only unread",
+              icon: MessageSquareDot,
+              checked: only,
+              onClick: () => setUnreadOnly((m) => ({ ...m, threads: !only })),
+            },
+            ...(!shut && list.length > SECTION_PEEK
+              ? [
+                  {
+                    label: open ? "Show fewer" : "Show all threads",
+                    icon: open ? ChevronsDownUp : ChevronsUpDown,
+                    ...(open ? {} : { count: list.length }),
+                    onClick: () => setExpanded((m) => ({ ...m, threads: !open })),
+                  },
+                ]
+              : []),
             {
               label: shut ? "Expand section" : "Collapse section",
               icon: shut ? ChevronsUpDown : ChevronsDownUp,
+              separatorBefore: true,
               onClick: () => toggleFold("threads"),
             },
           ];

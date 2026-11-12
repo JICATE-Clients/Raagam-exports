@@ -1050,6 +1050,11 @@ export function ConversationView({
           abilities={abilities}
           meId={meId}
           onClose={() => setDetailsOpen(false)}
+          onSearch={() => {
+            setThreadOf(null);
+            setSearchOpen(true);
+          }}
+          onPinned={() => setPinnedOpen(true)}
         />
       ) : (
         <DetailsSheet open={detailsOpen} conversation={conversation} meId={meId} onClose={() => setDetailsOpen(false)} />
