@@ -60,6 +60,7 @@ import type { PulseFile } from "@/lib/comms/files-service";
 import { Face } from "./person-photo";
 import { PeoplePicker } from "./people-picker";
 import { announceChannelsChanged } from "./sidebar-channels";
+import { WithPresence } from "./presence";
 
 type Confirm =
   | { kind: "archive" }
@@ -537,9 +538,11 @@ export function ChannelDetailsSheet({
               const manageable = !me && (can.set_roles || mayRemove(m));
               const body = (
                 <>
+                  <WithPresence userId={m.user_id} size="md">
                   <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary-soft text-sm font-bold text-primary">
                     <Face userId={m.user_id} name={m.full_name} />
                   </span>
+                  </WithPresence>
                   <span className="min-w-0 flex-1">
                     <span className="block break-words text-base text-heading">{me ? "You" : (m.full_name ?? "—")}</span>
                     <span className="block text-[13px] text-muted-foreground">{me ? (m.full_name ?? "") : CHANNEL_ROLE_LABEL[m.role]}</span>

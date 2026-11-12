@@ -50,6 +50,7 @@ import { ChatSearchPanel } from "./chat-search-panel";
 import { suggestReplies } from "@/lib/comms/smart-reply-actions";
 import { PhotoImg, useUserPhoto } from "./person-photo";
 import { ruleReplies } from "@/lib/comms/smart-reply-rules";
+import { PRESENCE_WORD, WithPresence, usePresence } from "./presence";
 
 type Pending = {
   client_id: string;
@@ -129,7 +130,9 @@ export function ConversationView({
   const [messages, setMessages] = useState<CommMessage[]>(initialPage.messages);
   const [fill, setFill] = useState<{ text: string; n: number } | null>(null);
   // The other person's HR photo in a direct chat's header (lib/comms/photos.ts).
-  const headerPhoto = useUserPhoto(conversation.kind === "direct" ? (conversation.members.find((x) => x.user_id !== meId && !x.removed_at)?.user_id ?? null) : null);
+  const otherId = conversation.kind === "direct" ? (conversation.members.find((x) => x.user_id !== meId && !x.removed_at)?.user_id ?? null) : null;
+  const headerPhoto = useUserPhoto(otherId);
+  const otherPresence = usePresence(otherId);
   const [cursor, setCursor] = useState<string | null>(initialPage.next_cursor);
   const [pending, setPending] = useState<Pending[]>([]);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -648,6 +651,7 @@ export function ConversationView({
             <Megaphone className="h-4 w-4" />
           </span>
         ) : chat ? (
+          <WithPresence userId={otherId} size="md">
           <span
             aria-hidden
             style={avatarStyle(conversation.title)}
@@ -655,6 +659,7 @@ export function ConversationView({
           >
             {headerPhoto ? <PhotoImg src={headerPhoto} /> : chat === "group" && !conversation.name ? <Users className="h-4 w-4" /> : initials(conversation.title)}
           </span>
+          </WithPresence>
         ) : conversation.kind === "channel" ? (
           // A CHANNEL'S PROFILE TILE, NOT A "#" (user 2026-11-06: "remove the #",
           // then "give profile in channel"): its first letter on its own colour,
@@ -681,6 +686,17 @@ export function ConversationView({
           <h1 className="break-words text-[13.5px] font-semibold leading-snug text-heading">
             {announcement ? "Announcements" : conversation.kind === "channel" ? conversation.title.replace(/^#/, "") : conversation.title}
           </h1>
+          {otherId && (
+            // Online / Away / Offline under a direct chat's name (user 2026-11-12, option C).
+            <p
+              className={cn(
+                "text-[11.5px] leading-tight",
+                otherPresence === "online" ? "font-semibold text-[#1e8e3e] dark:text-[#4cc274]" : otherPresence === "away" ? "text-[#a86f00] dark:text-[#f0b35a]" : "text-muted-foreground",
+              )}
+            >
+              {PRESENCE_WORD[otherPresence]}
+            </p>
+          )}
           {/* NO LINE UNDER A CHANNEL'S NAME (user 2026-11-06: "remove this 6
               member and raagam") — the member count and the topic tag are gone;
               both are still in ⋮ › Channel info, and the topic in the intro card.
