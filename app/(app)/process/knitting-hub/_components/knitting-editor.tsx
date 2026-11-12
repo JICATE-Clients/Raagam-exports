@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { Plus, X } from "lucide-react";
+import { Plus, Printer, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,7 +26,6 @@ import { type KnitYarnAtKnitter,
   KNIT_STATUS_LABELS,
   PLY_OPTIONS,
   WIDTH_FORM_LABELS,
-  expectedRolls,
   yarnRequirement,
   type KnitCandidate,
   type KnitOption,
@@ -60,9 +59,11 @@ type FabricRow = {
   width_form: KnitWidthForm | null;
   knit_dia: string;
   finished_dia: string;
+  /** Finishing GSM — the BOM's, read-only. */
   gsm: string;
+  /** Knitting GSM (0835) — starts at the finishing GSM, editable. */
+  knit_gsm: string;
   loop_length: string;
-  loop_length_ref: string;
   gauge_id: string;
   ply: string;
   programmed: string;
@@ -90,8 +91,8 @@ function rowsFromDoc(doc: KnittingOrder): FabricRow[] {
     knit_dia: f.knit_dia ?? "",
     finished_dia: f.finished_dia ?? "",
     gsm: str(f.gsm),
+    knit_gsm: str(f.knit_gsm),
     loop_length: str(f.loop_length),
-    loop_length_ref: str(f.loop_length_ref),
     gauge_id: f.gauge_id ?? "",
     ply: f.ply ?? "",
     programmed: str(f.programmed_kg),
@@ -241,6 +242,7 @@ export function KnittingEditor({
       finished_dia: c.finish_dia ?? "",
       knit_dia: "",
       gsm: str(c.gsm),
+      knit_gsm: str(c.gsm),
       // ATM-style: the BOM's balance still to knit, editable.
       programmed: balance ? String(balance) : "",
       yarns: c.yarns.map((y, i) => ({
@@ -327,7 +329,12 @@ export function KnittingEditor({
     if (q <= 0) return null;
     if (q > leftToSend(f, y) + 1e-9) return `Only ${fmtNumber(leftToSend(f, y))} left to send`;
     if (!placeOf(y)) return placesOf(y).length ? "Pick a bin" : "None in stock";
-    if (q > inStock(y) + 1e-9) return `Only ${fmtNumber(inStock(y))} there`;
+    // The typed kg is the dispatcher's (a bag of 58.4 kg, not 60) — never more than the bin holds.
+    if (q > inStock(y) + 1e-9) {
+      const p = placeOf(y);
+      const where = p?.bin_id ? `Bin ${binCode.get(p.bin_id) ?? "?"}` : `${storeName.get(p?.store_id ?? "") ?? "the store"} (no bin)`;
+      return `Send Qty (${fmtNumber(q)} kg) exceeds available stock in ${where} (${fmtNumber(inStock(y))} kg)`;
+    }
     return null;
   };
   const sends: KnitSendLine[] = typed.flatMap((f, fi) =>
@@ -380,8 +387,8 @@ export function KnittingEditor({
           knit_dia: r.knit_dia || null,
           finished_dia: r.finished_dia || null,
           gsm: n(r.gsm),
+          knit_gsm: n(r.knit_gsm),
           loop_length: n(r.loop_length),
-          loop_length_ref: n(r.loop_length_ref),
           gauge_id: r.gauge_id || null,
           ply: r.ply || null,
           programmed_kg: n(r.programmed) ?? 0,
@@ -454,9 +461,14 @@ export function KnittingEditor({
     .map((k) => ({ value: k.id, label: k.inactive ? `${k.name} (not a knitter)` : k.name }));
   const gaugeOptions = gauges.filter((g) => !g.inactive);
 
+  /* ONE PROGRAM PER FABRIC (user 2026-11-12, doc/process/knitting update.md §2.1): a BOM slice
+     another PLACED knitting order of this RE already holds is greyed "(Program Placed — KO/..)".
+     A block already holding it keeps it (that option is the block's own value); a draft elsewhere
+     does not block. The database refuses it too (0835 `knitting_fabric_placed_by`). */
   const candidateOptions: ComboboxOption[] = candidates.map((c) => ({
     value: c.key,
-    label: c.fabric_name,
+    label: c.placed_on ? `${c.fabric_name} (Program Placed — ${c.placed_on})` : c.fabric_name,
+    disabled: c.placed_on ? true : undefined,
     sublabel: [
       c.finish_dia ? `FIN DIA ${c.finish_dia}` : "No dia",
       c.width_form ? WIDTH_FORM_LABELS[c.width_form] : null,
@@ -469,7 +481,13 @@ export function KnittingEditor({
 
   /** Picked by another block — greyed in this block's list (AGENTS.md "Pick once"). */
   const optionsFor = (r: FabricRow): ComboboxOption[] =>
-    candidateOptions.map((o) => (rows.some((x) => x.key !== r.key && x.source_key === o.value) ? { ...o, disabled: true, label: `${o.label} (already added)` } : o));
+    candidateOptions.map((o) =>
+      o.value === r.source_key
+        ? { ...o, disabled: undefined }
+        : rows.some((x) => x.key !== r.key && x.source_key === o.value)
+          ? { ...o, disabled: true, label: `${o.label} (already added)` }
+          : o,
+    );
 
   function addFabric() {
     setRows((rs) => [...rs, blankRow()]);
@@ -497,7 +515,6 @@ export function KnittingEditor({
     return [...m.values()].sort((x, y) => y.kg - x.kg);
   })();
   const totalBags = typed.reduce((t, r) => t + r.yarns.reduce((u, y) => u + (yarnCalc(r, y).bags ?? 0), 0), 0);
-  const totalRolls = typed.reduce((t, r) => t + (expectedRolls(n(r.programmed) ?? 0, n(r.roll_weight)) ?? 0), 0);
 
   /** One word on the block's title line: what still needs doing, or that it is ready. */
   const blockState = (r: FabricRow): { tone: "ok" | "warn" | "bad"; text: string } | null => {
@@ -604,10 +621,6 @@ export function KnittingEditor({
                   <dd className="inline text-sm font-semibold tabular-nums text-foreground">{totalBags}</dd>
                 </div>
                 <div>
-                  <dt className="inline">Rolls </dt>
-                  <dd className="inline text-sm font-semibold tabular-nums text-foreground">{totalRolls}</dd>
-                </div>
-                <div>
                   <dt className="inline">Value </dt>
                   <dd className="inline text-sm font-semibold tabular-nums text-foreground">{totals.value ? fmtMoney(totals.value) : "—"}</dd>
                 </div>
@@ -678,17 +691,20 @@ export function KnittingEditor({
                             <table className="w-full border-collapse">
                               <thead>
                                 <tr>
+                                  {/* COLUMN ORDER (client 2026-11-12, doc/process/knitting update.md §2.2):
+                                      Finishing Dia · Knitting Dia · Finishing GSM · Knitting GSM · Gauge ·
+                                      Loop Length · Ply · Roll Wt · Program Qty · Rate · Value. Loop Ref and
+                                      Rolls are gone from entry (their columns stay in the DB). */}
                                   <th className={TH}>Form</th>
-                                  <th className={THR}>GSM</th>
-                                  <th className={THR}>Fin Dia</th>
-                                  <th className={THR}>Knit Dia *</th>
+                                  <th className={THR}>Finishing Dia</th>
+                                  <th className={THR}>Knitting Dia *</th>
+                                  <th className={THR}>Finishing GSM</th>
+                                  <th className={THR}>Knitting GSM</th>
                                   <th className={TH}>Gauge</th>
-                                  <th className={THR}>Loop</th>
-                                  <th className={THR}>Loop Ref</th>
+                                  <th className={THR}>Loop Length</th>
                                   <th className={TH}>Ply</th>
-                                  <th className={THR}>Program Kg *</th>
-                                  <th className={THR}>Roll Wt</th>
-                                  <th className={THR}>Rolls</th>
+                                  <th className={THR}>Roll Wt (kg)</th>
+                                  <th className={THR}>Program Qty (kg) *</th>
                                   <th className={THR}>Rate/kg</th>
                                   <th className={THR}>Value</th>
                                 </tr>
@@ -697,9 +713,6 @@ export function KnittingEditor({
                                 <tr>
                                   <td className={TD}>
                                     <span className={CELL}>{f.width_form ? WIDTH_FORM_LABELS[f.width_form] : "—"}</span>
-                                  </td>
-                                  <td className={TD}>
-                                    <span className={CELLR}>{f.gsm || "—"}</span>
                                   </td>
                                   {/* FIN DIA is the BOM's (the width the garment needs); KNIT DIA is the
                                       machine dia that knits to it — asked for, and holds the cursor until typed
@@ -721,6 +734,27 @@ export function KnittingEditor({
                                       />
                                     )}
                                   </td>
+                                  {/* FINISHING GSM is the BOM's (read-only); KNITTING GSM starts at it and
+                                      may be changed for the machine (0835). */}
+                                  <td className={TD}>
+                                    <span className={CELLR}>{f.gsm || "—"}</span>
+                                  </td>
+                                  <td className={`${TD} w-24`}>
+                                    {readOnly ? (
+                                      <span className={CELLR}>{f.knit_gsm || f.gsm || "—"}</span>
+                                    ) : (
+                                      <Input
+                                        type="number"
+                                        min="0"
+                                        step="any"
+                                        aria-label="Knitting GSM"
+                                        className={NUM}
+                                        value={f.knit_gsm}
+                                        placeholder={f.gsm || undefined}
+                                        onChange={(e) => setRow(f.key, { knit_gsm: e.target.value })}
+                                      />
+                                    )}
+                                  </td>
                                   <td className={`${TD} w-28`}>
                                     {readOnly ? (
                                       <span className={CELL}>{gauges.find((g) => g.id === f.gauge_id)?.name ?? "—"}</span>
@@ -737,18 +771,11 @@ export function KnittingEditor({
                                       </Select>
                                     )}
                                   </td>
-                                  <td className={`${TD} w-20`}>
+                                  <td className={`${TD} w-24`}>
                                     {readOnly ? (
                                       <span className={CELLR}>{f.loop_length || "—"}</span>
                                     ) : (
                                       <Input type="number" min="0" step="any" aria-label="Loop length" className={NUM} value={f.loop_length} onChange={(e) => setRow(f.key, { loop_length: e.target.value })} />
-                                    )}
-                                  </td>
-                                  <td className={`${TD} w-20`}>
-                                    {readOnly ? (
-                                      <span className={CELLR}>{f.loop_length_ref || "—"}</span>
-                                    ) : (
-                                      <Input type="number" min="0" step="any" aria-label="Loop length reference" className={NUM} value={f.loop_length_ref} onChange={(e) => setRow(f.key, { loop_length_ref: e.target.value })} />
                                     )}
                                   </td>
                                   <td className={`${TD} w-24`}>
@@ -763,6 +790,13 @@ export function KnittingEditor({
                                           </option>
                                         ))}
                                       </Select>
+                                    )}
+                                  </td>
+                                  <td className={`${TD} w-24`}>
+                                    {readOnly ? (
+                                      <span className={CELLR}>{f.roll_weight || "—"}</span>
+                                    ) : (
+                                      <Input type="number" min="0" step="any" aria-label="Roll weight (kg)" className={NUM} value={f.roll_weight} onChange={(e) => setRow(f.key, { roll_weight: e.target.value })} />
                                     )}
                                   </td>
                                   <td className={`${TD} w-28`}>
@@ -780,16 +814,6 @@ export function KnittingEditor({
                                         required
                                       />
                                     )}
-                                  </td>
-                                  <td className={`${TD} w-20`}>
-                                    {readOnly ? (
-                                      <span className={CELLR}>{f.roll_weight || "—"}</span>
-                                    ) : (
-                                      <Input type="number" min="0" step="any" aria-label="Roll weight (kg)" className={NUM} value={f.roll_weight} onChange={(e) => setRow(f.key, { roll_weight: e.target.value })} />
-                                    )}
-                                  </td>
-                                  <td className={TD}>
-                                    <span className={CELLR}>{expectedRolls(n(f.programmed) ?? 0, n(f.roll_weight)) ?? "—"}</span>
                                   </td>
                                   <td className={`${TD} w-24`}>
                                     {readOnly ? (
@@ -1024,8 +1048,13 @@ export function KnittingEditor({
                               Open draft
                             </Link>
                           ) : d.status !== "cancelled" ? (
-                            <Link href={`/stores/process-dc/${d.id}/print`} className="text-primary hover:underline">
-                              Print
+                            <Link
+                              href={`/stores/process-dc/${d.id}/print`}
+                              className="inline-flex items-center gap-1 text-primary hover:underline"
+                              aria-label={`Print DC ${d.code ?? ""}`.trim()}
+                            >
+                              <Printer className="size-4" aria-hidden />
+                              Print DC
                             </Link>
                           ) : null}
                         </td>
@@ -1161,8 +1190,8 @@ function blankRowStatic(): Omit<FabricRow, "key"> {
     knit_dia: "",
     finished_dia: "",
     gsm: "",
+    knit_gsm: "",
     loop_length: "",
-    loop_length_ref: "",
     gauge_id: "",
     ply: "",
     programmed: "",

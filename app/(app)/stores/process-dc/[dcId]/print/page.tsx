@@ -9,6 +9,109 @@ import { OrderFacts, ReportTable, SectionCard, SheetMasthead, SignOff, Td, Th, s
 import { CompanyLine, presentFacts } from "@/components/documents/document-kit";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import { withCreators } from "@/lib/created-by";
+import { KnitJobWorkChallan, type KnitChallanFabric, type KnitChallanLine } from "./knit-job-work-challan";
+
+type Sb = Awaited<ReturnType<typeof createClient>>;
+type Dc = NonNullable<Awaited<ReturnType<typeof getProcessDc>>>;
+
+/**
+ * What the knitter's challan needs beyond `getProcessDc`: each line's yarn row (program kg and
+ * its fabric), the fabric rows' spec, what EARLIER dispatched DCs already sent on the same order
+ * line, the bin codes, and the DC's own delivery place. Order lines are reached through
+ * `dc_line_items.process_order_line_id`, never `delivery_challans.process_order_id` — one DC may
+ * carry several knitting orders (0832) and that column names only the first.
+ */
+async function loadKnitChallanExtras(s: Sb, dc: Dc): Promise<{ fabrics: KnitChallanFabric[]; lines: KnitChallanLine[]; party: string | null }> {
+  const polIds = [...new Set(dc.lines.map((l) => l.process_order_line_id).filter((x): x is string => !!x))];
+  const binIds = [...new Set(dc.lines.map((l) => l.bin_id).filter((x): x is string => !!x))];
+  const [yarnRes, polRes, sentRes, binRes, hdrRes] = await Promise.all([
+    polIds.length
+      ? s.from("process_order_knit_yarns").select("process_order_line_id, knit_fabric_id, required_kg").in("process_order_line_id", polIds)
+      : Promise.resolve({ data: [], error: null }),
+    polIds.length ? s.from("process_order_lines").select("id, sent_qty").in("id", polIds) : Promise.resolve({ data: [], error: null }),
+    polIds.length
+      ? s
+          .from("dc_line_items")
+          .select("process_order_line_id, sent_qty, delivery_challan_id, dc:delivery_challans!delivery_challan_id!inner(status, created_at)")
+          .in("process_order_line_id", polIds)
+          .neq("delivery_challan_id", dc.id)
+          .not("dc.status", "in", "(draft,cancelled)")
+          .lt("dc.created_at", dc.created_at)
+      : Promise.resolve({ data: [], error: null }),
+    binIds.length ? s.from("bins").select("id, bin_code").in("id", binIds) : Promise.resolve({ data: [], error: null }),
+    s.from("delivery_challans").select("party_name, party_address").eq("id", dc.id).maybeSingle(),
+  ]);
+  for (const [what, r] of [
+    ["Knitting yarn rows", yarnRes],
+    ["Order lines", polRes],
+    ["Sent on earlier DCs", sentRes],
+    ["Bins", binRes],
+    ["DC header", hdrRes],
+  ] as const) {
+    if (r.error) throw new Error(`Job work DC print — ${what}: ${r.error.message}`);
+  }
+  const yarnOf = new Map(
+    ((yarnRes.data ?? []) as { process_order_line_id: string; knit_fabric_id: string; required_kg: number | null }[]).map((y) => [y.process_order_line_id, y]),
+  );
+  const orderedOf = new Map(((polRes.data ?? []) as { id: string; sent_qty: number | null }[]).map((p) => [p.id, Number(p.sent_qty) || 0]));
+  const prevOf = new Map<string, number>();
+  for (const r of (sentRes.data ?? []) as unknown as { process_order_line_id: string; sent_qty: number }[]) {
+    prevOf.set(r.process_order_line_id, (prevOf.get(r.process_order_line_id) ?? 0) + (Number(r.sent_qty) || 0));
+  }
+  const binCode = new Map(((binRes.data ?? []) as { id: string; bin_code: string }[]).map((b) => [b.id, b.bin_code]));
+
+  // Knitting GSM (0835, `knit_gsm`) is read on its own so the print still works on a database
+  // that does not have the column yet — it then falls back to the finished GSM.
+  const fabIds = [...new Set([...yarnOf.values()].map((y) => y.knit_fabric_id))];
+  const knitGsm = new Map<string, number | null>();
+  if (fabIds.length) {
+    const { data, error } = await s.from("process_order_knit_fabrics").select("id, knit_gsm").in("id", fabIds);
+    if (!error) {
+      for (const f of (data ?? []) as unknown as { id: string; knit_gsm: number | null }[]) knitGsm.set(f.id, f.knit_gsm == null ? null : Number(f.knit_gsm));
+    }
+  }
+
+  const fabrics = new Map<string, KnitChallanFabric>();
+  const lines: KnitChallanLine[] = dc.lines.map((l) => {
+    const y = l.process_order_line_id ? yarnOf.get(l.process_order_line_id) : undefined;
+    const k = l.knit;
+    if (k) {
+      const key = y?.knit_fabric_id ?? `${k.order_id}:${k.fabric}`;
+      if (!fabrics.has(key)) {
+        fabrics.set(key, {
+          key,
+          ko: k.order_code,
+          fabric: k.fabric,
+          finished_dia: k.finished_dia,
+          knit_dia: k.knit_dia,
+          width_form: k.width_form,
+          finished_gsm: k.gsm,
+          knit_gsm: (y ? knitGsm.get(y.knit_fabric_id) : null) ?? k.gsm,
+          gauge: k.gauge,
+          loop_length: k.loop_length,
+          ply: k.ply,
+        });
+      }
+    }
+    // Yarn already at the knitter (a 0833 transfer DC, or a line sent from no store): no bin.
+    const vendorHeld = !!dc.knit_transfer_from || (!l.from_store_id && !l.bin_id);
+    return {
+      id: l.id,
+      item_name: l.item_name,
+      uom: l.uom,
+      ko: k?.order_code ?? null,
+      program_qty: y?.required_kg != null ? Number(y.required_kg) : l.process_order_line_id ? (orderedOf.get(l.process_order_line_id) ?? null) : null,
+      prev_sent: l.process_order_line_id ? (prevOf.get(l.process_order_line_id) ?? 0) : 0,
+      send_qty: l.sent_qty,
+      bin: l.bin_id ? (binCode.get(l.bin_id) ?? null) : null,
+      vendor_held: vendorHeld,
+      bags: l.bags,
+    };
+  });
+  const h = (hdrRes.data ?? null) as { party_name: string | null; party_address: string | null } | null;
+  const party = [h?.party_name, h?.party_address].filter((x) => !!x && x.trim()).join(", ") || null;
+  return { fabrics: [...fabrics.values()], lines, party };
+}
 
 /**
  * THE PROCESS DC, AS PRINTED (doc/stores/dc-plan.md §3): the job-work challan the goods
@@ -79,6 +182,41 @@ export default async function ProcessDcPrintPage({ params }: { params: Promise<{
   };
   const uoms = [...new Set(dc.lines.map((l) => l.uom).filter(Boolean))];
   const companyName = cs("company_name") ?? cs("company_short_name") ?? "RAAGAM EXPORTS";
+
+  /* A KNITTER'S DC prints the spec §5 job-work challan (doc/process/knitting update.md); every
+     other process DC keeps the sheet below, unchanged. */
+  if (knitting) {
+    const extra = await loadKnitChallanExtras(s, dc);
+    return (
+      <div>
+        <PoPrintToolbar backHref="/stores/process-dc" backLabel="Job Work DC" printable={dc.status !== "draft"} />
+        <DocumentPrintStyles scope="po" />
+        <KnitJobWorkChallan
+          dc={dc}
+          company={{
+            name: companyName,
+            unit: u?.name ?? null,
+            logo: letterheadLogoOf(c),
+            address: registeredAddressOf(c),
+            phone: cs("phone") ?? cs("mobile"),
+            email: cs("email"),
+            gstin: u?.gst_number ?? cs("gstin"),
+          }}
+          vendor={{
+            name: v?.name ?? dc.vendor_name,
+            address: vendorAddress,
+            gstin: v?.gst_no ?? null,
+            place: extra.party ?? a?.config_lookups?.name ?? null,
+          }}
+          fabrics={extra.fabrics}
+          lines={extra.lines}
+          koNos={[...new Set(koList.map((k) => k.order_code).filter((x): x is string => !!x))]}
+          reNos={[...new Set(koList.map((k) => k.re_no).filter((x): x is string => !!x))]}
+          preparedBy={preparedBy}
+        />
+      </div>
+    );
+  }
 
   const facts = presentFacts([
     {
