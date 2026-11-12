@@ -100,3 +100,33 @@ export function cardText(body: string | null | undefined): string | null {
       return null;
   }
 }
+
+/**
+ * "Add to Google Calendar" on an event card (user 2026-11-12, screenshots
+ * 091644 → 091709). A Google Calendar TEMPLATE link, not the Calendar API: it
+ * needs no Google sign-in kept by the ERP and no Cloud project, and the event
+ * lands in whichever Google account the operator's browser is signed into —
+ * one click on Save there. A timed event runs one hour (the card has no end
+ * time) and is pinned to IST with `ctz`, because the card's date and time were
+ * typed in IST; an all-day event spans its one date (Google's end is exclusive).
+ */
+export function googleCalendarUrl(e: Pick<EventData, "name" | "description" | "event_date" | "event_time" | "location">): string {
+  const ymd = e.event_date.replace(/-/g, "");
+  let dates: string;
+  if (e.event_time) {
+    const [hh, mm] = e.event_time.split(":").map(Number);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const start = new Date(Date.UTC(+ymd.slice(0, 4), +ymd.slice(4, 6) - 1, +ymd.slice(6, 8), hh, mm));
+    const end = new Date(start.getTime() + 3_600_000);
+    const stamp = (d: Date) =>
+      `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}00`;
+    dates = `${stamp(start)}/${stamp(end)}`;
+  } else {
+    const next = new Date(Date.UTC(+ymd.slice(0, 4), +ymd.slice(4, 6) - 1, +ymd.slice(6, 8) + 1));
+    dates = `${ymd}/${next.toISOString().slice(0, 10).replace(/-/g, "")}`;
+  }
+  const q = new URLSearchParams({ action: "TEMPLATE", text: e.name, dates, ctz: "Asia/Kolkata" });
+  if (e.description) q.set("details", e.description);
+  if (e.location) q.set("location", e.location);
+  return `https://calendar.google.com/calendar/render?${q.toString()}`;
+}
