@@ -276,8 +276,10 @@ export function EventSheet({
         </div>
         <Field label="Location">
           {/* caps-input: exempt -- chat content read by people */}
-          <Input uppercase={false} value={location} maxLength={120} onChange={(e) => setLocation(e.target.value)} placeholder="e.g. Unit 1 sample room" />
+          <Input uppercase={false} value={location} maxLength={120} onChange={(e) => setLocation(e.target.value)} placeholder="e.g. Unit 1 sample room, or ONLINE" />
         </Field>
+        {/* Meet rule lives in card-actions.ts wantsMeet (user 2026-11-12). */}
+        <p className="-mt-2 text-xs text-muted-foreground">Leave Location blank or type ONLINE to get a Google Meet link.</p>
         {google?.configured && !google.email && (
           // Without a connected account the event reaches nobody's calendar — say so here
           // rather than post it silently (2026-11-12: every event went nowhere unnoticed).

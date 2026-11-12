@@ -322,6 +322,20 @@ export async function deleteChatForMe(conversationId: string): Promise<Result> {
   return { ok: true };
 }
 
+/**
+ * 0838: Clear chat — hide every message now in the chat from the caller's view
+ * only. Unlike deleteChatForMe the chat stays in the list with its pin, mute
+ * and archive untouched; other members keep every message.
+ */
+export async function clearChatForMe(conversationId: string): Promise<Result> {
+  if (typeof conversationId !== "string" || !UUID_RE.test(conversationId)) return fail("Unknown conversation.");
+  const s = await createClient();
+  const { error } = await s.rpc("comm_clear_chat_for_me", { p_conv: conversationId });
+  if (error) return fail(commErrorText(error, "The chat could not be cleared."));
+  revHub();
+  return { ok: true };
+}
+
 // ---------------------------------------------------------------------------
 // Messages
 // ---------------------------------------------------------------------------

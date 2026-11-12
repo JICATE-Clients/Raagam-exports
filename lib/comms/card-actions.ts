@@ -121,7 +121,21 @@ type EventRow = {
   cancelled_at?: string | null;
   google_event_id?: string | null;
   google_sent_by?: string | null;
+  /** 0837: the Meet link Google made for it. Optional: absent until 0837 is applied. */
+  google_meet_link?: string | null;
 };
+
+/**
+ * Does this event want a Google Meet link? (user 2026-11-12: "google meet link
+ * varala".) Yes when it has a time and its location is blank or says it is
+ * online — "ONLINE", "Google Meet", "video call". A room ("Unit 1 sample
+ * room") gets no link. An all-day event never does.
+ */
+function wantsMeet(location: string | null, time: string | null): boolean {
+  if (!time) return false;
+  const l = (location ?? "").trim();
+  return !l || /\b(online|meet|google\s*meet|virtual|video\s*call|zoom|teams)\b/i.test(l);
+}
 
 /**
  * Bring the chat event's Google entry in line with the chat: create it (every
@@ -175,12 +189,15 @@ async function syncEventToGoogle(messageId: string): Promise<GoogleOutcome | und
       ...(time
         ? { start: `${row.event_date}T${time}`, end: plusOneHour(row.event_date, time) }
         : { start: row.event_date, end: nextDay(row.event_date), allDay: true }),
-      addMeet: false,
+      // A PATCH without conferenceData keeps an existing link, so this only ever ADDS one:
+      // on create, or on an edit that turned a room event into an online one.
+      addMeet: wantsMeet(row.location, time) && !row.google_meet_link,
       guests: emails,
       requestId: messageId,
     };
     if (row.google_event_id) {
-      await updateGoogleEvent(organizer.userId, row.google_event_id, input);
+      const upd = await updateGoogleEvent(organizer.userId, row.google_event_id, input);
+      if (upd.meetLink && upd.meetLink !== row.google_meet_link) await saveMeetLink(admin, messageId, upd.meetLink);
       return { sent: emails.length };
     }
     const made = await createGoogleEvent(organizer.userId, input);
@@ -188,10 +205,20 @@ async function syncEventToGoogle(messageId: string): Promise<GoogleOutcome | und
       .from("comm_events")
       .update({ google_event_id: made.id, google_html_link: made.htmlLink, google_sent_by: organizer.userId })
       .eq("message_id", messageId);
+    if (made.meetLink) await saveMeetLink(admin, messageId, made.meetLink);
     return { sent: emails.length };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Google Calendar did not answer." };
   }
+}
+
+/**
+ * Remember the Meet link on the chat event so the card can show "Join Google
+ * Meet". Its own write, so a database without 0837 (no column) still keeps the
+ * Google event id above; the link is then only in the calendar invite.
+ */
+async function saveMeetLink(admin: ReturnType<typeof createAdminClient>, messageId: string, link: string): Promise<void> {
+  await admin.from("comm_events").update({ google_meet_link: link }).eq("message_id", messageId);
 }
 
 /** `YYYY-MM-DD` + `HH:mm` → one hour later, as `YYYY-MM-DDTHH:mm` (rolls past midnight). */
