@@ -4074,6 +4074,28 @@ export function FabricBomScreen({
     return out;
   };
 
+  /**
+   * A MANUAL FABRIC THAT FABRIC ALLOCATION NO LONGER NAMES (user 2026-11-12,
+   * HO/RE/26-27/0022: "SOLID SINGLE JERSEY … we not used").
+   *
+   * The auto-list effect below ADDS an entry the moment a fabric is picked on
+   * Fabric Allocation and never takes one away — so a fabric picked and then
+   * changed there (SOLID → MELANGE) stayed on Manual, with its weights, as a
+   * third fabric beside the header's "2 fabric lines". Flagged, never deleted
+   * by itself: the planner may have typed weights into it, and only they know
+   * whether it was a mistake or a fabric still to be allocated.
+   *
+   * Same style, or a line naming no style (a "Copy from" line), counts as named.
+   */
+  const notOnAllocation = (e: ManualEntryRow) =>
+    !!e.item_id &&
+    !lines.some(
+      (l) =>
+        l.item_id === e.item_id &&
+        (!l.style_ref_no.trim() ||
+          l.style_ref_no.trim().toUpperCase() === e.style_ref_no.trim().toUpperCase()),
+    );
+
   /** How many of the order's sizes this entry has a weight for — what the
    *  style list's n/m counts and what lights the section's quiet dot. */
   const manualAnswered = (e: ManualEntryRow) =>
@@ -6171,7 +6193,8 @@ export function FabricBomScreen({
             const problem = e.item_id
               ? manualProblem(entryLike(e), orderSizesFor(e.style_ref_no), gsm)
               : null;
-            const state = !e.item_id ? "idle" : problem === null ? "ok" : "warn";
+            // A fabric Fabric Allocation no longer names is never "ok" (`notOnAllocation`).
+            const state = !e.item_id ? "idle" : problem === null && !notOnAllocation(e) ? "ok" : "warn";
             const subtitle = [entryKnitType(e), gsm != null ? `${fmtNumber(gsm)} GSM` : ""]
               .filter(Boolean)
               .join(" · ");
@@ -6597,6 +6620,22 @@ export function FabricBomScreen({
                   )
                 );
               })()}
+              {/* Not on Fabric Allocation — see `notOnAllocation`. Removing is
+                  the planner's call, so it is offered, never done for them; it
+                  also shows on the last fabric, where the row's own ✕ does not. */}
+              {notOnAllocation(e) && (
+                <p className="mt-2 text-xs text-warning">
+                  ⚠ This fabric is not on Fabric Allocation — most likely it was picked there
+                  and then changed. Remove it unless you still mean to allocate it.{" "}
+                  <button
+                    type="button"
+                    className="font-medium text-primary underline-offset-2 hover:underline"
+                    onClick={() => removeManualEntry(e)}
+                  >
+                    Remove this fabric
+                  </button>
+                </p>
+              )}
               {/* LEVEL 3 — THE SIZES, still this fabric's own nested grid,
                  unchanged in content: only its container moved, from a
                  `<td colSpan>` spanning the whole pane to this card. */}
