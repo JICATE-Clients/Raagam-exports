@@ -760,3 +760,98 @@ export async function listKnittingReceipts(kind: "fabric" | "yarn_return"): Prom
     }),
   );
 }
+
+/** One posted Fabric Receipt / Yarn Return, with its lines — the read-only document screen. */
+export type KnitReceiptDoc = {
+  id: string;
+  kind: "fabric" | "yarn_return";
+  code: string | null;
+  receipt_date: string;
+  vendor_dc_no: string | null;
+  vendor_dc_date: string | null;
+  vehicle_no: string | null;
+  notes: string | null;
+  created_at: string;
+  created_by: string | null;
+  order_id: string;
+  order_code: string | null;
+  re_no: string | null;
+  knitter: string | null;
+  fabrics: { id: string; fabric: string; rolls: number | null; net_kg: number; gross_kg: number | null; dia: string | null; store: string | null; bin: string | null; lot: string | null }[];
+  yarns: { id: string; yarn: string; kind: "used" | "returned" | "written_off"; qty_kg: number; bags: number | null; lot: string | null; store: string | null; bin: string | null; reason: string | null }[];
+};
+
+/**
+ * Open a posted receipt or return (user 2026-11-12: "need to show the exact screen for the
+ * receipt and return") — the register had no way into the document it listed.
+ */
+export async function getKnittingReceiptDoc(id: string): Promise<KnitReceiptDoc | null> {
+  const s = await createClient();
+  const { data, error } = await s
+    .from("knitting_receipts")
+    .select(
+      "id, kind, code, receipt_date, vendor_dc_no, vendor_dc_date, vehicle_no, notes, created_at, created_by, process_order_id, " +
+        "ko:process_orders!process_order_id(code, vendor:master_vendors!vendor_id(name), so:sales_orders!sales_order_id(order_number)), " +
+        "fabrics:knitting_receipt_fabrics!receipt_id(id, rolls, net_kg, gross_kg, received_dia, lot_no, sort_order, item:items!fabric_item_id(name), store:stores!store_id(name), bin:bins!bin_id(bin_code)), " +
+        "yarns:knitting_receipt_yarns!receipt_id(id, kind, qty_kg, bags, lot_no, reason, created_at, item:items!yarn_item_id(name), store:stores!store_id(name), bin:bins!bin_id(bin_code))",
+    )
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw new Error(`Could not read the knitting receipt: ${error.message}`);
+  if (!data) return null;
+  type Named = { name: string } | null;
+  type R = {
+    id: string; kind: "fabric" | "yarn_return"; code: string | null; receipt_date: string; vendor_dc_no: string | null;
+    vendor_dc_date: string | null; vehicle_no: string | null; notes: string | null; created_at: string; created_by: string | null;
+    process_order_id: string; ko: unknown;
+    fabrics: { id: string; rolls: number | null; net_kg: number; gross_kg: number | null; received_dia: string | null; lot_no: string | null; sort_order: number; item: unknown; store: unknown; bin: unknown }[] | null;
+    yarns: { id: string; kind: "used" | "returned" | "written_off"; qty_kg: number; bags: number | null; lot_no: string | null; reason: string | null; created_at: string; item: unknown; store: unknown; bin: unknown }[] | null;
+  };
+  const r = data as unknown as R;
+  const ko = one(r.ko as { code: string | null; vendor: unknown; so: unknown } | null);
+  const [doc] = await withCreators([
+    {
+      id: r.id,
+      kind: r.kind,
+      code: r.code,
+      receipt_date: r.receipt_date,
+      vendor_dc_no: r.vendor_dc_no,
+      vendor_dc_date: r.vendor_dc_date,
+      vehicle_no: r.vehicle_no,
+      notes: r.notes,
+      created_at: r.created_at,
+      created_by: r.created_by,
+      order_id: r.process_order_id,
+      order_code: ko?.code ?? null,
+      re_no: one(ko?.so as { order_number: string | null } | null)?.order_number ?? null,
+      knitter: one(ko?.vendor as Named)?.name ?? null,
+      fabrics: [...(r.fabrics ?? [])]
+        .sort((a, b) => a.sort_order - b.sort_order)
+        .map((f) => ({
+          id: f.id,
+          fabric: one(f.item as Named)?.name ?? "—",
+          rolls: f.rolls,
+          net_kg: num(f.net_kg),
+          gross_kg: numN(f.gross_kg),
+          dia: f.received_dia,
+          store: one(f.store as Named)?.name ?? null,
+          bin: one(f.bin as { bin_code: string } | null)?.bin_code ?? null,
+          lot: f.lot_no,
+        })),
+      yarns: [...(r.yarns ?? [])]
+        .sort((a, b) => a.created_at.localeCompare(b.created_at))
+        .map((y) => ({
+          id: y.id,
+          yarn: one(y.item as Named)?.name ?? "—",
+          kind: y.kind,
+          qty_kg: num(y.qty_kg),
+          bags: y.bags,
+          lot: y.lot_no,
+          store: one(y.store as Named)?.name ?? null,
+          bin: one(y.bin as { bin_code: string } | null)?.bin_code ?? null,
+          reason: y.reason,
+        })),
+    } satisfies KnitReceiptDoc,
+  ]);
+  return doc;
+}

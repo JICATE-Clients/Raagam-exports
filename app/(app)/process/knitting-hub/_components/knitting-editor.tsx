@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import { Field, FieldRow } from "@/components/ui/field";
+import { Truncated } from "@/components/ui/truncated";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusPill } from "@/components/ui/status-pill";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -131,6 +132,7 @@ export function KnittingEditor({
   gauges,
   initialCandidates,
   initialCustomer,
+  nextCode = null,
   today,
   canEdit,
   stores = [],
@@ -151,6 +153,9 @@ export function KnittingEditor({
   gauges: KnitOption[];
   initialCandidates: KnitCandidate[];
   initialCustomer: string | null;
+  /** The KO No a NEW order will most likely get (next_knitting_order_no, read-only peek). The real
+   *  number is minted on Save, so a second user saving first can take it. */
+  nextCode?: string | null;
   today: string;
   canEdit: boolean;
 }) {
@@ -501,11 +506,11 @@ export function KnittingEditor({
 
   /** The store's view: the same yarn across fabrics, added up (kg and whole bags). */
   const byYarn = (() => {
-    const m = new Map<string, { name: string; kg: number; bags: number; noBag: boolean }>();
+    const m = new Map<string, { id: string; name: string; kg: number; bags: number; noBag: boolean }>();
     for (const r of typed) {
       for (const y of r.yarns) {
         const c = yarnCalc(r, y);
-        const t = m.get(y.yarn_item_id) ?? { name: y.yarn_name, kg: 0, bags: 0, noBag: false };
+        const t = m.get(y.yarn_item_id) ?? { id: y.yarn_item_id, name: y.yarn_name, kg: 0, bags: 0, noBag: false };
         t.kg += c.required;
         if (c.bags == null) t.noBag = true;
         else t.bags += c.bags;
@@ -529,6 +534,11 @@ export function KnittingEditor({
   const TONE = { ok: "text-success", warn: "text-warning", bad: "text-destructive" } as const;
   const TH = "whitespace-nowrap border border-[var(--table-head-border)] bg-[var(--table-head-bg)] px-2 py-1.5 text-left text-[11px] font-semibold text-[var(--table-head-fg)]";
   const THR = `${TH} text-right`;
+  /** A heading that may wrap to two lines — the fixed-layout spec table (screenshot 4117). */
+  /* `!` because the sheet stylesheet (globals.css, `[data-grid-style="sheet"] thead th`) forces
+     nowrap + ellipsis on every heading, which turned "Finishing GSM" into "Finishing…" (4118). */
+  const THW = `${TH.replace("whitespace-nowrap", "")} !whitespace-normal !overflow-visible leading-tight align-bottom`;
+  const THWR = `${THW} text-right`;
   const TD = "h-9 border border-border p-0 align-middle";
   const CELL = "block whitespace-nowrap px-2 text-sm";
   const CELLR = "block px-2 text-right text-sm tabular-nums";
@@ -561,26 +571,27 @@ export function KnittingEditor({
       <div className={`${DOC_FRAME} flex min-h-[calc(100dvh-10rem)] flex-col`} data-focus-scope="">
         <div className="flex-1 space-y-4 p-4">
           {/*
-           * KO No 112 · KO Date 144 · RE No 176 · Customer 176 · Knitter 200 · Delivery 144 ·
-           * Allowed Loss 88 = 1040 + 6 x 10 gap = 1100px. That fits the full 72rem frame only; on a
-           * narrower pane it scrolled sideways (KO/26-27/0001, 2026-11-11), so the row WRAPS.
+           * KO No 144 · KO Date 144 · RE No 176 · Knitter 200 · Delivery 144 · Allowed Loss 112
+           * = 920 + 5 x 12 gap = 980px. KO No at 112 cut "KO/26-27/0001" off, and "Allowed Loss %"
+           * at 88 wrapped its label to two lines and dropped its box below the row (screenshot
+           * 4115, 2026-11-12) — both are one step wider now. It was 1100px with a Customer box, and on the client's
+           * laptop Allowed Loss % fell to a second line (2026-11-12). Customer is read-only and
+           * follows the RE, so it now rides under RE No as the field's hint instead of costing
+           * 186px of the row. align="start" keeps the boxes level while that hint shows.
            */}
-          <FieldRow>
-            <Field label="KO No" w="range">
-              <Input readOnly value={doc?.code ?? "(auto)"} />
+          <FieldRow align="start">
+            <Field label="KO No" w="code">
+              <Input readOnly value={doc?.code ?? nextCode ?? "(auto)"} title={doc ? undefined : "Given on Save"} />
             </Field>
             <Field label="KO Date" required w="code">
               <Input type="date" value={orderDate} readOnly={readOnly} onChange={(e) => setOrderDate(e.target.value)} required />
             </Field>
-            <Field label="RE No" required w="term">
+            <Field label="RE No" required w="term" hint={customer ? <Truncated text={customer} /> : undefined}>
               {readOnly ? (
                 <Input readOnly value={doc?.order_number ?? "—"} />
               ) : (
                 <Combobox options={orderOptions} value={salesOrderId} onChange={pickOrder} placeholder="Pick the order" required />
               )}
-            </Field>
-            <Field label="Customer" w="term">
-              <Input readOnly value={customer ?? "—"} />
             </Field>
             <Field label="Knitter" required w="party">
               {readOnly ? (
@@ -592,7 +603,7 @@ export function KnittingEditor({
             <Field label="Delivery Date" w="code">
               <Input type="date" value={expectedDate} readOnly={readOnly} onChange={(e) => setExpectedDate(e.target.value)} />
             </Field>
-            <Field label="Allowed Loss %" w="hug">
+            <Field label="Allowed Loss %" w="range">
               <Input type="number" min="0" max="99" step="any" value={allowedLoss} readOnly={readOnly} onChange={(e) => setAllowedLoss(e.target.value)} />
             </Field>
           </FieldRow>
@@ -688,25 +699,35 @@ export function KnittingEditor({
                         <>
                           {/* THE FABRIC'S ONE ROW — facts from the BOM read-only, then what is typed */}
                           <div className="overflow-x-auto" data-grid-style="sheet" data-grid-cells="flat">
-                            <table className="w-full border-collapse">
+                            {/* FITS WITHOUT SCROLLING (user 2026-11-12, screenshot 4117): twelve one-line
+                                headings set the width and the row scrolled sideways once the yarn
+                                rail took its share. Fixed layout splits the pane between the
+                                columns, and a heading too long for its share wraps to two lines
+                                (THW) instead of widening it. Labels stay the client's words. */}
+                            <table className="w-full table-fixed border-collapse">
+                              {/* Form holds "Open Width" / "Tubular" (it spilled into the next cell at an
+                                  even share, 4118); the rest share what is left. */}
+                              <colgroup>
+                                <col className="w-[6.5rem]" />
+                              </colgroup>
                               <thead>
                                 <tr>
                                   {/* COLUMN ORDER (client 2026-11-12, doc/process/knitting update.md §2.2):
                                       Finishing Dia · Knitting Dia · Finishing GSM · Knitting GSM · Gauge ·
                                       Loop Length · Ply · Roll Wt · Program Qty · Rate · Value. Loop Ref and
                                       Rolls are gone from entry (their columns stay in the DB). */}
-                                  <th className={TH}>Form</th>
-                                  <th className={THR}>Finishing Dia</th>
-                                  <th className={THR}>Knitting Dia *</th>
-                                  <th className={THR}>Finishing GSM</th>
-                                  <th className={THR}>Knitting GSM</th>
-                                  <th className={TH}>Gauge</th>
-                                  <th className={THR}>Loop Length</th>
-                                  <th className={TH}>Ply</th>
-                                  <th className={THR}>Roll Wt (kg)</th>
-                                  <th className={THR}>Program Qty (kg) *</th>
-                                  <th className={THR}>Rate/kg</th>
-                                  <th className={THR}>Value</th>
+                                  <th className={THW}>Form</th>
+                                  <th className={THWR}>Finishing Dia</th>
+                                  <th className={THWR}>Knitting Dia *</th>
+                                  <th className={THWR}>Finishing GSM</th>
+                                  <th className={THWR}>Knitting GSM</th>
+                                  <th className={THW}>Gauge</th>
+                                  <th className={THWR}>Loop Length</th>
+                                  <th className={THW}>Ply</th>
+                                  <th className={THWR}>Roll Wt (kg)</th>
+                                  <th className={THWR}>Program Qty (kg) *</th>
+                                  <th className={THWR}>Rate/kg</th>
+                                  <th className={THWR}>Value</th>
                                 </tr>
                               </thead>
                               <tbody>
@@ -983,26 +1004,56 @@ export function KnittingEditor({
 
               {/* THE STORE'S VIEW — the same yarn across fabrics, added up; stays beside the blocks */}
               {byYarn.length ? (
-                <aside className="sticky top-4 max-w-[21rem] min-w-60 flex-[1_1_260px] space-y-2 rounded-lg border border-border bg-[var(--table-head-bg)]/20 p-3" aria-label="Yarn by count">
-                  <h3 className="text-[11px] font-bold tracking-wide text-muted-foreground uppercase">For the store — by yarn</h3>
-                  <p className="text-xs text-muted-foreground">The same yarn across fabrics, added up</p>
-                  <ul className="space-y-1.5 text-sm">
-                    {byYarn.map((y) => (
-                      <li key={y.name} className="flex justify-between gap-3">
-                        <span>{y.name}</span>
-                        <span className="shrink-0 font-semibold tabular-nums">
-                          {fmtNumber(y.kg)}
-                          {y.noBag ? "" : ` · ${y.bags} bag${y.bags === 1 ? "" : "s"}`}
-                        </span>
-                      </li>
-                    ))}
-                    <li className="flex justify-between gap-3 border-t border-border pt-1.5 font-semibold">
-                      <span>Total</span>
-                      <span className="tabular-nums">
-                        {fmtNumber(totals.yarn)} kg{totalBags ? ` · ${totalBags} bags` : ""}
-                      </span>
-                    </li>
-                  </ul>
+                /* A HEADED TABLE, NOT A LIST (user 2026-11-12: "this section need some clear view"):
+                   it was name / bare number pairs with no unit and no column names. Now each yarn
+                   reads Need kg · Bags · In Stock (this unit's sending stores, every bin); a yarn the
+                   store cannot cover shows its In Stock in red. No title (user, same day: "keep it
+                   clean") — the column heads say what it is. */
+                <aside className="sticky top-4 max-w-[26rem] min-w-[20rem] flex-[1_1_320px] overflow-hidden rounded-lg border border-border" aria-label="Yarn to issue, all fabrics">
+                  {/* FIXED LAYOUT (screenshot 4116): auto layout let the four columns outgrow the
+                      ~330px rail and `overflow-hidden` cut In Stock off. The numbers get set widths
+                      and the yarn name takes what is left, truncating with a reveal. The head band
+                      is painted on each <th> from the shared tokens — the thead fill did not show. */}
+                  <table className="w-full table-fixed text-sm">
+                    <colgroup>
+                      <col />
+                      <col className="w-[5rem]" />
+                      <col className="w-[3rem]" />
+                      <col className="w-[4.5rem]" />
+                    </colgroup>
+                    <thead>
+                      <tr className="text-xs">
+                        <th className="bg-[var(--table-head-bg)] px-2 py-1.5 text-left font-medium text-[var(--table-head-fg)]">Yarn</th>
+                        <th className="bg-[var(--table-head-bg)] px-2 py-1.5 text-right font-medium text-[var(--table-head-fg)]">Need kg</th>
+                        <th className="bg-[var(--table-head-bg)] px-2 py-1.5 text-right font-medium text-[var(--table-head-fg)]">Bags</th>
+                        <th className="bg-[var(--table-head-bg)] px-2 py-1.5 text-right font-medium text-[var(--table-head-fg)]">In Stock</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {byYarn.map((y) => {
+                        const stock = binStock
+                          .filter((b) => b.item_id === y.id && b.qty > 0 && storeName.has(b.store_id))
+                          .reduce((t, b) => t + b.qty, 0);
+                        const short = y.kg - stock;
+                        return (
+                          <tr key={y.id} className="border-t border-border align-top">
+                            <td className="min-w-0 px-2 py-1.5">
+                              <Truncated text={y.name} />
+                            </td>
+                            <td className="px-2 py-1.5 text-right font-semibold tabular-nums">{fmtNumber(y.kg)}</td>
+                            <td className="px-2 py-1.5 text-right tabular-nums">{y.noBag ? "—" : y.bags}</td>
+                            <td className={`px-2 py-1.5 text-right tabular-nums ${short > 1e-9 ? "text-destructive" : ""}`}>{fmtNumber(stock)}</td>
+                          </tr>
+                        );
+                      })}
+                      <tr className="border-t-2 border-border font-semibold">
+                        <td className="px-2 py-1.5">Total</td>
+                        <td className="px-2 py-1.5 text-right tabular-nums">{fmtNumber(totals.yarn)}</td>
+                        <td className="px-2 py-1.5 text-right tabular-nums">{totalBags || "—"}</td>
+                        <td className="px-2 py-1.5" />
+                      </tr>
+                    </tbody>
+                  </table>
                 </aside>
               ) : null}
             </div>
