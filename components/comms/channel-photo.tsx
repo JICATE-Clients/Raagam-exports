@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { Camera, Loader2, Trash2, Upload, ZoomIn, ZoomOut } from "lucide-react";
+import { Camera, Loader2, Megaphone, Trash2, Upload, ZoomIn, ZoomOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { createClient } from "@/lib/supabase/client";
@@ -206,18 +206,17 @@ export function ChannelPhotoCrop({
 }
 
 /**
- * The photo slot on the New channel form: a 56px rounded square showing the
- * picked photo, or the channel's first letter with a camera badge. Nothing is
+ * The photo slot on the New channel form: a 48px circle showing the picked
+ * photo, or — WhatsApp style (user 2026-11-12, artifact "Channel Photo Slot") —
+ * a green circle with a megaphone and a camera badge. No "#" letter any more. Nothing is
  * uploaded here — the channel does not exist yet; the form saves the blob
  * after `createChannel` returns the id.
  */
 export function ChannelPhotoSlot({
-  letter,
   blob,
   onChange,
   disabled = false,
 }: {
-  letter: string;
   blob: Blob | null;
   onChange: (next: Blob | null) => void;
   disabled?: boolean;
@@ -248,7 +247,7 @@ export function ChannelPhotoSlot({
   return (
     <div className="relative shrink-0">
       {picker.input}
-      {/* button-shape: exempt -- a 56px photo tile, not an action button */}
+      {/* button-shape: exempt -- a 48px round photo slot, not an action button */}
       <button
         type="button"
         disabled={disabled}
@@ -256,22 +255,22 @@ export function ChannelPhotoSlot({
         aria-label={blob ? "Channel photo options" : "Add channel photo"}
         title={blob ? "Change or remove photo" : "Add channel photo"}
         className={cn(
-          "grid h-14 w-14 place-items-center overflow-hidden rounded-2xl text-lg font-extrabold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-          blob ? "" : "border-[1.5px] border-dashed border-border bg-surface-muted text-muted-foreground hover:border-primary hover:text-primary",
+          "grid h-12 w-12 place-items-center overflow-hidden rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+          blob ? "" : "bg-primary text-primary-foreground hover:opacity-90",
         )}
       >
         {preview ? (
           // eslint-disable-next-line @next/next/no-img-element -- a local object URL preview.
           <img src={preview} alt="" className="h-full w-full object-cover" />
         ) : (
-          letter
+          <Megaphone className="h-[22px] w-[22px]" aria-hidden />
         )}
       </button>
-      <span aria-hidden className="pointer-events-none absolute -bottom-1 -right-1 grid h-[22px] w-[22px] place-items-center rounded-full border-2 border-surface bg-primary text-primary-foreground">
-        <Camera className="h-3 w-3" />
+      <span aria-hidden className="pointer-events-none absolute -bottom-0.5 -right-0.5 grid h-5 w-5 place-items-center rounded-full border-2 border-surface bg-surface text-primary shadow-sm">
+        <Camera className="h-2.5 w-2.5" />
       </span>
       {menu && (
-        <div role="menu" className="absolute left-0 top-[62px] z-30 min-w-[170px] rounded-lg border border-border bg-surface p-1 shadow-lg">
+        <div role="menu" className="absolute left-0 top-[54px] z-30 min-w-[170px] rounded-lg border border-border bg-surface p-1 shadow-lg">
           {/* button-shape: exempt -- menu items */}
           <button
             type="button"

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { Archive, ArrowLeft, Hash, Loader2, Lock, Plus, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Field, FieldRow } from "@/components/ui/field";
+import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Segmented, ToggleGroup } from "@/components/ui/segmented";
 import { Sheet } from "@/components/ui/sheet";
@@ -319,21 +319,24 @@ function CreateChannelSheet({
           people search sits inside the people box (PeoplePicker `boxed`).
           Paired row: party 200 + 12 gap + term 176 = 388px of the ~408px body. */}
       <div className="space-y-2.5">
-        {/* 0839: the photo slot leads the row. 56 + 10 gap leaves ~342px:
-            Name term 176 + 12 gap + the Public/Private pair hugging ~140. */}
+        {/* 0839: the photo slot leads the row. PUBLIC / PRIVATE STAYS BESIDE THE NAME
+            (user 2026-11-12, artifact "New Channel Visibility"): the pair keeps its full
+            width (shrink-0) and the Name takes whatever is left (flex-1), so "Private"
+            is never clipped to "P" the way the fixed term 176 + hug pair was. */}
         <div className="flex items-start gap-2.5">
-        <ChannelPhotoSlot letter={(slug.match(/[a-z0-9]/)?.[0] ?? "#").toUpperCase()} blob={photo} onChange={setPhoto} disabled={pending} />
-        <FieldRow align="start" className="min-w-0 flex-1">
+        <ChannelPhotoSlot blob={photo} onChange={setPhoto} disabled={pending} />
+        <div className="flex min-w-0 flex-1 items-start gap-2.5">
+          <div className="min-w-0 flex-1">
           <Field
             label="Name"
             required
-            w="term"
-            hint={problem ?? (slug ? `Created as #${slug}; you own it.` : undefined)}
+            hint={
+              problem ??
+              (visibility === "private" ? "Only people you add · can't go public later" : slug ? "You own this channel." : undefined)
+            }
           >
+            {/* No "#" in front of the name (user 2026-11-12, WhatsApp style). */}
             <span className="relative block">
-              <span aria-hidden className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
-                #
-              </span>
               {/* caps-input: exempt -- a channel name is stored lowercase by rule (0751); capitals would be refused */}
               <Input
                 uppercase={false}
@@ -343,11 +346,13 @@ function CreateChannelSheet({
                 placeholder="cutting-room"
                 aria-invalid={!!problem}
                 autoFocus
-                className="h-8 pl-6"
+                className="h-8"
               />
             </span>
           </Field>
-          <Field label="Who can see it" w="hug" hint={visibility === "public" ? undefined : "Only people you add · can't go public later"}>
+          </div>
+          <div className="shrink-0">
+          <Field label="Who can see it">
             <Segmented
               name="channel-visibility"
               value={visibility}
@@ -359,16 +364,11 @@ function CreateChannelSheet({
               ]}
             />
           </Field>
-        </FieldRow>
+          </div>
         </div>
-        <Field
-          label="Description"
-          labelSuffix={
-            <span className="ml-auto font-normal tabular-nums text-muted-foreground">
-              {description.length} / {CHANNEL_DESC_MAX}
-            </span>
-          }
-        >
+        </div>
+        {/* No "0 / 500" counter (user 2026-11-12); maxLength still stops at the limit. */}
+        <Field label="Description">
           {/* caps-input: exempt -- display text read by people, like a chat message; nothing matches on it */}
           <Textarea
             uppercase={false}
