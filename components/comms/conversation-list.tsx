@@ -76,6 +76,7 @@ import { NewCommunitySheet } from "./new-community-sheet";
 import { PhotoImg, useUserPhoto } from "./person-photo";
 import { ShortScrollbar } from "./short-scrollbar";
 import { nameCase } from "@/lib/comms/name-case";
+import { WithPresence } from "./presence";
 
 type Filter = "all" | "unread" | "favorites" | "groups" | "communities" | "channels" | "files";
 
@@ -1726,6 +1727,8 @@ export function ChatAvatar({ c, size }: { c: ConversationSummary; size: "row" | 
       {photo ? <PhotoImg src={photo} /> : Icon ? <Icon className="h-5 w-5" /> : (letter ?? initials(c.title.replace(/^#/, "")))}
     </span>
   );
+  // The online dot on a direct chat (user 2026-11-12, option C).
+  if (c.kind === "direct") return <WithPresence userId={c.other_user_id} size={size === "row" || size === "compact" ? "sm" : "md"}>{box}</WithPresence>;
   if (!(channel && c.visibility === "private")) return box;
   return (
     <span className="relative inline-flex shrink-0">
