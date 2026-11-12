@@ -18,6 +18,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ o
   ]);
   // Only orders whose yarn is out and not closed can take a Yarn Return.
   const open = list.filter((o) => o.status === "in_process" || o.status === "partially_received");
+  const waiting = list.filter((o) => o.status === "issued");
   return (
     <div className="space-y-4">
       <PageHeader
@@ -25,7 +26,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ o
         description={"Unknitted yarn the knitter sent back — it goes back on the shelf"}
         actions={<Link href="/process/knitting-returns" className="text-sm text-primary hover:underline">← Yarn Returns</Link>}
       />
-      <KnitReceiptEntry mode="yarn_return" orders={open} doc={doc} stores={setup.stores} bins={setup.bins} canEdit={canEdit} today={today()} />
+      <KnitReceiptEntry mode="yarn_return" orders={open} waiting={waiting} doc={doc} stores={setup.stores} bins={setup.bins} canEdit={canEdit} today={today()} />
     </div>
   );
 }

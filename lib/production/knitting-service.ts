@@ -416,10 +416,13 @@ export async function getKnitCandidates(salesOrderId: string, excludeOrderId: st
         bom_kg: Math.round(x.bom_kg * 1000) / 1000,
         fabric_name: comp?.fabric_name ?? "",
         programmed_elsewhere_kg: elsewhere.get(x.key) ?? 0,
-        yarns: (comp?.components ?? []).map((c) => ({
+        // ONE YARN IS 100% THAT YARN (user 2026-11-12, RE 13: SOLID SINGLE JERSEY (34'S BCI COTTON)
+        // 100% had its only yarn saved with the % blank, so every kg on the row read 0). With two
+        // or more yarns a blank % stays blank — that split is not ours to guess.
+        yarns: (comp?.components ?? []).map((c, _i, all) => ({
           yarn_item_id: c.yarn_id,
           yarn_name: yarnName.get(c.yarn_id) ?? "",
-          blend_pct: c.blend_pct,
+          blend_pct: c.blend_pct == null && all.length === 1 ? 100 : c.blend_pct,
         })),
       };
     })
