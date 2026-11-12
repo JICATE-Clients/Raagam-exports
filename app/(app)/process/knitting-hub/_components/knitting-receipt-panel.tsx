@@ -139,7 +139,6 @@ export function KnittingReceiptPanel({
   const [dcNo, setDcNo] = useState("");
   const [dcDate, setDcDate] = useState("");
   const [vehicle, setVehicle] = useState("");
-  const [transporter, setTransporter] = useState("");
   const [confirm, setConfirm] = useState<"post" | "close" | null>(null);
   const [reason, setReason] = useState("");
   /** FINAL RECEIPT (user 2026-11-12): post this fabric receipt, then close the order in the same click. */
@@ -149,7 +148,7 @@ export function KnittingReceiptPanel({
   const typedFabric = isFabric ? form.fabrics.filter((f) => n(f.net) > 0) : [];
   const typedYarn = isFabric ? [] : form.yarns.filter((y) => n(y.kg) > 0);
   const docs = doc.receipts.filter((r) => r.kind === mode);
-  const dirty = typedFabric.length > 0 || typedYarn.length > 0 || !!dcNo.trim() || !!transporter.trim();
+  const dirty = typedFabric.length > 0 || typedYarn.length > 0 || !!dcNo.trim();
   useUnsavedGuard(dirty || isPending);
 
   const a = knitAnalysis(doc.fabrics, doc.allowed_loss_pct);
@@ -201,7 +200,6 @@ export function KnittingReceiptPanel({
           vendor_dc_no: dcNo.trim() || null,
           vendor_dc_date: dcDate || null,
           vehicle_no: vehicle.trim() || null,
-          transporter: transporter.trim() || null,
           notes: null,
         },
         fabrics: typedFabric.map((f) => ({
@@ -242,7 +240,6 @@ export function KnittingReceiptPanel({
       setDcNo("");
       setDcDate("");
       setVehicle("");
-      setTransporter("");
       setForm(fresh());
       router.refresh();
     });
@@ -439,8 +436,8 @@ export function KnittingReceiptPanel({
         knitter={doc.vendor_name}
         disabled={!receiving}
         today={today}
-        value={{ date, dcNo, dcDate, vehicle, transporter }}
-        on={{ date: setDate, dcNo: setDcNo, dcDate: setDcDate, vehicle: setVehicle, transporter: setTransporter }}
+        value={{ date, dcNo, dcDate, vehicle }}
+        on={{ date: setDate, dcNo: setDcNo, dcDate: setDcDate, vehicle: setVehicle }}
       />
       {doc.close_pending ? (
         <div className="flex justify-end">
@@ -661,13 +658,14 @@ function Stat({ label, value, sub }: { label: string; value: string; sub: string
   );
 }
 
-type HeaderValues = { date: string; dcNo: string; dcDate: string; vehicle: string; transporter: string };
+type HeaderValues = { date: string; dcNo: string; dcDate: string; vehicle: string };
 
 /**
  * THE ONE HEADER ROW of Fabric Receipt / Yarn Return ▸ New (user 2026-11-12): Knitting Order ·
- * Receipt Date · Knitter · Knitter DC No · Knitter DC Date · Vehicle No · Transporter.
- * Knitting Order 200 · Receipt Date 144 · Knitter 200 · DC No 144 · DC Date 144 · Vehicle 144 ·
- * Transporter 176 = 1152 + 60 gap — it wraps on a narrower pane. Before an order is picked (and
+ * Receipt Date · Knitter · Knitter DC No · Knitter DC Date · Vehicle No.
+ * Knitting Order 200 · Receipt Date 144 · Knitter 200 · DC No 144 · DC Date 144 · Vehicle 144
+ * = 976 + 50 gap. Transporter was removed (user 2026-11-12, screenshot 4131: "what is transporter —
+ * remove it"); `knitting_receipts.transporter` (0838) stays, unused. Before an order is picked (and
  * on an order that can take nothing more) every field but the picker is disabled. The knitter's
  * DC No and Date are mandatory on a FABRIC receipt (0837).
  */
@@ -688,7 +686,7 @@ export function ReceiptHeaderRow({
   value?: HeaderValues;
   on?: { [K in keyof HeaderValues]: (v: string) => void };
 }) {
-  const v = value ?? { date: "", dcNo: "", dcDate: "", vehicle: "", transporter: "" };
+  const v = value ?? { date: "", dcNo: "", dcDate: "", vehicle: "" };
   const live = !disabled && !!on;
   return (
     <FieldRow>
@@ -707,9 +705,6 @@ export function ReceiptHeaderRow({
       </Field>
       <Field label="Vehicle No" w="code">
         <Input value={v.vehicle} disabled={!live} onChange={(e) => on?.vehicle(e.target.value)} />
-      </Field>
-      <Field label="Transporter" w="term">
-        <Input value={v.transporter} disabled={!live} onChange={(e) => on?.transporter(e.target.value)} />
       </Field>
     </FieldRow>
   );
