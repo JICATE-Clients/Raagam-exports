@@ -42,6 +42,7 @@ import {
   type Refusal,
   type FabricComposition,
 } from "@/lib/orders/fabric-bom/yarn-process";
+import { withYdRepeatBlend } from "@/lib/orders/fabric-bom/yarn-dyed";
 import { colouredStageIds, stageRank, stageRouteProblems } from "@/lib/orders/fabric-bom/stage-routes";
 import {
   claimedColoursOf,
@@ -608,12 +609,17 @@ async function writeYarns(
     const details = conversionDetailsOf(p.yarns, isUnravelling);
     const fabricIds = [...new Set([...lines.map((l) => l.item_id), ...linkedLooseFabricIds(links, details)])];
     const { compositions } = await getBomYarnComposition(fabricIds);
-    const compById = new Map<string, FabricComposition>(compositions.map((c) => [c.fabric_id, c]));
+    const yd = await yarnDyedOf(s, bomId, p);
+    if (typeof yd === "string") return yd;
+    /* A yarn-dyed cloth with no Mixing % on the master takes its blend from these
+       Yarn Dyed Details (RE 22, 2026-11-12) — the screen makes the same call. */
+    const compById = withYdRepeatBlend(
+      new Map<string, FabricComposition>(compositions.map((c) => [c.fabric_id, c])),
+      yd.repeats,
+    );
     const nameOf = (id: string) => compById.get(id)?.fabric_name || "this fabric";
     // Each colour is its own bucket (0599) — the axis the shades key on.
     const gross = iwoFabricGross(lines, kg?.id ?? null, nameOf);
-    const yd = await yarnDyedOf(s, bomId, p);
-    if (typeof yd === "string") return yd;
     const shades = iwoYarnShades(yd.repeats, yd.combinations, compById);
     // Which yarn steps are in a coloured stage — `yarnPurchase`'s "ONE DYEING
     // LOSS": a shade's dye-house loss replaces a hand-typed yarn dyeing step

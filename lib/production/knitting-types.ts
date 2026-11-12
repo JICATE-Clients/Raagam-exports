@@ -73,6 +73,9 @@ export type KnitCandidate = {
   bom_kg: number;
   /** Already on other (non-cancelled) knitting orders of this RE, kg. */
   programmed_elsewhere_kg: number;
+  /** The PLACED knitting order (not draft / cancelled) of this RE that already holds this slice —
+   *  the picker greys it "(Program Placed — KO/..)" (0835). Null = free. */
+  placed_on: string | null;
   /** The fabric master's blend (`material_mixings`). Empty = no composition. */
   yarns: { yarn_item_id: string; yarn_name: string; blend_pct: number | null }[];
 };
@@ -113,7 +116,10 @@ export type KnitFabric = {
   width_form: KnitWidthForm | null;
   knit_dia: string | null;
   finished_dia: string | null;
+  /** FINISHING GSM — the BOM's (0835 relabel; the column stays `gsm`). */
   gsm: number | null;
+  /** KNITTING GSM (0835) — what the knitter knits to; defaults to the finishing GSM. */
+  knit_gsm: number | null;
   loop_length: number | null;
   loop_length_ref: number | null;
   gauge_id: string | null;
@@ -281,8 +287,10 @@ export type KnittingOrderInput = {
     knit_dia: string | null;
     finished_dia: string | null;
     gsm: number | null;
+    /** Blank = the finishing GSM (knitting_order_save, 0835). */
+    knit_gsm: number | null;
     loop_length: number | null;
-    loop_length_ref: number | null;
+    /* loop_length_ref is no longer sent (client 2026-11-12, "Loop Ref" removed); the column stays. */
     gauge_id: string | null;
     ply: string | null;
     programmed_kg: number;

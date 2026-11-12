@@ -4,6 +4,7 @@ import { withCreators } from "@/lib/created-by";
 import { isInactive } from "@/lib/masters/inactive";
 import { currentFabricBom } from "@/lib/orders/fabric-requirement/service";
 import { getBomYarnComposition, getGaugeRows } from "@/lib/orders/fabric-bom/service";
+import { withYdRepeatBlend, type YdBlendRepeat } from "@/lib/orders/fabric-bom/yarn-dyed";
 import {
   knitSourceKey,
   type KnitCandidate,
@@ -73,7 +74,7 @@ export async function getKnittingOrder(id: string): Promise<KnittingOrder | null
     .select(
       "id, code, status, process_type, vendor_id, sales_order_id, order_date, expected_date, allowed_loss_pct, notes, total_amount, created_at, created_by, close_pending, close_reason, close_remark, " +
         "vendor:master_vendors!vendor_id(name), so:sales_orders!sales_order_id(order_number), " +
-        "fabrics:process_order_knit_fabrics(id, sno, fabric_item_id, source_key, width_form, knit_dia, finished_dia, gsm, loop_length, loop_length_ref, gauge_id, ply, programmed_kg, roll_weight_kg, expected_rolls, rate_per_kg, " +
+        "fabrics:process_order_knit_fabrics(id, sno, fabric_item_id, source_key, width_form, knit_dia, finished_dia, gsm, knit_gsm, loop_length, loop_length_ref, gauge_id, ply, programmed_kg, roll_weight_kg, expected_rolls, rate_per_kg, " +
         "fabric:items!fabric_item_id(name), " +
         "yarns:process_order_knit_yarns(id, sno, yarn_item_id, blend_pct, allowance_pct, required_kg, bag_weight_kg, required_bags, process_order_line_id, yarn:items!yarn_item_id(name)))",
     )
@@ -199,6 +200,7 @@ export async function getKnittingOrder(id: string): Promise<KnittingOrder | null
       knit_dia: f.knit_dia,
       finished_dia: f.finished_dia,
       gsm: numN(f.gsm),
+      knit_gsm: numN(f.knit_gsm) ?? numN(f.gsm),
       loop_length: numN(f.loop_length),
       loop_length_ref: numN(f.loop_length_ref),
       gauge_id: f.gauge_id,
@@ -311,7 +313,7 @@ export async function getKnitCandidates(salesOrderId: string, excludeOrderId: st
   const { go, bom } = current;
   const s = await createClient();
 
-  const [reqRes, entryRes, scopeRes, structRes, elseRes] = await Promise.all([
+  const [reqRes, entryRes, scopeRes, structRes, elseRes, ydRes] = await Promise.all([
     s.from("order_fabric_bom_requirements").select("item_id, entry_id, size_id, required_qty").eq("bom_id", bom.id),
     s.from("order_fabric_bom_manual_entries").select("id, width_form, structure_id").eq("bom_id", bom.id),
     s.from("order_fabric_bom_process_scope").select("item_id, source").eq("bom_id", bom.id),
@@ -321,9 +323,11 @@ export async function getKnitCandidates(salesOrderId: string, excludeOrderId: st
       .eq("combo.amendment_id", go.id),
     s
       .from("process_order_knit_fabrics")
-      .select("source_key, programmed_kg, po:process_orders!inner(id, sales_order_id, status)")
+      .select("source_key, fabric_item_id, finished_dia, width_form, programmed_kg, po:process_orders!inner(id, code, sales_order_id, status)")
       .eq("po.sales_order_id", salesOrderId)
       .neq("po.status", "cancelled"),
+    // Yarn Dyed Details — a yarn-dyed fabric's blend when the master holds no Mixing %.
+    s.from("order_fabric_bom_yd_repeats").select("item_id, yd_part, yarn_item_id, value").eq("bom_id", bom.id),
   ]);
   for (const [what, res] of [
     ["the requirement", reqRes],
@@ -331,6 +335,7 @@ export async function getKnitCandidates(salesOrderId: string, excludeOrderId: st
     ["the fabric sources", scopeRes],
     ["the order's GSM", structRes],
     ["the knitting already programmed", elseRes],
+    ["the Yarn Dyed Details", ydRes],
   ] as const) {
     if (res.error) return { ok: false, error: `Could not read ${what}: ${res.error.message}` };
   }
@@ -375,7 +380,7 @@ export async function getKnitCandidates(salesOrderId: string, excludeOrderId: st
     }
   }
 
-  const slices = new Map<string, Omit<KnitCandidate, "fabric_name" | "yarns" | "programmed_elsewhere_kg"> & { gsms: Set<number> }>();
+  const slices = new Map<string, Omit<KnitCandidate, "fabric_name" | "yarns" | "programmed_elsewhere_kg" | "placed_on"> & { gsms: Set<number> }>();
   for (const r of reqs) {
     const e = entries.get(r.entry_id as string);
     const widthForm = (e?.width_form === "open_width" || e?.width_form === "tubular" ? e.width_form : null) as KnitWidthForm | null;
@@ -397,14 +402,35 @@ export async function getKnitCandidates(salesOrderId: string, excludeOrderId: st
   }
 
   const elsewhere = new Map<string, number>();
-  for (const f of (elseRes.data ?? []) as unknown as { source_key: string | null; programmed_kg: number; po: { id: string } | { id: string }[] }[]) {
-    if (!f.source_key || one(f.po)?.id === excludeOrderId) continue;
-    elsewhere.set(f.source_key, (elsewhere.get(f.source_key) ?? 0) + num(f.programmed_kg));
+  /* ONE PROGRAM PER FABRIC (user 2026-11-12, 0835): the slice already on another PLACED
+     knitting order of this RE (not draft, not cancelled) — the first such KO's code. The key is
+     the line's source_key, or for a line saved without one the same shape off its own fabric,
+     finished dia and form — `knit_fabric_key` in 0835, which is the guard that counts. */
+  const placedOn = new Map<string, string>();
+  type ElseRow = {
+    source_key: string | null;
+    fabric_item_id: string;
+    finished_dia: string | null;
+    width_form: string | null;
+    programmed_kg: number;
+    po: { id: string; code: string | null; status: string } | { id: string; code: string | null; status: string }[];
+  };
+  for (const f of (elseRes.data ?? []) as unknown as ElseRow[]) {
+    const po = one(f.po);
+    if (po?.id === excludeOrderId) continue;
+    const key = f.source_key || knitSourceKey(f.fabric_item_id, f.finished_dia, f.width_form);
+    elsewhere.set(key, (elsewhere.get(key) ?? 0) + num(f.programmed_kg));
+    if (po && po.status !== "draft" && !placedOn.has(key)) placedOn.set(key, po.code ?? "another knitting order");
   }
 
   const fabricIds = [...new Set([...slices.values()].map((x) => x.fabric_item_id))];
   const { compositions, yarns } = await getBomYarnComposition(fabricIds);
-  const compByFabric = new Map(compositions.map((c) => [c.fabric_id, c]));
+  /* A YARN-DYED fabric's master hides Mixing %; its blend is this BOM's Yarn Dyed Details
+     (RE 22, 2026-11-12) — the same `withYdRepeatBlend` the Fabric BOM's own Save uses. */
+  const compByFabric = withYdRepeatBlend(
+    new Map(compositions.map((c) => [c.fabric_id, c])),
+    (ydRes.data ?? []) as YdBlendRepeat[],
+  );
   const yarnName = new Map(yarns.map((y) => [y.id, y.name]));
 
   const candidates: KnitCandidate[] = [...slices.values()]
@@ -416,13 +442,15 @@ export async function getKnitCandidates(salesOrderId: string, excludeOrderId: st
         bom_kg: Math.round(x.bom_kg * 1000) / 1000,
         fabric_name: comp?.fabric_name ?? "",
         programmed_elsewhere_kg: elsewhere.get(x.key) ?? 0,
+        placed_on: placedOn.get(x.key) ?? null,
         // ONE YARN IS 100% THAT YARN (user 2026-11-12, RE 13: SOLID SINGLE JERSEY (34'S BCI COTTON)
         // 100% had its only yarn saved with the % blank, so every kg on the row read 0). With two
         // or more yarns a blank % stays blank — that split is not ours to guess.
         yarns: (comp?.components ?? []).map((c, _i, all) => ({
           yarn_item_id: c.yarn_id,
           yarn_name: yarnName.get(c.yarn_id) ?? "",
-          blend_pct: c.blend_pct == null && all.length === 1 ? 100 : c.blend_pct,
+          // A single yarn with a 0 % is the same unassigned blend (spec §3.1), so it reads 100 too.
+          blend_pct: all.length === 1 && !((c.blend_pct ?? 0) > 0) ? 100 : c.blend_pct,
         })),
       };
     })

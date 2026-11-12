@@ -403,3 +403,87 @@ export function yarnShadesOfRows(
     ),
   );
 }
+
+/** A Yarn Dyed Details repeat, as `withYdRepeatBlend` needs to read it — the
+ *  screen's state, the save payload and a stored row all carry these fields. */
+export type YdBlendRepeat = {
+  item_id: string | null;
+  yd_part?: string | null;
+  yarn_item_id: string | null;
+  value: number | string | null;
+};
+
+/**
+ * A YARN-DYED CLOTH'S BLEND, READ OFF ITS YARN DYED DETAILS (client 2026-11-12,
+ * RE 22: "YARN DYED 1X1 LYCRA RIB … names 3 yarns with no blend percentages" —
+ * while Yarn Dyed Details said 53 / 42 / 5).
+ *
+ * The material master HIDES the Mixing % box for a yarn-dyed fabric (its
+ * `isYarnDyedFabric` gate), because the stripe arrangement is typed on the
+ * order's Fabric BOM instead. So `yarnShareOf` refused every multi-yarn yarn-dyed
+ * cloth, and the master it told the operator to fix had no box to fix it in.
+ *
+ * The repeats are already the answer: every repeat of one fabric group shares
+ * ONE line-level unit (see `mixingDetailRows`), so a yarn's summed Value over
+ * all the group's Values is its share of the cloth — Grey stripes included,
+ * since an undyed yarn is still cloth (a 40 DINER ELASTANE Grey 5 is 5% of the
+ * rib). Calculated % beside it is unchanged: that splits ONE yarn by colour.
+ *
+ * ONLY WHERE THE MASTER IS SILENT, AND ONLY WHEN THE ANSWER IS WHOLE. The blend
+ * is filled only on a yarn-dyed fabric of two or more yarns where no Mixing row
+ * carries a %, and only when every yarn of the composition has a Value above 0
+ * and the repeats name no yarn the composition lacks. A fabric split into YD
+ * parts takes the repeats' blend only when every part gives the same one — the
+ * yarn weight is divided per fabric, not per part. Anything less stays a refusal.
+ */
+export function withYdRepeatBlend(
+  compositions: ReadonlyMap<string, FabricComposition>,
+  repeats: readonly YdBlendRepeat[],
+): Map<string, FabricComposition> {
+  const out = new Map(compositions);
+  for (const [fabricId, comp] of compositions) {
+    if (!comp.yarn_dyed || comp.components.length < 2) continue;
+    if (comp.components.some((c) => c.blend_pct != null)) continue;
+    const yarnIds = new Set(comp.components.map((c) => c.yarn_id));
+    if (yarnIds.size < 2) continue;
+
+    const byPart = new Map<string, Map<string, number>>();
+    let foreign = false;
+    for (const r of repeats) {
+      if (r.item_id !== fabricId || !r.yarn_item_id) continue;
+      const v = r.value == null || r.value === "" ? 0 : Number(r.value);
+      if (!Number.isFinite(v) || v <= 0) continue;
+      if (!yarnIds.has(r.yarn_item_id)) {
+        foreign = true;
+        break;
+      }
+      const part = ydPartKey(r.yd_part);
+      const totals = byPart.get(part) ?? new Map<string, number>();
+      totals.set(r.yarn_item_id, (totals.get(r.yarn_item_id) ?? 0) + v);
+      byPart.set(part, totals);
+    }
+    if (foreign || byPart.size === 0) continue;
+
+    // Each part's blend, unrounded so the shares still total exactly 100.
+    const blends = [...byPart.values()].map((totals) => {
+      const sum = [...totals.values()].reduce((a, b) => a + b, 0);
+      return new Map([...yarnIds].map((id) => [id, ((totals.get(id) ?? 0) / sum) * 100]));
+    });
+    const first = blends[0];
+    if ([...first.values()].some((p) => !(p > 0))) continue;
+    if (!blends.every((b) => [...yarnIds].every((id) => Math.abs((b.get(id) ?? 0) - (first.get(id) ?? 0)) < 0.005))) continue;
+
+    /* A yarn listed twice on the master is summed by `yarnShareOf`, so its whole
+       share goes on the first row and 0 on the repeat. */
+    const placed = new Set<string>();
+    out.set(fabricId, {
+      ...comp,
+      components: comp.components.map((c) => {
+        const pct = placed.has(c.yarn_id) ? 0 : (first.get(c.yarn_id) ?? 0);
+        placed.add(c.yarn_id);
+        return { ...c, blend_pct: pct };
+      }),
+    });
+  }
+  return out;
+}

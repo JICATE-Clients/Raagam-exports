@@ -218,7 +218,7 @@ import {
   type PlanDisplayRow,
 } from "@/lib/orders/iwo-fabric-bom/plan";
 import { YarnDyedSheet, type YdCombinationRow } from "@/components/orders/yarn-dyed-panels";
-import type { YdRepeatRow } from "@/lib/orders/fabric-bom/yarn-dyed";
+import { withYdRepeatBlend, type YdRepeatRow } from "@/lib/orders/fabric-bom/yarn-dyed";
 
 type Perms = { canCreate: boolean; canEdit: boolean; canDelete: boolean };
 
@@ -1044,7 +1044,8 @@ export function IwoFabricBomScreen({
         )
       : [];
 
-  const compositionById = new Map((comp?.compositions ?? []).map((c) => [c.fabric_id, c]));
+  // A yarn-dyed cloth with no Mixing % takes its blend from Yarn Dyed Details (RE 22, 2026-11-12).
+  const compositionById = withYdRepeatBlend(new Map((comp?.compositions ?? []).map((c) => [c.fabric_id, c])), ydRepeats);
 
   /** The gross KGS per fabric — the typed Req Wt, through the SAME helper the
    *  save calls (`iwoFabricGross`). */
