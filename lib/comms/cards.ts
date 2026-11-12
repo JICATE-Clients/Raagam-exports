@@ -58,6 +58,8 @@ export interface EventData {
   cancelled: boolean;
   /** 0823: the event is in the members' Google Calendars (user 2026-11-12, option A). Optional: see PollOption.voters. */
   in_google?: boolean;
+  /** 0837: the Google Meet link of an online event (user 2026-11-12). Optional: see PollOption.voters. */
+  meet_link?: string | null;
   going: number;
   /** Who answered Going, oldest first — the faces beside "N going". Optional: see PollOption.voters. */
   going_ids?: string[];

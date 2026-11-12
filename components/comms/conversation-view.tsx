@@ -30,6 +30,7 @@ import {
   leaveConversation,
   setChatFlags,
   setMuted,
+  clearChatForMe,
 } from "@/lib/comms/actions";
 import { plainText, type AttachmentInput, type CommAttachment, type CommMessage, type ConversationDetail, type MessagePage } from "@/lib/comms/types";
 import { Composer } from "./composer";
@@ -151,6 +152,7 @@ export function ConversationView({
   const [searchOpen, setSearchOpen] = useState(false);
   const [mutedNow, setMutedNow] = useState<boolean>(!!conversation.me?.muted);
   const [confirmLeave, setConfirmLeave] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
   const [menuBusy, startMenu] = useTransition();
   const [confirmDelete, setConfirmDelete] = useState<CommMessage | null>(null);
   const [joining, startJoin] = useTransition();
@@ -569,6 +571,9 @@ export function ConversationView({
                 router.refresh();
               }),
           },
+          // Clear chat (user 2026-11-12, artifact "Pulse Clear Chat", option A): hides every
+          // message from MY view only (0838) — the chat, its pin / mute and members stay.
+          { label: "Clear chat", disabled: menuBusy, onClick: () => setConfirmClear(true) },
         ]
       : []),
     { label: conversation.kind === "channel" ? "Close channel" : "Close chat", separatorBefore: true, onClick: () => router.push("/comms") },
@@ -1087,6 +1092,23 @@ export function ConversationView({
             setConfirmLeave(false);
             if (!r.ok) return toastError(r.error);
             router.push("/comms");
+            router.refresh();
+          })
+        }
+      />
+      <PulseConfirm
+        open={confirmClear}
+        title="Clear this chat?"
+        confirmLabel="Clear chat"
+        isPending={menuBusy}
+        onCancel={() => setConfirmClear(false)}
+        onConfirm={() =>
+          startMenu(async () => {
+            const r = await clearChatForMe(id);
+            setConfirmClear(false);
+            if (!r.ok) return toastError(r.error);
+            setThreadOf(null);
+            setMessages([]);
             router.refresh();
           })
         }
