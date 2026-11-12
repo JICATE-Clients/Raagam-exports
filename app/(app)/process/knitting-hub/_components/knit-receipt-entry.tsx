@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Combobox } from "@/components/ui/combobox";
 import { Field, FieldRow } from "@/components/ui/field";
@@ -18,6 +19,7 @@ import { KnittingReceiptPanel } from "./knitting-receipt-panel";
 export function KnitReceiptEntry({
   mode,
   orders,
+  waiting,
   doc,
   stores,
   bins,
@@ -26,6 +28,8 @@ export function KnitReceiptEntry({
 }: {
   mode: "fabric" | "yarn_return";
   orders: KnittingOrderListRow[];
+  /** Issued orders whose yarn has not gone out yet — named, so an empty list explains itself. */
+  waiting: KnittingOrderListRow[];
   doc: KnittingOrder | null;
   stores: StoreOption[];
   bins: BinOption[];
@@ -51,6 +55,26 @@ export function KnitReceiptEntry({
           />
         </Field>
       </FieldRow>
+      {orders.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          {mode === "fabric" ? "Fabric" : "Yarn"} comes back only after yarn has gone to the knitter, and no Knitting Order has yarn out yet.
+          {waiting.length ? (
+            <>
+              {" "}
+              Issued, waiting for their yarn:{" "}
+              {waiting.map((o, i) => (
+                <span key={o.id}>
+                  {i ? ", " : ""}
+                  <Link href={`/process/knitting-hub/${o.id}`} className="text-primary hover:underline">
+                    {o.code ?? "(no number)"}
+                  </Link>
+                </span>
+              ))}
+              {" "}— send it from the order with Send Yarn.
+            </>
+          ) : null}
+        </p>
+      ) : null}
       {doc ? <KnittingReceiptPanel key={`${mode}-${doc.id}`} mode={mode} doc={doc} stores={stores} bins={bins} canEdit={canEdit} today={today} /> : null}
     </div>
   );

@@ -18,6 +18,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ o
   ]);
   // Only orders whose yarn is out and not closed can take a Fabric Receipt.
   const open = list.filter((o) => o.status === "in_process" || o.status === "partially_received");
+  const waiting = list.filter((o) => o.status === "issued");
   return (
     <div className="space-y-4">
       <PageHeader
@@ -25,7 +26,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ o
         description={"Knitted fabric from the knitter — the yarn it used comes off by blend %, and a draft bill is raised"}
         actions={<Link href="/process/knitting-receipts" className="text-sm text-primary hover:underline">← Fabric Receipts</Link>}
       />
-      <KnitReceiptEntry mode="fabric" orders={open} doc={doc} stores={setup.stores} bins={setup.bins} canEdit={canEdit} today={today()} />
+      <KnitReceiptEntry mode="fabric" orders={open} waiting={waiting} doc={doc} stores={setup.stores} bins={setup.bins} canEdit={canEdit} today={today()} />
     </div>
   );
 }

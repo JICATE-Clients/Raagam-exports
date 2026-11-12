@@ -55,7 +55,11 @@ export function KnittingReceiptsRegister({ kind, rows, canCreate }: { kind: "fab
         columns={withCreatedColumns(columns, rows)}
         rows={rows}
         getKey={(r) => r.id}
-        empty={fabric ? "No fabric received yet." : "No yarn returned yet."}
+        empty={
+          fabric
+            ? "No fabric received yet — fabric comes back once yarn has gone to a knitter. Use New Fabric Receipt then."
+            : "No yarn returned yet — a return is posted once a knitter sends unknitted yarn back."
+        }
       />
     </div>
   );
