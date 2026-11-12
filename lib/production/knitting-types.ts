@@ -298,3 +298,14 @@ export type KnitReceiptInput = {
   fabrics: { knit_fabric_id: string; rolls: number | null; net_kg: number; gross_kg: number | null; received_dia: string | null; store_id: string; bin_id: string | null; lot_no: string | null }[];
   returns: { knit_yarn_id: string; kg: number; bags: number | null; store_id: string; bin_id: string | null }[];
 };
+
+/** One yarn row's Send Qty on the program (user 2026-11-12) — by position, see dispatchKnittingYarn. */
+export type KnitSendLine = {
+  fabric_index: number;
+  yarn_index: number;
+  store_id: string;
+  bin_id: string | null;
+  kg: number;
+  bags: number | null;
+  bag_weight_kg: number | null;
+};

@@ -41,6 +41,7 @@ export const MODULE_HUE: Readonly<Record<string, string>> = {
   "/orders": "#be185d", //             Orders — pink
   "/planning": "#0e7490", //           Planning — cyan
   "/purchase": "#037bb8", //           Purchase — the brand sky blue
+  "/process": "#0369a1", //            Process — deeper sky, beside Purchase (outside job work, 2026-11-12)
   "/stores": "#4338ca", //             Stores — indigo
   "/production": "#b91c1c", //         Production — red
   "/logistics": "#0f766e", //          Logistics — teal

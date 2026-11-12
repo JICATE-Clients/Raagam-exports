@@ -685,7 +685,7 @@ export type KnitReceiptListRow = {
 };
 
 /**
- * Production ▸ Knitting ▸ Fabric Receipts / Yarn Returns (client 2026-11-11: "distinct
+ * Process ▸ Knitting ▸ Fabric Receipts / Yarn Returns (client 2026-11-11: "distinct
  * screens/menus"). Each document belongs to its Knitting Order, which is where it is posted;
  * the register lists them across orders, in entry order.
  */

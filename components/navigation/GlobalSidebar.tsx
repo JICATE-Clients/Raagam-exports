@@ -31,7 +31,8 @@ const RAIL_BANDS: { label?: string; hrefs: string[] }[] = [
   // Approvals left the rail 2026-11-06 (NavItem.hidden): My Approvals lives under Pulse.
   { hrefs: ["/", "/favourites"] },
   { label: "Sampling & Orders", hrefs: ["/sales", "/orders"] },
-  { label: "Bulk Production", hrefs: ["/planning", "/purchase", "/stores", "/production", "/logistics", "/logistics/transport"] },
+  // Process (outside job work — Knitting) sits right under Purchase (user 2026-11-12).
+  { label: "Bulk Production", hrefs: ["/planning", "/purchase", "/process", "/stores", "/production", "/logistics", "/logistics/transport"] },
   { label: "People & Accounts", hrefs: ["/hr", "/finance"] },
   // Out of the overview band into their own, under People & Accounts (user
   // 2026-10-29: "analytics and report also separate … move it under people

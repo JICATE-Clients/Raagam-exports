@@ -1,18 +1,20 @@
 import Link from "next/link";
+import { Plus } from "lucide-react";
+import { buttonClasses } from "@/components/ui/button";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 import { PageHeader } from "@/components/ui/page-header";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import type { KnitReceiptListRow } from "@/lib/production/knitting-service";
 
-const BASE = "/production/knitting-hub";
+const BASE = "/process/knitting-hub";
 
 /**
  * The register of Fabric Receipts, or of Yarn Returns (client 2026-11-11, 0831: "distinct
- * screens/menus"). Server-rendered and read-only: a posted document cannot change, and each is
- * POSTED on its Knitting Order (tabs 3 and 4), which is where the KO No link goes.
+ * screens/menus"). Server-rendered; a posted document cannot change. "+ New" opens the entry
+ * screen (pick the Knitting Order, post) — since 2026-11-12 these are no longer tabs of the order.
  */
-export function KnittingReceiptsRegister({ kind, rows }: { kind: "fabric" | "yarn_return"; rows: KnitReceiptListRow[] }) {
+export function KnittingReceiptsRegister({ kind, rows, canCreate }: { kind: "fabric" | "yarn_return"; rows: KnitReceiptListRow[]; canCreate: boolean }) {
   const fabric = kind === "fabric";
   const columns: Column<KnitReceiptListRow>[] = [
     { header: fabric ? "Receipt No" : "Return No", cell: (r) => <span className="font-mono text-xs font-medium">{r.code ?? "—"}</span> },
@@ -37,8 +39,16 @@ export function KnittingReceiptsRegister({ kind, rows }: { kind: "fabric" | "yar
         title={fabric ? "Fabric Receipts" : "Yarn Returns"}
         description={
           fabric
-            ? "Knitted fabric received from the knitters — post one on its Knitting Order, tab 3"
-            : "Unknitted yarn the knitters sent back — post one on its Knitting Order, tab 4"
+            ? "Knitted fabric received from the knitters"
+            : "Unknitted yarn the knitters sent back"
+        }
+        actions={
+          canCreate ? (
+            <Link href={fabric ? "/process/knitting-receipts/new" : "/process/knitting-returns/new"} className={buttonClasses({ size: "md" })}>
+              <Plus className="h-4 w-4" aria-hidden />
+              {fabric ? "New Fabric Receipt" : "New Yarn Return"}
+            </Link>
+          ) : null
         }
       />
       <DataTable

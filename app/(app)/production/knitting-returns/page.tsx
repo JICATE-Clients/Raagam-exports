@@ -1,10 +1,7 @@
-import { requirePermission } from "@/lib/auth/server";
-import { listKnittingReceipts } from "@/lib/production/knitting-service";
-import { KnittingReceiptsRegister } from "../knitting-hub/_components/knitting-receipts-register";
+import { redirect } from "next/navigation";
 
-/** Production ▸ Knitting ▸ Yarn Returns (0831) — same `stores` permission as the Knitting Orders. */
-export default async function KnittingReturnsPage() {
-  await requirePermission("stores", "view");
-  const rows = await listKnittingReceipts("yarn_return");
-  return <KnittingReceiptsRegister kind="yarn_return" rows={rows} />;
+// MOVED 2026-11-12 (user: "knitting need to move as new module … Process"). Knitting is a
+// sub-module of the Process module now; this address keeps old links and bookmarks working.
+export default function Page() {
+  redirect("/process/knitting-returns");
 }

@@ -312,7 +312,7 @@ export function KnittingReceiptPanel({
   return (
     <section className="space-y-3 rounded-lg border border-border p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold">{isFabric ? "3. Fabric Receipt" : "4. Yarn Return"}</h3>
+        <h3 className="text-sm font-semibold">{isFabric ? "Fabric Receipt" : "Yarn Return"}</h3>
         {doc.close_pending ? <StatusPill tone="warning">Close waiting for MD</StatusPill> : null}
       </div>
 
