@@ -23,6 +23,7 @@ import {
   UserCog,
   Headset,
   MessagesSquare,
+  Workflow,
   type LucideIcon,
 } from "lucide-react";
 import type { Module } from "@/lib/auth/types";
@@ -124,6 +125,15 @@ export const NAV: NavItem[] = [
     module: "materials_purchase",
     icon: ShoppingCart,
     children: moduleNavChildren("/purchase"),
+  },
+  // PROCESS (user 2026-11-12): job work at outside processors — Knitting first. Its own row,
+  // directly UNDER Purchase (user 2026-11-12: "move process as under purchase"); the knitting screens' `stores` permission.
+  {
+    href: "/process",
+    label: "Process",
+    module: "stores",
+    icon: Workflow,
+    children: moduleNavChildren("/process"),
   },
   {
     href: "/stores",

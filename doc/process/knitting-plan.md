@@ -176,3 +176,29 @@ What the client asked, and what was built for each:
 
 Not yet: registers of Fabric Receipts / Yarn Returns as their own sidebar rows (they live on
 the order's tabs); browser test of a shared DC and a move.
+
+## 8. Knitting is its own module: Process (user 2026-11-12)
+
+"Knitting need to move as new module as process … like purchase, production, process also
+module." The sidebar has a **Process** row beside Purchase and Production (`/process`,
+`components/shell/nav.ts` + `"/process"` in `lib/nav/module-groups.ts`), with **Knitting** as its
+sub-module: Knitting Orders `/process/knitting-hub`, Fabric Receipts `/process/knitting-receipts`,
+Yarn Returns `/process/knitting-returns`. The old `/production/knitting-*` addresses redirect
+(declared in `check-module-groups` REDIRECTED and `check-screen-catalog` UNREGISTERED). The module
+row uses the `stores` permission the screens always asked, so access did not change. Code stays in
+`lib/production/knitting-*`. Paths in §1–§7 above are the pre-move ones.
+
+## 9. One screen, no tabs (client recording-1794374987319, user 2026-11-12)
+
+- The Knitting Order has **no tabs**. Each yarn row under a fabric carries **From Store · Bin**,
+  **In Stock** (the bin's, else the store's) and **Send Qty** (refused past what is left to send
+  or what the bin holds). **Issue & Send Yarn** saves (if changed), issues, and dispatches ONE Job
+  Work DC for the rows with a Send Qty (`dispatchKnittingYarn` → `saveProcessDc` →
+  `process_dc_dispatch`); rows at 0 stay open. An issued order keeps the columns and a **Send Yarn
+  (Job Work DC)** button for the next lot. Three calls in a row, not one transaction: a failed
+  step stops the rest and what went through stays done.
+- **Fabric Receipts / Yarn Returns are entry screens of their own** (Process ▸ Knitting):
+  "+ New" → pick the Knitting Order (`?order=`) → the same receipt panel (yarn by blend %, draft
+  bill, analysis, Close). The order links to both once yarn is out.
+- The yarn-at-knitter panel and the order's DC list sit under the program. Multi-order DCs are
+  still raised from Purchase ▸ Delivery Challans ▸ Job Work DC.

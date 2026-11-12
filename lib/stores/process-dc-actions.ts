@@ -123,7 +123,7 @@ export async function saveProcessDc(id: string | null, payload: ProcessDcInput, 
     await writeAudit({ action: "process_dc.dispatched", entityType: "delivery_challan", entityId: dcId! });
     revalidatePath("/stores/process-orders");
     // A knitting order shows its Yarn DCs and the kg sent (Knitting Hub, 0825).
-    revalidatePath("/production/knitting-hub", "layout");
+    revalidatePath("/process/knitting-hub", "layout");
   } else {
     await writeAudit({ action: id ? "process_dc.updated" : "process_dc.created", entityType: "delivery_challan", entityId: dcId! });
   }

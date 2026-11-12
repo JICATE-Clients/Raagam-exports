@@ -63,6 +63,11 @@ function check(cond: boolean, msg: string) {
  * back to its module's grant — say why that is right.
  */
 const UNREGISTERED: Record<string, string> = {
+  // Knitting moved to the Process module (user 2026-11-12) — old addresses redirect (check-module-groups REDIRECTED).
+  "/production/knitting-hub": "redirect() to Process ▸ Knitting ▸ Knitting Orders — moved 2026-11-12",
+  "/production/knitting-hub/new": "redirect() to Process ▸ Knitting ▸ Knitting Orders (new) — moved 2026-11-12",
+  "/production/knitting-receipts": "redirect() to Process ▸ Knitting ▸ Fabric Receipts — moved 2026-11-12",
+  "/production/knitting-returns": "redirect() to Process ▸ Knitting ▸ Yarn Returns — moved 2026-11-12",
   // Module overviews (user 2026-11-06) — `moduleGrant` rows: each card is gated by its own source screen.
   "/purchase/overview": "module Overview — takes the module grant (ModuleLink.moduleGrant); every card is gated by its source screen",
   "/orders/overview": "module Overview — takes the module grant (ModuleLink.moduleGrant); every card is gated by its source screen",

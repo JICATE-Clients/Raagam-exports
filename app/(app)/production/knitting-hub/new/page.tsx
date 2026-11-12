@@ -1,22 +1,7 @@
-import { requirePermission } from "@/lib/auth/server";
-import { today } from "@/lib/calendar";
-import { getOrdersForPicker } from "@/lib/purchase/po-service";
-import { getKnitGauges, getKnitters } from "@/lib/production/knitting-service";
-import { KnittingEditor } from "../_components/knitting-editor";
+import { redirect } from "next/navigation";
 
-export default async function NewKnittingOrderPage() {
-  await requirePermission("stores", "create");
-  const [orders, knitters, gauges] = await Promise.all([getOrdersForPicker(), getKnitters(), getKnitGauges()]);
-  return (
-    <KnittingEditor
-      doc={null}
-      orders={orders}
-      knitters={knitters}
-      gauges={gauges}
-      initialCandidates={[]}
-      initialCustomer={null}
-      today={today()}
-      canEdit
-    />
-  );
+// MOVED 2026-11-12 (user: "knitting need to move as new module … Process"). Knitting is a
+// sub-module of the Process module now; this address keeps old links and bookmarks working.
+export default function Page() {
+  redirect("/process/knitting-hub/new");
 }

@@ -17,13 +17,11 @@ import { DOC_BOTTOM_BAR, DOC_FRAME, DocRemarksLine } from "@/components/purchase
 import { fmtDate, fmtMoney, fmtNumber } from "@/lib/format";
 import { statusTone } from "@/lib/ui/status-tone";
 import { useUnsavedGuard } from "@/lib/reload-guard";
-import { ToggleGroup } from "@/components/ui/segmented";
-import type { BinOption, StockOption, StoreOption } from "@/lib/stores/production-dc-service";
-import type { BinStockOption, LotStockOption, OpenProcessOrder, ProcessDc } from "@/lib/stores/process-dc-service";
-import { ProcessDcSendForm } from "@/app/(app)/stores/process-dc/_components/process-dc-send-form";
-import { KnittingReceiptPanel } from "./knitting-receipt-panel";
+import type { BinOption, StoreOption } from "@/lib/stores/production-dc-service";
+import type { BinStockOption } from "@/lib/stores/process-dc-service";
+import { FieldError } from "@/components/ui/field";
 import { KnitAtKnitterPanel } from "./knit-at-knitter-panel";
-import { cancelKnittingOrder, issueKnittingOrder, loadKnitCandidates, saveKnittingOrder } from "@/lib/production/knitting-actions";
+import { cancelKnittingOrder, dispatchKnittingYarn, issueKnittingOrder, loadKnitCandidates, saveKnittingOrder } from "@/lib/production/knitting-actions";
 import { type KnitYarnAtKnitter,
   KNIT_STATUS_LABELS,
   PLY_OPTIONS,
@@ -32,11 +30,12 @@ import { type KnitYarnAtKnitter,
   yarnRequirement,
   type KnitCandidate,
   type KnitOption,
+  type KnitSendLine,
   type KnitWidthForm,
   type KnittingOrder,
 } from "@/lib/production/knitting-types";
 
-const BASE = "/production/knitting-hub";
+const BASE = "/process/knitting-hub";
 
 type YarnRow = {
   key: string;
@@ -47,6 +46,10 @@ type YarnRow = {
   bag_weight: string;
   /** Sent on Process DCs so far (saved orders only). */
   dispatched_kg: number;
+  /* SEND FROM HERE (user 2026-11-12): the store and bin it leaves from, and the kg going now. */
+  store_id: string;
+  bin_id: string;
+  send: string;
 };
 
 type FabricRow = {
@@ -102,6 +105,9 @@ function rowsFromDoc(doc: KnittingOrder): FabricRow[] {
       allowance: str(y.allowance_pct),
       bag_weight: str(y.bag_weight_kg),
       dispatched_kg: y.dispatched_kg,
+      store_id: "",
+      bin_id: "",
+      send: "",
     })),
   }));
 }
@@ -109,11 +115,13 @@ function rowsFromDoc(doc: KnittingOrder): FabricRow[] {
 /**
  * KNITTING HUB ▸ one Knitting Order (DB 0825, doc/process/knitting-plan.md Phase 1).
  *
- * Step 1 is built here: the order header, the fabrics to knit (picked off the RE's current
- * Fabric BOM, one per fabric × dia), each fabric's construction, and its yarn explosion —
- * required kg and bags recomputed on every keystroke (acceptance 1). Steps 2 and 3 (Yarn DC,
- * Fabric Receipt) come in the next phases; until then an ISSUED order's yarn goes out on
- * Stores ▸ Process DC, which already reads it as a process order.
+ * ONE SCREEN, NO TABS (client recording-1794374987319, user 2026-11-12). The order header, the
+ * fabrics to knit (off the RE's current Fabric BOM), each fabric's construction and its yarn
+ * explosion — and on every yarn row the store · bin it leaves from, what that bin holds and the
+ * Send Qty. "Issue & Send Yarn" saves, issues and dispatches ONE Job Work DC for the rows with a
+ * Send Qty (dispatchKnittingYarn); a row left at 0 stays open for a later DC. Fabric Receipts and
+ * Yarn Returns are their own screens under Process ▸ Knitting (user 2026-11-12: "remove it from
+ * here"), so they are no longer tabs of the order.
  */
 export function KnittingEditor({
   doc,
@@ -126,19 +134,14 @@ export function KnittingEditor({
   canEdit,
   stores = [],
   bins = [],
-  dcSend,
+  binStock = [],
+  atKnitter = [],
 }: {
-  /** Tab 2's Job Work DC form, for THIS order only (null order = nothing left to send). */
-  dcSend?: {
-    order: OpenProcessOrder | null;
-    orders: OpenProcessOrder[];
-    atKnitter: KnitYarnAtKnitter[];
-    stock: StockOption[];
-    lots: LotStockOption[];
-    binStock: BinStockOption[];
-    draft: ProcessDc | null;
-  };
-  /** Step 3's receive-into stores and bins (this unit's). */
+  /** What each store / bin of this unit holds — the yarn rows' place list and "In Stock" (user 2026-11-12). */
+  binStock?: BinStockOption[];
+  /** This knitter's yarn still at the knitter on other open orders (0833). */
+  atKnitter?: KnitYarnAtKnitter[];
+  /** The stores and bins the yarn is sent from (this unit's). */
   stores?: StoreOption[];
   bins?: BinOption[];
   doc: KnittingOrder | null;
@@ -157,12 +160,11 @@ export function KnittingEditor({
 
   const readOnly = !canEdit || (!!doc && doc.status !== "draft");
   const issued = !!doc && doc.status !== "draft" && doc.status !== "cancelled";
-  /** Yarn has gone out (the first dispatch moves the order to In Knitting). */
-  const receivable = !!doc && ["in_process", "partially_received", "received", "closed"].includes(doc.status);
-  /* THE THREE TABS (spec §1.2, user 2026-11-11 "make them real tabs"). The order opens on the
-     furthest step it has reached — a draft on 1, an issued order on 2, one with yarn out on 3. */
-  type Tab = "1" | "2" | "3" | "4";
-  const [tab, setTab] = useState<Tab>(receivable ? "3" : issued ? "2" : "1");
+  /** Yarn may still go out: a draft (issued in the same click) or an open order. */
+  const sendable =
+    canEdit && (!doc || ["draft", "issued", "in_process", "partially_received"].includes(doc.status)) && !doc?.close_pending;
+  /** Send FROM a holding store, never Processing (the knitter's side) or Transit. */
+  const sendStores = stores.filter((x) => x.store_type !== "processing" && x.store_type !== "transit");
 
   const [salesOrderId, setSalesOrderId] = useState(doc?.sales_order_id ?? "");
   const [vendorId, setVendorId] = useState(doc?.vendor_id ?? "");
@@ -173,7 +175,8 @@ export function KnittingEditor({
   const [candidates, setCandidates] = useState<KnitCandidate[]>(initialCandidates);
   const [customer, setCustomer] = useState<string | null>(initialCustomer);
   const [note, setNote] = useState<string | null>(null);
-  const [confirm, setConfirm] = useState<"issue" | "cancel" | null>(null);
+  const [confirm, setConfirm] = useState<"issue" | "send" | "cancel" | null>(null);
+  const [dcDate, setDcDate] = useState(today);
 
   // Row keys from a counter bumped only in handlers, so render stays pure.
   const keySeq = useRef(0);
@@ -188,10 +191,11 @@ export function KnittingEditor({
   });
 
   const typed = rows.filter((r) => !isBlank(r));
-  const current = JSON.stringify([salesOrderId, vendorId, orderDate, expectedDate, allowedLoss, notes.trim().toUpperCase(), typed.map((r) => ({ ...r, key: undefined }))]);
+  const current = JSON.stringify([salesOrderId, vendorId, orderDate, expectedDate, allowedLoss, notes.trim().toUpperCase(), typed.map((r) => ({ ...r, key: undefined, yarns: r.yarns.map((y) => ({ ...y, store_id: undefined, bin_id: undefined, send: undefined })) }))]);
   const [baseline, setBaseline] = useState(current);
   const dirty = !readOnly && current !== baseline;
-  useUnsavedGuard(dirty || isPending);
+  const sendTyped = rows.some((r) => r.yarns.some((y) => y.send.trim() !== ""));
+  useUnsavedGuard(dirty || sendTyped || isPending);
 
   const candByKey = useMemo(() => new Map(candidates.map((c) => [c.key, c])), [candidates]);
 
@@ -247,6 +251,9 @@ export function KnittingEditor({
         allowance: allowedLoss,
         bag_weight: "",
         dispatched_kg: 0,
+        store_id: "",
+        bin_id: "",
+        send: "",
       })),
     });
   }
@@ -276,10 +283,90 @@ export function KnittingEditor({
     { fabric: 0, yarn: 0, cap: 0, sent: 0, value: 0 },
   );
 
+  /* ---------- the send columns (user 2026-11-12) ---------- */
+  /*
+   * WHERE IT GOES FROM, INLINE (user 2026-11-12, screenshot 4113: "instead of this dialog box …
+   * inline mode"). ONE dropdown per yarn row listing only the places that HOLD that yarn — a bin
+   * with its stock, or a store's un-binned stock — e.g. "Material Store · MAT06 — 300". With a
+   * single place it is chosen by itself; with none the row says so and cannot send.
+   */
+  const storeName = new Map(sendStores.map((x) => [x.id, x.name]));
+  const binCode = new Map(bins.map((b) => [b.id, b.code]));
+  /* SHORT LABEL (user 2026-11-12, screenshot 100438: "Material Store · MAT06 — …" was cut off):
+     BIN FIRST, then its stock — "MAT06 — 300". The store is named only when the yarn sits in more
+     than one store; otherwise every row would repeat the same "Material Store". */
+  const placesOf = (y: YarnRow) => {
+    const held = binStock.filter((b) => b.item_id === y.yarn_item_id && b.qty > 0 && storeName.has(b.store_id));
+    const manyStores = new Set(held.map((b) => b.store_id)).size > 1;
+    return held
+      .map((b) => {
+        const bin = b.bin_id ? (binCode.get(b.bin_id) ?? "bin") : "No bin";
+        return {
+          value: `${b.store_id}|${b.bin_id ?? ""}`,
+          store_id: b.store_id,
+          bin_id: b.bin_id ?? "",
+          qty: b.qty,
+          label: `${bin} — ${fmtNumber(b.qty)}${manyStores ? ` · ${storeName.get(b.store_id)}` : ""}`,
+        };
+      })
+      .sort((a, b) => b.qty - a.qty);
+  };
+  /** The row's pick — or the only place there is. */
+  const placeOf = (y: YarnRow) => {
+    const all = placesOf(y);
+    return y.store_id ? (all.find((p) => p.store_id === y.store_id && p.bin_id === y.bin_id) ?? null) : all.length === 1 ? all[0] : null;
+  };
+  const storeOf = (y: YarnRow) => placeOf(y)?.store_id ?? "";
+  /** In the chosen BIN when one is picked; else the whole store. */
+  /** The picked place's stock; with nothing picked, all of it across the stores. */
+  const inStock = (y: YarnRow) => placeOf(y)?.qty ?? placesOf(y).reduce((t, p) => t + p.qty, 0);
+  /** Bins of the row's store that hold its yarn — plus the one already chosen. */
+  const leftToSend = (f: FabricRow, y: YarnRow) => Math.max(0, Math.round((yarnCalc(f, y).cap - y.dispatched_kg) * 1000) / 1000);
+  const sendProblem = (f: FabricRow, y: YarnRow): string | null => {
+    const q = n(y.send) ?? 0;
+    if (q <= 0) return null;
+    if (q > leftToSend(f, y) + 1e-9) return `Only ${fmtNumber(leftToSend(f, y))} left to send`;
+    if (!placeOf(y)) return placesOf(y).length ? "Pick a bin" : "None in stock";
+    if (q > inStock(y) + 1e-9) return `Only ${fmtNumber(inStock(y))} there`;
+    return null;
+  };
+  const sends: KnitSendLine[] = typed.flatMap((f, fi) =>
+    f.yarns.flatMap((y, yi) => {
+      const kg = n(y.send) ?? 0;
+      if (kg <= 0) return [];
+      const wt = n(y.bag_weight);
+      return [{ fabric_index: fi, yarn_index: yi, store_id: storeOf(y), bin_id: placeOf(y)?.bin_id || null, kg, bags: wt && wt > 0 ? Math.round(kg / wt) : null, bag_weight_kg: wt && wt > 0 ? wt : null }];
+    }),
+  );
+  const sendBad = typed.some((f) => f.yarns.some((y) => !!sendProblem(f, y)));
+  const sendKg = sends.reduce((t, x) => t + x.kg, 0);
+
+  /** Raise and dispatch the DC for the typed rows; then clear them. */
+  async function runDispatch(orderId: string): Promise<boolean> {
+    const res = await dispatchKnittingYarn(orderId, dcDate || today, sends);
+    if (!res.ok) {
+      toastError(res.error);
+      return false;
+    }
+    success(`Job Work DC dispatched — ${fmtNumber(sendKg)} kg of yarn is at the knitter`);
+    setRows((rs) => rs.map((r) => ({ ...r, yarns: r.yarns.map((y) => ({ ...y, send: "" })) })));
+    return true;
+  }
+
   function save() {
     if (!canSave) return;
     start(async () => {
-      const res = await saveKnittingOrder(doc?.id ?? null, {
+      const res = await saveKnittingOrder(doc?.id ?? null, payload());
+      if (!res.ok) return toastError(res.error);
+      success("Knitting order saved");
+      setBaseline(current);
+      if (!doc) router.replace(`${BASE}/${res.id}`);
+      else router.refresh();
+    });
+  }
+
+  function payload() {
+    return {
         vendor_id: vendorId,
         sales_order_id: salesOrderId || null,
         order_date: orderDate || null,
@@ -307,24 +394,46 @@ export function KnittingEditor({
             bag_weight_kg: n(y.bag_weight),
           })),
         })),
-      });
-      if (!res.ok) return toastError(res.error);
-      success("Knitting order saved");
-      setBaseline(current);
-      if (!doc) router.replace(`${BASE}/${res.id}`);
+    };
+  }
+
+  /**
+   * ISSUE & SEND YARN — one click (user 2026-11-12, "Save Knitting Program & Generate Job Work DC"):
+   * save if anything changed, issue to the knitter, then dispatch the rows with a Send Qty. Three
+   * server calls in a row, each its own transaction: a step that fails stops the rest and says
+   * so — what already went through stays done (the order saved, or issued with no DC yet).
+   */
+  function issue() {
+    start(async () => {
+      let id = doc?.id ?? null;
+      if (!id || dirty) {
+        if (!canSave) return toastError("Fix the program first");
+        const saved = await saveKnittingOrder(id, payload());
+        if (!saved.ok) return toastError(saved.error);
+        id = saved.id;
+        setBaseline(current);
+      }
+      const res = await issueKnittingOrder(id);
+      setConfirm(null);
+      if (!res.ok) {
+        toastError(res.error);
+        if (!doc) router.replace(`${BASE}/${id}`);
+        return;
+      }
+      if (sends.length) await runDispatch(id);
+      else success("Issued — send its yarn from the same screen when it is ready");
+      if (!doc) router.replace(`${BASE}/${id}`);
       else router.refresh();
     });
   }
 
-  function issue() {
+  /** An issued order: send the next lot of yarn (partial dispatch). */
+  function sendOnly() {
     if (!doc) return;
     start(async () => {
-      const res = await issueKnittingOrder(doc.id);
+      const ok = await runDispatch(doc.id);
       setConfirm(null);
-      if (!res.ok) return toastError(res.error);
-      success("Issued — the yarn can now be sent on a Process DC");
-      setTab("2");
-      router.refresh();
+      if (ok) router.refresh();
     });
   }
 
@@ -410,31 +519,6 @@ export function KnittingEditor({
 
   const status = doc?.status ?? "draft";
   const title = doc ? (doc.code ?? "Knitting Order") : "New Knitting Order";
-  // A tab not reached yet is greyed, with the reason on hover — never hidden.
-  const tabs: { value: Tab; label: string; disabled: boolean; title?: string; after?: React.ReactNode }[] = [
-    { value: "1", label: "1. Program & Knitting Specs", disabled: false },
-    {
-      value: "2",
-      label: "2. Outward Yarn DC",
-      disabled: !issued,
-      title: issued ? undefined : "Save the order and Issue it to the knitter first",
-      after: issued ? <span className="text-[11px] opacity-80">{fmtNumber(totals.sent)}/{fmtNumber(totals.cap)} kg</span> : null,
-    },
-    {
-      value: "3",
-      label: "3. Fabric Receipt",
-      disabled: !receivable,
-      title: receivable ? undefined : "Opens once yarn has been dispatched to the knitter",
-    },
-    /* Separate from the receipt (client 2026-11-11, 0831): its own document, its own KYR number. */
-    {
-      value: "4",
-      label: "4. Yarn Return",
-      disabled: !receivable,
-      title: receivable ? undefined : "Opens once yarn has been dispatched to the knitter",
-    },
-  ];
-
   return (
     <div className="space-y-4">
       <PageHeader
@@ -503,9 +587,8 @@ export function KnittingEditor({
           ) : null}
           {note ? <p className="text-sm text-muted-foreground">{note}</p> : null}
 
-          {/* The three steps of the spec (doc/process/knitting.md §1.2), as tabs. */}
+          {/* ONE SCREEN (user 2026-11-12): the totals sit where the tab bar was. */}
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-            <ToggleGroup<Tab> role="tablist" label="Knitting order steps" value={tab} onChange={setTab} options={tabs} />
             {typed.length ? (
               <dl className="ml-auto flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground">
                 <div>
@@ -531,9 +614,8 @@ export function KnittingEditor({
               </dl>
             ) : null}
           </div>
-          {!issued && doc ? <p className="text-xs text-muted-foreground">Step 2 opens after Issue to Knitter; step 3 once the yarn has gone out.</p> : null}
 
-          {tab === "1" ? (
+          {(
             <div className="flex flex-wrap items-start gap-4">
               <div className="min-w-0 flex-[999_1_640px] space-y-3">
                 {rows.map((f, i) => {
@@ -737,6 +819,13 @@ export function KnittingEditor({
                                   <th className={THR}>Bags</th>
                                   <th className={THR}>DC Cap Kg</th>
                                   {issued ? <th className={THR}>Sent Kg</th> : null}
+                                  {sendable ? (
+                                    <>
+                                      <th className={TH}>From Bin</th>
+                                      <th className={THR}>In Stock</th>
+                                      <th className={THR}>Send Qty</th>
+                                    </>
+                                  ) : null}
                                 </tr>
                               </thead>
                               <tbody>
@@ -778,6 +867,49 @@ export function KnittingEditor({
                                           <span className={CELLR}>{y.dispatched_kg ? fmtNumber(y.dispatched_kg) : "—"}</span>
                                         </td>
                                       ) : null}
+                                      {sendable ? (
+                                        <>
+                                          <td className={`${TD} w-44`}>
+                                            {placesOf(y).length ? (
+                                              <Select
+                                                aria-label={`From store · bin, ${y.yarn_name}`}
+                                                value={placeOf(y)?.value ?? ""}
+                                                onChange={(e) => {
+                                                  const [st, bn] = e.target.value.split("|");
+                                                  setYarn(f.key, y.key, { store_id: st ?? "", bin_id: bn ?? "" });
+                                                }}
+                                              >
+                                                {placesOf(y).length > 1 ? <option value="">Pick a bin</option> : null}
+                                                {placesOf(y).map((pl) => (
+                                                  <option key={pl.value} value={pl.value}>
+                                                    {pl.label}
+                                                  </option>
+                                                ))}
+                                              </Select>
+                                            ) : (
+                                              <span className={`${CELL} text-destructive`}>Not in stock</span>
+                                            )}
+                                          </td>
+                                          <td className={TD}>
+                                            <span className={`${CELLR} ${inStock(y) > 0 ? "" : "text-destructive"}`}>{fmtNumber(inStock(y))}</span>
+                                          </td>
+                                          <td className={`${TD} w-28`}>
+                                            <Input
+                                              type="number"
+                                              min="0"
+                                              step="any"
+                                              aria-label={`Send qty (kg), ${y.yarn_name}`}
+                                              aria-invalid={sendProblem(f, y) ? true : undefined}
+                                              aria-describedby={sendProblem(f, y) ? `ko-send-${y.key}` : undefined}
+                                              placeholder={leftToSend(f, y) ? `≤ ${fmtNumber(leftToSend(f, y))}` : "sent"}
+                                              className={NUM}
+                                              value={y.send}
+                                              onChange={(e) => setYarn(f.key, y.key, { send: e.target.value })}
+                                            />
+                                            <FieldError id={`ko-send-${y.key}`}>{sendProblem(f, y)}</FieldError>
+                                          </td>
+                                        </>
+                                      ) : null}
                                     </tr>
                                   );
                                 })}
@@ -805,6 +937,7 @@ export function KnittingEditor({
                                         <span className={CELLR}>{fmtNumber(sum.sent)}</span>
                                       </td>
                                     ) : null}
+                                    {sendable ? <td className={SUM_TD} colSpan={3} /> : null}
                                   </tr>
                                 ) : null}
                               </tbody>
@@ -849,7 +982,7 @@ export function KnittingEditor({
                 </aside>
               ) : null}
             </div>
-          ) : null}
+          )}
 
           {/* STEP 2 — OUTWARD YARN DC (Phase 2). A Yarn DC is a Process DC against this order:
               the form lists its yarns with the balance still to send (whole bags, 0825), a lot
@@ -857,7 +990,7 @@ export function KnittingEditor({
               the knitter (0826, lot by lot). */}
           {/* The DCs already raised — only once there are some (user 2026-11-11: an empty
               "No yarn has been sent yet" box above the DC form said nothing the form doesn't). */}
-          {tab === "2" && doc && issued && doc.dcs.length > 0 ? (
+          {doc && issued && doc.dcs.length > 0 ? (
             <section className="space-y-2 rounded-lg border border-border p-3">
               <h3 className="text-sm font-semibold">Yarn DCs on this order</h3>
               {(
@@ -887,7 +1020,9 @@ export function KnittingEditor({
                         </td>
                         <td className="py-1 text-right">
                           {d.status === "draft" ? (
-                            <span className="text-xs text-muted-foreground">continue below</span>
+                            <Link href={`/purchase/dc/${d.id}`} className="text-primary hover:underline">
+                              Open draft
+                            </Link>
                           ) : d.status !== "cancelled" ? (
                             <Link href={`/stores/process-dc/${d.id}/print`} className="text-primary hover:underline">
                               Print
@@ -902,39 +1037,25 @@ export function KnittingEditor({
             </section>
           ) : null}
 
-          {/* SEND YARN, HERE (user 2026-11-11: "we need this same here in same tab"). The Job Work DC
-              form itself, embedded — the order fixed, a draft carried on — so there is still ONE
-              dispatch path (0826's lot-wise check, the +1 bag cap). Keyed on what has gone out, so
-              after a dispatch it reopens with the new balances. */}
-          {tab === "2" && doc && issued && canEdit ? (
-            dcSend?.order ? (
-              <ProcessDcSendForm
-                key={`${doc.dcs.length}-${totals.sent}`}
-                embedded
-                orders={dcSend.orders}
-                stores={stores}
-                bins={bins}
-                stock={dcSend.stock}
-                lots={dcSend.lots}
-                binStock={dcSend.binStock}
-                existing={dcSend.draft}
-                initialOrderId={doc.id}
-                onDone={() => router.refresh()}
-              />
-            ) : doc.status !== "closed" && !doc.close_pending ? (
-              <p className="text-sm text-muted-foreground">All the yarn on this order has been sent, up to its whole bags.</p>
-            ) : null
-          ) : null}
-
           {/* YARN ALREADY AT THE KNITTER (client 2026-11-11, 0833) — moved here without a transport DC. */}
-          {tab === "2" && doc && issued && canEdit && dcSend?.atKnitter.length ? <KnitAtKnitterPanel doc={doc} rows={dcSend.atKnitter} /> : null}
+          {doc && issued && canEdit && atKnitter.length ? <KnitAtKnitterPanel doc={doc} rows={atKnitter} /> : null}
 
-          {/* STEP 3 — inside the frame, under its tab. Its Post is its own button, not a submit. */}
-          {(tab === "3" || tab === "4") && doc && receivable ? (
-            <KnittingReceiptPanel key={tab} mode={tab === "3" ? "fabric" : "yarn_return"} doc={doc} stores={stores} bins={bins} canEdit={canEdit} today={today} />
+          {/* FABRIC RECEIPTS AND YARN RETURNS ARE THEIR OWN SCREENS (user 2026-11-12). */}
+          {doc && ["in_process", "partially_received", "received", "closed"].includes(doc.status) ? (
+            <p className="text-sm text-muted-foreground">
+              Fabric back from the knitter goes on{" "}
+              <Link href={`/process/knitting-receipts/new?order=${doc.id}`} className="text-primary hover:underline">
+                Process ▸ Knitting ▸ Fabric Receipts
+              </Link>
+              ; unknitted yarn on{" "}
+              <Link href={`/process/knitting-returns/new?order=${doc.id}`} className="text-primary hover:underline">
+                Yarn Returns
+              </Link>
+              .
+            </p>
           ) : null}
 
-          {tab === "1" ? <DocRemarksLine maxWidthClass="max-w-none" value={notes} readOnly={readOnly} onChange={setNotes} /> : null}
+          <DocRemarksLine maxWidthClass="max-w-none" value={notes} readOnly={readOnly} onChange={setNotes} />
         </div>
 
         <div className={DOC_BOTTOM_BAR} data-focus-region="footer">
@@ -953,13 +1074,19 @@ export function KnittingEditor({
               {readOnly ? "Close" : "Cancel"}
             </Link>
             {!readOnly ? (
-              <Button type="button" onClick={save} variant={doc && !dirty ? "outline" : "primary"} disabled={isPending || !canSave || (!!doc && !dirty)}>
-                {isPending ? "Saving…" : "Save"}
+              <Button type="button" onClick={save} variant="outline" disabled={isPending || !canSave || (!!doc && !dirty)}>
+                {isPending ? "Saving…" : "Save draft"}
               </Button>
             ) : null}
-            {!readOnly && doc && !dirty ? (
-              <Button type="button" disabled={isPending || doc.fabrics.length === 0} onClick={() => setConfirm("issue")}>
-                Issue to Knitter
+            {sendable && (!doc || doc.status === "draft") ? (
+              // ONE CLICK (user 2026-11-12): save if needed, issue, and send the rows with a Send Qty.
+              <Button type="button" disabled={isPending || !canSave || sendBad} onClick={() => setConfirm("issue")}>
+                {sends.length ? "Issue & Send Yarn" : "Issue to Knitter"}
+              </Button>
+            ) : null}
+            {sendable && doc && doc.status !== "draft" ? (
+              <Button type="button" disabled={isPending || sends.length === 0 || sendBad} onClick={() => setConfirm("send")}>
+                Send Yarn (Job Work DC)
               </Button>
             ) : null}
           </div>
@@ -968,12 +1095,47 @@ export function KnittingEditor({
 
       <ConfirmDialog
         open={confirm === "issue"}
-        title={`Issue ${doc?.code ?? "this knitting order"}?`}
-        body="The order goes to the knitter and can no longer be changed. Its yarn is then sent on Stores ▸ Process DC, up to the whole bags shown."
-        confirmLabel="Issue"
+        title={`Issue ${doc?.code ?? "this knitting order"}${sends.length ? " and send the yarn" : ""}?`}
+        body={
+          <div className="space-y-2">
+            <p>The program goes to the knitter and can no longer be changed.</p>
+            {sends.length ? (
+              <>
+                <p>
+                  A Job Work DC goes out now with {fmtNumber(sendKg)} kg on {sends.length} yarn line{sends.length === 1 ? "" : "s"}; rows left at 0 stay open for a later DC.
+                </p>
+                <Field label="DC Date" w="code">
+                  <Input type="date" value={dcDate} max={today || undefined} onChange={(e) => setDcDate(e.target.value)} />
+                </Field>
+              </>
+            ) : (
+              <p>No Send Qty is typed — the yarn can be sent from this screen later.</p>
+            )}
+          </div>
+        }
+        confirmLabel={sends.length ? "Issue & Send" : "Issue"}
         tone="primary"
         isPending={isPending}
         onConfirm={issue}
+        onCancel={() => setConfirm(null)}
+      />
+      <ConfirmDialog
+        open={confirm === "send"}
+        title={`Send ${fmtNumber(sendKg)} kg of yarn to the knitter?`}
+        body={
+          <div className="space-y-2">
+            <p>
+              One Job Work DC on {doc?.code ?? "this order"} with {sends.length} yarn line{sends.length === 1 ? "" : "s"}. The rest stays open for a later DC.
+            </p>
+            <Field label="DC Date" w="code">
+              <Input type="date" value={dcDate} max={today || undefined} onChange={(e) => setDcDate(e.target.value)} />
+            </Field>
+          </div>
+        }
+        confirmLabel="Send"
+        tone="primary"
+        isPending={isPending}
+        onConfirm={sendOnly}
         onCancel={() => setConfirm(null)}
       />
       <ConfirmDialog

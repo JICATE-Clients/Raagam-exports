@@ -113,7 +113,7 @@ export const WORKFLOWS: Record<WorkflowKey, WorkflowDecl> = {
     key: "knitting_close",
     subjectTable: "process_orders",
     label: "Knitting Close",
-    href: "/production/knitting-hub/:id",
+    href: "/process/knitting-hub/:id",
   },
   po_cancellation: {
     key: "po_cancellation",

@@ -1339,11 +1339,20 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
           { href: "/production/despatch", label: "Despatch", description: "Despatch finished goods to Logistics" },
         ],
       },
-      // Knitting Hub (0825, doc/process/knitting-plan.md): program, yarn DC and fabric receipt
-      // for an outside knitter, on one order. A GROUP since 2026-11-12 (0831, client: "distinct
-      // screens/menus for Fabric Receipts and Yarn Returns") — the two registers sit beside the
-      // orders. The routes are siblings, not beneath /production/knitting-hub, so no row lives
-      // under another row.
+      { kind: "link", href: "/production/masters", label: "Planning Masters" },
+    ],
+  },
+
+  /* PROCESS — its own module (user 2026-11-12: "knitting need to move as new module as
+     process … like purchase, production, process also module"). Job work at OUTSIDE
+     processors. Knitting is its first sub-module (0825, doc/process/knitting-plan.md); it came
+     out of Production, whose old addresses redirect here. Same `stores` permission the
+     knitting screens have always asked, so nobody gains or loses access by the move. */
+  "/process": {
+    label: "Process",
+    module: "stores",
+    description: "Job work at outside processors — knitting orders, the yarn sent and the fabric back",
+    entries: [
       {
         kind: "group",
         slug: "knitting",
@@ -1351,12 +1360,11 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         icon: Layers,
         description: "Knitting orders to outside knitters, the fabric they send back and the yarn they return",
         children: [
-          { href: "/production/knitting-hub", label: "Knitting Orders", description: "Program, yarn DC, fabric receipt and yarn return — one order per RE" },
-          { href: "/production/knitting-receipts", label: "Fabric Receipts", description: "Knitted fabric received from the knitters" },
-          { href: "/production/knitting-returns", label: "Yarn Returns", description: "Unknitted yarn the knitters sent back" },
+          { href: "/process/knitting-hub", label: "Knitting Orders", description: "Program, yarn DC, fabric receipt and yarn return — one order per RE" },
+          { href: "/process/knitting-receipts", label: "Fabric Receipts", description: "Knitted fabric received from the knitters" },
+          { href: "/process/knitting-returns", label: "Yarn Returns", description: "Unknitted yarn the knitters sent back" },
         ],
       },
-      { kind: "link", href: "/production/masters", label: "Planning Masters" },
     ],
   },
 

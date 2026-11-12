@@ -11,7 +11,7 @@ import { fmtDate, fmtNumber } from "@/lib/format";
 import { statusTone } from "@/lib/ui/status-tone";
 import { KNIT_STATUS_LABELS, type KnittingOrderListRow } from "@/lib/production/knitting-types";
 
-const BASE = "/production/knitting-hub";
+const BASE = "/process/knitting-hub";
 
 export function KnittingOrdersList({ rows, canEdit }: { rows: KnittingOrderListRow[]; canEdit: boolean }) {
   const router = useRouter();

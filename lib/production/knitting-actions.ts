@@ -7,8 +7,9 @@ import { writeAudit } from "@/lib/audit";
 import { refuseReopenedBudget } from "@/lib/purchase/bom-ceiling-service";
 import { startApproval } from "@/lib/approvals/actions";
 import { WORKFLOWS } from "@/lib/approvals/workflows";
-import { getKnitCandidates } from "./knitting-service";
-import type { KnitCandidatesResult, KnitReceiptInput, KnittingOrderInput } from "./knitting-types";
+import { getKnitCandidates, getKnittingOrder } from "./knitting-service";
+import { saveProcessDc } from "@/lib/stores/process-dc-actions";
+import type { KnitCandidatesResult, KnitReceiptInput, KnitSendLine, KnittingOrderInput } from "./knitting-types";
 
 /**
  * KNITTING HUB writes (DB 0825). The save is ONE call to `knitting_order_save`, which writes
@@ -17,7 +18,7 @@ import type { KnitCandidatesResult, KnitReceiptInput, KnittingOrderInput } from 
  */
 
 type Fail = { ok: false; error: string };
-const BASE = "/production/knitting-hub";
+const BASE = "/process/knitting-hub";
 
 function revalidateKnitting(id?: string) {
   revalidatePath(BASE);
@@ -216,4 +217,40 @@ export async function moveYarnAtKnitter(
   revalidateKnitting(toOrderId);
   revalidatePath("/purchase/dc");
   return { ok: true, id: String(data) };
+}
+
+/**
+ * SEND YARN FROM THE PROGRAM ITSELF (client recording-1794374987319, user 2026-11-12: "merge the
+ * yarn store & bin selection into the Knitting Program"). The rows the operator gave a Send Qty
+ * become ONE Job Work DC on this order, dispatched at once through the same `saveProcessDc` →
+ * `process_dc_dispatch` as every other DC — so the +1-bag cap, bin and lot checks and the stock
+ * move are exactly the DC's. A row left at 0 stays open for a later DC (partial dispatch).
+ *
+ * Lines are addressed by POSITION (fabric n, yarn m): on a brand-new order the screen has no yarn
+ * ids yet — they are given by the save that runs just before this, in the same click.
+ */
+export async function dispatchKnittingYarn(orderId: string, dcDate: string, sends: KnitSendLine[]): Promise<{ ok: true; id: string } | Fail> {
+  if (!(await can("stores", "edit"))) return { ok: false, error: "You do not have permission to send yarn" };
+  const live = sends.filter((x) => x.kg > 0);
+  if (!live.length) return { ok: false, error: "Enter a Send Qty on at least one yarn" };
+  const doc = await getKnittingOrder(orderId);
+  if (!doc) return { ok: false, error: "Knitting order not found" };
+  const lines = [];
+  for (const x of live) {
+    const y = doc.fabrics[x.fabric_index]?.yarns[x.yarn_index];
+    if (!y?.process_order_line_id) return { ok: false, error: "A yarn line is not on this order — reload and try again" };
+    if (!x.store_id) return { ok: false, error: `${y.yarn_name}: pick the store it goes from` };
+    lines.push({
+      process_order_line_id: y.process_order_line_id,
+      item_id: y.yarn_item_id,
+      description: y.yarn_name,
+      sent_qty: x.kg,
+      from_store_id: x.store_id,
+      bin_id: x.bin_id || null,
+      lot_no: null,
+      bags: x.bags,
+      bag_weight_kg: x.bag_weight_kg,
+    });
+  }
+  return saveProcessDc(null, { process_order_id: orderId, dc_date: dcDate, lines }, true);
 }
