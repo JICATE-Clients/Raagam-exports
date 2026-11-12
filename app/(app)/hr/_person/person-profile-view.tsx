@@ -29,7 +29,8 @@ import {
 } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
-import { StatusPill } from "@/components/ui/status-pill";
+import { PhotoViewer } from "@/components/ui/photo-upload";
+import { StatusPill } from "@/components/ui/status-pill";
 import { activeTone } from "@/lib/ui/status-tone";
 import { Truncated } from "@/components/ui/truncated";
 import { fmtDate, fmtMoney } from "@/lib/format";
@@ -179,6 +180,7 @@ export function PersonProfileView({
    */
   const [children, setChildren] = useState<Children | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [viewingPhoto, setViewingPhoto] = useState(false);
   useEffect(() => {
     let live = true;
     (loadChildren ? loadChildren() : getPersonChildren(kind, row.id))
@@ -444,12 +446,19 @@ export function PersonProfileView({
               <div className="flex items-center gap-4 xl:flex-col xl:gap-3 xl:pt-2 xl:text-center">
                 <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-2xl border border-border bg-primary-soft text-xl font-bold text-primary xl:h-28 xl:w-28 xl:text-3xl">
                   {photo ? (
-                    // eslint-disable-next-line @next/next/no-img-element -- a Supabase storage public URL, same as PhotoUpload's own preview.
-                    <img
-                      src={photo}
-                      alt={`Photo of ${name}`}
-                      className="h-full w-full object-cover"
-                    />
+                    <button
+                      type="button"
+                      aria-label={`View the photo of ${name}`}
+                      onClick={() => setViewingPhoto(true)}
+                      className="h-full w-full cursor-zoom-in"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element -- a Supabase storage public URL, same as PhotoUpload's own preview. */}
+                      <img
+                        src={photo}
+                        alt={`Photo of ${name}`}
+                        className="h-full w-full object-cover"
+                      />
+                    </button>
                   ) : initials(name) ? (
                     <span aria-hidden>{initials(name)}</span>
                   ) : (
@@ -459,6 +468,11 @@ export function PersonProfileView({
                     />
                   )}
                 </div>
+                <PhotoViewer
+                  src={viewingPhoto ? photo : null}
+                  alt={`Photo of ${name}`}
+                  onClose={() => setViewingPhoto(false)}
+                />
                 <div className="min-w-0 flex-1 space-y-2 xl:w-full xl:flex-none xl:space-y-3">
                   <div className="min-w-0">
                     <Truncated

@@ -491,7 +491,7 @@ export function Combobox({
                 )}
               >
                 {o.person !== undefined && (
-                  <PersonAvatar name={o.label} person={o.person} className="mr-2 inline-grid h-6 w-6 align-middle text-[9px]" />
+                  <PersonAvatar name={o.label} person={o.person} zoom={false} className="mr-2 inline-grid h-6 w-6 align-middle text-[9px]" />
                 )}
                 {o.label}
                 {o.sublabel && <span className="ml-2 text-xs text-muted-foreground">{o.sublabel}</span>}

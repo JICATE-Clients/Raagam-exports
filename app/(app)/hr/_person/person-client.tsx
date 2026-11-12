@@ -33,6 +33,7 @@ import type {
 import {
   createStaff,
   updateStaff,
+  deleteStaff,
   createWorker,
   updateWorker,
   updateMyProfile,
@@ -978,6 +979,22 @@ export default function PersonClient({
       } else {
         toastError(result.error);
       }
+    });
+  }
+
+  function removeStaff(r: PersonRow) {
+    startTransition(async () => {
+      const result = await deleteStaff(r.id);
+      if (!result.ok) {
+        toastError(result.error);
+        return;
+      }
+      success(
+        result.inactive
+          ? `${r.name} is used in ${result.usedBy ?? "other records"}, so it was made Inactive instead of deleted.`
+          : `${r.name} deleted.`,
+      );
+      router.refresh();
     });
   }
 
@@ -4534,6 +4551,9 @@ export default function PersonClient({
         label={r.name}
         onView={() => setViewing(r)}
         onEdit={() => openEdit(r)}
+        onDelete={isWorker ? undefined : () => removeStaff(r)}
+        canDelete={canDelete}
+        isPending={isPending}
       />
     )),
   ];

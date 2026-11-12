@@ -299,7 +299,7 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, canRevoke 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
           <ToggleGroup
             label="Show"
             value={scope}
@@ -338,7 +338,7 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, canRevoke 
         open={open}
         onClose={() => setOpen(false)}
         title={WORDS[mode].title}
-        size="md"
+        asPage
         footer={
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="min-w-0 text-xs text-muted-foreground">
@@ -477,7 +477,7 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, canRevoke 
         open={!!viewFor}
         onClose={() => setViewFor(null)}
         title={viewFor ? `${viewFor.person_name} — ${viewFor.leave_name}` : "Request"}
-        size="md"
+        asPage
       >
         {viewFor && (
           <div className="space-y-5 text-sm">

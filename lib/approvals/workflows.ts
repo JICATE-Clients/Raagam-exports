@@ -40,6 +40,7 @@ export type WorkflowKey =
   | "sample_pd_request"
   | "timeoff_request"
   | "timeoff_encashment"
+  | "timeoff_comp_off"
   | "lc_termination"
   | "lc_settlement"
   | "rc_hire"
@@ -189,6 +190,15 @@ export const WORKFLOWS: Record<WorkflowKey, WorkflowDecl> = {
     subjectTable: "timeoff_encashments",
     label: "Leave Encashment",
     href: "/hr/time-off/encashment?open=:id",
+  },
+  /* 0835 — a comp-off CLAIM ("credit me a day for the holiday I worked") on
+     the same HOD → HR Manager → ED ladder. One run per credit, started inside
+     `timeoff_claim_comp_off`. */
+  timeoff_comp_off: {
+    key: "timeoff_comp_off",
+    subjectTable: "timeoff_comp_off_credits",
+    label: "Comp-off Claim",
+    href: "/hr/time-off/approvals?open=:id",
   },
   // HR ▸ Team Lifecycle (0771). Both runs are started inside the SECURITY
   // DEFINER function that writes the subject (`lc_open_exit` for a

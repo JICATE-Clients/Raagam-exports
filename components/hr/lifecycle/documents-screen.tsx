@@ -283,7 +283,7 @@ export function DocumentsScreen({ docs, required, people, selfOnly }: Props) {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-2">
         {!selfOnly ? (
-          <FieldRow>
+          <FieldRow className="min-w-0 flex-1">
             <Field label="Person" w="name">
               <PersonCombobox people={people} value={person} onChange={setPerson} />
             </Field>
