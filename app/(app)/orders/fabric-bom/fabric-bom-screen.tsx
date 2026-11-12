@@ -3755,9 +3755,14 @@ export function FabricBomScreen({
    * same refusal is already printed against every entry in Calculated
    * Quantities, and the pane says "this style states no sizes" in its own words.
    */
-  const orderSizesByStyle = useMemo(() => {
+  const { sizes: orderSizesByStyle, why: orderSizesWhy } = useMemo(() => {
     const out = new Map<string, { size_id: string; label: string; qty: number }[]>();
-    if (!order) return out;
+    /* WHY A STYLE HAS NO SIZES (user 2026-11-12, GOA-0073). The refusal used to
+       become a bare `[]`, and the pane then said "this style states no sizes yet"
+       on an order that had every size — the real reason was an Approval Qty row
+       left on a renamed colour ("Combo WHITE is not on the Combos tab"). */
+    const why = new Map<string, string>();
+    if (!order) return { sizes: out, why };
     /* EVERY STYLE THE ORDER NAMES, PLUS "" FOR THE UNSCOPED CASE, computed
        EAGERLY. A lazy cache filled on first call is what the React Compiler's
        `react-hooks/immutability` rule refuses, and it is right to: a Map created
@@ -3775,6 +3780,7 @@ export function FabricBomScreen({
       const slices = fabricSlices("colour_size", { style_ref_no: key || null, combo: null }, order);
       if (isRefusal(slices)) {
         out.set(key, []);
+        why.set(key, slices.refused);
         continue;
       }
       const seen = new Map<string, { size_id: string; label: string; qty: number }>();
@@ -3797,8 +3803,12 @@ export function FabricBomScreen({
          so XL could head the Manual rows above S. */
       out.set(key, sortBySize([...seen.values()], (z) => z.label));
     }
-    return out;
+    return { sizes: out, why };
   }, [order, pickedOrder]);
+
+  /** Why `orderSizesFor` came back empty, when the explosion refused. */
+  const orderSizesRefusal = (styleRef: string) =>
+    orderSizesWhy.get(styleRef.trim().toUpperCase()) ?? null;
 
   /** One style's sizes. An unknown ref answers `[]` rather than throwing: an
    *  entry may name a style the order has since dropped, and `manualProblem`
@@ -6672,8 +6682,9 @@ export function FabricBomScreen({
               </div>
               {manualSizeRows(e).length === 0 && (
                 <p className="mt-2 text-xs text-muted-foreground">
-                  This style states no sizes yet — size quantities are entered on
-                  Orders ▸ Order Management ▸ Order Entry, under Approval Qty.
+                  {orderSizesRefusal(e.style_ref_no)
+                    ? `No sizes can be shown: ${orderSizesRefusal(e.style_ref_no)}. Fix it on Orders ▸ Order Management ▸ Order Entry.`
+                    : "This style states no sizes yet — size quantities are entered on Orders ▸ Order Management ▸ Order Entry, under Approval Qty."}
                 </p>
               )}
             </div>

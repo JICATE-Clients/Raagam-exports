@@ -39,11 +39,17 @@ import { cn } from "@/lib/utils";
  *
  * LAYOUT = RAISE PO'S SURFACE (user 2026-11-02, as the GRN entry): one frame · a title row
  * of chips · the transport row · the open Process Orders in a rail beside the lines ·
- * a sticky bottom bar. One DC carries ONE order, so the rail's tick picks it.
+ * a sticky bottom bar. The rail's tick picks the DC's order.
+ *
+ * ONE KNITTING DC, SEVERAL KNITTING ORDERS (client 2026-11-11, 0832): when the order is a
+ * Knitting Order, "+ Add Knitting Order" puts another open order OF THE SAME KNITTER on this DC;
+ * each line then names its KO and RE. Every other process stays one order per DC.
  */
 
 type Line = {
   key: string;
+  /** The Process Order this line belongs to (a knitting DC may carry several, 0832). */
+  orderId: string;
   itemId: string;
   item: string;
   uom: string | null;
@@ -65,7 +71,7 @@ type Line = {
 /** "DIA 23 / FIN 24 · OPEN WIDTH · 24 GG · LL 2.9 (REF 2.9) · 300 GSM · SINGLE" — blanks left off. */
 function knitSpecLine(k: KnitLineMeta): string {
   return [
-    k.knit_dia ? `DIA ${k.knit_dia}${k.finished_dia ? ` / FIN ${k.finished_dia}` : ""}` : k.finished_dia ? `FIN ${k.finished_dia}` : null,
+    k.knit_dia || k.finished_dia ? [k.knit_dia ? `KNIT DIA ${k.knit_dia}` : null, k.finished_dia ? `FIN DIA ${k.finished_dia}` : null].filter(Boolean).join(" / ") : null,
     k.width_form === "open_width" ? "Open Width" : k.width_form === "tubular" ? "Tubular" : null,
     k.gauge ? `${k.gauge}${/gg|gauge/i.test(k.gauge) ? "" : " GG"}` : null,
     k.loop_length != null ? `LL ${fmtNumber(k.loop_length)}${k.loop_length_ref != null ? ` (ref ${fmtNumber(k.loop_length_ref)})` : ""}` : null,
@@ -131,6 +137,7 @@ export function ProcessDcSendForm({
         const was = existing?.lines.find((x) => x.process_order_line_id === l.id);
         return {
           key: l.id,
+          orderId,
           itemId: l.item_id!,
           item: l.item_name,
           uom: l.uom,
@@ -149,9 +156,29 @@ export function ProcessDcSendForm({
   };
 
   const startOrder = existing?.process_order_id ?? initialOrderId ?? "";
+  /** The other Knitting Orders a saved draft already carries (its lines say which). */
+  const startExtras = existing
+    ? [
+        ...new Set(
+          existing.lines
+            .map((x) => orders.find((o) => o.lines.some((ol) => ol.id === x.process_order_line_id))?.id)
+            .filter((x): x is string => !!x && x !== startOrder),
+        ),
+      ]
+    : [];
   const [orderId, setOrderId] = useState(startOrder);
-  const [lines, setLines] = useState<Line[]>(() => (startOrder ? linesOf(startOrder) : []));
+  const [extraIds, setExtraIds] = useState<string[]>(startExtras);
+  const [lines, setLines] = useState<Line[]>(() => (startOrder ? [startOrder, ...startExtras].flatMap(linesOf) : []));
   const order = orders.find((o) => o.id === orderId) ?? null;
+  /* Other Knitting Orders this DC may also carry: open, same knitter, not on it yet. */
+  const canShare = order?.process_type === "knitting";
+  const addable = canShare ? orders.filter((o) => o.process_type === "knitting" && o.vendor_id === order!.vendor_id && o.id !== orderId && !extraIds.includes(o.id)) : [];
+  const onDc = [order, ...extraIds.map((id) => orders.find((o) => o.id === id))].filter((o): o is OpenProcessOrder => !!o);
+  const manyOrders = onDc.length > 1;
+  const orderTag = (id: string) => {
+    const o = orders.find((x) => x.id === id);
+    return o ? [o.code, o.order_no ? `RE ${o.order_no}` : null].filter(Boolean).join(" · ") : "";
+  };
   const [dcDate, setDcDate] = useState(existing?.dc_date ?? today());
   const [expected, setExpected] = useState(existing?.expected_return_date ?? order?.expected_date ?? "");
   const [vehicle, setVehicle] = useState(existing?.vehicle_no ?? "");
@@ -180,9 +207,21 @@ export function ProcessDcSendForm({
     if (existing || v === orderId) return;
     setDirty(true);
     setOrderId(v);
+    setExtraIds([]);
     setLines(v ? linesOf(v) : []);
     const o = orders.find((x) => x.id === v);
     if (o?.expected_date) setExpected(o.expected_date);
+  }
+  function addOrder(v: string) {
+    if (!v || v === orderId || extraIds.includes(v)) return;
+    setDirty(true);
+    setExtraIds((ids) => [...ids, v]);
+    setLines((prev) => [...prev, ...linesOf(v)]);
+  }
+  function dropOrder(v: string) {
+    setDirty(true);
+    setExtraIds((ids) => ids.filter((x) => x !== v));
+    setLines((prev) => prev.filter((l) => l.orderId !== v));
   }
   const lotsOf = (l: Line) => lots.filter((x) => x.store_id === l.storeId && x.item_id === l.itemId);
   const lotHeld = (l: Line) =>
@@ -261,6 +300,7 @@ export function ProcessDcSendForm({
               {fmtNumber(l.knit.blend_pct)}% of {l.knit.fabric}
             </Truncated>
             {knitSpecLine(l.knit) ? <Truncated className="text-[11px] text-muted-foreground">{knitSpecLine(l.knit)}</Truncated> : null}
+            {manyOrders ? <Truncated className="text-[11px] font-semibold text-muted-foreground">{orderTag(l.orderId)}</Truncated> : null}
           </div>
         ) : (
           <Truncated className="text-sm">{l.item}</Truncated>
@@ -457,7 +497,7 @@ export function ProcessDcSendForm({
           {order ? (
             <span className={DOC_CHIP}>
               To {order.vendor_name} · {order.process_type.toUpperCase()}
-              {order.order_no ? ` · ${order.order_no}` : ""}
+              {manyOrders ? ` · ${onDc.length} orders` : order.order_no ? ` · ${order.order_no}` : ""}
             </span>
           ) : null}
           <span className="ml-auto text-xs text-muted-foreground">Goods sent for job work, not for sale</span>
@@ -555,6 +595,38 @@ export function ProcessDcSendForm({
             ) : null}
           </nav>
           <div className={cn("min-w-0 p-2", DENSE)}>
+            {canShare && (addable.length > 0 || extraIds.length > 0) ? (
+              <div className="mb-2 flex flex-wrap items-center gap-1.5 text-xs">
+                <span className="text-muted-foreground">Knitting Orders on this DC:</span>
+                {onDc.map((o) => (
+                  <span key={o.id} className={cn(DOC_CHIP, "inline-flex items-center gap-1")}>
+                    {orderTag(o.id)}
+                    {o.id !== orderId ? (
+                      <button
+                        type="button"
+                        aria-label={`Remove ${o.code ?? "this order"} from the DC`}
+                        className="rounded px-0.5 text-muted-foreground hover:text-destructive"
+                        onClick={() => dropOrder(o.id)}
+                      >
+                        ✕
+                      </button>
+                    ) : null}
+                  </span>
+                ))}
+                {addable.length ? (
+                  <div className="w-56">
+                    <Combobox
+                      compact
+                      aria-label="Add another Knitting Order of this knitter"
+                      options={addable.map((o) => ({ value: o.id, label: o.code ?? "(no number)", sublabel: o.order_no ? `RE ${o.order_no}` : undefined }))}
+                      value=""
+                      onChange={addOrder}
+                      placeholder="+ Add Knitting Order"
+                    />
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             {lines.length === 0 ? (
               <p className="grid h-full min-h-40 place-items-center p-6 text-center text-sm text-muted-foreground">
                 {orderId ? "Nothing left to send on this order." : "Tick a Process Order on the left. Its lines list here with the balance to send."}

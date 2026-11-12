@@ -64,7 +64,9 @@ export type KnitCandidate = {
   key: string;
   fabric_item_id: string;
   fabric_name: string;
-  knit_dia: string | null;
+  /** The Fabric BOM's dia is the FINISHED width the garment needs (client 2026-11-11) —
+   *  the knitting dia that gives it is typed on the KO. */
+  finish_dia: string | null;
   width_form: KnitWidthForm | null;
   gsm: number | null;
   /** The BOM's requirement for this slice (kg, after its own wastage). */
@@ -88,13 +90,17 @@ export type KnitYarn = {
   required_kg: number;
   bag_weight_kg: number | null;
   required_bags: number | null;
+  /** The Process Order line behind the yarn — what a Yarn DC line points at (0825). */
+  process_order_line_id: string | null;
   /** What has gone out on Process DCs against this yarn (kg). */
   dispatched_kg: number;
-  /** Phase 3 (0827): knitted into fabric · back on the shelf · written off at close. */
+  /** Phase 3 (0830): knitted into fabric · back on the shelf · written off at close. */
   used_kg: number;
   returned_kg: number;
   written_off_kg: number;
-  /** Still at the knitter = dispatched − used − returned − written off. */
+  /** 0833: moved, still at the knitter, onto another Knitting Order (no DC, no transport). */
+  transferred_kg: number;
+  /** Still at the knitter = dispatched − used − returned − written off − moved to another order. */
   at_knitter_kg: number;
 };
 
@@ -117,14 +123,16 @@ export type KnitFabric = {
   expected_rolls: number | null;
   rate_per_kg: number;
   yarns: KnitYarn[];
-  /** Fabric received back so far (0827). */
+  /** Fabric received back so far (0830). */
   received_kg: number;
   received_rolls: number;
 };
 
-/** One fabric receipt (0827) — what the knitter delivered, on one of their DCs. */
+/** One fabric receipt (0830) — what the knitter delivered, on one of their DCs. */
 export type KnitReceipt = {
   id: string;
+  /** 0831: a Fabric Receipt (PRC-n) or a Yarn Return (KYR-n) — never both on one document. */
+  kind: "fabric" | "yarn_return";
   code: string | null;
   receipt_date: string;
   vendor_dc_no: string | null;
@@ -157,7 +165,8 @@ export function knitAnalysis(fabrics: readonly KnitFabric[], allowed: number | n
     programmed += f.programmed_kg;
     received += f.received_kg;
     for (const y of f.yarns) {
-      sent += y.dispatched_kg;
+      // Yarn moved on to another order (0833) was never this order's to lose.
+      sent += y.dispatched_kg - y.transferred_kg;
       used += y.used_kg;
       returned += y.returned_kg;
       off += y.written_off_kg;
@@ -202,6 +211,19 @@ export type KnitDc = {
   status: string;
   kg: number;
   bags: number | null;
+  /** 0833: a PAPER DC — yarn already at the knitter, moved here from this Knitting Order. */
+  moved_from: string | null;
+};
+
+/** Yarn of this knitter, at the knitter on ANOTHER open Knitting Order (0833) — can be moved here. */
+export type KnitYarnAtKnitter = {
+  from_yarn_id: string;
+  from_order_code: string | null;
+  from_re_no: string | null;
+  yarn_item_id: string;
+  yarn_name: string;
+  fabric: string;
+  at_knitter_kg: number;
 };
 
 export type KnittingOrder = {
@@ -222,7 +244,7 @@ export type KnittingOrder = {
   fabrics: KnitFabric[];
   dcs: KnitDc[];
   receipts: KnitReceipt[];
-  /** 0827 — a close past the Allowed Loss % waits for the MD. */
+  /** 0830 — a close past the Allowed Loss % waits for the MD. */
   close_pending: boolean;
   close_reason: string | null;
   close_remark: string | null;
@@ -270,7 +292,7 @@ export type KnittingOrderInput = {
   }[];
 };
 
-/** What the receipt form sends (0827); the server derives every yarn figure. */
+/** What the receipt form sends (0830); the server derives every yarn figure. */
 export type KnitReceiptInput = {
   header: { receipt_date: string; vendor_dc_no: string | null; vendor_dc_date: string | null; vehicle_no: string | null; notes: string | null };
   fabrics: { knit_fabric_id: string; rolls: number | null; net_kg: number; gross_kg: number | null; received_dia: string | null; store_id: string; bin_id: string | null; lot_no: string | null }[];

@@ -9030,13 +9030,35 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
         <Input
           uppercase
           value={r.combo}
-          onChange={(e) =>
+          onChange={(e) => {
+            const next = e.target.value;
             setCombos((xs) =>
               xs.map((x) =>
-                x.key === r.key ? { ...x, combo: e.target.value } : x,
+                x.key === r.key ? { ...x, combo: next } : x,
               ),
-            )
-          }
+            );
+            /* A RENAMED COLOUR TAKES ITS APPROVAL QTYS WITH IT (user 2026-11-12).
+               Approval Qty looks its typed figures up by (style, colour, size),
+               so renaming NAVY to NAVY BLUE left every NAVY figure with no line —
+               the "no longer matched by a colour and size" warning. Same move the
+               style-ref rename already makes. Skipped while another row of this
+               style still carries the old name: those figures are still its. */
+            const was = r.combo.trim().toUpperCase();
+            const now = next.trim().toUpperCase();
+            const sameStyle = (v: string) => styleKey(v) === styleKey(r.style_ref_no);
+            const stillOwned = combos.some(
+              (x) => x.key !== r.key && sameStyle(x.style_ref_no) && x.combo.trim().toUpperCase() === was,
+            );
+            if (was && was !== now && !stillOwned) {
+              setApprovalQtys((xs) =>
+                xs.map((x) =>
+                  sameStyle(x.style_ref_no) && x.combo.trim().toUpperCase() === was
+                    ? { ...x, combo: next }
+                    : x,
+                ),
+              );
+            }
+          }}
         />
       ),
     },
@@ -21792,8 +21814,29 @@ const COLOR_PRINT_BOX = "h-9 @2xl/editor:h-[30px]";
             <p className="text-sm text-warning">
               {approvalTree.orphans.length} approval{" "}
               {approvalTree.orphans.length === 1 ? "quantity is" : "quantities are"}{" "}
-              no longer matched by a colour and size on this order. They are still
-              saved; re-enter them against the current lines if they still apply.
+              no longer matched by a colour and size on this order (
+              {approvalTree.orphans
+                .map((o) => [o.combo || "no colour", o.approval_qty].join(" · "))
+                .join(", ")}
+              ). They are still saved; re-enter them against the current lines if
+              they still apply.{" "}
+              {/* Re-entering never cleared this line — the old figures stay saved
+                  until removed, so the operator needs a way to let them go
+                  (user 2026-11-12). Takes effect on Save, like any other edit. */}
+              <button
+                type="button"
+                className="font-medium text-primary underline-offset-2 hover:underline"
+                onClick={() => {
+                  const gone = new Set(
+                    approvalTree.orphans.map((o) => approvalKey(o.style_ref_no, o.combo, o.size_id)),
+                  );
+                  setApprovalQtys((xs) =>
+                    xs.filter((x) => !gone.has(approvalKey(x.style_ref_no, x.combo, x.size_id))),
+                  );
+                }}
+              >
+                Remove them
+              </button>
             </p>
           )}
         </div>

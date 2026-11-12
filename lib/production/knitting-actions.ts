@@ -46,6 +46,10 @@ export async function saveKnittingOrder(id: string | null, input: KnittingOrderI
   const reopened = await refuseReopenedBudget([{ sales_order_id: input.sales_order_id }]);
   if (reopened) return { ok: false, error: reopened };
 
+  // Knit Dia is asked for on every fabric (client 2026-11-11) — the screen holds the cursor on it.
+  const noDia = input.fabrics.find((f) => !f.knit_dia?.trim());
+  if (noDia) return { ok: false, error: `Type the Knit Dia for every fabric${noDia.finished_dia ? ` (Fin Dia ${noDia.finished_dia})` : ""}` };
+
   const s = await createClient();
   const { data, error } = await s.rpc("knitting_order_save", { p_order_id: id, p: input });
   if (error) return { ok: false, error: error.message };
@@ -87,12 +91,17 @@ export async function issueKnittingOrder(id: string): Promise<{ ok: true } | Fai
 export async function cancelKnittingOrder(id: string): Promise<{ ok: true } | Fail> {
   if (!(await can("stores", "edit"))) return { ok: false, error: "Forbidden" };
   const s = await createClient();
-  const { data: dcs, error: dcErr } = await s
-    .from("delivery_challans")
-    .select("id")
-    .eq("process_order_id", id)
-    .neq("status", "cancelled")
-    .limit(1);
+  // Any DC carrying this order's lines — including one raised from another Knitting Order (0832).
+  const { data: pol } = await s.from("process_order_lines").select("id").eq("process_order_id", id);
+  const polIds = ((pol ?? []) as { id: string }[]).map((x) => x.id);
+  const { data: dcs, error: dcErr } = polIds.length
+    ? await s
+        .from("dc_line_items")
+        .select("id, dc:delivery_challans!inner(status)")
+        .in("process_order_line_id", polIds)
+        .neq("dc.status", "cancelled")
+        .limit(1)
+    : { data: [], error: null };
   if (dcErr) return { ok: false, error: `Could not check the yarn DCs: ${dcErr.message}` };
   if (dcs?.length) return { ok: false, error: "A yarn DC is raised against this order — cancel that DC first" };
   const { error } = await s
@@ -108,7 +117,7 @@ export async function cancelKnittingOrder(id: string): Promise<{ ok: true } | Fa
 }
 
 // ---------------------------------------------------------------------------
-// Phase 3 (0827) — fabric receipt, yarn return, close
+// Phase 3 (0830) — fabric receipt, yarn return, close
 // ---------------------------------------------------------------------------
 
 /**
@@ -182,4 +191,29 @@ export async function closeKnittingOrder(orderId: string, reason: string): Promi
   revalidateKnitting(orderId);
   revalidatePath("/purchase/dc");
   return { ok: true, outcome };
+}
+
+/**
+ * Yarn already at the knitter on another Knitting Order, put on this one — no transport DC
+ * (client 2026-11-11, 0833). One database call: the kg comes off the other order's DC lines and
+ * a paper DC on this order carries it, so this order's cap, receipts and close work unchanged.
+ */
+export async function moveYarnAtKnitter(
+  toOrderId: string,
+  input: { from_yarn_id: string; to_yarn_id: string; kg: number; note: string | null },
+): Promise<{ ok: true; id: string } | Fail> {
+  if (!(await can("stores", "edit"))) return { ok: false, error: "You do not have permission to move yarn between knitting orders" };
+  if (!(input.kg > 0)) return { ok: false, error: "Enter the kg to move" };
+  const s = await createClient();
+  const { data, error } = await s.rpc("knitting_transfer_at_knitter", {
+    p_from_yarn: input.from_yarn_id,
+    p_to_yarn: input.to_yarn_id,
+    p_kg: input.kg,
+    p_note: input.note,
+  });
+  if (error) return { ok: false, error: error.message };
+  await writeAudit({ action: "knitting_yarn.moved_at_knitter", entityType: "delivery_challan", entityId: String(data) });
+  revalidateKnitting(toOrderId);
+  revalidatePath("/purchase/dc");
+  return { ok: true, id: String(data) };
 }

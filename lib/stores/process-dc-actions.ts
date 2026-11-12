@@ -66,9 +66,24 @@ export async function saveProcessDc(id: string | null, payload: ProcessDcInput, 
   if (!["issued", "in_process", "partially_received"].includes(o.status)) {
     return { ok: false, error: "Issue the Process Order before sending goods against it" };
   }
-  const { data: ol } = await supabase.from("process_order_lines").select("id").eq("process_order_id", o.id);
-  const own = new Set(((ol ?? []) as { id: string }[]).map((x) => x.id));
-  if (lines.some((l) => !own.has(l.process_order_line_id))) return { ok: false, error: "A line is not on that Process Order" };
+  /* A LINE BELONGS TO ITS OWN ORDER (0832). A knitting DC may carry lines of several Knitting
+     Orders to the same knitter (client 2026-11-11, "multiple RE numbers on a single DC"); every
+     other process keeps one order per DC. `process_dc_dispatch` re-checks all of this. */
+  const { data: ol, error: olErr } = await supabase
+    .from("process_order_lines")
+    .select("id, process_order_id, po:process_orders!process_order_id(id, code, vendor_id, process_type, status)")
+    .in("id", lines.map((l) => l.process_order_line_id));
+  if (olErr) return { ok: false, error: olErr.message };
+  type Pol = { id: string; process_order_id: string; po: { id: string; code: string | null; vendor_id: string; process_type: string; status: string } | null };
+  const byLine = new Map(((ol ?? []) as unknown as Pol[]).map((x) => [x.id, x]));
+  for (const l of lines) {
+    const p = byLine.get(l.process_order_line_id);
+    if (!p?.po) return { ok: false, error: "A line is not on an open Process Order" };
+    if (p.po.id === o.id) continue;
+    if (o.process_type !== "knitting" || p.po.process_type !== "knitting") return { ok: false, error: "Only Knitting Orders can share one DC" };
+    if (p.po.vendor_id !== o.vendor_id) return { ok: false, error: `${p.po.code ?? "An order"} goes to another knitter — one DC goes to one knitter` };
+    if (!["issued", "in_process", "partially_received"].includes(p.po.status)) return { ok: false, error: `Issue ${p.po.code ?? "that order"} before sending yarn against it` };
+  }
 
   const row = {
     ...header,

@@ -4,7 +4,7 @@ import { today } from "@/lib/calendar";
 import { getOrdersForPicker } from "@/lib/purchase/po-service";
 import { getProductionDcSetup } from "@/lib/stores/production-dc-service";
 import { getProcessDc, listBinStock, listLotStock, listOpenProcessOrders } from "@/lib/stores/process-dc-service";
-import { getKnitCandidates, getKnitGauges, getKnitters, getKnittingOrder } from "@/lib/production/knitting-service";
+import { getKnitCandidates, getKnitGauges, getKnitters, getKnittingOrder, listYarnAtKnitter } from "@/lib/production/knitting-service";
 import { KnittingEditor } from "../_components/knitting-editor";
 
 const OPEN_FOR_DC = ["issued", "in_process", "partially_received"];
@@ -18,7 +18,7 @@ export default async function KnittingOrderPage({ params }: { params: Promise<{ 
   // order only — its open lines, this unit's stock and lots, and a draft DC to carry on with.
   const dcOpen = OPEN_FOR_DC.includes(doc.status) && !doc.close_pending;
   const draftId = doc.dcs.find((d) => d.status === "draft")?.id ?? null;
-  const [orders, knitters, gauges, canEdit, cand, setup, openOrders, lots, draft, binStock] = await Promise.all([
+  const [orders, knitters, gauges, canEdit, cand, setup, openOrders, lots, draft, binStock, atKnitter] = await Promise.all([
     getOrdersForPicker(),
     getKnitters(doc.vendor_id),
     getKnitGauges(),
@@ -29,6 +29,7 @@ export default async function KnittingOrderPage({ params }: { params: Promise<{ 
     dcOpen ? listLotStock() : Promise.resolve([]),
     dcOpen && draftId ? getProcessDc(draftId) : Promise.resolve(null),
     dcOpen ? listBinStock() : Promise.resolve([]),
+    dcOpen ? listYarnAtKnitter(doc) : Promise.resolve([]),
   ]);
   return (
     <KnittingEditor
@@ -44,6 +45,9 @@ export default async function KnittingOrderPage({ params }: { params: Promise<{ 
       bins={setup.bins}
       dcSend={{
         order: openOrders.find((o) => o.id === doc.id) ?? null,
+        // every open order, so a knitting DC can also carry this knitter's other orders (0832)
+        orders: openOrders,
+        atKnitter,
         stock: setup.stock,
         lots,
         binStock,

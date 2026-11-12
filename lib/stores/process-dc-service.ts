@@ -35,6 +35,10 @@ export type OpenOrderLine = {
  * order cannot disagree.
  */
 export type KnitLineMeta = {
+  /** The Knitting Order the yarn is for, and its RE — one DC may carry several (0832). */
+  order_id: string;
+  order_code: string | null;
+  re_no: string | null;
   blend_pct: number;
   bag_weight_kg: number | null;
   fabric: string;
@@ -61,8 +65,9 @@ export async function knitMetaByLine(lineIds: readonly string[]): Promise<Map<st
     .from("process_order_knit_yarns")
     .select(
       "process_order_line_id, blend_pct, bag_weight_kg, " +
-        "fabric:process_order_knit_fabrics!inner(knit_dia, finished_dia, width_form, loop_length, loop_length_ref, gsm, ply, " +
-        "item:items!fabric_item_id(name), gauge:config_lookups!gauge_id(name))",
+        "fabric:process_order_knit_fabrics!inner(process_order_id, knit_dia, finished_dia, width_form, loop_length, loop_length_ref, gsm, ply, " +
+        "item:items!fabric_item_id(name), gauge:config_lookups!gauge_id(name), " +
+        "ko:process_orders!process_order_id(code, so:sales_orders!sales_order_id(order_number)))",
     )
     .in("process_order_line_id", ids);
   if (error) throw new Error(`Knitting program for the DC: ${error.message}`);
@@ -71,7 +76,11 @@ export async function knitMetaByLine(lineIds: readonly string[]): Promise<Map<st
   for (const r of (data ?? []) as unknown as Record<string, unknown>[]) {
     const f = one(r.fabric as Record<string, unknown> | Record<string, unknown>[] | null) as Record<string, unknown> | null;
     if (!r.process_order_line_id || !f) continue;
+    const ko = one(f.ko as { code: string | null; so: unknown } | null) as { code: string | null; so: { order_number: string | null } | { order_number: string | null }[] | null } | null;
     out.set(r.process_order_line_id as string, {
+      order_id: f.process_order_id as string,
+      order_code: ko?.code ?? null,
+      re_no: one(ko?.so ?? null)?.order_number ?? null,
       blend_pct: Number(r.blend_pct) || 0,
       bag_weight_kg: nn(r.bag_weight_kg),
       fabric: one(f.item as { name: string } | null)?.name ?? "",
@@ -177,6 +186,8 @@ export type ProcessDc = ProcessDcRow & {
   order_no: string | null;
   /** The order's soft loss limit (0786); a receipt past it is flagged, never blocked. */
   allowed_loss_pct: number | null;
+  /** 0833: a PAPER DC — yarn already at the knitter, moved from this Knitting Order. No goods travelled. */
+  knit_transfer_from: string | null;
   lines: ProcessDcLine[];
 };
 
@@ -219,22 +230,25 @@ export async function listOpenProcessOrders(): Promise<OpenProcessOrder[]> {
   }[];
   if (rows.length === 0) return [];
   const ids = rows.map((r) => r.id);
-  const [linesRes, sentRes, vendors, soRes] = await Promise.all([
+  const [linesRes, vendors, soRes] = await Promise.all([
     s.from("process_order_lines").select("id, process_order_id, item_id, description, sent_qty, rate, sort_order").in("process_order_id", ids).order("sort_order"),
-    s
-      .from("delivery_challans")
-      .select("id")
-      .in("process_order_id", ids)
-      .not("status", "in", "(draft,cancelled)"),
     vendorNames(s, [...new Set(rows.map((r) => r.vendor_id))]),
     s.from("sales_orders").select("id, order_number").in("id", rows.map((r) => r.sales_order_id).filter((x): x is string => !!x)),
   ]);
-  const dcIds = ((sentRes.data ?? []) as { id: string }[]).map((d) => d.id);
-  const sentLines = dcIds.length
-    ? ((await s.from("dc_line_items").select("process_order_line_id, sent_qty").in("delivery_challan_id", dcIds)).data ?? [])
-    : [];
+  // What has left, per ORDER LINE — whichever DC carried it (0832: one knitting DC may carry
+  // several orders, and its own process_order_id names only the first).
+  const allLineIds = ((linesRes.data ?? []) as { id: string }[]).map((l) => l.id);
+  const sentRes = allLineIds.length
+    ? await s
+        .from("dc_line_items")
+        .select("process_order_line_id, sent_qty, dc:delivery_challans!inner(status)")
+        .in("process_order_line_id", allLineIds)
+        .not("dc.status", "in", "(draft,cancelled)")
+    : { data: [], error: null };
+  if (sentRes.error) throw new Error(`Sent so far: ${sentRes.error.message}`);
+  const sentLines = sentRes.data ?? [];
   const sent = new Map<string, number>();
-  for (const l of sentLines as { process_order_line_id: string | null; sent_qty: number }[]) {
+  for (const l of sentLines as unknown as { process_order_line_id: string | null; sent_qty: number }[]) {
     if (l.process_order_line_id) sent.set(l.process_order_line_id, (sent.get(l.process_order_line_id) ?? 0) + (Number(l.sent_qty) || 0));
   }
   const lines = (linesRes.data ?? []) as {
@@ -432,6 +446,7 @@ export async function getProcessDc(id: string): Promise<ProcessDc | null> {
     process_order_code: p?.code ?? null,
     order_no: (so as { order_number: string | null } | null)?.order_number ?? null,
     allowed_loss_pct: p?.allowed_loss_pct == null ? null : Number(p.allowed_loss_pct),
+    knit_transfer_from: str("knit_transfer_from"),
     expected_return_date: str("expected_return_date"),
     vehicle_no: str("vehicle_no"),
     transporter: str("transporter"),
