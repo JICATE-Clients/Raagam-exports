@@ -8,10 +8,12 @@ import { Select } from "@/components/ui/select";
 import { Field, FieldRow, FIELD_WIDTH_CSS } from "@/components/ui/field";
 import { StatusPill } from "@/components/ui/status-pill";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Sheet, type SheetOrigin } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { ChildGrid, type ChildGridColumn } from "@/components/masters/child-grid";
-import { DENSE, GRID_HEAD } from "@/components/purchase/doc-surface";
-import { fmtDate, fmtMoney, fmtNumber } from "@/lib/format";
+import { DENSE, DOC_BOTTOM_BAR, GRID_HEAD } from "@/components/purchase/doc-surface";
+import { Segmented } from "@/components/ui/segmented";
+import { fmtNumber } from "@/lib/format";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { closeKnittingOrder, receiveKnitting } from "@/lib/production/knitting-actions";
 import { WIDTH_FORM_LABELS, knitAnalysis, type KnitPartyTarget, type KnittingOrder } from "@/lib/production/knitting-types";
@@ -48,9 +50,15 @@ type YarnBack = {
   kg: string;
   storeId: string;
   binId: string;
+  /**
+   * SPLIT (user 2026-11-12): a second line for the SAME yarn — part back to our store, part to
+   * another knitter. Holds the original line's key; null on the line the order derived. Both
+   * RPCs take any number of lines per `knit_yarn_id` and draw each from the DCs in turn.
+   */
+  splitOf: string | null;
 };
 
-const n = (s: string) => {
+const n =(s: string) => {
   const v = Number(s);
   return s.trim() && Number.isFinite(v) ? v : 0;
 };
@@ -131,6 +139,7 @@ export function KnittingReceiptPanel({
           kg: "",
           storeId: defaultStore,
           binId: "",
+          splitOf: null,
         })),
     ),
   });
@@ -139,21 +148,22 @@ export function KnittingReceiptPanel({
   const [dcNo, setDcNo] = useState("");
   const [dcDate, setDcDate] = useState("");
   const [vehicle, setVehicle] = useState("");
-  const [transporter, setTransporter] = useState("");
-  const [confirm, setConfirm] = useState<"post" | "close" | null>(null);
+  /** `postClose` — POST & CLOSE ORDER (user 2026-11-12): the last fabric, then the order closes, one click. */
+  const [confirm, setConfirm] = useState<"post" | "close" | "postClose" | null>(null);
   const [reason, setReason] = useState("");
-  /** FINAL RECEIPT (user 2026-11-12): post this fabric receipt, then close the order in the same click. */
-  const [final, setFinal] = useState(false);
+  /** The button the close sheet grows out of (AGENTS.md "A sub-detail Sheet's size"). */
+  const [origin, setOrigin] = useState<SheetOrigin | null>(null);
 
   const isFabric = mode === "fabric";
   const typedFabric = isFabric ? form.fabrics.filter((f) => n(f.net) > 0) : [];
   const typedYarn = isFabric ? [] : form.yarns.filter((y) => n(y.kg) > 0);
-  const docs = doc.receipts.filter((r) => r.kind === mode);
-  const dirty = typedFabric.length > 0 || typedYarn.length > 0 || !!dcNo.trim() || !!transporter.trim();
+  const dirty = typedFabric.length > 0 || typedYarn.length > 0 || !!dcNo.trim();
   useUnsavedGuard(dirty || isPending);
 
   const a = knitAnalysis(doc.fabrics, doc.allowed_loss_pct);
-  const overReturn = (y: YarnBack) => n(y.kg) > y.atKnitter + 1e-9;
+  /** A split yarn's lines together may not exceed what the knitter holds of it. */
+  const yarnKg = (id: string) => form.yarns.reduce((t, x) => (x.knit_yarn_id === id ? t + n(x.kg) : t), 0);
+  const overReturn = (y: YarnBack) => n(y.kg) > 0 && yarnKg(y.knit_yarn_id) > y.atKnitter + 1e-9;
   const ownYarn = typedYarn.filter((y) => y.where === "own");
   const partyYarn = typedYarn.filter((y) => y.where === "party");
   /** Party Stock: only another knitter's order that carries this yarn (0837 refuses any other). */
@@ -184,16 +194,23 @@ export function KnittingReceiptPanel({
     const over = pct != null && a.allowed_loss_pct != null && pct > a.allowed_loss_pct + 0.0005;
     return { issued, fabric, returned, consumed: r3(issued - returned), loss, pct, over };
   })();
-  // A final receipt writes the rest off, so it needs the reason whenever anything is left (0830 rule).
-  const finalNeedsReason = isFabric && final && live.loss > 0.0005;
-  const canPost = canPostBase && !(finalNeedsReason && !reason.trim());
+  const canPost = canPostBase;
 
   const setFabric = (key: string, patch: Partial<FabricIn>) =>
     setForm((f) => ({ ...f, fabrics: f.fabrics.map((x) => (x.key === key ? { ...x, ...patch } : x)) }));
   const setYarn = (key: string, patch: Partial<YarnBack>) =>
     setForm((f) => ({ ...f, yarns: f.yarns.map((x) => (x.key === key ? { ...x, ...patch } : x)) }));
+  /** One split per yarn: the new line sits under it, going the other way. */
+  const isSplit = (y: YarnBack) => form.yarns.some((x) => x.splitOf === (y.splitOf ?? y.key));
+  const splitYarn = (y: YarnBack) =>
+    setForm((f) => {
+      const i = f.yarns.findIndex((x) => x.key === y.key);
+      const line: YarnBack = { ...y, key: `${y.key}:split`, splitOf: y.key, where: y.where === "own" ? "party" : "own", toOrderId: "", bags: "", kg: "", binId: "" };
+      return { ...f, yarns: [...f.yarns.slice(0, i + 1), line, ...f.yarns.slice(i + 1)] };
+    });
+  const unsplit = (y: YarnBack) => setForm((f) => ({ ...f, yarns: f.yarns.filter((x) => x.key !== y.key) }));
 
-  function post() {
+  function post(final: boolean) {
     start(async () => {
       const res = await receiveKnitting(doc.id, {
         header: {
@@ -201,7 +218,6 @@ export function KnittingReceiptPanel({
           vendor_dc_no: dcNo.trim() || null,
           vendor_dc_date: dcDate || null,
           vehicle_no: vehicle.trim() || null,
-          transporter: transporter.trim() || null,
           notes: null,
         },
         fabrics: typedFabric.map((f) => ({
@@ -237,12 +253,10 @@ export function KnittingReceiptPanel({
         setConfirm(null);
         success(isFabric ? "Received — fabric is in stock and the yarn it used is accounted for" : "Yarn return posted — it is back on the shelf");
       }
-      setFinal(false);
       setReason("");
       setDcNo("");
       setDcDate("");
       setVehicle("");
-      setTransporter("");
       setForm(fresh());
       router.refresh();
     });
@@ -283,24 +297,25 @@ export function KnittingReceiptPanel({
   );
 
   /*
-   * CLIENT ORDER (2026-11-12): Fabric · Received Dia & Form · Rolls · Gross Kg · Net Kg · Store &
-   * Bin · Lot. Fabric 200 · Dia & Form 144 · Rolls 72 · Gross 88 · Net 112 · Store & Bin 288 ·
-   * Lot 112 = 1016, + 72 chrome = 1088 <= 1155 -> tableFrom="5xl". What is already received sits
-   * under the fabric's name. Net Kg is not held mandatory: a fabric that did not arrive today
-   * stays blank, and the Post button asks for at least one line.
+   * COMPACT GRID (user 2026-11-12, approved design): # · Fabric · Received Dia & Form · Rolls ·
+   * Gross Kg · Net Kg · Store · Bin · Lot. Fabric 200 · Dia & Form 144 · Rolls 72 · Gross 88 ·
+   * Net 112 · Store 144 · Bin 112 · Lot 112 = 984, + 72 chrome = 1056 <= 1155 -> tableFrom="5xl".
+   * Net Kg is not held mandatory: a fabric that did not arrive today stays blank, and the Post
+   * button asks for at least one line.
    */
   const fabricInColumns: ChildGridColumn<FabricIn>[] = [
     {
       header: "Fabric",
       width: FIELD_WIDTH_CSS.party,
-      cell: (f) => (
-        <span className="text-sm leading-tight">
-          <span className="block">{f.fabric}</span>
-          <span className="block text-xs tabular-nums text-muted-foreground">
-            received {fmtNumber(f.received)} of {fmtNumber(f.programmed)}
+      cell: (f) => {
+        const toCome = r3(f.programmed - f.received);
+        return (
+          <span className="text-sm leading-tight">
+            <span className="block">{f.fabric}</span>
+            {toCome > 0.0005 ? <span className="block text-xs tabular-nums text-muted-foreground">{fmtNumber(toCome)} kg still to come</span> : null}
           </span>
-        </span>
-      ),
+        );
+      },
     },
     {
       header: "Received Dia & Form",
@@ -334,15 +349,16 @@ export function KnittingReceiptPanel({
       cell: (f) => <Input type="number" min="0" step="any" aria-label={`Net kg, ${f.fabric}`} value={f.net} onChange={(e) => setFabric(f.key, { net: e.target.value })} />,
     },
     {
-      header: "Store & Bin",
-      width: FIELD_WIDTH_CSS.name,
-      // pick-once: exempt -- several fabrics may go into the same store and bin
-      cell: (f) => (
-        <span className="grid grid-cols-2 gap-1">
-          {storeSelect(f.storeId, (v) => setFabric(f.key, { storeId: v, binId: "" }), `Store, ${f.fabric}`, n(f.net) > 0)}
-          {binSelect(f.storeId, f.binId, (v) => setFabric(f.key, { binId: v }), `Bin, ${f.fabric}`)}
-        </span>
-      ),
+      header: "Store",
+      width: FIELD_WIDTH_CSS.code,
+      // pick-once: exempt -- several fabrics may go into the same store
+      cell: (f) => storeSelect(f.storeId, (v) => setFabric(f.key, { storeId: v, binId: "" }), `Store, ${f.fabric}`, n(f.net) > 0),
+    },
+    {
+      header: "Bin",
+      width: FIELD_WIDTH_CSS.range,
+      // pick-once: exempt -- several fabrics may share a bin
+      cell: (f) => binSelect(f.storeId, f.binId, (v) => setFabric(f.key, { binId: v }), `Bin, ${f.fabric}`),
     },
     {
       header: "Lot",
@@ -352,24 +368,58 @@ export function KnittingReceiptPanel({
   ];
 
   /*
-   * Yarn 288 · At Knitter 112 · Bags 72 · Kg 112 · Location Type 144 · Store / Knitting Order 176
-   * · Bin 112 = 1016 + 72 = 1088 <= 1155. LOCATION TYPE (client 2026-11-12): Own Store sends it
-   * back to a store and bin; Party Stock sends it straight to another knitter's Knitting Order
-   * (0837 `knitting_transfer_to_party`) — that column then picks the order, and there is no bin.
+   * # · Yarn 200 · At Knitter 112 · Goes to 200 · Bags 72 · Kg Back 112 · Store / Bin (or
+   * Knitting Order) 288 · Split 88 = 1072, + 72 chrome = 1144 <= 1155. GOES TO (client
+   * 2026-11-12, 0837): Own Store sends it back to a store and bin; Party Stock sends it straight
+   * to another knitter's Knitting Order (`knitting_transfer_to_party`) — one picker, no bin.
+   * A Party Stock line is tinted warm (`data-party-row`, read by the grid wrapper below).
    */
   const yarnBackColumns: ChildGridColumn<YarnBack>[] = [
-    { header: "Yarn", width: FIELD_WIDTH_CSS.name, cell: (y) => <span className="text-sm">{y.yarn}</span> },
-    { header: "At Knitter", width: FIELD_WIDTH_CSS.range, align: "right", cell: (y) => <span className="tabular-nums text-sm">{fmtNumber(y.atKnitter)}</span> },
+    {
+      header: "Yarn",
+      width: FIELD_WIDTH_CSS.party,
+      cell: (y) => (
+        <span className="text-sm" data-party-row={y.where === "party" ? "" : undefined}>
+          {y.yarn}
+        </span>
+      ),
+    },
+    {
+      header: "At Knitter",
+      width: FIELD_WIDTH_CSS.range,
+      align: "right",
+      cell: (y) => <span className="tabular-nums text-sm">{y.splitOf ? "" : fmtNumber(y.atKnitter)}</span>,
+    },
+    {
+      header: "Goes to",
+      width: FIELD_WIDTH_CSS.party,
+      // pick-once: exempt -- every line may go to its own store, or to party stock
+      cell: (y) => (
+        <Segmented<"own" | "party">
+          // Radios group by `name` across the page — the line's own key keeps each row its own group.
+          name={`goes-to-${y.key}`}
+          className="h-7"
+          value={y.where}
+          onChange={(v) => setYarn(y.key, { where: v, toOrderId: "" })}
+          options={[
+            { value: "own", label: "Own Store" },
+            { value: "party", label: "Party Stock" },
+          ]}
+        />
+      ),
+    },
     {
       header: "Bags",
       width: FIELD_WIDTH_CSS.num,
       align: "right",
+      total: { kind: "sum", of: (y) => n(y.bags) },
       cell: (y) => <Input type="number" min="0" step="1" aria-label={`Bags returned, ${y.yarn}`} value={y.bags} onChange={(e) => setYarn(y.key, { bags: e.target.value })} />,
     },
     {
       header: "Kg Back",
       width: FIELD_WIDTH_CSS.range,
       align: "right",
+      total: { kind: "sum", of: (y) => n(y.kg) },
       cell: (y) => (
         <Input
           type="number"
@@ -384,30 +434,21 @@ export function KnittingReceiptPanel({
       ),
     },
     {
-      header: "Location Type",
-      width: FIELD_WIDTH_CSS.code,
-      // pick-once: exempt -- every line may go to its own store, or to party stock
-      cell: (y) => (
-        <Select
-          aria-label={`Location type, ${y.yarn}`}
-          value={y.where}
-          onChange={(e) => setYarn(y.key, { where: e.target.value === "party" ? "party" : "own", toOrderId: "" })}
-        >
-          <option value="own">Own Store</option>
-          <option value="party">Party Stock</option>
-        </Select>
-      ),
-    },
-    {
-      header: "Store / Knitting Order",
-      width: FIELD_WIDTH_CSS.term,
-      // pick-once: exempt -- several lines may go to the same store or the same other order
+      header: "Store / Bin",
+      width: FIELD_WIDTH_CSS.name,
+      // pick-once: exempt -- several lines may go to the same store, bin or other order
       cell: (y) => {
-        if (y.where === "own") return storeSelect(y.storeId, (v) => setYarn(y.key, { storeId: v, binId: "" }), `Store, ${y.yarn}`, n(y.kg) > 0);
+        if (y.where === "own")
+          return (
+            <span className="grid grid-cols-2 gap-1">
+              {storeSelect(y.storeId, (v) => setYarn(y.key, { storeId: v, binId: "" }), `Store, ${y.yarn}`, n(y.kg) > 0)}
+              {binSelect(y.storeId, y.binId, (v) => setYarn(y.key, { binId: v }), `Bin, ${y.yarn}`)}
+            </span>
+          );
         const ts = targetsFor(y);
         return ts.length ? (
           <Select aria-label={`Knitting Order the yarn goes to, ${y.yarn}`} value={y.toOrderId} onChange={(e) => setYarn(y.key, { toOrderId: e.target.value })} required={n(y.kg) > 0}>
-            <option value=""></option>
+            <option value="">Knitting Order…</option>
             {ts.map((t) => (
               <option key={t.id} value={t.id}>
                 {`${t.code ?? "(no number)"} · ${t.vendor_name ?? "—"}`}
@@ -415,119 +456,105 @@ export function KnittingReceiptPanel({
             ))}
           </Select>
         ) : (
-          <span className="block px-2 text-xs text-destructive">No open order of another knitter uses this yarn</span>
+          <span className="block px-2 text-xs text-destructive">No other knitter&apos;s open order uses this yarn</span>
         );
       },
     },
     {
-      header: "Bin",
-      width: FIELD_WIDTH_CSS.range,
-      // pick-once: exempt -- returned yarns may share a bin
-      cell: (y) => (y.where === "own" ? binSelect(y.storeId, y.binId, (v) => setYarn(y.key, { binId: v }), `Bin, ${y.yarn}`) : <span className="block px-2 text-sm text-muted-foreground">—</span>),
+      header: "Split",
+      width: FIELD_WIDTH_CSS.hug,
+      cell: (y) =>
+        y.splitOf ? (
+          <Button type="button" size="sm" variant="ghost" data-row-remove="" aria-label={`Remove split line, ${y.yarn}`} onClick={() => unsplit(y)}>
+            Remove
+          </Button>
+        ) : isSplit(y) ? null : (
+          <Button type="button" size="sm" variant="ghost" aria-label={`Split ${y.yarn} — part to store, part to party`} onClick={() => splitYarn(y)}>
+            Split
+          </Button>
+        ),
     },
   ];
 
-  const lossTone = a.over_limit ? "text-destructive" : "text-success";
+  /*
+   * THE ONE FIGURES LINE (user 2026-11-12, approved design) — posted documents plus what is
+   * typed now, never cards. The last figure is the loss tag, red over the Allowed Loss %.
+   */
+  const pctOf = (x: number) => (live.issued > 0 ? r3((x / live.issued) * 100) : null);
+  const typedBack = typedYarn.reduce((t, y) => t + n(y.kg), 0);
+  // Yarn Return: what the knitter still holds once this return posts — party moves are not loss.
+  const left = r3(a.balance_kg - typedBack);
+  const leftPct = pctOf(left);
+  const tagPct = isFabric ? live.pct : leftPct;
+  const allowedWords = a.allowed_loss_pct == null ? "no allowed % set" : `allowed ${fmtNumber(a.allowed_loss_pct)} %`;
+  const fabricPct = pctOf(live.fabric);
+  /** Red over the Allowed Loss %, green within, neutral when none is set — the figures line and the close sheet. */
+  const toneOf = (pct: number | null) =>
+    a.allowed_loss_pct == null || pct == null
+      ? "bg-muted text-muted-foreground"
+      : pct > a.allowed_loss_pct + 0.0005
+        ? "bg-destructive/10 text-destructive"
+        : "bg-success/10 text-success";
+  const closing = confirm === "close" || confirm === "postClose";
+  const postClose = confirm === "postClose";
+  // Post & close writes off what is left AFTER this receipt; a bare close, what is left now.
+  const closeLeft = postClose ? live.loss : a.balance_kg;
+  const closePct = postClose ? live.pct : a.loss_pct;
+  const openClose = (kind: "close" | "postClose", el: HTMLElement) => {
+    setOrigin(el.getBoundingClientRect());
+    setConfirm(kind);
+  };
 
   return (
-    // ONE FRAME, ONE HEADER ROW (user 2026-11-12: "that order field only on top — fix it"): the
-    // Knitting Order picker leads the same row as the receipt's own fields; no card inside a card.
-    <section className="space-y-3">
-      <ReceiptHeaderRow
-        isFabric={isFabric}
-        orderField={orderField}
-        knitter={doc.vendor_name}
-        disabled={!receiving}
-        today={today}
-        value={{ date, dcNo, dcDate, vehicle, transporter }}
-        on={{ date: setDate, dcNo: setDcNo, dcDate: setDcDate, vehicle: setVehicle, transporter: setTransporter }}
-      />
-      {doc.close_pending ? (
-        <div className="flex justify-end">
-          <StatusPill tone="warning">Left waiting for the MD — close it directly</StatusPill>
-        </div>
-      ) : null}
+    // ONE FRAME (user 2026-11-12): header row, one figures line, the grid, and the footer bar.
+    <>
+      <div className="space-y-3 p-4">
+        <ReceiptHeaderRow
+          isFabric={isFabric}
+          orderField={orderField}
+          knitter={doc.vendor_name}
+          disabled={!receiving}
+          today={today}
+          value={{ date, dcNo, dcDate, vehicle }}
+          on={{ date: setDate, dcNo: setDcNo, dcDate: setDcDate, vehicle: setVehicle }}
+        />
 
-      {/* LIVE PROCESS LOSS SUMMARY (client 2026-11-12) — posted documents plus this entry, as typed. */}
-      <div className="grid grid-cols-2 gap-3 rounded-lg bg-[var(--table-head-bg)]/30 p-3 text-sm sm:grid-cols-3 lg:grid-cols-6" aria-live="polite">
-        <Stat label="Total Issued Yarn" value={`${fmtNumber(live.issued)} kg`} sub={a.balance_kg > 0.0005 ? `${fmtNumber(a.balance_kg)} kg at the knitter` : null} />
-        <Stat label="Fabric Received" value={`${fmtNumber(live.fabric)} kg`} sub={a.programmed_kg ? `of ${fmtNumber(a.programmed_kg)} kg programmed` : null} />
-        <Stat label="Returned Yarn" value={`${fmtNumber(live.returned)} kg`} sub={null} />
-        <Stat label="Net Consumed Yarn" value={`${fmtNumber(live.consumed)} kg`} sub="issued − returned" />
-        <Stat label="Actual Process Loss" value={`${fmtNumber(live.loss)} kg`} sub="issued − (fabric + returned)" />
-        <div>
-          <div className="text-[11px] text-muted-foreground">Actual Loss %</div>
-          <div className={`tabular-nums font-semibold ${live.over ? "text-destructive" : ""}`}>{live.pct == null ? "—" : `${fmtNumber(live.pct)} %`}</div>
-          <div className="text-[11px] text-muted-foreground">
-            {a.allowed_loss_pct == null ? "(no Allowed Loss % set)" : `(Allowed Loss: ${fmtNumber(a.allowed_loss_pct)} %)`}
-          </div>
-        </div>
-      </div>
-
-      {docs.length ? (
-        <table className="w-full text-sm">
-          <thead className="text-left text-xs text-muted-foreground">
-            <tr>
-              <th className="py-1 font-medium">{isFabric ? "Receipt" : "Return"}</th>
-              <th className="py-1 font-medium">Date</th>
-              <th className="py-1 font-medium">Knitter DC</th>
-              {isFabric ? (
-                <>
-                  <th className="py-1 text-right font-medium">Rolls</th>
-                  <th className="py-1 text-right font-medium">Fabric Kg</th>
-                  <th className="py-1 text-right font-medium">Draft Bill</th>
-                </>
-              ) : (
-                <th className="py-1 text-right font-medium">Yarn Back Kg</th>
-              )}
-            </tr>
-          </thead>
-          <tbody>
-            {docs.map((r) => (
-              <tr key={r.id} className="border-t border-border">
-                <td className="py-1 font-mono text-xs">{r.code ?? "—"}</td>
-                <td className="py-1 tabular-nums">{fmtDate(r.receipt_date)}</td>
-                <td className="py-1">{r.vendor_dc_no ?? "—"}</td>
-                {isFabric ? (
-                  <>
-                    <td className="py-1 text-right tabular-nums">{r.rolls || "—"}</td>
-                    <td className="py-1 text-right tabular-nums">{fmtNumber(r.fabric_kg)}</td>
-                    <td className="py-1 text-right tabular-nums">{r.bill == null ? "—" : fmtMoney(r.bill)}</td>
-                  </>
-                ) : (
-                  <td className="py-1 text-right tabular-nums">{fmtNumber(r.returned_kg)}</td>
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      ) : null}
-
-      {doc.status === "closed" && doc.close_reason ? (
-        <p className="text-sm text-muted-foreground">
-          Closed — written off: {doc.close_reason}
-          {doc.close_remark ? ` · MD: ${doc.close_remark}` : ""}
-        </p>
-      ) : null}
-      {!doc.close_pending && doc.close_remark && doc.status !== "closed" ? (
-        <p className="text-sm text-destructive">The MD sent the close back: {doc.close_remark}</p>
-      ) : null}
-
-      {receiving ? (
-        // A SECTION, NOT A <form>: it sits inside the order's form under tab 3, and a form inside a
-        // form is invalid HTML. The order is read-only by now, so its own submit does nothing.
-        <div className="space-y-3">
-
-          {/* default-row: exempt -- one row per fabric on the order, derived */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md bg-surface-muted px-3 py-2 text-sm" aria-live="polite">
+          <Figure label="Yarn issued" value={`${fmtNumber(live.issued)} kg`} />
+          <Bar />
           {isFabric ? (
-          <div className={DENSE}>
+            <>
+              <Figure label="Fabric received" value={`${fmtNumber(live.fabric)} kg${fabricPct == null ? "" : ` (${fmtNumber(fabricPct)} %)`}`} />
+              <Bar />
+              <Figure label="Yarn returned" value={`${fmtNumber(live.returned)} kg`} />
+            </>
+          ) : (
+            <>
+              <Figure label="Used in fabric" value={`${fmtNumber(a.yarn_used_kg)} kg`} />
+              <Bar />
+              <Figure label="Returning now" value={`${fmtNumber(r3(typedBack))} kg`} />
+            </>
+          )}
+          <Bar />
+          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ${toneOf(tagPct)}`}>
+            {isFabric
+              ? `Process loss ${live.pct == null ? "—" : `${fmtNumber(live.pct)} %`} · ${fmtNumber(live.loss)} kg · ${allowedWords}`
+              : `Left at knitter ${fmtNumber(left)} kg · ${leftPct == null ? "—" : `${fmtNumber(leftPct)} %`} · ${allowedWords}`}
+          </span>
+          {doc.close_pending ? <StatusPill tone="warning">Left waiting for the MD — close it directly</StatusPill> : null}
+        </div>
+
+        {receiving && isFabric ? (
+          // default-row: exempt -- one row per fabric on the order, derived
+          <div className={`${DENSE} space-y-1.5`}>
+            <h3 className="text-sm font-semibold">Fabric received now</h3>
             <ChildGrid<FabricIn>
-              label="Fabric received"
               columns={fabricInColumns}
               rows={form.fabrics}
               tableFrom="5xl"
               flatRows
               headerClassName={GRID_HEAD}
+              totalsLabel="Total"
               hideAdd
               hideRemove
               keepOne={false}
@@ -535,67 +562,59 @@ export function KnittingReceiptPanel({
               onRemove={() => {}}
             />
           </div>
-          ) : null}
+        ) : null}
 
-          {!isFabric && !form.yarns.length ? <p className="text-sm text-muted-foreground">The knitter holds no yarn on this order — nothing to return.</p> : null}
-          {!isFabric && form.yarns.length ? (
-            // default-row: exempt -- one row per yarn still at the knitter, derived
-            <div className={DENSE}>
+        {receiving && !isFabric ? (
+          form.yarns.length ? (
+            // default-row: exempt -- one row per yarn still at the knitter, derived (a split adds one)
+            <div className={`${DENSE} space-y-1.5 [&_tr:has([data-party-row])>td]:bg-warning/10`}>
+              <h3 className="text-sm font-semibold">Yarn coming back</h3>
               <ChildGrid<YarnBack>
-                label="Yarn returned unknitted"
-                columns={yarnBackColumns}
+                  columns={yarnBackColumns}
                 rows={form.yarns}
                 tableFrom="5xl"
                 flatRows
                 headerClassName={GRID_HEAD}
+                totalsLabel="Total"
                 hideAdd
                 hideRemove
                 keepOne={false}
                 onAdd={() => false}
-                onRemove={() => {}}
+                onRemove={unsplit}
               />
             </div>
-          ) : null}
-          {typedYarn.some(overReturn) ? <p className="text-sm text-destructive">More yarn is being returned than the knitter holds.</p> : null}
-          {dcMissing && typedFabric.length ? <p className="text-sm text-destructive">Enter the Knitter DC No and Knitter DC Date the fabric came with.</p> : null}
+          ) : (
+            <p className="text-sm text-muted-foreground">The knitter holds no yarn on this order.</p>
+          )
+        ) : null}
+      </div>
 
-          {isFabric ? (
-            <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" className="size-4" checked={final} onChange={(e) => setFinal(e.target.checked)} />
-                Final receipt — close this order
-              </label>
-              {final && live.loss > 0.0005 ? (
-                <Field label="Reason for the write-off" required w="name">
-                  <Input value={reason} onChange={(e) => setReason(e.target.value)} required />
-                </Field>
-              ) : null}
-              {final ? (
-                <span className={`text-xs ${live.over ? "text-destructive" : "text-muted-foreground"}`}>
-                  {live.loss > 0.0005
-                    ? `${fmtNumber(live.loss)} kg (${fmtNumber(live.pct ?? 0)} %) still at the knitter is written off as process loss on close.`
-                    : "Everything sent is accounted for."}
-                </span>
-              ) : null}
-            </div>
-          ) : null}
-
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <Button type="button" variant="outline" disabled={isPending} onClick={() => setConfirm("close")}>
-              Close order…
-            </Button>
-            <Button type="button" disabled={isPending || !canPost} onClick={() => setConfirm("post")}>
-              {isFabric ? (final ? "Post & close" : "Post receipt") : "Post return"}
-            </Button>
+      {receiving || closable ? (
+        // FOOTER (user 2026-11-12): no tick — Cancel · Post & Close Order · Post receipt.
+        <div className={DOC_BOTTOM_BAR}>
+          {typedYarn.some(overReturn) ? <span className="text-sm text-destructive">More yarn than the knitter holds</span> : null}
+          <div className="ml-auto flex items-center gap-2">
+            {closable && !(typedFabric.length || typedYarn.length) ? (
+              <Button type="button" variant="outline" disabled={isPending} onClick={(e) => openClose("close", e.currentTarget)}>
+                Close order…
+              </Button>
+            ) : null}
+            {receiving ? (
+              <>
+                <Button type="button" variant="outline" disabled={isPending} onClick={() => router.push(isFabric ? "/process/knitting-receipts" : "/process/knitting-returns")}>
+                  Cancel
+                </Button>
+                {isFabric ? (
+                  <Button type="button" variant="outline" className="text-primary" disabled={isPending || !canPost} onClick={(e) => openClose("postClose", e.currentTarget)}>
+                    Post &amp; Close Order
+                  </Button>
+                ) : null}
+                <Button type="button" disabled={isPending || !canPost} onClick={() => setConfirm("post")}>
+                  {isFabric ? "Post receipt" : "Post return"}
+                </Button>
+              </>
+            ) : null}
           </div>
-        </div>
-      ) : null}
-      {closable && !receiving ? (
-        // Left close_pending by the old MD flow (before 0837): it closes directly now.
-        <div className="flex justify-end">
-          <Button type="button" variant="outline" disabled={isPending} onClick={() => setConfirm("close")}>
-            Close order…
-          </Button>
         </div>
       ) : null}
 
@@ -604,7 +623,7 @@ export function KnittingReceiptPanel({
         title={isFabric ? `Post this fabric receipt on ${doc.code ?? "the knitting order"}?` : `Post this yarn return on ${doc.code ?? "the knitting order"}?`}
         body={
           isFabric
-            ? `${fmtNumber(typedFabric.reduce((t, f) => t + n(f.net), 0))} kg of fabric goes into stock, and the yarn it used (by blend %) comes off what the knitter holds. A draft bill is raised at fabric kg × rate. A posted receipt cannot be changed.${final ? " Then the order closes — whatever is still at the knitter is written off as process loss." : ""}`
+            ? `${fmtNumber(typedFabric.reduce((t, f) => t + n(f.net), 0))} kg of fabric goes into stock, and the yarn it used (by blend %) comes off what the knitter holds. A draft bill is raised at fabric kg × rate. A posted receipt cannot be changed.`
             : [
                 ownYarn.length ? `${fmtNumber(ownYarn.reduce((t, y) => t + n(y.kg), 0))} kg of yarn comes back from the knitter onto the shelf.` : null,
                 partyYarn.length
@@ -618,56 +637,89 @@ export function KnittingReceiptPanel({
         confirmLabel="Post"
         tone="primary"
         isPending={isPending}
-        onConfirm={post}
+        onConfirm={() => post(false)}
         onCancel={() => setConfirm(null)}
       />
-      <ConfirmDialog
-        open={confirm === "close"}
-        title={`Close ${doc.code ?? "this knitting order"}?`}
-        body={
-          <div className="space-y-2">
-            <p>
-              {a.balance_kg > 0.0005
-                ? `${fmtNumber(a.balance_kg)} kg (${fmtNumber(a.loss_pct ?? 0)}%) is still at the knitter and will be written off as process loss.`
-                : "Everything sent is accounted for."}{" "}
-              {a.over_limit ? "That is over the Allowed Loss % — it closes now, and the loss stays red on the Knitting Analysis." : "It closes now."}
-            </p>
-            {a.balance_kg > 0.0005 ? (
-              <Field label="Reason" required>
-                <Input value={reason} onChange={(e) => setReason(e.target.value)} required />
-              </Field>
-            ) : null}
+      {/*
+        * POST & CLOSE / CLOSE (user 2026-11-12): a small sheet out of the button — the facts, the
+        * write-off reason only when something is left, Back · the one filled action.
+        */}
+      <Sheet
+        open={closing}
+        onClose={() => setConfirm(null)}
+        size="sm"
+        alignToPane
+        origin={origin}
+        title={
+          <span className="block leading-tight">
+            <span className="block">{`${postClose ? "Post & close" : "Close"} ${doc.code ?? "the knitting order"}`}</span>
+            <span className="block text-xs font-normal text-muted-foreground">
+              {`${doc.vendor_name ?? "—"} · ${postClose ? "this is the last fabric for the order" : "closing with no new receipt"}`}
+            </span>
+          </span>
+        }
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" disabled={isPending} onClick={() => setConfirm(null)}>
+              Back
+            </Button>
+            <Button type="button" disabled={isPending || (closeLeft > 0.0005 && !reason.trim())} onClick={() => (postClose ? post(true) : close())}>
+              {postClose ? "Post & close" : "Close order"}
+            </Button>
           </div>
         }
-        confirmLabel="Close"
-        isPending={isPending}
-        onConfirm={() => {
-          if (a.balance_kg > 0.0005 && !reason.trim()) return toastError("Say why the balance is written off");
-          close();
-        }}
-        onCancel={() => setConfirm(null)}
-      />
-    </section>
+      >
+        <div className="space-y-3">
+          <dl className="grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-1.5 rounded-md bg-surface-muted px-3 py-2 text-sm">
+            {postClose ? (
+              <>
+                <dt className="text-xs text-muted-foreground">Fabric now</dt>
+                <dd className="tabular-nums font-semibold">
+                  {`${fmtNumber(r3(typedFabric.reduce((t, f) => t + n(f.net), 0)))} kg → ${fmtNumber(live.fabric)} of ${fmtNumber(a.programmed_kg)} kg`}
+                </dd>
+              </>
+            ) : null}
+            <dt className="text-xs text-muted-foreground">Left at knitter — written off</dt>
+            <dd className="tabular-nums font-semibold">{`${fmtNumber(closeLeft)} kg`}</dd>
+            <dt className="text-xs text-muted-foreground">Process loss</dt>
+            <dd className="flex flex-wrap items-center gap-2">
+              <span className={`rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums ${toneOf(closePct)}`}>{closePct == null ? "—" : `${fmtNumber(closePct)} %`}</span>
+              <span className="text-xs text-muted-foreground">{allowedWords}</span>
+            </dd>
+          </dl>
+          {closeLeft > 0.0005 ? (
+            <Field label="Reason for the write-off" required>
+              <Input value={reason} onChange={(e) => setReason(e.target.value)} required />
+            </Field>
+          ) : null}
+        </div>
+      </Sheet>
+    </>
   );
 }
 
-function Stat({ label, value, sub }: { label: string; value: string; sub: string | null }) {
+/** One figure of the line: a small muted label, the bold value beside it. */
+function Figure({ label, value }: { label: string; value: string }) {
   return (
-    <div>
-      <div className="text-[11px] text-muted-foreground">{label}</div>
-      <div className="tabular-nums font-semibold">{value}</div>
-      {sub ? <div className="text-[11px] text-muted-foreground">{sub}</div> : null}
-    </div>
+    <span className="inline-flex items-baseline gap-1.5">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className="font-semibold tabular-nums">{value}</span>
+    </span>
   );
 }
 
-type HeaderValues = { date: string; dcNo: string; dcDate: string; vehicle: string; transporter: string };
+function Bar() {
+  return <span aria-hidden className="h-4 w-px bg-border" />;
+}
+
+type HeaderValues = { date: string; dcNo: string; dcDate: string; vehicle: string };
 
 /**
  * THE ONE HEADER ROW of Fabric Receipt / Yarn Return ▸ New (user 2026-11-12): Knitting Order ·
- * Receipt Date · Knitter · Knitter DC No · Knitter DC Date · Vehicle No · Transporter.
- * Knitting Order 200 · Receipt Date 144 · Knitter 200 · DC No 144 · DC Date 144 · Vehicle 144 ·
- * Transporter 176 = 1152 + 60 gap — it wraps on a narrower pane. Before an order is picked (and
+ * Receipt Date · Knitter · Knitter DC No · Knitter DC Date · Vehicle No.
+ * Knitting Order 200 · Receipt Date 144 · Knitter 200 · DC No 144 · DC Date 144 · Vehicle 144
+ * = 976 + 50 gap. Transporter was removed (user 2026-11-12, screenshot 4131: "what is transporter —
+ * remove it"); `knitting_receipts.transporter` (0838) stays, unused. Before an order is picked (and
  * on an order that can take nothing more) every field but the picker is disabled. The knitter's
  * DC No and Date are mandatory on a FABRIC receipt (0837).
  */
@@ -688,7 +740,7 @@ export function ReceiptHeaderRow({
   value?: HeaderValues;
   on?: { [K in keyof HeaderValues]: (v: string) => void };
 }) {
-  const v = value ?? { date: "", dcNo: "", dcDate: "", vehicle: "", transporter: "" };
+  const v = value ?? { date: "", dcNo: "", dcDate: "", vehicle: "" };
   const live = !disabled && !!on;
   return (
     <FieldRow>
@@ -707,9 +759,6 @@ export function ReceiptHeaderRow({
       </Field>
       <Field label="Vehicle No" w="code">
         <Input value={v.vehicle} disabled={!live} onChange={(e) => on?.vehicle(e.target.value)} />
-      </Field>
-      <Field label="Transporter" w="term">
-        <Input value={v.transporter} disabled={!live} onChange={(e) => on?.transporter(e.target.value)} />
       </Field>
     </FieldRow>
   );

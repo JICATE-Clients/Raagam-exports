@@ -67,7 +67,7 @@ export default async function KnittingAnalysisPage({ params }: { params: Promise
           {dcPrints.map((d) => (
             <Link
               key={d.id}
-              href={`/stores/process-dc/${d.id}/print`}
+              href={`/process/knitting-hub/${doc.id}/dc/${d.id}`}
               className="rounded-control border border-border px-3 py-1.5 font-medium text-primary hover:bg-muted"
             >
               Job Work DC · {d.code ?? "—"}
