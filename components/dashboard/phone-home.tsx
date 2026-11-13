@@ -18,21 +18,20 @@ import {
  * page just show the favorites, waiting on you"; desktop stays the same).
  *
  * Below md there is no separate Home: the bottom bar's first tab wears the star and opens
- * this — the Favourites tiles, then Waiting on you, and nothing else. The order-book hero,
- * Your day, At a glance, This week and Insights moved behind the fixed "Home" tile, the first
- * of the Favourites (`/?view=home` → PhoneFullHome below, screenshot 4141) (all still on the
- * desktop dashboard). `/` and `/favourites` both render it on a phone, from this ONE
- * component, so the two cannot drift apart. From md up neither route renders it (`md:hidden`).
+ * this — the Favourites tiles and nothing else. Waiting on you left it too (user 2026-11-13,
+ * screenshot 4146: "in fav page remove that waiting for you"); it stays on the Home tile's
+ * page. The order-book hero, Your day, Waiting on you, At a glance, This week and Insights
+ * live behind the fixed "Home" tile, the first of the Favourites (`/?view=home` →
+ * PhoneFullHome below, screenshot 4141) (all still on the desktop dashboard). `/` and
+ * `/favourites` both render it on a phone, from this ONE component, so the two cannot drift
+ * apart. From md up neither route renders it (`md:hidden`).
  */
-export function PhoneHome({ user, caps, denied }: { user: AppUser; caps: DashboardCaps; denied?: string }) {
+export function PhoneHome({ user, denied }: { user: AppUser; denied?: string }) {
   return (
     <div data-mobile-home className="flex flex-col gap-[18px] md:hidden">
       {denied && <DeniedBanner module={denied} />}
       <Suspense fallback={<MobileSkeleton h="h-24" />}>
         <MobileFavorites user={user} />
-      </Suspense>
-      <Suspense fallback={<MobileSkeleton h="h-28" />}>
-        <MobileWaiting caps={caps} />
       </Suspense>
     </div>
   );

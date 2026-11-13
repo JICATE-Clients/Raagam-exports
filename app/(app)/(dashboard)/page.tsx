@@ -124,7 +124,7 @@ export default async function DashboardPage({
     {sp.view === "home" ? (
       <PhoneFullHome user={user} caps={caps} denied={sp.denied} />
     ) : (
-      <PhoneHome user={user} caps={caps} denied={sp.denied} />
+      <PhoneHome user={user} denied={sp.denied} />
     )}
 
     {/* THE DESKTOP DASHBOARD — from md up only. */}
