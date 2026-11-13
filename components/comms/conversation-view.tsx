@@ -129,7 +129,6 @@ export function ConversationView({
   usePhoneKeyboardViewport();
 
   const [messages, setMessages] = useState<CommMessage[]>(initialPage.messages);
-  const [fill, setFill] = useState<{ text: string; n: number } | null>(null);
   // The other person's HR photo in a direct chat's header (lib/comms/photos.ts).
   const otherId = conversation.kind === "direct" ? (conversation.members.find((x) => x.user_id !== meId && !x.removed_at)?.user_id ?? null) : null;
   const headerPhoto = useUserPhoto(otherId);
@@ -998,9 +997,13 @@ export function ConversationView({
         <QuickReplies
           conversationId={id}
           lastId={messages[messages.length - 1]?.id ?? null}
-          lastIsMine={messages[messages.length - 1]?.author_id === meId}
+          // A reply still sending counts as the last word being mine, so the
+          // pills go the moment one is clicked.
+          lastIsMine={messages[messages.length - 1]?.author_id === meId || pending.length > 0}
           lastBody={messages[messages.length - 1]?.body ?? ""}
-          onPick={(text) => setFill((f) => ({ text, n: (f?.n ?? 0) + 1 }))}
+          // A PILL SENDS AT ONCE (user 2026-11-13, artifact "Pulse Quick Replies"):
+          // it used to fill the box. It goes through the same send as the box.
+          onPick={(text) => void send(text, [])}
         />
       )}
       {canWrite ? (
@@ -1011,7 +1014,6 @@ export function ConversationView({
           meId={meId}
           placeholder={`Message ${conversation.title}`}
           onSend={send}
-          fill={fill}
           onPosted={() => {
             stick.current = true;
             void refreshLatest();
@@ -1172,7 +1174,8 @@ function QuickReplies({
   onPick: (text: string) => void;
 }) {
   // SMART REPLIES (user 2026-11-02): relevant to the last message, fetched when
-  // it changes. A chip FILLS the box — it never sends.
+  // it changes. Since 2026-11-13 a chip SENDS its words at once (it used to fill
+  // the box), and at most three are shown, compact, above the type bar.
   const [smart, setSmart] = useState<{ id: string | null; replies: string[] }>({ id: null, replies: [] });
   useEffect(() => {
     if (!lastId || lastIsMine) return;
@@ -1185,7 +1188,7 @@ function QuickReplies({
   // Every incoming message has chips (user 2026-11-03): the offline rules answer at
   // once, the Claude-written set replaces them when it arrives. None while the last
   // word is mine.
-  const shown = lastIsMine ? [] : smart.id === lastId && smart.replies.length > 0 ? smart.replies : ruleReplies(lastBody);
+  const shown = (lastIsMine ? [] : smart.id === lastId && smart.replies.length > 0 ? smart.replies : ruleReplies(lastBody)).slice(0, 3);
   if (shown.length === 0) return null;
   return (
     // One row that scrolls sideways on a phone: wrapped, the four pills took
@@ -1202,7 +1205,8 @@ function QuickReplies({
           type="button"
           onClick={() => onPick(t)}
           onMouseDown={(e) => e.preventDefault()}
-          className="h-[26px] shrink-0 whitespace-nowrap rounded-full border border-border bg-surface px-2.5 text-[13px] font-semibold text-foreground hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={`Send "${t}"`}
+          className="h-[26px] shrink-0 whitespace-nowrap rounded-full border border-border bg-surface px-[11px] text-[12px] font-semibold text-primary hover:bg-primary-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {t}
         </button>

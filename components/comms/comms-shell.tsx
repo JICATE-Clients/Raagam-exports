@@ -190,7 +190,6 @@ export function CommsShell({
               composing={isNew}
               home={isHome}
               mentionsOpen={isMentions}
-              channelsOpen={isChannels}
               communities={communities}
               activeCommunityId={communityId}
               activeFileId={fileId}

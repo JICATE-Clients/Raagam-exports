@@ -180,7 +180,6 @@ export function ConversationList({
   composing = false,
   home = false,
   mentionsOpen = false,
-  channelsOpen = false,
   communities,
   activeCommunityId = null,
   activeFileId = null,
@@ -210,8 +209,6 @@ export function ConversationList({
   home?: boolean;
   /** /comms/mentions — Pulse ▸ Mentions is open beside the list (lights its shortcut). */
   mentionsOpen?: boolean;
-  /** /comms/channels — the Channels browser is open beside the list (lights its shortcut). */
-  channelsOpen?: boolean;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -985,9 +982,8 @@ export function ConversationList({
                   removed from the card, Starred added. Saved messages stay
                   reachable from the open chat's menu. */}
               <Shortcut onClick={() => setFilter("favorites")} icon={Star} label="Starred" count={countOf("favorites")} />
-              {/* Pulse > Channels, the browser (user 2026-11-13, artifact "Channels Beside
-                  Chat List"): find, join and create channels, beside this list. */}
-              <Shortcut href="/comms/channels" icon={Hash} label="Channels" on={channelsOpen} />
+              {/* No "Channels" shortcut (user 2026-11-13, artifact "Shortcuts Without
+                  Channels"): it was added the same day and removed on request. */}
             </ul>
           </section>
         )}
