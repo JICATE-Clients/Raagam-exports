@@ -81,7 +81,10 @@ export function Topbar({
   // On "/" this bar becomes the top of that band: "Hi, <name>!", the unit, and white
   // Search / bell / account. The band continues into the page (`MobileHome`'s first
   // element) and the order-book card overlaps it. Every other route keeps the white bar.
-  const home = usePathname() === "/";
+  /* The phone's first page answers on both routes (user 2026-11-13: Favourites with Home inside
+     it, components/dashboard/phone-home.tsx), so both wear the navy greeting band. */
+  const pathname = usePathname();
+  const home = pathname === "/" || pathname === "/favourites";
   const [menuOpen, setMenuOpen] = useState(false);
   const { theme, setTheme } = useTheme();
   const appearance = useAppearanceItems();

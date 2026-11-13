@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Plus } from "lucide-react";
+import { House, Plus } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
@@ -12,6 +12,7 @@ import { favoriteWellStyle, resolveFavorite } from "@/lib/favorites/registry";
 import { saveMyFavorites } from "@/lib/favorites/actions";
 import type { MyFavorite } from "@/lib/favorites/service";
 import { FavoriteListEditor, type EditRow } from "./favorite-list-editor";
+import { moduleHue } from "@/components/navigation/module-hue";
 import { cn } from "@/lib/utils";
 
 /**
@@ -32,6 +33,13 @@ function tileHref(href: string): string {
   return href.includes("new=1") ? `${href}&back=/` : href;
 }
 
+/** THE PHONE'S WAY BACK TO HOME (user 2026-11-13, screenshot 4141: "add home page also in
+ *  favourites, may need, user will click it"). On a phone the first page is Favourites, so the
+ *  old Home — order book, Your day, At a glance, This week, Insights — opens from this tile
+ *  (`/?view=home`, PhoneFullHome). Always first and not in Edit: it is the page's own door,
+ *  not a pick. Phone only — the desktop rail already has Home. */
+const PHONE_HOME_HREF = "/?view=home";
+
 export function FavoritesBar({ items, variant }: { items: MyFavorite[]; variant: "phone" | "desktop" }) {
   const [editing, setEditing] = useState(false);
   const shown = items.filter((f) => !f.hidden && resolveFavorite(f.key));
@@ -46,6 +54,20 @@ export function FavoritesBar({ items, variant }: { items: MyFavorite[]; variant:
         </button>
       </div>
       <ul className={cn("grid gap-2", phone ? "grid-cols-4" : "grid-cols-[repeat(auto-fill,minmax(7.5rem,1fr))]")}>
+        {phone && (
+          <li>
+            <Link
+              href={PHONE_HOME_HREF}
+              aria-label="Home"
+              className="flex h-full min-h-[84px] flex-col items-center justify-center gap-1.5 rounded-2xl border-[1.5px] border-border bg-surface px-1 pb-2.5 pt-3 text-center [-webkit-tap-highlight-color:transparent] hover:border-primary/40 active:scale-[0.97]"
+            >
+              <span className="grid size-11 shrink-0 place-items-center rounded-[13px]" style={favoriteWellStyle(moduleHue("/"))}>
+                <House className="size-[22px]" strokeWidth={2.1} aria-hidden />
+              </span>
+              <span className="line-clamp-2 text-[11.5px] font-semibold leading-tight">Home</span>
+            </Link>
+          </li>
+        )}
         {shown.map((f, i) => {
           const item = resolveFavorite(f.key)!;
           const Icon = item.icon;

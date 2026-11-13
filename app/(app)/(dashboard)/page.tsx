@@ -21,16 +21,7 @@ import { OrderBookSection } from "./sections/order-book";
 import { ManufacturingSection } from "./sections/manufacturing";
 import { NeedsYouSection } from "./sections/activity-alerts";
 import { CalendarSection } from "./sections/calendar";
-import {
-  MobileDay,
-  MobileGlance,
-  MobileHero,
-  MobileFavorites,
-  MobileInsights,
-  MobileSkeleton,
-  MobileWaiting,
-  MobileWeek,
-} from "@/components/dashboard/mobile-home";
+import { PhoneFullHome, PhoneHome } from "@/components/dashboard/phone-home";
 
 /**
  * Raagam ERP — executive dashboard. Serves "/" (the (dashboard) route group
@@ -87,6 +78,8 @@ export default async function DashboardPage({
     /** The calendar panel's chosen day and scope — My Calendar's own params. */
     cd?: string;
     cs?: string;
+    /** `home` on a phone = the full old Home, opened from the Favourites "Home" tile (2026-11-13). */
+    view?: string;
   }>;
 }) {
   const [user, sp, caps] = await Promise.all([
@@ -126,35 +119,13 @@ export default async function DashboardPage({
 
   return (
     <>
-    {/* THE PHONE HOME (user 2026-11-04, "this is only for mobile view"): below md the
-        dashboard is its own layout, not the desktop's cards stacked. Same loaders, so
-        the two cannot disagree; reasons and the colour roles in mobile-home.tsx. */}
-    <div data-mobile-home className="flex flex-col gap-[18px] md:hidden">
-      {sp.denied && <DeniedBanner module={sp.denied} />}
-      <Suspense fallback={<div className="-mx-4 -mt-4 h-14 bg-[#0a2e4d]" />}>
-        <MobileHero caps={caps} />
-      </Suspense>
-      {/* FAVOURITES LEAD THE PHONE HOME (0812, user 2026-11-05): one tap to the form, first
-          thing under the band. Replaces Quick start, which closed the page. */}
-      <Suspense fallback={<MobileSkeleton h="h-24" />}>
-        <MobileFavorites user={user} />
-      </Suspense>
-      <Suspense fallback={<MobileSkeleton h="h-28" />}>
-        <MobileDay user={user} />
-      </Suspense>
-      <Suspense fallback={<MobileSkeleton h="h-28" />}>
-        <MobileWaiting caps={caps} />
-      </Suspense>
-      <Suspense fallback={<MobileSkeleton h="h-40" />}>
-        <MobileGlance caps={caps} />
-      </Suspense>
-      <Suspense fallback={<MobileSkeleton h="h-48" />}>
-        <MobileWeek user={user} />
-      </Suspense>
-      <Suspense fallback={<MobileSkeleton h="h-48" />}>
-        <MobileInsights caps={caps} />
-      </Suspense>
-    </div>
+    {/* THE PHONE: Favourites with Home inside it (user 2026-11-13) — the same layout
+        /favourites renders on a phone. Desktop below is unchanged. */}
+    {sp.view === "home" ? (
+      <PhoneFullHome user={user} caps={caps} denied={sp.denied} />
+    ) : (
+      <PhoneHome user={user} caps={caps} denied={sp.denied} />
+    )}
 
     {/* THE DESKTOP DASHBOARD — from md up only. */}
     {/* `isolate` so the backdrop's -z-10 stays inside this page, behind the
