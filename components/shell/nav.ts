@@ -18,7 +18,6 @@ import {
   FileChartColumn,
   ChartNoAxesCombined,
   Stamp,
-  MessageCircleMore,
   Database,
   UserCog,
   Headset,
@@ -27,6 +26,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { Module } from "@/lib/auth/types";
+import { TeamChat } from "@/components/icons/team-chat";
 import { MASTERS_SECTION_ACTIONS } from "@/lib/masters/masters-nav";
 import { moduleNavChildren } from "@/lib/nav/module-groups";
 import { REPORTS, reportHref } from "@/lib/reports/catalog";
@@ -251,7 +251,7 @@ export const NAV: NavItem[] = [
     href: "/comms",
     label: "Pulse", // was "Chats" (user 2026-10-27)
     module: "communication",
-    icon: MessageCircleMore, // was MessagesSquare (user 2026-10-28: "i dont like")
+    icon: TeamChat, // "Team chat", option F of "Pulse Icon Options" (user 2026-11-13); was MessageCircleMore, before that MessagesSquare
     /* ONE "COLLABORATION" CAPTION HOLDING THE HUB'S FOUR VIEWS (user 2026-10-26:
        "community kulla message channel search saved ithalam venum" — and no
        Order / Sample under it). A group, so ContextSidebar draws it as one

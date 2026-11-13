@@ -2,7 +2,6 @@ import {
   CalendarDays,
   ClipboardCheck,
   Clock,
-  MessageCircleMore,
   PackageOpen,
   Plus,
   Route,
@@ -17,6 +16,7 @@ import { hasPermission, type Action, type AppUser, type Module } from "@/lib/aut
 import { allScreens, screenOfPath } from "@/lib/permissions/screen-catalog";
 import { NAV } from "@/components/shell/nav";
 import { moduleHue, moduleWellStyle } from "@/components/navigation/module-hue";
+import { TeamChat } from "@/components/icons/team-chat";
 
 /**
  * HOME FAVOURITES — EVERY TILE IS DECLARED HERE AND NOWHERE ELSE (0812, user 2026-11-05,
@@ -77,9 +77,10 @@ export const FAVORITE_ACTIONS: readonly FavoriteAction[] = [
   { key: "my-approvals", label: "My Approvals", where: "Pulse ▸ My Approvals", href: "/comms/approvals", icon: ClipboardCheck, module: null, action: "view", home: "/comms" },
   // Pulse itself (user 2026-11-13, artifact "Favourites With Pulse"): one tap to the chats,
   // with the unread count on the tile (service.ts addBadges).
-  // Bubble-with-dots in SKY BLUE (user 2026-11-13, artifact "Pulse Icon Options", "sky blue c
-  // apply"): it wore My Approvals' rose and a plain bubble, so the two tiles looked alike.
-  { key: "pulse", label: "Pulse", where: "Pulse ▸ Chats", href: "/comms", icon: MessageCircleMore, module: "communication", action: "view", home: "/comms", hue: "#0284c7" },
+  // SKY BLUE (user 2026-11-13, artifact "Pulse Icon Options", "sky blue c apply"): it wore My
+  // Approvals' rose, so the two tiles looked alike. Icon F "Team chat" ("apply f", the same day)
+  // replaced C's bubble-with-dots; the rail uses the same icon (components/shell/nav.ts).
+  { key: "pulse", label: "Pulse", where: "Pulse ▸ Chats", href: "/comms", icon: TeamChat, module: "communication", action: "view", home: "/comms", hue: "#0284c7" },
   // ── Store / Purchase ──
   { key: "raise-po", label: "Raise PO", where: "Purchase ▸ Raise PO", href: "/purchase/requirement-po?new=1", icon: ShoppingCart, module: "materials_purchase", action: "create", home: "/purchase" },
   { key: "grn", label: "GRN", where: "Purchase ▸ GRN ▸ New", href: "/purchase/grn/new", icon: PackageOpen, module: "materials_purchase", action: "create", home: "/stores" },
