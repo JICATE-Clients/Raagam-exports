@@ -33,7 +33,9 @@ type GoogleEnv = { clientId: string; clientSecret: string; redirectUri: string }
 export function googleEnv(): GoogleEnv | null {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  const redirectUri = process.env.GOOGLE_REDIRECT_URI;
+  // Either spelling: .env.local had it as NEXT_PUBLIC_… (2026-11-12), and the
+  // whole feature silently switched off over one missing prefix.
+  const redirectUri = process.env.GOOGLE_REDIRECT_URI || process.env.NEXT_PUBLIC_GOOGLE_REDIRECT_URI;
   if (!clientId || !clientSecret || !redirectUri) return null;
   return { clientId, clientSecret, redirectUri };
 }
@@ -278,4 +280,32 @@ export async function cancelGoogleEvent(userId: string, eventId: string): Promis
 export async function getGoogleEvent(userId: string, eventId: string): Promise<GoogleEventResult> {
   const res = await call(userId, `${EVENTS_URL}/${encodeURIComponent(eventId)}`, { method: "GET" });
   return readEvent(res, "read the event");
+}
+
+// ─── Pulse chat events: one company calendar (user 2026-11-12, option A) ────
+
+/**
+ * The Google account every Pulse chat event is sent from — `PULSE_CALENDAR_ACCOUNT`
+ * in the environment, a Google email such as the office account. Someone signs
+ * in to the ERP once, presses Connect Google Calendar (HR ▸ Events) and picks
+ * that account; its `hr_google_connections` row is then the organiser of every
+ * chat event, and each member gets it as an invite with no click of their own.
+ *
+ * Null when unset or not connected yet — the caller then falls back to the
+ * sender's own connection, and failing that sends nothing to Google.
+ */
+export async function pulseCalendarOrganizer(): Promise<{ userId: string; googleEmail: string } | null> {
+  const account = process.env.PULSE_CALENDAR_ACCOUNT?.trim().toLowerCase();
+  if (!account || !googleEnv()) return null;
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from("hr_google_connections")
+    .select("user_id, google_email")
+    .eq("google_email", account)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+  const row = data as { user_id: string; google_email: string };
+  return { userId: row.user_id, googleEmail: row.google_email };
 }

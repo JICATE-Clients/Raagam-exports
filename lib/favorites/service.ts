@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { AppUser } from "@/lib/auth/types";
 import { mergeFavorites, type DefaultRow, type FavoriteSource, type MineRow } from "./merge";
 import { favoriteAllowed, resolveFavorite } from "./registry";
+import { getUnreadTotal } from "@/lib/comms/service";
 
 /**
  * Reads for Home Favourites (0812). Both tables are read with the person's OWN session —
@@ -54,11 +55,27 @@ export const getMyFavorites = cache(async (user: AppUser): Promise<MyFavorite[]>
 });
 
 /**
- * Live counts, only for tiles that are on show. One today — the approvals queue — because it
- * is the one count a tile can carry that the person must act on. A count that would need a
+ * Live counts, only for tiles that are on show: the approvals queue, and Pulse's unread
+ * messages (2026-11-13) — both are things the person must act on. A count that would need a
  * second query per tile is not added here without a reason on screen to want it.
  */
 async function addBadges(list: MyFavorite[]): Promise<void> {
+  await Promise.all([approvalsBadge(list), pulseBadge(list)]);
+}
+
+/** Pulse's unread messages — the same total the nav badge shows (unmuted, unarchived). */
+async function pulseBadge(list: MyFavorite[]): Promise<void> {
+  const pulse = list.find((f) => f.key === "a:pulse" && !f.hidden);
+  if (!pulse) return;
+  try {
+    const n = await getUnreadTotal();
+    if (n > 0) pulse.badge = `${n} unread`;
+  } catch {
+    // Pulse not installed or the read failed: a plain tile, never a wrong number.
+  }
+}
+
+async function approvalsBadge(list: MyFavorite[]): Promise<void> {
   const approvals = list.find((f) => f.key === "a:my-approvals" && !f.hidden);
   if (!approvals) return;
   const s = await createClient();

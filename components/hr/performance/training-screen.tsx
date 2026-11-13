@@ -449,7 +449,7 @@ export function TrainingScreen({ rows, enrolments, people, myStaffId, canCreate,
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
           {!isSelf && (
             <ToggleGroup
               label="View"

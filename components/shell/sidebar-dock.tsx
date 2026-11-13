@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition, type KeyboardEvent } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
   Bug,
@@ -127,6 +128,21 @@ export function SidebarDock({
   const showPhoto = !!photoUrl && !photoFailed;
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  // ON TOP OF EVERYTHING (user 2026-11-13, screenshot 103631 + artifact "Profile
+  // Menu On Top"): the menu used to be drawn INSIDE the sidebar rail, so a pane
+  // painted after the rail — Pulse's dark chat list — covered half of it. It is
+  // now portalled to <body> and placed from the trigger's own rectangle: beside
+  // the R when the rail is compact, above the card when it is wide.
+  const [anchor, setAnchor] = useState<{ left: number; bottom: number } | null>(null);
+  function place() {
+    const r = triggerRef.current?.getBoundingClientRect();
+    if (!r) return;
+    setAnchor(
+      compact
+        ? { left: Math.round(r.right + 8), bottom: Math.max(8, Math.round(window.innerHeight - r.bottom)) }
+        : { left: Math.round(r.left), bottom: Math.round(window.innerHeight - r.top + 8) },
+    );
+  }
 
   // A hand-rolled overlay (scrim + panel), so it declares itself to the
   // auto-reload guard — AGENTS.md "Auto-reload guard".
@@ -149,6 +165,15 @@ export function SidebarDock({
     if (!open) return;
     menuRef.current?.querySelector<HTMLElement>("[data-dock-item]")?.focus();
   }, [open]);
+
+  // Keep the portalled menu on its trigger when the window is resized.
+  useEffect(() => {
+    if (!open) return;
+    const onResize = () => place();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `place` reads refs and `compact` only.
+  }, [open, compact]);
 
   function close() {
     setOpen(false);
@@ -275,7 +300,10 @@ export function SidebarDock({
         aria-expanded={open}
         aria-label={`${current?.name ?? "No unit"} — ${user.fullName ?? user.email ?? ""}. Unit, role preview and account menu.`}
         title={compact ? `${current?.name ?? "No unit"}${defaultNote ? " (default)" : ""}` : undefined}
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => {
+          if (!open) place();
+          setOpen((o) => !o);
+        }}
         // The surface-style hook (`lib/appearance.ts` STYLES): Glass frosts it.
         data-dock-card={compact ? undefined : ""}
         className={cn(
@@ -322,18 +350,16 @@ export function SidebarDock({
         )}
       </button>
 
-      {open && (
+      {open && anchor && createPortal(
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="fixed inset-0 z-[90]" onClick={() => setOpen(false)} />
           <div
             ref={menuRef}
             role="menu"
             aria-label="Unit and account"
             onKeyDown={onMenuKey}
-            className={cn(
-              "absolute bottom-full z-50 mb-2 max-h-[calc(100dvh-5rem)] w-72 overflow-y-auto rounded-xl border border-border bg-surface p-1.5 shadow-[0_18px_48px_-14px_rgb(16_30_20/0.4)]",
-              compact ? "left-2" : "left-2.5",
-            )}
+            style={{ left: anchor.left, bottom: anchor.bottom, maxHeight: `calc(100dvh - ${anchor.bottom + 16}px)` }}
+            className="fixed z-[91] w-72 overflow-y-auto rounded-xl border border-border bg-surface p-1.5 text-foreground shadow-[0_18px_48px_-14px_rgb(16_30_20/0.4)]"
           >
             <div className="flex items-center gap-2.5 px-2.5 pb-2 pt-1.5">
               {avatar("lg")}
@@ -624,7 +650,8 @@ export function SidebarDock({
               </button>
             </form>
           </div>
-        </>
+        </>,
+        document.body,
       )}
     </div>
   );

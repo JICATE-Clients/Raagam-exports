@@ -78,7 +78,7 @@ export function FavoritesBar({ items, variant }: { items: MyFavorite[]; variant:
                 href={tileHref(item.href)}
                 aria-label={f.badge ? `${item.label}, ${f.badge}` : item.label}
                 className={cn(
-                  "flex h-full rounded-2xl border-[1.5px] border-border bg-surface text-center [-webkit-tap-highlight-color:transparent] hover:border-primary/40 active:scale-[0.97]",
+                  "relative flex h-full rounded-2xl border-[1.5px] border-border bg-surface text-center [-webkit-tap-highlight-color:transparent] hover:border-primary/40 active:scale-[0.97]",
                   wide
                     ? "flex-row items-center gap-2.5 px-3 py-2.5 text-left"
                     : cn("flex-col items-center justify-center gap-1.5 px-1 pb-2.5 pt-3", phone ? "min-h-[84px]" : "min-h-[92px]"),
@@ -87,6 +87,14 @@ export function FavoritesBar({ items, variant }: { items: MyFavorite[]; variant:
                 <span className="grid size-11 shrink-0 place-items-center rounded-[13px]" style={favoriteWellStyle(item.hue)}>
                   <Icon className="size-[22px]" strokeWidth={2.1} aria-hidden />
                 </span>
+                {/* A NARROW TILE STILL SAYS ITS COUNT (user 2026-11-13, artifact "Favourites With
+                    Pulse"): the number alone, in a corner pill — Pulse's unread, Approvals' waiting.
+                    The whole sentence stays in the link's aria-label. */}
+                {!wide && f.badge && (
+                  <span aria-hidden className="absolute right-2 top-1.5 grid h-5 min-w-5 place-items-center rounded-full border-2 border-surface bg-danger px-1 text-[11px] font-extrabold tabular-nums leading-none text-white">
+                    {f.badge.split(" ")[0]}
+                  </span>
+                )}
                 {/* truncate-reveal: exempt -- screen names, two lines allowed; the whole name is the link's aria-label */}
                 <span className={cn("font-semibold leading-tight", wide ? "text-[13px]" : "line-clamp-2 text-[11.5px]")}>
                   {item.label}
@@ -123,7 +131,7 @@ export function FavoritesBar({ items, variant }: { items: MyFavorite[]; variant:
 }
 
 /** Mounted only while open, so it starts from the server's list every time it opens. */
-function EditFavoritesSheet({ items, onClose }: { items: MyFavorite[]; onClose: () => void }) {
+export function EditFavoritesSheet({ items, onClose }: { items: MyFavorite[]; onClose: () => void }) {
   const router = useRouter();
   const toast = useToast();
   const [rows, setRows] = useState<EditRow[]>(() =>

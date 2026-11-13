@@ -1170,7 +1170,7 @@ export function MultiSelect({
                       {/* `touch={false}`: this row commits on mousedown, so a
                           press-and-hold would reveal the value AND pick it. */}
                       {o.person !== undefined && (
-                        <PersonAvatar name={o.label} person={o.person} className="h-6 w-6 text-[9px]" />
+                        <PersonAvatar name={o.label} person={o.person} zoom={false} className="h-6 w-6 text-[9px]" />
                       )}
                       <Truncated touch={false}>{o.label}</Truncated>
                       {o.inactive && !gridded && (
@@ -1293,7 +1293,7 @@ export function MultiSelectChips({
           key={o.id}
           className="inline-flex items-center gap-1 rounded-md border border-border bg-surface-muted px-2 py-0.5 text-sm font-medium"
         >
-          {o.person !== undefined && <PersonAvatar name={o.label} person={o.person} className="h-5 w-5 text-[8px]" />}
+          {o.person !== undefined && <PersonAvatar name={o.label} person={o.person} zoom={false} className="h-5 w-5 text-[8px]" />}
           {o.label}
           {!disabled && (
             <button

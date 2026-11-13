@@ -50,7 +50,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { PulseConfirm } from "./pulse-confirm";
 import { DropdownMenu, type DropdownItem } from "@/components/ui/dropdown-menu";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -73,9 +73,12 @@ import { cn } from "@/lib/utils";
 import { clockTime, fileSize, initials } from "./message-body";
 import { CommunityAvatar } from "./community-avatar";
 import { NewCommunitySheet } from "./new-community-sheet";
-import { PhotoImg, useUserPhoto } from "./person-photo";
+import { PhotoImg, useChannelPhoto, useUserPhoto } from "./person-photo";
 import { ShortScrollbar } from "./short-scrollbar";
 import { nameCase } from "@/lib/comms/name-case";
+import { WithPresence } from "./presence";
+import { CHANNELS_CHANGED } from "./sidebar-channels";
+import type { MyFavorite } from "@/lib/favorites/service";
 
 type Filter = "all" | "unread" | "favorites" | "groups" | "communities" | "channels" | "files";
 
@@ -180,8 +183,13 @@ export function ConversationList({
   communities,
   activeCommunityId = null,
   activeFileId = null,
+  onNewChat,
+  favorites,
 }: {
   conversations: ConversationSummary[];
+  /** The person's Home Favourites (lib/favorites/service.ts), drawn as a strip
+   *  above the shortcuts. Absent = no strip. */
+  favorites?: MyFavorite[];
   /** 0811: threads the caller started or replied in, newest reply first. */
   threads?: ThreadSummary[];
   /** 0775: the caller's communities; null when 0775 is not applied. */
@@ -194,6 +202,9 @@ export function ConversationList({
   activeId?: string | null;
   /** /comms/new — the New message screen is open beside the list. */
   composing?: boolean;
+  /** Slide the New chat panel in over this list (new-chat-panel.tsx), in
+   *  direct or group mode. Given by comms-shell.tsx. */
+  onNewChat?: (mode: "direct" | "group") => void;
   /** /comms — the Home feed is open beside the list (lights the Home shortcut). */
   home?: boolean;
   /** /comms/mentions — Pulse ▸ Mentions is open beside the list (lights its shortcut). */
@@ -268,9 +279,25 @@ export function ConversationList({
   const [findChannels, setFindChannels] = useState<ChannelListing[] | null>(null);
   const [files, setFiles] = useState<PulseFile[] | null>(null);
   const [lazyError, setLazyError] = useState<string | null>(null);
+  // PUBLIC CHANNELS BEFORE YOU JOIN (user 2026-11-13, artifact "Public Channels
+  // In Pulse"): under All, the Channels section lists the public channels the
+  // caller has not joined, below their own, each with Join, so a public channel
+  // shows up for everyone the moment it is created. Same reader as Channels >
+  // Find channels. Re-read when the chat list itself changes (a join, a leave, a
+  // realtime refresh) and when a channel is created or changed in this tab.
+  const [seenConversations, setSeenConversations] = useState(conversations);
+  if (seenConversations !== conversations) {
+    setSeenConversations(conversations);
+    setFindChannels(null);
+  }
+  useEffect(() => {
+    const reread = () => setFindChannels(null);
+    window.addEventListener(CHANNELS_CHANGED, reread);
+    return () => window.removeEventListener(CHANNELS_CHANGED, reread);
+  }, []);
   useEffect(() => {
     let live = true;
-    if (filter === "channels" && findChannels === null) {
+    if ((filter === "channels" || filter === "all") && findChannels === null) {
       void loadChannelsToFind().then((r) => live && (r.ok ? setFindChannels(r.channels) : setLazyError(r.error)));
     }
     if (filter === "files" && files === null) {
@@ -409,9 +436,9 @@ export function ConversationList({
       ? [{ label: "Delete section", icon: Trash2, danger: true, onClick: () => saveSections(mySections.filter((x) => x.id !== s.mine?.id)) }]
       : s.key === "direct"
         ? [
-            { label: "Start direct message", icon: MessageCircle, onClick: () => router.push("/comms?new=1") },
+            { label: "Start direct message", icon: MessageCircle, onClick: () => (onNewChat ? onNewChat("direct") : router.push("/comms?new=1")) },
             // New group moved here with the group chats when Groups lost its heading.
-            { label: "New group", icon: Users, onClick: () => router.push("/comms?new=1&a=group") },
+            { label: "New group", icon: Users, onClick: () => (onNewChat ? onNewChat("group") : router.push("/comms?new=1&a=group")) },
           ]
         : // Channels ⋮ (user 2026-11-05, artifact "Channels ⋮ menu"): Create a
             // channel · Create new section. Browse channels was removed the same
@@ -605,10 +632,9 @@ export function ConversationList({
 
   const leaveDialog = (
     <>
-    <ConfirmDialog
+    <PulseConfirm
       open={!!leaving}
       title={`Leave ${leaving?.title ?? ""}?`}
-      body="You keep what was said before you left. Someone can add you back later."
       confirmLabel={leaving?.kind === "channel" ? "Leave channel" : "Exit group"}
       isPending={menuBusy}
       onCancel={() => setLeaving(null)}
@@ -625,10 +651,9 @@ export function ConversationList({
         );
       }}
     />
-    <ConfirmDialog
+    <PulseConfirm
       open={!!blocking}
       title={`Block ${blocking?.title ?? ""}?`}
-      body="Neither of you can send messages in this chat until you unblock them. Groups and channels are not affected."
       confirmLabel="Block"
       isPending={menuBusy}
       onCancel={() => setBlocking(null)}
@@ -638,11 +663,10 @@ export function ConversationList({
         runMenu(() => setBlocked(c.other_user_id as string, true), `${c.title} blocked`, () => setBlocking(null));
       }}
     />
-    <ConfirmDialog
+    <PulseConfirm
       open={!!deleting}
       title={`Delete chat with ${deleting?.title ?? ""}?`}
-      body="The chat and its messages are removed from your Pulse only. The other person keeps them. The chat comes back if they write again."
-      confirmLabel="Delete conversation"
+      confirmLabel="Delete"
       isPending={menuBusy}
       onCancel={() => setDeleting(null)}
       onConfirm={() => {
@@ -698,6 +722,24 @@ export function ConversationList({
     </Sheet>
     </>
   );
+
+  function joinListed(ch: ChannelListing) {
+    start(async () => {
+      const r = await joinChannel(ch.id);
+      if (!r.ok) {
+        toast.error(r.error);
+        return;
+      }
+      toast.success(`You joined #${ch.name}`);
+      setFindChannels((list) => (list ?? []).filter((x) => x.id !== ch.id));
+      router.push(`/comms/c/${ch.id}`);
+      router.refresh();
+    });
+  }
+  // Public channels to join, shown under All only (a filter or a search is the
+  // person narrowing the list). A channel already in their list never repeats.
+  const joinable =
+    browseRow && findChannels ? findChannels.filter((ch) => !conversations.some((c) => c.id === ch.id)) : [];
 
   if (showArchived) {
     return (
@@ -786,22 +828,25 @@ export function ConversationList({
             </button>
           )}
         </div>
-        {/* "＋ NEW" ON THE SEARCH ROW (user 2026-11-05, artifact "＋ New pill",
-            proposed placement): a small tinted pill replacing the big New chat
-            button and its row. The To: screen is the right-hand pane, so a phone
-            (one pane at a time) gets the tap-a-person sheet instead. */}
-        <Link
-          href="/comms/new"
-          aria-current={composing ? "page" : undefined}
-          aria-label="New chat"
-          title="New chat"
-          className={cn(NEW_CHAT, "hidden @3xl/comms:inline-flex")}
-        >
-          <Plus className="h-4 w-4" aria-hidden /> New
-        </Link>
-        <Link href="/comms?new=1" aria-label="New chat" title="New chat" className={cn(NEW_CHAT, "inline-flex @3xl/comms:hidden")}>
-          <Plus className="h-4 w-4" aria-hidden /> New
-        </Link>
+        {/* "＋ NEW" ON THE SEARCH ROW (user 2026-11-05, artifact "＋ New pill").
+            Since 2026-11-12 (user, WhatsApp's New chat, artifact "Comms New Chat
+            Panel") it slides the New chat panel in over this list on every
+            width — no more /comms/new To: screen on wide and sheet on narrow. */}
+        {onNewChat ? (
+          <button type="button" onClick={() => onNewChat("direct")} aria-label="New chat" title="New chat" className={cn(NEW_CHAT, "inline-flex")}>
+            <Plus className="h-4 w-4" aria-hidden /> New
+          </button>
+        ) : (
+          <Link
+            href="/comms/new"
+            aria-current={composing ? "page" : undefined}
+            aria-label="New chat"
+            title="New chat"
+            className={cn(NEW_CHAT, "inline-flex")}
+          >
+            <Plus className="h-4 w-4" aria-hidden /> New
+          </Link>
+        )}
         </div>
 
         {/* NO FILTER CHIPS (user 2026-11-05: "remove this"). What they did now
@@ -851,19 +896,7 @@ export function ConversationList({
                   key={ch.id}
                   ch={ch}
                   active={ch.id === activeId}
-                  onJoin={() =>
-                    start(async () => {
-                      const r = await joinChannel(ch.id);
-                      if (!r.ok) {
-                        toast.error(r.error);
-                        return;
-                      }
-                      toast.success(`You joined #${ch.name}`);
-                      setFindChannels((list) => (list ?? []).filter((x) => x.id !== ch.id));
-                      router.push(`/comms/c/${ch.id}`);
-                      router.refresh();
-                    })
-                  }
+                  onJoin={() => joinListed(ch)}
                 />
               ))}
             </ul>
@@ -917,8 +950,9 @@ export function ConversationList({
         </nav>
       ) : (
         <>
-      {/* No Favourites strip above the list (user 2026-11-04, the mockup has
-          none); a favourite still wears its star on the row. */}
+      {/* A favourite CHAT wears its star on the row (Starred, below). The
+          Favourites strip at the top of the list is the person's Home
+          Favourites — screens, not chats (user 2026-11-13, option A). */}
       <div className="relative flex min-h-0 flex-1 flex-col">
       {/* A SHORT HANDLE (user 2026-11-05, "intha scroll bar hight a korai"):
           the native bar is hidden and ShortScrollbar draws a fixed 56px one;
@@ -929,6 +963,10 @@ export function ConversationList({
             Saved above the chats. Flat since 2026-11-05 (user: "card mari
             irukkathalma remove pannu") — a hairline beneath, no grey box. Under All only — a filter or
             a search is the operator narrowing the list, not navigating. */}
+        {/* NO FAVOURITES CARD (user 2026-11-13, screenshot 141156: "remove
+            this"). It was added the same day (artifact "Pulse Sidebar
+            Favourites", option A) and withdrawn; Favourites stay on Home. The
+            `favorites` prop is still passed in, but nothing draws it. */}
         {!searching && filter === "all" && (
           <section aria-labelledby="pulse-sec-shortcuts" className="mb-1 border-b border-border pb-1">
             <h2 id="pulse-sec-shortcuts" className="flex items-center px-1 pb-0.5 pt-1 text-xs font-semibold text-muted-foreground">
@@ -944,6 +982,8 @@ export function ConversationList({
                   removed from the card, Starred added. Saved messages stay
                   reachable from the open chat's menu. */}
               <Shortcut onClick={() => setFilter("favorites")} icon={Star} label="Starred" count={countOf("favorites")} />
+              {/* No "Channels" shortcut (user 2026-11-13, artifact "Shortcuts Without
+                  Channels"): it was added the same day and removed on request. */}
             </ul>
           </section>
         )}
@@ -981,6 +1021,7 @@ export function ConversationList({
               const items = only ? s.items.filter((c) => c.id === activeId || (!c.muted && c.unread_count > 0)) : s.items;
               // An empty section of your own still shows under All, so a section
               // just created is there to move chats into.
+              const joinHere = s.key === "channel" && !folded[s.key] ? joinable : [];
               return s.items.length === 0 && !((s.key === "channel" || s.mine) && browseRow) ? null : (
                 <section key={s.key} aria-labelledby={`pulse-sec-${s.key}`} className="group/sec">
                   <h2
@@ -1061,6 +1102,18 @@ export function ConversationList({
                   ) : s.mine ? (
                     <p className="px-3 py-1.5 text-xs text-muted-foreground">Move chats here from their ⌄ menu.</p>
                   ) : null}
+                  {joinHere.length > 0 && (
+                    <>
+                      <p className="px-3 pb-0.5 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Public · join to take part
+                      </p>
+                      <ul>
+                        {joinHere.map((ch) => (
+                          <FindChannel key={ch.id} ch={ch} active={ch.id === activeId} onJoin={() => joinListed(ch)} compact />
+                        ))}
+                      </ul>
+                    </>
+                  )}
                 </section>
               );
             })}
@@ -1111,9 +1164,29 @@ export function ConversationList({
                   },
                 ]
               : []),
+            // The ⋮ gained two items (user 2026-11-10, artifact "Threads Menu"): the unread
+            // switch in words — the icon beside ⋮ is easy to miss on a phone — and the
+            // whole list, which otherwise only a row at the foot of the peek opens.
+            {
+              label: "Show only unread",
+              icon: MessageSquareDot,
+              checked: only,
+              onClick: () => setUnreadOnly((m) => ({ ...m, threads: !only })),
+            },
+            ...(!shut && list.length > SECTION_PEEK
+              ? [
+                  {
+                    label: open ? "Show fewer" : "Show all threads",
+                    icon: open ? ChevronsDownUp : ChevronsUpDown,
+                    ...(open ? {} : { count: list.length }),
+                    onClick: () => setExpanded((m) => ({ ...m, threads: !open })),
+                  },
+                ]
+              : []),
             {
               label: shut ? "Expand section" : "Collapse section",
               icon: shut ? ChevronsUpDown : ChevronsDownUp,
+              separatorBefore: true,
               onClick: () => toggleFold("threads"),
             },
           ];
@@ -1370,7 +1443,18 @@ function readSections(key: string): MySection[] {
 }
 
 /** A public channel the person is not in: open it to read, or Join. */
-function FindChannel({ ch, active, onJoin }: { ch: ChannelListing; active: boolean; onJoin: () => void }) {
+function FindChannel({
+  ch,
+  active,
+  onJoin,
+  compact = false,
+}: {
+  ch: ChannelListing;
+  active: boolean;
+  onJoin: () => void;
+  /** The All list's size (2026-11-13): a 32px circle with the channel's letter, like the rows above it. */
+  compact?: boolean;
+}) {
   return (
     <li className="flex items-center gap-2">
       <Link
@@ -1381,23 +1465,33 @@ function FindChannel({ ch, active, onJoin }: { ch: ChannelListing; active: boole
           active ? "bg-primary-soft" : "hover:bg-surface-muted",
         )}
       >
-        <span
-          aria-hidden
-          style={avatarStyle(ch.name)}
-          className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg font-extrabold", AVATAR_TINT)}
-        >
-          <Hash className="h-5 w-5" />
-        </span>
+        {compact ? (
+          <span aria-hidden className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--chan-pub-bg)] text-xs font-extrabold text-[var(--chan-pub-fg)]">
+            {(ch.name.match(/[\p{L}\p{N}]/u)?.[0] ?? "#").toUpperCase()}
+          </span>
+        ) : (
+          <span
+            aria-hidden
+            style={avatarStyle(ch.name)}
+            className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg font-extrabold", AVATAR_TINT)}
+          >
+            <Hash className="h-5 w-5" />
+          </span>
+        )}
         <span className="flex min-w-0 flex-1 flex-col">
-          <Truncated text={ch.name} className="text-[15px] font-bold text-heading" />
-          <Truncated text={ch.topic ?? ch.department_name ?? "Public channel"} className="text-[13px] text-muted-foreground" />
+          <Truncated text={ch.name} className={compact ? "text-[13.5px] font-medium text-foreground" : "text-[15px] font-bold text-heading"} />
+          <Truncated
+            text={ch.topic ?? ch.department_name ?? "Public channel"}
+            className={compact ? "text-[12px] text-muted-foreground" : "text-[13px] text-muted-foreground"}
+          />
         </span>
       </Link>
       {/* button-shape: exempt -- WhatsApp's outlined Join pill beside a channel (user 2026-10-31, the Pulse mockup) */}
       <button
         type="button"
         onClick={onJoin}
-        className="mr-1 h-8 shrink-0 rounded-full border border-[#15603e] px-3.5 text-[13px] font-bold text-[#15603e] hover:bg-[#d9fdd3] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-[#7ae3a5] dark:text-[#7ae3a5] dark:hover:bg-[#103529]"
+        className={cn(compact ? "mr-1 h-7 px-3 text-[12px]" : "mr-1 h-8 px-3.5 text-[13px]", "shrink-0 rounded-full border border-[#15603e] font-bold text-[#15603e] hover:bg-[#d9fdd3] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-[#7ae3a5] dark:text-[#7ae3a5] dark:hover:bg-[#103529]")}
+        aria-label={`Join #${ch.name}`}
       >
         Join
       </button>
@@ -1683,38 +1777,45 @@ export function preview(c: ConversationSummary): string {
 }
 
 export function ChatAvatar({ c, size }: { c: ConversationSummary; size: "row" | "sm" | "md" | "lg" | "compact" }) {
-  const photo = useUserPhoto(c.kind === "direct" ? c.other_user_id : null);
+  const userPhoto = useUserPhoto(c.kind === "direct" ? c.other_user_id : null);
+  // 0839: a channel's own profile photo, when one is set.
+  const channelPhoto = useChannelPhoto(c.kind === "channel" ? c.id : null);
+  const photo = userPhoto ?? channelPhoto;
   const channel = c.kind === "channel";
   // A CHANNEL SHOWS ITS LETTER, NOT A "#" (user 2026-11-04), the same as the
   // sidebar's ChannelAvatar; a private one keeps a small lock on the corner.
   // An announcement channel keeps its megaphone — that says what it is FOR.
   const Icon = c.is_announcement ? Megaphone : c.kind === "group" && !c.name ? Users : null;
   const letter = channel ? (c.title.match(/[\p{L}\p{N}]/u)?.[0] ?? "#").toUpperCase() : null;
+  // PUBLIC = GREEN CIRCLE, PRIVATE = AMBER SQUARE (user 2026-11-13, option B):
+  // the kind of channel is told by shape AND colour, so it reads without the
+  // corner lock it used to need. A channel photo keeps the same shape.
+  const isPrivateChannel = channel && c.visibility === "private";
   const box = (
     <span
       aria-hidden
-      style={avatarStyle(c.title)}
+      style={channel ? undefined : avatarStyle(c.title)}
       className={cn(
         "flex shrink-0 items-center justify-center overflow-hidden font-extrabold",
-        AVATAR_TINT,
+        channel
+          ? isPrivateChannel
+            ? "bg-[var(--chan-pri-bg)] text-[var(--chan-pri-fg)]"
+            : "bg-[var(--chan-pub-bg)] text-[var(--chan-pub-fg)]"
+          : AVATAR_TINT,
         size === "row"
           ? "h-8 w-8 text-[11px] max-md:h-9 max-md:w-9 max-md:text-[13px]"
           : size === "compact" ? "h-[38px] w-[38px] text-[13px] max-md:h-10 max-md:w-10 max-md:text-sm" : size === "sm" ? "h-9 w-9 text-sm" : size === "lg" ? "h-11 w-11 text-sm" : "h-[50px] w-[50px] text-[17px]",
-        c.kind === "direct" ? "rounded-full" : size === "md" ? "rounded-[15px]" : size === "row" ? "rounded-lg" : "rounded-xl",
+        c.kind === "direct" || (channel && !isPrivateChannel)
+          ? "rounded-full"
+          : size === "md" ? "rounded-[15px]" : size === "row" ? "rounded-lg" : "rounded-xl",
       )}
     >
       {photo ? <PhotoImg src={photo} /> : Icon ? <Icon className="h-5 w-5" /> : (letter ?? initials(c.title.replace(/^#/, "")))}
     </span>
   );
-  if (!(channel && c.visibility === "private")) return box;
-  return (
-    <span className="relative inline-flex shrink-0">
-      {box}
-      <span aria-label="Private" className="absolute -bottom-0.5 -right-0.5 grid h-4 w-4 place-items-center rounded-full bg-surface text-muted-foreground ring-2 ring-surface">
-        <Lock className="h-2.5 w-2.5" aria-hidden />
-      </span>
-    </span>
-  );
+  // The online dot on a direct chat (user 2026-11-12, option C).
+  if (c.kind === "direct") return <WithPresence userId={c.other_user_id} size={size === "row" || size === "compact" ? "sm" : "md"}>{box}</WithPresence>;
+  return box;
 }
 
 /**
@@ -1770,6 +1871,10 @@ function Row({
         )}
       >
         <ChatAvatar c={c} size="row" />
+        {/* Option B's second half: a private channel's name is led by an amber lock. */}
+        {c.kind === "channel" && c.visibility === "private" && (
+          <Lock className="-mr-1.5 h-3.5 w-3.5 shrink-0 text-[var(--chan-pri-fg)]" strokeWidth={2.4} aria-label="Private" />
+        )}
         <Truncated
           text={label}
           className={cn(

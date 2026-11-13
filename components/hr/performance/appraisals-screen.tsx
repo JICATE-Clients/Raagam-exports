@@ -384,7 +384,7 @@ export function AppraisalsScreen({ rounds, rows, people, myStaffId, canEdit }: P
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-2">
-        <div className="flex flex-wrap items-end gap-2">
+        <div className="flex min-w-0 max-w-full flex-wrap items-end gap-2">
           <Field label="Round" w="name">
             <Select
               value={roundId}

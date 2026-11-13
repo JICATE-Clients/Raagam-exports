@@ -93,7 +93,8 @@ export function SidebarChannels({
           </button>
         </p>
       )}
-      {rows?.length === 0 && <p className="px-3 py-1 text-xs text-muted-foreground">No channels yet — use the search icon above to find one.</p>}
+      {/* No empty-state line (user 2026-11-13): with no channels the fold is
+          simply empty — the 🔍 and + on the heading are the way in. */}
 
       {rows?.map((c) => {
         const href = `/comms/c/${c.id}`;

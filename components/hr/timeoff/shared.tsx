@@ -77,7 +77,7 @@ export function ReasonSheet({
         onClose();
       }}
       title={title}
-      size="sm"
+      asPage
       footer={
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={onClose}>
@@ -148,7 +148,12 @@ export function ApprovalTrail({
         : run.status === "rejected"
           ? `Rejected by the ${at} — closed`
           : `Withdrawn while with the ${at} — closed`;
-  const kind = run.subject_table === "timeoff_encashments" ? "encashment" : "request";
+  const kind =
+    run.subject_table === "timeoff_encashments"
+      ? "encashment"
+      : run.subject_table === "timeoff_comp_off_credits"
+        ? "claim"
+        : "request";
   function sendOn() {
     if (!run) return;
     setSendError(null);

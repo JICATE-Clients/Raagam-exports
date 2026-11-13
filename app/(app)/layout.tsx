@@ -19,6 +19,7 @@ import { listStoreNavLinks } from "@/lib/stores/service";
 import { getMyStaffPhotoUrl } from "@/lib/hr/my-profile";
 import { getMyShownKeys } from "@/lib/favorites/service";
 import { FavoritesProvider } from "@/components/favorites/favorites-provider";
+import { PresenceProvider } from "@/components/comms/presence";
 
 export default async function AppLayout({ children }: { children: ReactNode }) {
   const user = await requireUser();
@@ -54,6 +55,8 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <PermissionProvider user={user}>
+      {/* Who is online (user 2026-11-12): any open ERP screen counts, not only Pulse. */}
+      <PresenceProvider userId={user.id}>
       <FavoritesProvider initial={favoriteKeys}>
       <LocationProvider value={{ current: location, allowed, source }}>
         <SearchProvider>
@@ -146,6 +149,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
         </SearchProvider>
       </LocationProvider>
       </FavoritesProvider>
+    </PresenceProvider>
     </PermissionProvider>
   );
 }

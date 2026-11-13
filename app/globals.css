@@ -3335,3 +3335,192 @@ table td .text-muted-foreground,
 table td.text-muted-foreground {
   color: var(--cell-detail);
 }
+/*
+ * A DARK PANE INSIDE A LIGHT SCREEN (user 2026-11-13, Pulse, the Slack
+ * screenshot: "side la dark aavum right la light aavum venum … antha theme kku
+ * set aagura mathiri"). Put `data-pane-tone="dark"` on a pane and every token
+ * beneath it is re-pointed, so the components inside need no dark classes.
+ *
+ * THE DARK IS THE THEME COLOUR, NOT A FIXED HEX. `--pane-tone-src` captures the
+ * active preset's `--primary` on <html> (where `data-accent` lives) and the pane
+ * is that hue sunk into near-black — Raagam Blue gives deep navy, Teal a deep
+ * teal, Raagam Green a deep olive. Pick a colour in T ▸ Colour and the pane
+ * follows. `--primary` itself cannot be mixed from itself in the same rule (a
+ * cycle), which is why the source is captured once at the root.
+ *
+ * Inside, `--primary` becomes a LIGHT tint of the same hue with dark text on
+ * it, so the selected row, the unread badge and "+ New" stay readable on the
+ * dark ground.
+ */
+:root {
+  --pane-tone-src: var(--primary);
+}
+[data-pane-tone="dark"] {
+  color-scheme: dark;
+  --pane-tone-bg: color-mix(in oklab, var(--pane-tone-src) 62%, #0a0d14);
+  --surface: var(--pane-tone-bg);
+  --background: var(--pane-tone-bg);
+  --surface-muted: color-mix(in oklab, #ffffff 12%, var(--pane-tone-bg));
+  --foreground: #f3f5f8;
+  --heading: #ffffff;
+  --muted-foreground: rgb(255 255 255 / 0.74);
+  --caption: rgb(255 255 255 / 0.6);
+  --border: rgb(255 255 255 / 0.12);
+  --border-strong: rgb(255 255 255 / 0.24);
+  --primary: color-mix(in oklab, var(--pane-tone-src) 30%, #ffffff);
+  --primary-hover: color-mix(in oklab, var(--pane-tone-src) 30%, #ffffff);
+  --primary-foreground: #0a0d14;
+  --primary-soft: rgb(255 255 255 / 0.2);
+  --ring: color-mix(in oklab, var(--pane-tone-src) 42%, #ffffff);
+  background-color: var(--pane-tone-bg);
+  color: var(--foreground);
+}
+/* The list's WhatsApp greys are literal hexes (`text-[#54656f]`) — on the dark
+   ground they would vanish, so they read the pane's muted token instead. */
+[data-pane-tone="dark"] [class*="text-[#54656f]"] {
+  color: var(--muted-foreground);
+}
+
+/*
+ * A LIGHT SHADE OF THE THEME COLOUR (user 2026-11-13, artifact "Pulse Light
+ * Sidebar", Medium · 20%: "theme clr change also change background clr"). The
+ * Pulse chat list replaced the dark pane above with this one: the background is
+ * 20% of the active preset's primary over white, so Raagam Blue gives a light
+ * blue, Raagam Green a light green, and T ▸ Colour moves it with no code change.
+ * Text stays dark; the selected row is a white pill and "+ New" / the unread
+ * badges keep the theme colour itself.
+ *
+ * In the app's dark mode the same hue is mixed into the dark surface instead
+ * (22%), with light text, so the pane is never a bright block on a dark screen.
+ */
+[data-pane-tone="light"] {
+  color-scheme: light;
+  --pane-tone-bg: color-mix(in oklab, var(--pane-tone-src) 20%, #ffffff);
+  --surface: var(--pane-tone-bg);
+  --background: var(--pane-tone-bg);
+  --surface-muted: rgb(255 255 255 / 0.6);
+  --foreground: #14202b;
+  --heading: #0d1b2a;
+  --muted-foreground: color-mix(in oklab, var(--pane-tone-src) 30%, #3a4552);
+  --caption: color-mix(in oklab, var(--pane-tone-src) 25%, #5b6573);
+  --border: rgb(0 0 0 / 0.09);
+  --border-strong: rgb(0 0 0 / 0.18);
+  --primary: var(--pane-tone-src);
+  --primary-soft: rgb(255 255 255 / 0.75);
+  --primary-foreground: #ffffff;
+  background-color: var(--pane-tone-bg);
+  color: var(--foreground);
+}
+/* The last three details of the "Pulse Light Sidebar" artifact (user
+   2026-11-13, "APPLY"), light theme only: the search box is WHITE with a
+   hairline (not the translucent wash), "+ New" is FILLED in the theme colour,
+   and the selected row's text is the theme colour deepened so it reads on the
+   white pill. */
+:root:not(.dark) [data-pane-tone="light"] input[type="search"] {
+  background-color: #ffffff;
+  border: 1px solid rgb(0 0 0 / 0.09);
+}
+:root:not(.dark) [data-pane-tone="light"] input[type="search"]:focus-visible {
+  border-color: var(--pane-tone-src);
+}
+/* `:is(a, button)`, never the bare label: the New chat PANEL (role="dialog")
+   carries the same aria-label, and the bare selector painted the whole panel
+   the theme colour (user 2026-11-13, screenshot 113857). */
+:root:not(.dark) [data-pane-tone="light"] :is(a, button)[aria-label="New chat"] {
+  background-color: var(--pane-tone-src);
+  color: #ffffff;
+}
+:root:not(.dark) [data-pane-tone="light"] :is(a, button)[aria-label="New chat"]:hover {
+  background-color: color-mix(in oklab, var(--pane-tone-src) 85%, #000000);
+}
+:root:not(.dark) [data-pane-tone="light"] [aria-current="page"] .text-primary,
+:root:not(.dark) [data-pane-tone="light"] [aria-current="page"].text-primary {
+  color: color-mix(in oklab, var(--pane-tone-src) 85%, #000000);
+}
+.dark [data-pane-tone="light"] {
+  color-scheme: dark;
+  --pane-tone-bg: color-mix(in oklab, var(--pane-tone-src) 22%, #14171d);
+  --surface-muted: rgb(255 255 255 / 0.08);
+  --foreground: #eef2f6;
+  --heading: #ffffff;
+  --muted-foreground: rgb(255 255 255 / 0.72);
+  --caption: rgb(255 255 255 / 0.6);
+  --border: rgb(255 255 255 / 0.1);
+  --border-strong: rgb(255 255 255 / 0.2);
+  --primary: color-mix(in oklab, var(--pane-tone-src) 45%, #ffffff);
+  --primary-soft: rgb(255 255 255 / 0.14);
+  --primary-foreground: #0a0d14;
+}
+
+/*
+ * PUBLIC vs PRIVATE CHANNEL, AT A GLANCE (user 2026-11-13, option B of the
+ * "Public vs Private Channels" artifact): a public channel is a GREEN CIRCLE,
+ * a private one an AMBER SQUARE with a lock before its name. Tokens, so the
+ * light list, the app's dark theme and the dark Pulse pane each get a pair
+ * that reads on their own ground (ChatAvatar / Row in conversation-list.tsx).
+ */
+:root {
+  --chan-pub-bg: #e6f6ec;
+  --chan-pub-fg: #15803d;
+  --chan-pri-bg: #fdf3dc;
+  --chan-pri-fg: #a16207;
+}
+.dark,
+[data-pane-tone="dark"] {
+  --chan-pub-bg: rgb(74 222 128 / 0.18);
+  --chan-pub-fg: #86efac;
+  --chan-pri-bg: rgb(250 204 21 / 0.18);
+  --chan-pri-fg: #fde047;
+}
+
+/*
+ * THE NEW CHAT PANEL, LIGHT AND NEAT (user 2026-11-13, artifact "New Chat
+ * Light", Soft · 8%). In Raagam Green the panel read as dark text on a deep
+ * green; now it is the theme colour at 8% on white, names #111b21, job lines
+ * #667781, the header strip and hover a step deeper, letter headings in the
+ * theme colour deepened. Light theme only — dark keeps the pane's own tokens.
+ */
+:root:not(.dark) [data-new-chat] {
+  --nc-bg: color-mix(in oklab, var(--pane-tone-src) 8%, #ffffff);
+  --nc-tint: color-mix(in oklab, var(--pane-tone-src) 15%, #ffffff);
+  --nc-tint2: color-mix(in oklab, var(--pane-tone-src) 20%, #ffffff);
+  --surface: var(--nc-bg);
+  --surface-muted: var(--nc-tint);
+  --foreground: #111b21;
+  --heading: #111b21;
+  --muted-foreground: #667781;
+  --border: rgb(0 0 0 / 0.07);
+  --primary: color-mix(in oklab, var(--pane-tone-src) 85%, #000000);
+  --primary-foreground: #ffffff;
+  background-color: var(--nc-bg);
+  color: var(--foreground);
+}
+:root:not(.dark) [data-new-chat] > header {
+  background-color: var(--nc-tint2);
+  border-bottom: 1px solid var(--border);
+}
+:root:not(.dark) [data-new-chat] input[type="search"] {
+  background-color: #ffffff;
+  border: 1px solid #d6dbe1;
+}
+:root:not(.dark) [data-new-chat] input[type="search"]:focus-visible {
+  border-color: var(--pane-tone-src);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--pane-tone-src) 15%, transparent);
+}
+
+/*
+ * PULSE IN ROBOTO  (user 2026-11-13, artifact "Pulse Font Options": "apply
+ * roboto"). The Pulse module only — every other screen keeps the T ▸ Font
+ * choice. Roboto is already self-hosted (app/fonts.css, `--font-roboto`), so
+ * nothing new is downloaded until Pulse opens.
+ *
+ * One even weight for emphasis, which is most of what makes it read neat: the
+ * list mixed bold (700) and extra-bold (800) names, badges and tags; inside
+ * Pulse both draw at semibold (600).
+ */
+[data-comms-frame] {
+  font-family: var(--font-roboto), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+[data-comms-frame] :is(.font-bold, .font-extrabold) {
+  font-weight: 600;
+}

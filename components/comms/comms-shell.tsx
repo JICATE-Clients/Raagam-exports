@@ -8,8 +8,10 @@ import { createClient } from "@/lib/supabase/client";
 import type { CommunitySummary, ConversationSummary, ThreadSummary } from "@/lib/comms/types";
 import { cn } from "@/lib/utils";
 import { ConversationList } from "./conversation-list";
+import { NewChatPanel, type NewChatMode } from "./new-chat-panel";
 import { NewConversationSheet } from "./new-conversation-sheet";
 import { PhotosProvider } from "./person-photo";
+import type { MyFavorite } from "@/lib/favorites/service";
 
 /**
  * ## PULSE IS TWO PANES (user 2026-10-29, "apply this design … in the same way")
@@ -55,9 +57,13 @@ export function CommsShell({
   communities,
   threads,
   photos,
+  channelPhotos,
+  favorites,
 }: {
   children: ReactNode;
   top?: ReactNode;
+  /** The person's Home Favourites, for the strip atop Pulse's list. */
+  favorites?: MyFavorite[];
   /** The caller's conversations, for Pulse's list pane. */
   chats?: ConversationSummary[];
   /** 0775: the caller's communities; null before 0775 is applied. */
@@ -66,6 +72,8 @@ export function CommsShell({
   threads?: ThreadSummary[];
   /** userId → HR photo URL (lib/comms/photos.ts). */
   photos?: Record<string, string>;
+  /** 0839: conversationId → channel photo URL. */
+  channelPhotos?: Record<string, string>;
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -78,8 +86,17 @@ export function CommsShell({
   // the sheet straight in group mode. Read from the live URL: the intent runs
   // before it strips `new` and `a`.
   const [composeGroup, setComposeGroup] = useState(false);
+  // WhatsApp's New chat (user 2026-11-12): where the chat list is on screen,
+  // ?new=1 slides the New chat panel in over it instead of opening the sheet.
+  // The sheet stays for the hub views that show no list (Channels, Search …).
+  const [newChat, setNewChat] = useState<NewChatMode | null>(null);
   useCreateIntent(() => {
-    setComposeGroup(new URLSearchParams(window.location.search).get("a") === "group");
+    const group = new URLSearchParams(window.location.search).get("a") === "group";
+    if (chats && window.location.pathname === "/comms") {
+      setNewChat(group ? "group" : "direct");
+      return;
+    }
+    setComposeGroup(group);
     setComposing(true);
   });
 
@@ -122,6 +139,9 @@ export function CommsShell({
   const isNew = pathname === "/comms/new";
   // Pulse ▸ Mentions (user 2026-11-06): opens beside the list, Mentions lit.
   const isMentions = pathname === "/comms/mentions";
+  // Pulse > Channels opens beside the list too (user 2026-11-13, artifact
+  // "Channels Beside Chat List"): it was the one Pulse page that dropped the list.
+  const isChannels = pathname === "/comms/channels";
   // 0775: a community's page is part of Pulse too — the list stays beside it.
   const communityId = /^\/comms\/community\/([0-9a-f-]{36})/i.exec(pathname)?.[1]?.toLowerCase() ?? null;
   // Pulse ▸ Files opens a file beside the list too (user 2026-10-31).
@@ -129,7 +149,7 @@ export function CommsShell({
   // Every conversation opens beside the list since Pulse ▸ Channels (user
   // 2026-10-31): a public channel read before joining is one tap from the
   // list, as a WhatsApp channel is.
-  const pulse = !!chats && (isHome || isNew || isMentions || !!communityId || !!fileId || !!openId);
+  const pulse = !!chats && (isHome || isNew || isMentions || isChannels || !!communityId || !!fileId || !!openId);
 
   // NO OUTER CARD (user 2026-11-05, "remove this card based"): the frame has
   // no border or corners, and <main> drops its padding around it — sides and
@@ -137,7 +157,7 @@ export function CommsShell({
   // (app/(app)/layout.tsx). Pulse runs edge to edge under the tab strip, as
   // WhatsApp Web does.
   return (
-    <PhotosProvider photos={photos ?? {}}>
+    <PhotosProvider photos={photos ?? {}} channelPhotos={channelPhotos ?? {}}>
     <div
       data-focus-scope="off"
       data-comms-frame=""
@@ -151,11 +171,15 @@ export function CommsShell({
         <div className="flex min-h-0 flex-1">
           <aside
             aria-label="Chats"
+            // A LIGHT SHADE OF THE THEME COLOUR (user 2026-11-13, artifact "Pulse
+            // Light Sidebar", Medium): it replaced the dark list the same day and
+            // follows T ▸ Colour — see [data-pane-tone="light"] in globals.css.
+            data-pane-tone="light"
             className={cn(
               PANE,
               // WhatsApp's width (user 2026-10-31, screenshot 122843): 460px wide fits
               // All · Unread · Favourites · Groups · ▾ on one line.
-              "@3xl/comms:flex @3xl/comms:w-[18rem] @3xl/comms:shrink-0 @3xl/comms:border-r @3xl/comms:border-border",
+              "relative @3xl/comms:flex @3xl/comms:w-[18rem] @3xl/comms:shrink-0 @3xl/comms:border-r @3xl/comms:border-border",
               isHome ? "flex w-full" : "hidden",
             )}
           >
@@ -169,6 +193,14 @@ export function CommsShell({
               communities={communities}
               activeCommunityId={communityId}
               activeFileId={fileId}
+              onNewChat={setNewChat}
+              favorites={favorites}
+            />
+            {/* WhatsApp's New chat slides in over the list, same width. */}
+            <NewChatPanel
+              open={newChat !== null}
+              startMode={newChat ?? "direct"}
+              onClose={() => setNewChat(null)}
             />
           </aside>
           {/* `data-pulse`: a conversation shown here has the sidebar beside it

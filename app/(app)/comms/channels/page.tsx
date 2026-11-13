@@ -1,5 +1,4 @@
 import { can, requirePermission } from "@/lib/auth/server";
-import { listDepartments } from "@/lib/comms/service";
 import { discoverChannels } from "@/lib/comms/channel-service";
 import { getWorkspace } from "@/lib/comms/workspace-service";
 import { isAdminRole } from "@/lib/comms/workspace";
@@ -27,13 +26,11 @@ export default async function ChannelsPage({ searchParams }: { searchParams: Pro
   }
   const [first, mayCreate, workspace, sp] = loaded;
   const canCreate = mayCreate || isAdminRole(workspace?.my_role);
-  const departments = canCreate ? await listDepartments() : [];
   return (
     <ChannelBrowser
       key={sp.create ?? ""}
       initial={first.rows}
       initialTotal={first.total}
-      departments={departments}
       canCreate={canCreate}
       openCreate={sp.create === "1"}
     />

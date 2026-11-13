@@ -1,9 +1,10 @@
 "use client";
 
+import { useRef } from "react";
 import { Cake, Droplets, Mail, MapPin, Phone, UserRound } from "lucide-react";
 import { Card, CardBody } from "@/components/ui/card";
-import { PhotoUpload } from "@/components/ui/photo-upload";
-import { StatusPill } from "@/components/ui/status-pill";
+import { PhotoUpload, type PhotoUploadHandle } from "@/components/ui/photo-upload";
+import { StatusPill } from "@/components/ui/status-pill";
 import { activeTone } from "@/lib/ui/status-tone";
 import { Truncated } from "@/components/ui/truncated";
 import { fmtDate } from "@/lib/format";
@@ -73,6 +74,7 @@ export type PersonProfileAsideProps = {
 export function PersonProfileAside(p: PersonProfileAsideProps) {
   const title = p.name.trim() || `New ${p.entity}`;
   const role = [p.designation, p.department].filter(Boolean).join(" · ");
+  const photoRef = useRef<PhotoUploadHandle>(null);
 
   const personal: [typeof Mail, string, string | null][] = [
     [UserRound, "Gender", p.gender],
@@ -128,14 +130,21 @@ export function PersonProfileAside(p: PersonProfileAsideProps) {
                 sat below the fold on a laptop (client 2026-09-16: "bottom card
                 heading only showing in fit screen"). */}
             {p.photoUrl ? (
-              <div className="h-20 w-20 overflow-hidden rounded-2xl ring-4 ring-surface">
+              // Click the photo to see it full size, and change or remove it
+              // there (client 2026-11-06).
+              <button
+                type="button"
+                aria-label={`View the photo of ${title}`}
+                onClick={() => photoRef.current?.view()}
+                className="h-20 w-20 cursor-zoom-in overflow-hidden rounded-2xl ring-4 ring-surface"
+              >
                 {/* eslint-disable-next-line @next/next/no-img-element -- a Supabase storage public URL, same as PhotoUpload's own preview. */}
                 <img
                   src={p.photoUrl}
                   alt={`Photo of ${title}`}
                   className="h-full w-full object-cover"
                 />
-              </div>
+              </button>
             ) : (
               <div
                 className={
@@ -205,10 +214,15 @@ export function PersonProfileAside(p: PersonProfileAsideProps) {
             )}
             {/* `showPreview={false}`: the avatar above IS the preview, so the
                 control contributes only its buttons and the size hint. */}
+            {/* MERGED (2026-11-13): My Profile's locked photo (purchase) and the
+                click-to-view ref (master, client 2026-11-06). Locked → the note,
+                no Upload, so the avatar's view-with-Change/Remove has nothing to
+                open; otherwise the Upload control carries the ref it opens. */}
             {p.photoLockedNote ? (
               <p className="text-xs text-muted-foreground">{p.photoLockedNote}</p>
             ) : (
               <PhotoUpload
+                ref={photoRef}
                 value={p.photoUrl}
                 onChange={p.onPhotoChange}
                 folder={p.photoFolder}

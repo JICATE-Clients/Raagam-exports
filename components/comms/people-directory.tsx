@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useState, useTransition, type FormEvent } from "react";
 import { ArrowLeft, Loader2, MessageSquare, Search, ShieldCheck, UserCheck, UserX } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { PulseConfirm } from "./pulse-confirm";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -33,6 +33,7 @@ import {
 } from "@/lib/comms/workspace";
 import { fmtDate, fmtDateTime } from "@/lib/format";
 import { Face } from "./person-photo";
+import { WithPresence } from "./presence";
 
 /**
  * The workspace's people (0750). Everyone active sees the active directory and
@@ -137,9 +138,11 @@ export function PeopleDirectory({
                   onClick={() => setOpenId(p.id)}
                   className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-surface-muted focus-visible:bg-surface-muted focus-visible:outline-none"
                 >
+                  <WithPresence userId={p.id}>
                   <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-muted text-xs font-semibold text-muted-foreground">
                     <Face userId={p.id} name={p.full_name} />
                   </span>
+                  </WithPresence>
                   <span className="min-w-0 flex-1">
                     <span className="block break-words text-sm font-semibold text-foreground">
                       {p.full_name ?? "Unnamed login"}
@@ -288,9 +291,11 @@ function ProfileSheet({
       ) : (
         <div className="space-y-4">
           <div className="flex items-center gap-3">
+            <WithPresence userId={person.id} size="md">
             <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary-soft text-sm font-semibold text-primary">
               <Face userId={person.id} name={person.full_name} />
             </span>
+            </WithPresence>
             <div className="min-w-0">
               <p className="break-words text-base font-semibold text-heading">{person.full_name ?? "Unnamed login"}</p>
               <p className="break-words text-sm text-muted-foreground">{person.designation ?? "No designation"}</p>
@@ -375,10 +380,9 @@ function ProfileSheet({
         </div>
       )}
 
-      <ConfirmDialog
+      <PulseConfirm
         open={confirmDeactivate}
         title={`Deactivate ${person?.full_name ?? "this member"}?`}
-        body="They will no longer be able to read or send messages. Everything they wrote stays, under their name, and reactivating them returns them to their conversations."
         confirmLabel="Deactivate"
         isPending={pending}
         onConfirm={() => setActive(false)}

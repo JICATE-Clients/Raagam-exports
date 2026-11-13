@@ -61,6 +61,15 @@ export function activeModule(pathname: string, items: NavItem[]): NavItem | unde
 }
 
 /**
+ * Modules whose level-2 menu is not drawn at all, though their `children`
+ * stay registered (nav search still finds them). Pulse (user 2026-11-13:
+ * "intha screen fulla remove"): the whole Search · Messages · My Approvals
+ * column is gone; the rail icon opens Messages, and My Approvals is reached
+ * from search, favourites and /approvals.
+ */
+export const NO_MENU_MODULES: ReadonlySet<string> = new Set(["/comms"]);
+
+/**
  * Whether the module menu (ContextSidebar) draws anything for this module —
  * the same test it applies before rendering: a module with no sub-navigation
  * gets no menu, and Stores counts its live store links as rows. The sidebar
@@ -68,6 +77,7 @@ export function activeModule(pathname: string, items: NavItem[]): NavItem | unde
  */
 export function hasModuleMenu(mod: NavItem | undefined, storeCount: number): boolean {
   if (!mod) return false;
+  if (NO_MENU_MODULES.has(mod.href)) return false;
   return (mod.children?.length ?? 0) > 0 || (mod.href === "/stores" && storeCount > 0);
 }
 

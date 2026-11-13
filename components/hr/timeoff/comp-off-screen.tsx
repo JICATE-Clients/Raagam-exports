@@ -118,7 +118,7 @@ export function CompOffScreen({ rows, people, selfOnly }: Props) {
         return;
       }
       setOpen(false);
-      success(`${r.count} credit(s) claimed — waiting for HR`);
+      success(`${r.count} credit(s) claimed — sent for approval`);
       router.refresh();
     });
   }
@@ -208,7 +208,7 @@ export function CompOffScreen({ rows, people, selfOnly }: Props) {
         open={open}
         onClose={() => setOpen(false)}
         title="Claim comp-off credit"
-        size="md"
+        asPage
         footer={
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="min-w-0 text-xs text-muted-foreground">{problem ?? "Each date becomes its own credit, decided by HR."}</span>

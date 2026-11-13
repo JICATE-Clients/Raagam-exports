@@ -1,6 +1,6 @@
 import "server-only";
 import { cache } from "react";
-import { createAdminClient } from "@/lib/supabase/server";
+import { createAdminClient, createClient } from "@/lib/supabase/server";
 
 /**
  * HR PHOTOS IN PULSE (user 2026-11-03: "fetch HR module profile image to Pulse").
@@ -39,7 +39,16 @@ import { createAdminClient } from "@/lib/supabase/server";
 const PAGE = 1000;
 
 type StaffRow = { code: string | null; email: string | null; photo_url: string | null };
-type ProfileRow = { id: string; email: string | null; employee_code: string | null };
+type ProfileRow = { id: string; email: string | null; employee_code: string | null; full_name: string | null };
+
+/**
+ * LOGINS THAT NEVER TAKE AN HR PHOTO IN PULSE (user 2026-11-13, artifact "Sripriya
+ * Without Photo", option B). The email / code rule above matched these logins to a
+ * Staff record that is someone else's, so Pulse showed the wrong face. Listed by the
+ * login's full name, case-folded; they show their initials instead. A per-person
+ * stop-gap: the general cure is a safer match rule (option A, not applied).
+ */
+const NO_HR_PHOTO = new Set(["SRIPRIYA JICATE"]);
 
 async function readAll<T>(read: (from: number, to: number) => PromiseLike<{ data: unknown; error: unknown }>): Promise<T[]> {
   const out: T[] = [];
@@ -57,7 +66,7 @@ export const getUserPhotos = cache(async (): Promise<Record<string, string>> => 
     const s = createAdminClient();
     const [staff, profiles] = await Promise.all([
       readAll<StaffRow>((a, b) => s.from("staff").select("code, email, photo_url").order("id").range(a, b)),
-      readAll<ProfileRow>((a, b) => s.from("profiles").select("id, email, employee_code").order("id").range(a, b)),
+      readAll<ProfileRow>((a, b) => s.from("profiles").select("id, email, employee_code, full_name").order("id").range(a, b)),
     ]);
 
     // First row wins on a duplicate key, as `limit(1)` does in findMyStaff.
@@ -73,6 +82,7 @@ export const getUserPhotos = cache(async (): Promise<Record<string, string>> => 
 
     const out: Record<string, string> = {};
     for (const p of profiles) {
+      if (NO_HR_PHOTO.has((p.full_name ?? "").trim().replace(/\s+/g, " ").toUpperCase())) continue;
       const email = p.email?.trim().toLowerCase();
       const code = p.employee_code?.trim();
       const row = (email && byEmail.get(email)) || (code && byCode.get(code)) || null;
@@ -80,6 +90,41 @@ export const getUserPhotos = cache(async (): Promise<Record<string, string>> => 
       if (url) out[p.id] = url;
     }
     return out;
+  } catch {
+    return {};
+  }
+});
+
+/** 0839: the public bucket that holds channel profile photos. */
+export const CHANNEL_PHOTO_BUCKET = "comm-channel-photos";
+
+/**
+ * CHANNEL PHOTOS (user 2026-11-12, artifact "Channel Photo Upload"):
+ * conversationId → public URL, for the channels the CALLER may read (the
+ * table's own RLS decides — this runs as the caller, not the service role).
+ * Read beside comm_my_conversations rather than through it, so 0839 did not
+ * have to re-create that function. Never throws: before 0839 is applied the
+ * column is missing and every channel shows its letter, as before.
+ */
+export const getChannelPhotos = cache(async (): Promise<Record<string, string>> => {
+  try {
+    const s = await createClient();
+    const out: Record<string, string> = {};
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await s
+        .from("comm_conversations")
+        .select("id, photo_path")
+        .eq("kind", "channel")
+        .not("photo_path", "is", null)
+        .order("id")
+        .range(from, from + PAGE - 1);
+      if (error) return out;
+      const rows = (data ?? []) as { id: string; photo_path: string | null }[];
+      for (const r of rows) {
+        if (r.photo_path) out[r.id] = s.storage.from(CHANNEL_PHOTO_BUCKET).getPublicUrl(r.photo_path).data.publicUrl;
+      }
+      if (rows.length < PAGE) return out;
+    }
   } catch {
     return {};
   }

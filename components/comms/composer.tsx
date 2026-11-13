@@ -25,7 +25,6 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { createClient } from "@/lib/supabase/client";
 import { useUnsavedGuard } from "@/lib/reload-guard";
-import { useTouchPhone } from "@/lib/comms/use-phone-keyboard";
 import {
   ATTACHMENTS_PER_MESSAGE,
   MESSAGE_MAX,
@@ -85,16 +84,12 @@ type Upload = {
 /**
  * The message box.
  *
- * ## ENTER SENDS — A DELIBERATE, SCOPED EXCEPTION TO THE KEYBOARD CONTRACT
+ * ## ENTER IS A NEW LINE; ONLY THE SEND BUTTON SENDS (user 2026-11-13)
  *
- * Everywhere else in the app Enter moves to the next field and saves off the
- * last one (raagam-keyboard-contract). A chat box has one field, and every chat
- * tool an operator has used sends on Enter, so here Enter sends and Shift+Enter
- * starts a new line. The handler calls `preventDefault()`, which is exactly
- * what makes keyboard-nav-provider.tsx stand down (`if (e.defaultPrevented)
- * return`); the hub root also carries `data-focus-scope="off"`. Nothing global
- * changes. Phase-3 default, flagged for the client — reversing it is this one
- * handler.
+ * This reverses the Phase-3 "Enter sends, Shift+Enter new line" default at the
+ * client's request: a message goes only when Send is clicked or tapped, so a
+ * stray Enter can never post a half-written message. The hub root carries
+ * `data-focus-scope="off"`, so the app-wide Enter-advance stays out of the box.
  *
  * ## ON A PHONE, RETURN IS A NEW LINE (user 2026-10-31, "keyboard … optimized
  * for mobile")
@@ -209,7 +204,6 @@ export function Composer({
   const [format, setFormat] = useState<"auto" | "on" | "off">("auto");
   // The emoji button that opened the picker, or null while it is shut.
   const [emojiAt, setEmojiAt] = useState<HTMLButtonElement | null>(null);
-  const touchPhone = useTouchPhone();
   // Not the `autoFocus` attribute: it fires during hydration, before the phone
   // is known, and would open the keyboard over the conversation.
   useEffect(() => {
@@ -522,10 +516,10 @@ export function Composer({
         return;
       }
     }
-    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && !touchPhone) {
-      e.preventDefault();
-      void submit();
-    }
+    // ENTER NEVER SENDS (user 2026-11-13: "enter key press panna msg send aaga
+    // kudathu"). Enter is left to the textarea, so it makes a new line; only
+    // the Send button sends. No preventDefault, and the hub root's
+    // data-focus-scope="off" keeps the app-wide Enter-advance out of the box.
   }
 
   const canSend = !busy && !uploading && (text.trim().length > 0 || uploads.some((u) => u.status === "done"));
@@ -669,7 +663,7 @@ export function Composer({
           rows={chat ? 1 : 2}
           value={text}
           // The phone keyboard's return key says what it does here.
-          enterKeyHint={touchPhone ? "enter" : "send"}
+          enterKeyHint="enter"
           autoCapitalize="sentences"
           autoCorrect="on"
           spellCheck
@@ -763,7 +757,7 @@ export function Composer({
               onClick={() => void submit()}
               disabled={!canSend}
               aria-label="Send message"
-              title="Send (Enter)"
+              title="Send"
               className={cn(
                 "order-4 flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 // 42px, in the brand blue (user 2026-11-02, the chat-theme artifact).
@@ -773,7 +767,7 @@ export function Composer({
               {busy ? <Loader2 className="h-[18px] w-[18px] animate-spin" /> : <Send className="h-[18px] w-[18px]" />}
             </button>
           ) : (
-            <Button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => void submit()} disabled={!canSend} aria-label="Send message" title="Send (Enter)">
+            <Button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => void submit()} disabled={!canSend} aria-label="Send message" title="Send">
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             </Button>
           )}
@@ -805,7 +799,7 @@ export function Composer({
             ATTACHMENT_TYPES_LABEL
           ) : (
             // Keyboard tips — a phone has no Shift key or file drop to explain.
-            <span className="max-md:hidden">Enter to send · Shift+Enter for a new line · **bold** _italic_ `code` · drop files to attach</span>
+            <span className="max-md:hidden">Click Send to send · Enter for a new line · **bold** _italic_ `code` · drop files to attach</span>
           )}
         </span>
       </div>

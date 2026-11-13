@@ -1,11 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { writeAudit } from "@/lib/audit";
 import { commErrorText } from "./types";
 import { discoverChannels, sidebarChannels } from "./channel-service";
 import { isCommsMissing } from "./service";
+import { CHANNEL_PHOTO_BUCKET } from "./photos";
 import {
   discoverInput,
   prefsInput,
@@ -58,6 +59,35 @@ export async function updateChannel(input: UpdateChannelInput): Promise<Ok | Fai
     entityType: "comm_conversation",
     entityId: d.conversation_id,
     metadata: { name: d.name },
+  });
+  revHub();
+  return { ok: true, changed: true };
+}
+
+const PHOTO_KEY_RE = /^[0-9a-f-]{36}\/[0-9a-f-]{36}\.(jpg|png|webp)$/i;
+
+/**
+ * 0839: set (a key the browser just uploaded) or clear (null) a channel's
+ * photo. The RPC checks who may and that the key is under this channel's own
+ * folder; the PREVIOUS photo's bytes are then removed with the service role,
+ * since the bucket has no delete policy (same rule as comm-files).
+ */
+export async function setChannelPhoto(conversationId: string, path: string | null): Promise<Ok | Fail> {
+  if (typeof conversationId !== "string" || !/^[0-9a-f-]{36}$/i.test(conversationId)) return fail("That channel was not found.");
+  if (path !== null && (typeof path !== "string" || !PHOTO_KEY_RE.test(path))) return fail("That photo could not be used.");
+  const s = await createClient();
+  const { data, error } = await s.rpc("comm_set_channel_photo", { p_conv: conversationId, p_path: path });
+  if (error) return fail(commErrorText(error, "The photo could not be saved."));
+  const previous = typeof data === "string" && data ? data : null;
+  if (previous) {
+    // A leftover file costs storage, not correctness: never fail the save over it.
+    await createAdminClient().storage.from(CHANNEL_PHOTO_BUCKET).remove([previous]).catch(() => undefined);
+  }
+  await writeAudit({
+    action: path ? "comm.channel_photo_set" : "comm.channel_photo_removed",
+    entityType: "comm_conversation",
+    entityId: conversationId,
+    metadata: {},
   });
   revHub();
   return { ok: true, changed: true };

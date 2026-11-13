@@ -4,9 +4,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useTransition, type CSSProperties } from "react";
 import { CHAT_WALL_MASK } from "@/lib/comms/chat-wall";
-import { ArrowLeft, Hash, Loader2, Lock, Megaphone, MoreVertical, Pin, RotateCw, Users, WifiOff, X } from "lucide-react";
+import { ArrowLeft, Hash, Loader2, Lock, Megaphone, MoreVertical, Pin, RotateCw, Search, Users, WifiOff, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { PulseConfirm } from "./pulse-confirm";
 import { DropdownMenu, type DropdownItem } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/components/ui/toast";
 import { Truncated } from "@/components/ui/truncated";
@@ -30,6 +30,7 @@ import {
   leaveConversation,
   setChatFlags,
   setMuted,
+  clearChatForMe,
 } from "@/lib/comms/actions";
 import { plainText, type AttachmentInput, type CommAttachment, type CommMessage, type ConversationDetail, type MessagePage } from "@/lib/comms/types";
 import { Composer } from "./composer";
@@ -48,8 +49,9 @@ import { ForwardSheet } from "./forward-sheet";
 import { ChannelHeaderPeople } from "./add-channel-people";
 import { ChatSearchPanel } from "./chat-search-panel";
 import { suggestReplies } from "@/lib/comms/smart-reply-actions";
-import { PhotoImg, useUserPhoto } from "./person-photo";
+import { PhotoImg, useChannelPhoto, useUserPhoto } from "./person-photo";
 import { ruleReplies } from "@/lib/comms/smart-reply-rules";
+import { PRESENCE_WORD, WithPresence, usePresence } from "./presence";
 
 type Pending = {
   client_id: string;
@@ -127,9 +129,12 @@ export function ConversationView({
   usePhoneKeyboardViewport();
 
   const [messages, setMessages] = useState<CommMessage[]>(initialPage.messages);
-  const [fill, setFill] = useState<{ text: string; n: number } | null>(null);
   // The other person's HR photo in a direct chat's header (lib/comms/photos.ts).
-  const headerPhoto = useUserPhoto(conversation.kind === "direct" ? (conversation.members.find((x) => x.user_id !== meId && !x.removed_at)?.user_id ?? null) : null);
+  const otherId = conversation.kind === "direct" ? (conversation.members.find((x) => x.user_id !== meId && !x.removed_at)?.user_id ?? null) : null;
+  const headerPhoto = useUserPhoto(otherId);
+  // 0839: the channel's profile photo, when one is set.
+  const channelPhoto = useChannelPhoto(conversation.kind === "channel" ? conversation.id : null);
+  const otherPresence = usePresence(otherId);
   const [cursor, setCursor] = useState<string | null>(initialPage.next_cursor);
   const [pending, setPending] = useState<Pending[]>([]);
   const [loadingOlder, setLoadingOlder] = useState(false);
@@ -148,6 +153,7 @@ export function ConversationView({
   const [searchOpen, setSearchOpen] = useState(false);
   const [mutedNow, setMutedNow] = useState<boolean>(!!conversation.me?.muted);
   const [confirmLeave, setConfirmLeave] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
   const [menuBusy, startMenu] = useTransition();
   const [confirmDelete, setConfirmDelete] = useState<CommMessage | null>(null);
   const [joining, startJoin] = useTransition();
@@ -528,13 +534,8 @@ export function ConversationView({
           label: conversation.kind === "direct" ? "Contact info" : conversation.kind === "channel" ? "Channel info" : "Group info",
           onClick: () => setDetailsOpen(true),
         },
-    {
-      label: "Search",
-      onClick: () => {
-        setThreadOf(null);
-        setSearchOpen(true);
-      },
-    },
+    // No "Search" here (user 2026-11-13, artifact "Chat Header Search"): it is
+    // the header's own 🔍 beside this ⋮, WhatsApp's way.
     // Add to favourites left this menu (user 2026-11-04); it stays on the list
     // row's own ⌄ menu. Saved messages stays here: the list header's bookmark
     // icon was removed the same day, and this is the one way to /comms/saved.
@@ -566,6 +567,9 @@ export function ConversationView({
                 router.refresh();
               }),
           },
+          // Clear chat (user 2026-11-12, artifact "Pulse Clear Chat", option A): hides every
+          // message from MY view only (0838) — the chat, its pin / mute and members stay.
+          { label: "Clear chat", disabled: menuBusy, onClick: () => setConfirmClear(true) },
         ]
       : []),
     { label: conversation.kind === "channel" ? "Close channel" : "Close chat", separatorBefore: true, onClick: () => router.push("/comms") },
@@ -648,6 +652,7 @@ export function ConversationView({
             <Megaphone className="h-4 w-4" />
           </span>
         ) : chat ? (
+          <WithPresence userId={otherId} size="md">
           <span
             aria-hidden
             style={avatarStyle(conversation.title)}
@@ -655,6 +660,7 @@ export function ConversationView({
           >
             {headerPhoto ? <PhotoImg src={headerPhoto} /> : chat === "group" && !conversation.name ? <Users className="h-4 w-4" /> : initials(conversation.title)}
           </span>
+          </WithPresence>
         ) : conversation.kind === "channel" ? (
           // A CHANNEL'S PROFILE TILE, NOT A "#" (user 2026-11-06: "remove the #",
           // then "give profile in channel"): its first letter on its own colour,
@@ -666,7 +672,7 @@ export function ConversationView({
               style={avatarStyle(conversation.title)}
               className={cn("flex h-[30px] w-[30px] items-center justify-center overflow-hidden rounded-lg text-[12px] font-extrabold", AVATAR_TINT)}
             >
-              {(conversation.title.match(/[\p{L}\p{N}]/u)?.[0] ?? "#").toUpperCase()}
+              {channelPhoto ? <PhotoImg src={channelPhoto} /> : (conversation.title.match(/[\p{L}\p{N}]/u)?.[0] ?? "#").toUpperCase()}
             </span>
             {conversation.visibility === "private" && (
               <span className="absolute -bottom-0.5 -right-0.5 grid h-3.5 w-3.5 place-items-center rounded-full bg-surface text-muted-foreground ring-2 ring-surface">
@@ -681,6 +687,17 @@ export function ConversationView({
           <h1 className="break-words text-[13.5px] font-semibold leading-snug text-heading">
             {announcement ? "Announcements" : conversation.kind === "channel" ? conversation.title.replace(/^#/, "") : conversation.title}
           </h1>
+          {otherId && (
+            // Online / Away / Offline under a direct chat's name (user 2026-11-12, option C).
+            <p
+              className={cn(
+                "text-[11.5px] leading-tight",
+                otherPresence === "online" ? "font-semibold text-[#1e8e3e] dark:text-[#4cc274]" : otherPresence === "away" ? "text-[#a86f00] dark:text-[#f0b35a]" : "text-muted-foreground",
+              )}
+            >
+              {PRESENCE_WORD[otherPresence]}
+            </p>
+          )}
           {/* NO LINE UNDER A CHANNEL'S NAME (user 2026-11-06: "remove this 6
               member and raagam") — the member count and the topic tag are gone;
               both are still in ⋮ › Channel info, and the topic in the intro card.
@@ -719,7 +736,28 @@ export function ConversationView({
             onOpenInfo={() => setDetailsOpen(true)}
           />
         )}
-        {/* No magnifier in the header (user 2026-11-02) — Search is in the ⋮ menu. */}
+        {/* 🔍 BESIDE THE ⋮ (user 2026-11-13, screenshots 100059 / 100441 and the
+            artifact "Chat Header Search"): Search left the ⋮ menu for its own icon,
+            reversing 2026-11-02's "no magnifier". It toggles the Search messages
+            panel; one side panel at a time, so it closes an open thread. */}
+        {/* button-shape: exempt -- a 32px header icon button, the same box as the ⋮ trigger beside it */}
+        <button
+          type="button"
+          onClick={() => {
+            if (searchOpen) {
+              setSearchOpen(false);
+              return;
+            }
+            setThreadOf(null);
+            setSearchOpen(true);
+          }}
+          aria-label="Search messages"
+          aria-pressed={searchOpen}
+          title="Search messages"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-control text-foreground hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring aria-pressed:bg-primary-soft aria-pressed:text-primary"
+        >
+          <Search className="h-[18px] w-[18px]" aria-hidden />
+        </button>
         <DropdownMenu
           label="Menu"
           trigger={<MoreVertical className="h-[18px] w-[18px]" />}
@@ -959,9 +997,13 @@ export function ConversationView({
         <QuickReplies
           conversationId={id}
           lastId={messages[messages.length - 1]?.id ?? null}
-          lastIsMine={messages[messages.length - 1]?.author_id === meId}
+          // A reply still sending counts as the last word being mine, so the
+          // pills go the moment one is clicked.
+          lastIsMine={messages[messages.length - 1]?.author_id === meId || pending.length > 0}
           lastBody={messages[messages.length - 1]?.body ?? ""}
-          onPick={(text) => setFill((f) => ({ text, n: (f?.n ?? 0) + 1 }))}
+          // A PILL SENDS AT ONCE (user 2026-11-13, artifact "Pulse Quick Replies"):
+          // it used to fill the box. It goes through the same send as the box.
+          onPick={(text) => void send(text, [])}
         />
       )}
       {canWrite ? (
@@ -972,7 +1014,6 @@ export function ConversationView({
           meId={meId}
           placeholder={`Message ${conversation.title}`}
           onSend={send}
-          fill={fill}
           onPosted={() => {
             stick.current = true;
             void refreshLatest();
@@ -1050,14 +1091,18 @@ export function ConversationView({
           abilities={abilities}
           meId={meId}
           onClose={() => setDetailsOpen(false)}
+          onSearch={() => {
+            setThreadOf(null);
+            setSearchOpen(true);
+          }}
+          onPinned={() => setPinnedOpen(true)}
         />
       ) : (
         <DetailsSheet open={detailsOpen} conversation={conversation} meId={meId} onClose={() => setDetailsOpen(false)} />
       )}
-      <ConfirmDialog
+      <PulseConfirm
         open={confirmLeave}
         title={`Leave ${conversation.title}?`}
-        body="You keep what was said before you left. Someone can add you back later."
         confirmLabel={conversation.kind === "channel" ? "Leave channel" : "Leave group"}
         isPending={menuBusy}
         onCancel={() => setConfirmLeave(false)}
@@ -1067,6 +1112,23 @@ export function ConversationView({
             setConfirmLeave(false);
             if (!r.ok) return toastError(r.error);
             router.push("/comms");
+            router.refresh();
+          })
+        }
+      />
+      <PulseConfirm
+        open={confirmClear}
+        title="Clear this chat?"
+        confirmLabel="Clear chat"
+        isPending={menuBusy}
+        onCancel={() => setConfirmClear(false)}
+        onConfirm={() =>
+          startMenu(async () => {
+            const r = await clearChatForMe(id);
+            setConfirmClear(false);
+            if (!r.ok) return toastError(r.error);
+            setThreadOf(null);
+            setMessages([]);
             router.refresh();
           })
         }
@@ -1112,7 +1174,8 @@ function QuickReplies({
   onPick: (text: string) => void;
 }) {
   // SMART REPLIES (user 2026-11-02): relevant to the last message, fetched when
-  // it changes. A chip FILLS the box — it never sends.
+  // it changes. Since 2026-11-13 a chip SENDS its words at once (it used to fill
+  // the box), and at most three are shown, compact, above the type bar.
   const [smart, setSmart] = useState<{ id: string | null; replies: string[] }>({ id: null, replies: [] });
   useEffect(() => {
     if (!lastId || lastIsMine) return;
@@ -1125,7 +1188,7 @@ function QuickReplies({
   // Every incoming message has chips (user 2026-11-03): the offline rules answer at
   // once, the Claude-written set replaces them when it arrives. None while the last
   // word is mine.
-  const shown = lastIsMine ? [] : smart.id === lastId && smart.replies.length > 0 ? smart.replies : ruleReplies(lastBody);
+  const shown = (lastIsMine ? [] : smart.id === lastId && smart.replies.length > 0 ? smart.replies : ruleReplies(lastBody)).slice(0, 3);
   if (shown.length === 0) return null;
   return (
     // One row that scrolls sideways on a phone: wrapped, the four pills took
@@ -1142,7 +1205,8 @@ function QuickReplies({
           type="button"
           onClick={() => onPick(t)}
           onMouseDown={(e) => e.preventDefault()}
-          className="h-[26px] shrink-0 whitespace-nowrap rounded-full border border-border bg-surface px-2.5 text-[13px] font-semibold text-foreground hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={`Send "${t}"`}
+          className="h-[26px] shrink-0 whitespace-nowrap rounded-full border border-border bg-surface px-[11px] text-[12px] font-semibold text-primary hover:bg-primary-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           {t}
         </button>

@@ -570,6 +570,8 @@ async function cardData(
       for (const e of (eR.data ?? []) as {
         message_id: string; name: string; description: string | null; event_date: string; event_time: string | null; location: string | null;
         cancelled_at?: string | null;
+        google_event_id?: string | null;
+        google_meet_link?: string | null;
       }[]) {
         const mineA = answers.filter((a) => a.message_id === e.message_id);
         events.set(e.message_id, {
@@ -579,6 +581,8 @@ async function cardData(
           event_time: e.event_time ? e.event_time.slice(0, 5) : null,
           location: e.location,
           cancelled: !!e.cancelled_at,
+          in_google: !!e.google_event_id,
+          meet_link: e.google_meet_link ?? null,
           going: mineA.filter((a) => a.answer === "going").length,
           going_ids: mineA.filter((a) => a.answer === "going").map((a) => a.user_id),
           maybe: mineA.filter((a) => a.answer === "maybe").length,

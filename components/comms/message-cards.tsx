@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type CSSProperties } from "react";
-import { CalendarDays, CalendarX2, Check, Loader2, MessageCircle } from "lucide-react";
+import { CalendarDays, CalendarX2, Check, Loader2, MessageCircle, Video } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
@@ -300,6 +300,18 @@ export function EventCard({
             {off && <span className="block text-sm font-semibold text-danger">Event cancelled</span>}
             <span className={cn("block text-sm", MUTED)}>{whenText(event.event_date, event.event_time, today)}</span>
             {event.location && <span className={cn("block break-words text-sm", MUTED)}>{event.location}</span>}
+            {event.meet_link && !off && (
+              // The Meet link Google made for an online event (user 2026-11-12: "google meet link varala").
+              <a
+                href={event.meet_link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 pt-0.5 text-sm font-semibold text-primary underline-offset-2 hover:underline"
+              >
+                <Video className="h-4 w-4" aria-hidden />
+                Join Google Meet
+              </a>
+            )}
             {event.description && <span className="block whitespace-pre-line break-words text-sm text-heading">{event.description}</span>}
             {event.going > 0 && (
               <span className={cn("flex items-center gap-1.5 pt-0.5 text-sm", MUTED)}>
@@ -310,6 +322,7 @@ export function EventCard({
           </span>
         </div>
       </div>
+      {/* No "Added to Google Calendar" line (user 2026-11-12): the event is in the members' calendars without saying so. */}
       {canEdit && (
         // button-shape: exempt -- the action strip under a card, WhatsApp's "Edit event" (user 2026-11-10)
         <button type="button" onClick={() => setEditing(true)} className={cn(STRIP, "mt-1 border-t border-black/10 dark:border-white/10")}>
@@ -321,9 +334,10 @@ export function EventCard({
           messageId={message.id}
           event={event}
           onClose={() => setEditing(false)}
-          onSaved={(fresh) => {
+          onSaved={(fresh, googleError) => {
             if (fresh) onReplace?.(fresh);
-            toast.success("Event updated.");
+            if (googleError) toast.error(`Saved in the chat, but Google Calendar was not updated: ${googleError}`);
+            else toast.success("Event updated.");
           }}
         />
       )}

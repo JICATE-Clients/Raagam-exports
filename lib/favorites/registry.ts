@@ -16,6 +16,7 @@ import { hasPermission, type Action, type AppUser, type Module } from "@/lib/aut
 import { allScreens, screenOfPath } from "@/lib/permissions/screen-catalog";
 import { NAV } from "@/components/shell/nav";
 import { moduleHue, moduleWellStyle } from "@/components/navigation/module-hue";
+import { TeamChat } from "@/components/icons/team-chat";
 
 /**
  * HOME FAVOURITES — EVERY TILE IS DECLARED HERE AND NOWHERE ELSE (0812, user 2026-11-05,
@@ -62,6 +63,9 @@ export type FavoriteAction = {
   /** The rail module whose colour the tile wears — declared, not derived from `href`: GRN is
    *  a Purchase route but stores goods, so it wears Stores' indigo. */
   home: string;
+  /** A tile colour of its own, over `home`'s — only where two tiles of one module must not
+   *  look alike (Pulse vs My Approvals, both under /comms). */
+  hue?: string;
 };
 
 export const FAVORITE_ACTIONS: readonly FavoriteAction[] = [
@@ -71,6 +75,12 @@ export const FAVORITE_ACTIONS: readonly FavoriteAction[] = [
   { key: "help-repair", label: "Help & Repair", where: "Resolve ▸ Raise a concern", href: "/resolve/report/complaint", icon: Wrench, module: null, action: "view", home: "/resolve" },
   { key: "trip-request", label: "Trip Request", where: "Logistics ▸ Transport ▸ Requests", href: "/logistics/transport/requests?new=1", icon: Truck, module: "logistics", action: "create", home: "/logistics/transport" },
   { key: "my-approvals", label: "My Approvals", where: "Pulse ▸ My Approvals", href: "/comms/approvals", icon: ClipboardCheck, module: null, action: "view", home: "/comms" },
+  // Pulse itself (user 2026-11-13, artifact "Favourites With Pulse"): one tap to the chats,
+  // with the unread count on the tile (service.ts addBadges).
+  // SKY BLUE (user 2026-11-13, artifact "Pulse Icon Options", "sky blue c apply"): it wore My
+  // Approvals' rose, so the two tiles looked alike. Icon F "Team chat" ("apply f", the same day)
+  // replaced C's bubble-with-dots; the rail uses the same icon (components/shell/nav.ts).
+  { key: "pulse", label: "Pulse", where: "Pulse ▸ Chats", href: "/comms", icon: TeamChat, module: "communication", action: "view", home: "/comms", hue: "#0284c7" },
   // ── Store / Purchase ──
   { key: "raise-po", label: "Raise PO", where: "Purchase ▸ Raise PO", href: "/purchase/requirement-po?new=1", icon: ShoppingCart, module: "materials_purchase", action: "create", home: "/purchase" },
   { key: "grn", label: "GRN", where: "Purchase ▸ GRN ▸ New", href: "/purchase/grn/new", icon: PackageOpen, module: "materials_purchase", action: "create", home: "/stores" },
@@ -117,7 +127,7 @@ export function isPinnablePath(pathname: string): boolean {
 /** Resolve a stored key, or null when it no longer means anything (skipped, never shown). */
 export function resolveFavorite(key: string): FavoriteItem | null {
   const a = ACTION_BY_KEY.get(key);
-  if (a) return { key, kind: "action", label: a.label, where: a.where, href: a.href, icon: a.icon, module: a.module, action: a.action, hue: moduleHue(a.home) };
+  if (a) return { key, kind: "action", label: a.label, where: a.where, href: a.href, icon: a.icon, module: a.module, action: a.action, hue: a.hue ?? moduleHue(a.home) };
   if (!key.startsWith(SCREEN_PREFIX)) return null;
   const path = key.slice(SCREEN_PREFIX.length);
   const screen = allScreens().find((s) => s.key === path);

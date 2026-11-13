@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { avatarStyle } from "./conversation-list";
 import { Face } from "./person-photo";
 import { nameCase } from "@/lib/comms/name-case";
+import { WithPresence } from "./presence";
 
 /** Somebody or somewhere the message can go. */
 export type QuickPick = Target;
@@ -325,7 +326,7 @@ export function NewMessage({
             onClick={send}
             disabled={!canSend}
             aria-label="Send message"
-            title={to.length ? "Send (Enter)" : "Pick who to send to first"}
+            title={to.length ? "Send" : "Pick who to send to first"}
             className={cn(
               "flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               canSend ? "bg-primary hover:bg-primary/90" : "bg-muted-foreground/40",
@@ -363,6 +364,7 @@ function PickList({ title, picks, onPick }: { title: string; picks: QuickPick[];
                   {t.visibility === "private" ? <Lock className="h-4 w-4" /> : <Hash className="h-4 w-4" />}
                 </span>
               ) : (
+                <WithPresence userId={t.id}>
                 <span
                   aria-hidden
                   style={avatarStyle(t.label)}
@@ -370,6 +372,7 @@ function PickList({ title, picks, onPick }: { title: string; picks: QuickPick[];
                 >
                   <Face userId={t.id} name={t.label} />
                 </span>
+                </WithPresence>
               )}
               <span className="flex min-w-0 flex-1 flex-col">
                 <Truncated text={t.kind === "channel" ? `#${t.label}` : nameCase(t.label)} className="text-sm font-semibold leading-snug text-heading" />

@@ -110,10 +110,9 @@ export async function loadPersonBalances(person: string): Promise<BalanceRow[]> 
   return getBalanceSheet(yearId, splitPersonKey(person)).catch(() => []);
 }
 
-/** The approval panel for one request or encashment. */
-export async function loadTimeoffPanel(kind: "request" | "encashment", id: string) {
-  const table = kind === "request" ? WORKFLOWS.timeoff_request.subjectTable : WORKFLOWS.timeoff_encashment.subjectTable;
-  const panel = await getApprovalPanel(table, id);
+/** The approval panel for one request, encashment or comp-off claim. */
+export async function loadTimeoffPanel(kind: "request" | "encashment" | "claim", id: string) {
+  const panel = await getApprovalPanel(subjectTableOf(kind), id);
   // Who the open step waits for, by name (0818) — "SURESH", not "the HOD".
   let waiting: string[] = [];
   let next: string | null = null;
@@ -140,19 +139,34 @@ export async function hrNextStage(runId: string): Promise<string | null> {
 }
 
 /**
- * Approve / reject from the Time Off queue — one item or many. Requests and
- * encashments go through the engine (the step's own approver, its comment
- * rules, its notifications); comp-off claims are decided by HR directly.
+ * Approve / reject from the Time Off queue — one item or many. Every kind goes
+ * through the engine (the step's own approver, its comment rules, its
+ * notifications); comp-off claims joined it in 0835. A claim filed before then
+ * has no run and is still decided by HR directly.
  */
+/** The engine table behind each kind of Time Off item. */
+function subjectTableOf(kind: "request" | "encashment" | "claim"): string {
+  return kind === "request"
+    ? WORKFLOWS.timeoff_request.subjectTable
+    : kind === "encashment"
+      ? WORKFLOWS.timeoff_encashment.subjectTable
+      : WORKFLOWS.timeoff_comp_off.subjectTable;
+}
+
 export async function decideTimeoff(
   items: { kind: "request" | "encashment" | "claim"; id: string }[],
   decision: "approve" | "reject",
   comment: string,
 ): Promise<R> {
   if (decision === "reject" && !comment.trim()) return bad("Say why — a reason is required to reject");
-  const claims = items.filter((i) => i.kind === "claim").map((i) => i.id);
   let done = 0;
   const failures: string[] = [];
+  // Claims without a run (filed before 0835) — the old one-step decision.
+  const claims: string[] = [];
+  for (const it of items.filter((i) => i.kind === "claim")) {
+    const run = await getRunForSubject(subjectTableOf("claim"), it.id).catch(() => null);
+    if (!run) claims.push(it.id);
+  }
 
   if (claims.length) {
     const s = await createClient();
@@ -164,10 +178,9 @@ export async function decideTimeoff(
     if (error) failures.push(dbMessage(error, "Could not decide the claims"));
     else done += Number(data ?? 0);
   }
-  for (const it of items.filter((i) => i.kind !== "claim")) {
-    const table = it.kind === "request" ? WORKFLOWS.timeoff_request.subjectTable : WORKFLOWS.timeoff_encashment.subjectTable;
+  for (const it of items.filter((i) => !claims.includes(i.id))) {
     const r = await actOnSubject({
-      subjectTable: table,
+      subjectTable: subjectTableOf(it.kind),
       subjectId: it.id,
       action: decision,
       comment: comment.trim() || undefined,
@@ -188,9 +201,8 @@ export async function decideTimeoff(
  * the HR Manager to the ED (0820). Not an approval: whoever approves closes
  * the request, so sending it on is the only way it climbs a stage.
  */
-export async function forwardTimeoff(kind: "request" | "encashment", id: string, comment: string): Promise<R> {
-  const table = kind === "request" ? WORKFLOWS.timeoff_request.subjectTable : WORKFLOWS.timeoff_encashment.subjectTable;
-  const run = await getRunForSubject(table, id).catch(() => null);
+export async function forwardTimeoff(kind: "request" | "encashment" | "claim", id: string, comment: string): Promise<R> {
+  const run = await getRunForSubject(subjectTableOf(kind), id).catch(() => null);
   if (!run || run.status !== "in_progress") return bad("This request is no longer waiting for a decision — reload");
   const s = await createClient();
   const { error } = await s.rpc("hr_approval_forward", { p_run_id: run.id, p_comment: comment.trim() || null });
@@ -216,6 +228,14 @@ export async function claimCompOff(person: string, dates: string[], credit: numb
     p_reason: reason,
   });
   if (error) return bad(dbMessage(error, "Could not claim"));
+  // Each credit started its own run (0835): tell the HOD (or whoever has it).
+  const { data: made } = await s
+    .from("timeoff_comp_off_credits")
+    .select("id")
+    .eq(who.staff_id ? "staff_id" : "worker_id", (who.staff_id ?? who.worker_id) as string)
+    .in("worked_date", dates)
+    .eq("status", "pending");
+  for (const c of (made ?? []) as { id: string }[]) notifyStarted(subjectTableOf("claim"), c.id);
   revalidateTimeoff();
   return { ok: true, count: Number(data ?? 0) };
 }

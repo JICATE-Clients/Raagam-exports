@@ -3,7 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { CalendarX2, Loader2, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { PulseConfirm } from "./pulse-confirm";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Sheet } from "@/components/ui/sheet";
@@ -185,10 +185,9 @@ export function EventSheet({
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const [clientId, setClientId] = useState(() => crypto.randomUUID());
-  // Google Calendar (0823): asked each time the sheet opens, because the
-  // person may have connected in another tab since.
+  // Google Calendar (0823): which account the event goes out from — asked each
+  // time the sheet opens, because the account may have been connected since.
   const [google, setGoogle] = useState<{ configured: boolean; email: string | null } | null>(null);
-  const [invite, setInvite] = useState(true);
   useEffect(() => {
     if (!open) return;
     let live = true;
@@ -199,13 +198,8 @@ export function EventSheet({
       live = false;
     };
   }, [open]);
-  const canInvite = !!google?.email;
-  function connectGoogle() {
-    window.location.href = `/api/google/connect?next=${encodeURIComponent(window.location.pathname + window.location.search)}`;
-  }
 
   function close() {
-    setInvite(true);
     setName("");
     setDescription("");
     setDate(inAWeek());
@@ -228,7 +222,6 @@ export function EventSheet({
         date,
         time: time || null,
         location: location.trim() || null,
-        google: canInvite && invite,
       });
       if (!r.ok) {
         setError(r.error);
@@ -283,23 +276,24 @@ export function EventSheet({
         </div>
         <Field label="Location">
           {/* caps-input: exempt -- chat content read by people */}
-          <Input uppercase={false} value={location} maxLength={120} onChange={(e) => setLocation(e.target.value)} placeholder="e.g. Unit 1 sample room" />
+          <Input uppercase={false} value={location} maxLength={120} onChange={(e) => setLocation(e.target.value)} placeholder="e.g. Unit 1 sample room, or ONLINE" />
         </Field>
-        {google?.configured &&
-          (canInvite ? (
-            <div className="space-y-1">
-              <Toggle checked={invite} onChange={setInvite} label="Also send a Google Calendar invite to everyone in this chat" />
-              <p className="text-xs text-muted-foreground">Sent from {google.email}. Each person gets an email and the event in their Google Calendar.</p>
-            </div>
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              Want it in everyone&apos;s Google Calendar?{" "}
-              <button type="button" className="font-medium text-primary underline" onClick={connectGoogle}>
-                Connect Google Calendar
-              </button>{" "}
-              first (one time).
-            </p>
-          ))}
+        {/* Meet rule lives in card-actions.ts wantsMeet (user 2026-11-12). */}
+        <p className="-mt-2 text-xs text-muted-foreground">Leave Location blank or type ONLINE to get a Google Meet link.</p>
+        {google?.configured && !google.email && (
+          // Without a connected account the event reaches nobody's calendar — say so here
+          // rather than post it silently (2026-11-12: every event went nowhere unnoticed).
+          <p className="text-xs text-warning">
+            Not in Google Calendar yet.{" "}
+            <a
+              className="font-medium text-primary underline"
+              href={`/api/google/connect?next=${encodeURIComponent(typeof window === "undefined" ? "/comms" : window.location.pathname + window.location.search)}`}
+            >
+              Connect Google Calendar
+            </a>{" "}
+            once, then send the event.
+          </p>
+        )}
         {error && (
           <p className="text-sm text-danger" role="alert">
             {error}
@@ -326,7 +320,7 @@ export function EditEventSheet({
   messageId: string;
   event: EventData;
   onClose: () => void;
-  onSaved: (m: CommMessage | null) => void;
+  onSaved: (m: CommMessage | null, googleError?: string) => void;
 }) {
   const [name, setName] = useState(event.name);
   const [description, setDescription] = useState(event.description ?? "");
@@ -359,7 +353,7 @@ export function EditEventSheet({
         location: location.trim() || null,
       });
       if (!r.ok) return setError(r.error);
-      onSaved(r.message);
+      onSaved(r.message, r.googleError);
       onClose();
     });
   }
@@ -369,7 +363,7 @@ export function EditEventSheet({
       const r = await cancelEvent(messageId);
       setAsking(false);
       if (!r.ok) return setError(r.error);
-      onSaved(r.message);
+      onSaved(r.message, r.googleError);
       onClose();
     });
   }
@@ -433,10 +427,9 @@ export function EditEventSheet({
           <CalendarX2 className="h-4 w-4" aria-hidden /> Cancel this event
         </button>
       </div>
-      <ConfirmDialog
+      <PulseConfirm
         open={asking}
         title={`Cancel ${event.name}?`}
-        body="The card stays in the chat marked Cancelled, and nobody can answer it any more. Everyone sees a note."
         confirmLabel="Cancel event"
         cancelLabel="Keep it"
         isPending={pending}
