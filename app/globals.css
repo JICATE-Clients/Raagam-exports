@@ -3507,3 +3507,20 @@ table td.text-muted-foreground {
   border-color: var(--pane-tone-src);
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--pane-tone-src) 15%, transparent);
 }
+
+/*
+ * PULSE IN ROBOTO  (user 2026-11-13, artifact "Pulse Font Options": "apply
+ * roboto"). The Pulse module only — every other screen keeps the T ▸ Font
+ * choice. Roboto is already self-hosted (app/fonts.css, `--font-roboto`), so
+ * nothing new is downloaded until Pulse opens.
+ *
+ * One even weight for emphasis, which is most of what makes it read neat: the
+ * list mixed bold (700) and extra-bold (800) names, badges and tags; inside
+ * Pulse both draw at semibold (600).
+ */
+[data-comms-frame] {
+  font-family: var(--font-roboto), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+[data-comms-frame] :is(.font-bold, .font-extrabold) {
+  font-weight: 600;
+}

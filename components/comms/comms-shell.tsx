@@ -11,6 +11,7 @@ import { ConversationList } from "./conversation-list";
 import { NewChatPanel, type NewChatMode } from "./new-chat-panel";
 import { NewConversationSheet } from "./new-conversation-sheet";
 import { PhotosProvider } from "./person-photo";
+import type { MyFavorite } from "@/lib/favorites/service";
 
 /**
  * ## PULSE IS TWO PANES (user 2026-10-29, "apply this design … in the same way")
@@ -57,9 +58,12 @@ export function CommsShell({
   threads,
   photos,
   channelPhotos,
+  favorites,
 }: {
   children: ReactNode;
   top?: ReactNode;
+  /** The person's Home Favourites, for the strip atop Pulse's list. */
+  favorites?: MyFavorite[];
   /** The caller's conversations, for Pulse's list pane. */
   chats?: ConversationSummary[];
   /** 0775: the caller's communities; null before 0775 is applied. */
@@ -191,6 +195,7 @@ export function CommsShell({
               activeCommunityId={communityId}
               activeFileId={fileId}
               onNewChat={setNewChat}
+              favorites={favorites}
             />
             {/* WhatsApp's New chat slides in over the list, same width. */}
             <NewChatPanel

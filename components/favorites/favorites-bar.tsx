@@ -131,7 +131,7 @@ export function FavoritesBar({ items, variant }: { items: MyFavorite[]; variant:
 }
 
 /** Mounted only while open, so it starts from the server's list every time it opens. */
-function EditFavoritesSheet({ items, onClose }: { items: MyFavorite[]; onClose: () => void }) {
+export function EditFavoritesSheet({ items, onClose }: { items: MyFavorite[]; onClose: () => void }) {
   const router = useRouter();
   const toast = useToast();
   const [rows, setRows] = useState<EditRow[]>(() =>

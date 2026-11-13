@@ -78,6 +78,7 @@ import { ShortScrollbar } from "./short-scrollbar";
 import { nameCase } from "@/lib/comms/name-case";
 import { WithPresence } from "./presence";
 import { CHANNELS_CHANGED } from "./sidebar-channels";
+import type { MyFavorite } from "@/lib/favorites/service";
 
 type Filter = "all" | "unread" | "favorites" | "groups" | "communities" | "channels" | "files";
 
@@ -184,8 +185,12 @@ export function ConversationList({
   activeCommunityId = null,
   activeFileId = null,
   onNewChat,
+  favorites,
 }: {
   conversations: ConversationSummary[];
+  /** The person's Home Favourites (lib/favorites/service.ts), drawn as a strip
+   *  above the shortcuts. Absent = no strip. */
+  favorites?: MyFavorite[];
   /** 0811: threads the caller started or replied in, newest reply first. */
   threads?: ThreadSummary[];
   /** 0775: the caller's communities; null when 0775 is not applied. */
@@ -948,8 +953,9 @@ export function ConversationList({
         </nav>
       ) : (
         <>
-      {/* No Favourites strip above the list (user 2026-11-04, the mockup has
-          none); a favourite still wears its star on the row. */}
+      {/* A favourite CHAT wears its star on the row (Starred, below). The
+          Favourites strip at the top of the list is the person's Home
+          Favourites — screens, not chats (user 2026-11-13, option A). */}
       <div className="relative flex min-h-0 flex-1 flex-col">
       {/* A SHORT HANDLE (user 2026-11-05, "intha scroll bar hight a korai"):
           the native bar is hidden and ShortScrollbar draws a fixed 56px one;
@@ -960,6 +966,10 @@ export function ConversationList({
             Saved above the chats. Flat since 2026-11-05 (user: "card mari
             irukkathalma remove pannu") — a hairline beneath, no grey box. Under All only — a filter or
             a search is the operator narrowing the list, not navigating. */}
+        {/* NO FAVOURITES CARD (user 2026-11-13, screenshot 141156: "remove
+            this"). It was added the same day (artifact "Pulse Sidebar
+            Favourites", option A) and withdrawn; Favourites stay on Home. The
+            `favorites` prop is still passed in, but nothing draws it. */}
         {!searching && filter === "all" && (
           <section aria-labelledby="pulse-sec-shortcuts" className="mb-1 border-b border-border pb-1">
             <h2 id="pulse-sec-shortcuts" className="flex items-center px-1 pb-0.5 pt-1 text-xs font-semibold text-muted-foreground">

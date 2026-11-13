@@ -6,6 +6,7 @@ import { listMyCommunities } from "@/lib/comms/community-service";
 import type { Workspace } from "@/lib/comms/workspace";
 import { getChannelPhotos, getUserPhotos } from "@/lib/comms/photos";
 import { CommsShell } from "@/components/comms/comms-shell";
+import { getMyFavorites } from "@/lib/favorites/service";
 import { CommsNotInstalled } from "@/components/comms/comms-not-installed";
 import { WorkspaceBar, WorkspaceDeactivated } from "@/components/comms/workspace-bar";
 
@@ -27,7 +28,7 @@ import { WorkspaceBar, WorkspaceDeactivated } from "@/components/comms/workspace
  * the guard.
  */
 export default async function CommsLayout({ children }: { children: ReactNode }) {
-  await requirePermission("communication", "view");
+  const user = await requirePermission("communication", "view");
   // The same call Chats makes — `cache()` in the service answers both with one
   // RPC — so a missing 0737 is caught here, before any page reaches it.
   let workspace: Workspace | null;
@@ -42,13 +43,20 @@ export default async function CommsLayout({ children }: { children: ReactNode })
   }
   // 0811: the list's Threads section. A failed read leaves the section out
   // rather than taking the whole hub down with it.
-  const [photos, channelPhotos, threads] = await Promise.all([getUserPhotos(), getChannelPhotos(), listMyThreads().catch(() => [])]);
+  // The Favourites strip atop the list (user 2026-11-13, option A) — the same
+  // list as Home. getMyFavorites already answers a failed read with [].
+  const [photos, channelPhotos, threads, favorites] = await Promise.all([
+    getUserPhotos(),
+    getChannelPhotos(),
+    listMyThreads().catch(() => []),
+    getMyFavorites(user),
+  ]);
   if (workspace?.my_status === "deactivated") return <WorkspaceDeactivated workspace={workspace} />;
   // `chats` feeds Pulse's list pane (comms-shell.tsx, "PULSE IS TWO PANES").
   // The workspace name bar is hidden (user 2026-11-02: remove the "RAAGAM"
   // strip); it only shows while the workspace is suspended, to carry the Paused pill.
   return (
-    <CommsShell top={workspace?.status === "suspended" ? <WorkspaceBar workspace={workspace} /> : null} chats={chats} threads={threads} communities={communities} photos={photos} channelPhotos={channelPhotos}>
+    <CommsShell top={workspace?.status === "suspended" ? <WorkspaceBar workspace={workspace} /> : null} chats={chats} threads={threads} communities={communities} photos={photos} channelPhotos={channelPhotos} favorites={favorites}>
       {children}
     </CommsShell>
   );
