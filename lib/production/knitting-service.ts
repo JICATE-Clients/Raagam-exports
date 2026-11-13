@@ -341,6 +341,97 @@ export async function listKnitPartyTargets(vendorId: string | null, excludeOrder
     }));
 }
 
+/** An RE the Knitting Order can take, with what the header pills filter it by. */
+export type KnitOrderOption = {
+  id: string;
+  order_number: string | null;
+  buyer_id: string | null;
+  buyer_name: string | null;
+  /** Ship date, else delivery date — the "Ship date" pill's bands. */
+  ship_date: string | null;
+  /** An approved (non-draft) Fabric BOM stands behind the RE — without one there is nothing to knit. */
+  has_bom: boolean;
+  /** Categories of the fabrics on that Fabric BOM. */
+  category_ids: string[];
+  /** Already on another (not cancelled) Knitting Order. */
+  programmed: boolean;
+};
+export type KnitOrderChoices = { orders: KnitOrderOption[]; categories: { id: string; name: string }[] };
+
+/**
+ * The open REs for the KO header's pills (user 2026-11-13, screenshot 4143 + "we need all that
+ * filters"): Raise PO's row, each pill meaning the knitting equivalent — Buyer, Category (the
+ * fabrics on the current Fabric BOM), Ship date, Fabric BOM ready, Progress (programmed on
+ * another KO). Same RE rows as `getOrdersForPicker` (not cancelled / closed, newest first).
+ * "Current BOM" = the latest approved BOM of the RE's latest garment order — `currentFabricBom`'s
+ * rule, read here for every RE in four list queries instead of one call per RE.
+ * A failed read is an error, never an empty list (an empty picker reads as "nothing to knit").
+ */
+export async function getKnitOrderOptions(): Promise<KnitOrderChoices> {
+  const s = await createClient();
+  const [so, go, boms, kf] = await Promise.all([
+    s
+      .from("sales_orders")
+      .select("id, order_number, buyer_id, ship_date, delivery_date, buyer:buyers!buyer_id(name)")
+      .not("status", "in", "(cancelled,closed)")
+      .order("order_number", { ascending: false }),
+    s.from("garment_order_amendments").select("id, sales_order_id, created_at").order("created_at", { ascending: false }),
+    s.from("order_fabric_boms").select("id, garment_order_id, bom_date").eq("is_draft", false).order("bom_date", { ascending: false }),
+    s.from("process_order_knit_fabrics").select("sales_order_id, po:process_orders!inner(status)"),
+  ]);
+  for (const r of [so, go, boms, kf]) if (r.error) throw new Error(`Could not read the orders: ${r.error.message}`);
+
+  // Latest garment order per RE, then its latest approved Fabric BOM (lists come newest first).
+  const goOf = new Map<string, string>();
+  for (const g of (go.data ?? []) as { id: string; sales_order_id: string | null }[])
+    if (g.sales_order_id && !goOf.has(g.sales_order_id)) goOf.set(g.sales_order_id, g.id);
+  const bomOfGo = new Map<string, string>();
+  for (const b of (boms.data ?? []) as { id: string; garment_order_id: string | null }[])
+    if (b.garment_order_id && !bomOfGo.has(b.garment_order_id)) bomOfGo.set(b.garment_order_id, b.id);
+
+  const bomIds = [...new Set([...goOf.values()].map((g) => bomOfGo.get(g)).filter((x): x is string => !!x))];
+  const catsOfBom = new Map<string, Set<string>>();
+  const catNames = new Map<string, string>();
+  if (bomIds.length) {
+    const { data, error } = await s
+      .from("order_fabric_bom_requirements")
+      .select("bom_id, item:items!item_id(category_id, category:categories!category_id(name))")
+      .in("bom_id", bomIds);
+    if (error) throw new Error(`Could not read the Fabric BOMs: ${error.message}`);
+    for (const r of (data ?? []) as { bom_id: string; item: unknown }[]) {
+      const it = one(r.item as { category_id: string | null; category: unknown } | null);
+      if (!it?.category_id) continue;
+      catsOfBom.set(r.bom_id, (catsOfBom.get(r.bom_id) ?? new Set()).add(it.category_id));
+      const name = one(it.category as { name: string | null } | null)?.name;
+      if (name) catNames.set(it.category_id, name);
+    }
+  }
+  const programmed = new Set(
+    ((kf.data ?? []) as { sales_order_id: string | null; po: unknown }[])
+      .filter((r) => r.sales_order_id && one(r.po as { status: string } | null)?.status !== "cancelled")
+      .map((r) => r.sales_order_id as string),
+  );
+
+  const orders = (
+    (so.data ?? []) as { id: string; order_number: string | null; buyer_id: string | null; ship_date: string | null; delivery_date: string | null; buyer: unknown }[]
+  ).map((r) => {
+    const g = goOf.get(r.id);
+    const bom = g ? bomOfGo.get(g) : undefined;
+    return {
+      id: r.id,
+      order_number: r.order_number,
+      buyer_id: r.buyer_id,
+      buyer_name: one(r.buyer as { name: string | null } | null)?.name ?? null,
+      ship_date: r.ship_date ?? r.delivery_date,
+      has_bom: !!bom,
+      category_ids: bom ? [...(catsOfBom.get(bom) ?? [])] : [],
+      programmed: programmed.has(r.id),
+    };
+  });
+  const categories = [...catNames.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
+  return { orders, categories };
+}
+
 export async function getKnitters(currentVendorId?: string | null): Promise<KnitOption[]> {
   const s = await createClient();
   const { data, error } = await s

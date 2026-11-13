@@ -129,28 +129,31 @@ export async function cancelKnittingOrder(id: string): Promise<{ ok: true } | Fa
 export async function deleteKnittingOrder(id: string): Promise<{ ok: true } | Fail> {
   if (!(await can("stores", "delete"))) return { ok: false, error: "You do not have permission to delete a knitting order" };
   const s = await createClient();
-  const { data: po, error: poErr } = await s.from("process_orders").select("code, status, process_type").eq("id", id).maybeSingle();
-  if (poErr) return { ok: false, error: `Could not read the knitting order: ${poErr.message}` };
-  const row = po as { code: string | null; status: string; process_type: string } | null;
-  if (!row || row.process_type !== "knitting") return { ok: false, error: "Knitting order not found" };
-  if (!["draft", "issued", "cancelled"].includes(row.status)) {
-    return { ok: false, error: `${row.code ?? "This order"} has yarn at the knitter — it cannot be deleted` };
-  }
-  const { data: pol } = await s.from("process_order_lines").select("id").eq("process_order_id", id);
-  const polIds = ((pol ?? []) as { id: string }[]).map((x) => x.id);
-  if (polIds.length) {
-    const { data: dcs, error: dcErr } = await s.from("dc_line_items").select("id").in("process_order_line_id", polIds).limit(1);
-    if (dcErr) return { ok: false, error: `Could not check the yarn DCs: ${dcErr.message}` };
-    if (dcs?.length) return { ok: false, error: "A yarn DC was raised against this order (even a cancelled one keeps it) — cancel the order instead" };
-  }
-  const { data: gone, error } = await s.from("process_orders").delete().eq("id", id).eq("process_type", "knitting").select("id");
+  // 0841: one SQL call — the checks, the order's draft / undone (cancelled) DCs, then the order.
+  const { data: code, error } = await s.rpc("knitting_order_delete", { p_order_id: id });
   if (error) {
-    if (error.code === "23503") return { ok: false, error: "Other documents point at this order (a DC, receipt or bill) — cancel it instead" };
+    if (error.code === "23503") return { ok: false, error: "Other documents point at this order (a receipt or bill) — cancel it instead" };
     return { ok: false, error: error.message };
   }
-  if (!gone?.length) return { ok: false, error: "The order was not deleted — it is not in your working unit, or you lack the delete permission" };
-  await writeAudit({ action: "knitting_order.deleted", entityType: "process_order", entityId: id, metadata: { code: row.code } });
+  await writeAudit({ action: "knitting_order.deleted", entityType: "process_order", entityId: id, metadata: { code } });
   revalidateKnitting(id);
+  revalidatePath("/purchase/dc");
+  return { ok: true };
+}
+
+/**
+ * UNDO A SENT YARN DC (user 2026-11-13, screenshot 4149: "return to the bin, that's all").
+ * `knitting_dc_undo` (0841) puts the yarn back in the bin it left, cancels the DC and returns the
+ * order to Issued — refused once anything has come back or moved at the knitter.
+ */
+export async function undoKnittingDc(orderId: string, dcId: string): Promise<{ ok: true } | Fail> {
+  if (!(await can("stores", "edit"))) return { ok: false, error: "You do not have permission to undo a yarn DC" };
+  const s = await createClient();
+  const { error } = await s.rpc("knitting_dc_undo", { p_dc_id: dcId });
+  if (error) return { ok: false, error: error.message };
+  await writeAudit({ action: "knitting_dc.undone", entityType: "delivery_challan", entityId: dcId, metadata: { order_id: orderId } });
+  revalidateKnitting(orderId);
+  revalidatePath("/purchase/dc");
   return { ok: true };
 }
 

@@ -4,7 +4,7 @@ import { useRef } from "react";
 import { Cake, Droplets, Mail, MapPin, Phone, UserRound } from "lucide-react";
 import { Card, CardBody } from "@/components/ui/card";
 import { PhotoUpload, type PhotoUploadHandle } from "@/components/ui/photo-upload";
-import { StatusPill } from "@/components/ui/status-pill";
+import { StatusPill } from "@/components/ui/status-pill";
 import { activeTone } from "@/lib/ui/status-tone";
 import { Truncated } from "@/components/ui/truncated";
 import { fmtDate } from "@/lib/format";
@@ -50,6 +50,9 @@ export type PersonProfileAsideProps = {
   className?: string;
   /** The record cannot be saved without a photograph (client 2026-09-18). */
   photoRequired?: boolean;
+  /** MY PROFILE (user 2026-11-13: "open all except profile picture, only admin control"): the
+   *  person sees their photo but cannot change it — Upload / Remove give way to this line. */
+  photoLockedNote?: string;
 };
 
 /**
@@ -211,13 +214,21 @@ export function PersonProfileAside(p: PersonProfileAsideProps) {
             )}
             {/* `showPreview={false}`: the avatar above IS the preview, so the
                 control contributes only its buttons and the size hint. */}
-            <PhotoUpload
-              ref={photoRef}
-              value={p.photoUrl}
-              onChange={p.onPhotoChange}
-              folder={p.photoFolder}
-              showPreview={false}
-            />
+            {/* MERGED (2026-11-13): My Profile's locked photo (purchase) and the
+                click-to-view ref (master, client 2026-11-06). Locked → the note,
+                no Upload, so the avatar's view-with-Change/Remove has nothing to
+                open; otherwise the Upload control carries the ref it opens. */}
+            {p.photoLockedNote ? (
+              <p className="text-xs text-muted-foreground">{p.photoLockedNote}</p>
+            ) : (
+              <PhotoUpload
+                ref={photoRef}
+                value={p.photoUrl}
+                onChange={p.onPhotoChange}
+                folder={p.photoFolder}
+                showPreview={false}
+              />
+            )}
           </div>
 
           <dl className="divide-y divide-border rounded-lg border border-border">

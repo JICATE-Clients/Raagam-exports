@@ -184,6 +184,12 @@ export interface AppUser {
    */
   moduleMode?: PermissionKey[];
   screenGrants?: string[];
+  /**
+   * 0840: `screen_key|action` BLOCKED for this person — a cell of a role they
+   * hold, taken away from them alone (Users ▸ ✏️, user 2026-11-13). Wins over
+   * every grant on that screen.
+   */
+  screenBlocks?: string[];
 }
 
 /**
@@ -197,7 +203,7 @@ export interface AppUser {
  * module's own screens.
  */
 export function hasPermission(
-  user: Pick<AppUser, "isSuperAdmin" | "permissions" | "moduleMode" | "screenGrants"> | null,
+  user: Pick<AppUser, "isSuperAdmin" | "permissions" | "moduleMode" | "screenGrants" | "screenBlocks"> | null,
   module: Module,
   action: Action,
   screen?: { key: string; module: Module } | null,
@@ -206,6 +212,8 @@ export function hasPermission(
   if (user.isSuperAdmin) return true;
   const key = `${module}:${action}` as PermissionKey;
   if (!user.permissions.includes(key)) return false;
+  // 0840: blocked for this person on this screen — before any grant can answer.
+  if (screen && user.screenBlocks?.includes(`${screen.key}|${action}`)) return false;
   if (!screen || !user.moduleMode) return true; // module grain — today's answer
   return permissionAllows(
     {

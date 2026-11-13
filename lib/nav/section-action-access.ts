@@ -30,7 +30,7 @@ export function actionPermission(label: string): Action {
 
 /** `SECTION_ACTIONS[href]`, minus the ones `user` may not perform there. */
 export function allowedSectionActions(
-  user: Pick<AppUser, "isSuperAdmin" | "permissions" | "moduleMode" | "screenGrants"> | null,
+  user: Pick<AppUser, "isSuperAdmin" | "permissions" | "moduleMode" | "screenGrants" | "screenBlocks"> | null,
   href: string,
 ): string[] {
   const actions = SECTION_ACTIONS[href] ?? [];

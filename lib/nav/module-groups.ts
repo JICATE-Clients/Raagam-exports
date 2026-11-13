@@ -264,7 +264,12 @@ export interface ModuleLink {
    * (user 2026-11-06). Every card on it is already gated by the screen its figures come
    * from (`canViewHref` in `lib/analytics/sources.ts`), so the page itself shows nobody
    * anything they could not open, and a role granted screen by screen keeps its landing
-   * page without a new tick. `buildScreenCatalog` leaves such a row out of the tree.
+   * page without a new tick.
+   *
+   * NO LONGER KEPT OUT OF THE PERMISSION TREE (user 2026-11-13: "I built the overview
+   * page, not added — why"). `buildScreenCatalog` used to skip these rows, so an
+   * Overview could not be given or taken away on Roles & Permissions or Users. It is
+   * an ordinary screen there now; the flag is kept as the record of what the row is.
    */
   moduleGrant?: true;
   status?: "unavailable";
@@ -1802,12 +1807,14 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         // (declared in REDIRECTED, scripts/check-module-groups.mts). Home
         // Favourites and the Audit Log moved to System — neither grants access.
         children: [
-          { href: "/admin/users", label: "Users", description: "Each person's login, roles, units and extra screens" },
+          // ROLES FIRST (user 2026-11-13: "move Roles & Permissions as first,
+          // user as second") — a role is set up once, then given to people.
           {
             href: "/admin/access-control",
             label: "Roles & Permissions",
             description: "Screen access by role — everyone holding a role gets its access",
           },
+          { href: "/admin/users", label: "Users", description: "Each person's login, roles, units and extra screens" },
           // RESTORED (2026-11-13). The 09-30 merge redirected this route to
           // User Permissions, which never rendered the grant screen — so no
           // override could be granted from anywhere for six weeks.

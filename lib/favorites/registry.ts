@@ -155,7 +155,7 @@ export function resolveFavorite(key: string): FavoriteItem | null {
 /** May this person open what the tile opens? A tile they cannot open is LEFT OUT, never
  *  greyed — the same rule the Quick start tiles followed. Screen-aware (0658). */
 export function favoriteAllowed(
-  user: Pick<AppUser, "isSuperAdmin" | "permissions" | "moduleMode" | "screenGrants">,
+  user: Pick<AppUser, "isSuperAdmin" | "permissions" | "moduleMode" | "screenGrants" | "screenBlocks">,
   item: FavoriteItem,
 ): boolean {
   if (!item.module) return true;

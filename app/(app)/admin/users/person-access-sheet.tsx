@@ -2,23 +2,20 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Combobox } from "@/components/ui/combobox";
 import { Sheet } from "@/components/ui/sheet";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
 import { AccessMatrix } from "@/components/permissions/access-matrix";
+import { ALL_UNITS, AccessRow as Row, RoleChips, UnitChips, unitsPayload } from "@/components/permissions/access-pickers";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { screenCatalog } from "@/lib/permissions/screen-catalog";
-import type { PermissionTree as Tree } from "@/lib/permissions/effective";
+import { treeHas, type PermissionTree as Tree } from "@/lib/permissions/effective";
 import { saveUserAccess } from "@/lib/permissions/actions";
-import type { AccessLocation, AccessUser } from "@/lib/permissions/service";
+import type { AccessLocation, AccessUser, ScreenBlock } from "@/lib/permissions/service";
 import type { Action, Module } from "@/lib/auth/types";
 import { assignRole, removeRole } from "@/app/(app)/admin/actions";
 import type { RoleOption, UserRoleEntry, ProfileRow } from "./page";
-
-const ALL_UNITS = "__all_units__";
 
 /**
  * ONE PERSON'S ACCESS, ON ONE PAGE, WITH ONE SAVE (user 2026-11-13,
@@ -36,7 +33,8 @@ const ALL_UNITS = "__all_units__";
  * Now, top to bottom:
  *   ROLES          chips; ✕ takes one off, "+ Add role" picks one on.
  *   UNITS *        the units as named buttons, ticked on or off.
- *   ACCESS TABLE   `AccessMatrix` — what the roles give (blue, locked) and this
+ *   ACCESS TABLE   `AccessMatrix` — what the roles give (blue; untick = BLOCK it
+ *                  for this person only, 0840) and this
  *                  person's extras (green), one table (plan approved 2026-11-13,
  *                  https://claude.ai/artifact/JGQev3raC2WCeMyVULxE9j). It replaced
  *                  a "Can open" list and a separate tree that disagreed.
@@ -100,31 +98,20 @@ export function PersonAccessSheet({
   const [units, setUnits] = useState<string[]>(storedUnits);
   const [active, setActive] = useState(access?.access?.is_active ?? true);
   const [tree, setTree] = useState<Tree>(access?.tree ?? {});
-  /* "+ Add role" is a BUTTON that opens the picker: placeholders are off app-wide
-     (`SHOW_PLACEHOLDERS`), so an empty picker could never say what it was for —
-     it drew as a blank box (screenshot 4140). */
-  const [adding, setAdding] = useState(false);
-  const [rolePick, setRolePick] = useState("");
+  const [blocks, setBlocks] = useState<ScreenBlock[]>(access?.blocks ?? []);
 
   const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x));
   const rolesDirty = !sameSet(roleIds, heldIds);
   const unitsDirty = !sameSet(units, storedUnits);
   const treeDirty = JSON.stringify(tree) !== JSON.stringify(access?.tree ?? {});
-  const extrasDirty = treeDirty || active !== (access?.access?.is_active ?? true);
+  const blocksKey = (b: ScreenBlock[]) => b.map((x) => `${x.screen}|${x.action}`).sort().join(",");
+  const blocksDirty = blocksKey(blocks) !== blocksKey(access?.blocks ?? []);
+  const extrasDirty = treeDirty || blocksDirty || active !== (access?.access?.is_active ?? true);
   const dirty = rolesDirty || unitsDirty || extrasDirty;
   useUnsavedGuard(isPending || (open && dirty));
 
   const roleName = (id: string) => roles.find((r) => r.id === id)?.name ?? "Unknown role";
-  const unitIds = units.filter((u) => u !== ALL_UNITS);
-  const allUnits = units.includes(ALL_UNITS);
-  const noUnit = !allUnits && unitIds.length === 0;
-
-  function toggleUnit(id: string) {
-    if (id === ALL_UNITS) return setUnits(allUnits ? [] : [ALL_UNITS]);
-    // Ticking one unit while "All units" is on narrows to that unit.
-    const base = allUnits ? [] : unitIds;
-    setUnits(base.includes(id) ? base.filter((u) => u !== id) : [...base, id]);
-  }
+  const noUnit = !units.includes(ALL_UNITS) && units.length === 0;
 
 
   function save() {
@@ -150,7 +137,12 @@ export function PersonAccessSheet({
           active,
           note: access.access?.note ?? null,
           tree,
-          locations: { all: allUnits, ids: allUnits ? [] : unitIds },
+          locations: unitsPayload(units),
+          /* Only blocks a role they still hold gives: remove the role and a
+             block on its cells would be a rule about nothing. */
+          blocks: blocks.filter((b) =>
+            roleIds.some((id) => treeHas(roleTrees[id] ?? {}, { key: b.screen, module: b.module as Module }, b.action)),
+          ),
         });
         if (!res.ok) return toastError(res.error);
       }
@@ -170,7 +162,6 @@ export function PersonAccessSheet({
     <StatusPill tone="success">Password set</StatusPill>
   );
 
-  const offeredRoles = roles.filter((r) => !roleIds.includes(r.id));
   const paused = !!access?.access && !access.access.is_active && Object.values(access.tree).some(Boolean);
 
   return (
@@ -212,56 +203,9 @@ export function PersonAccessSheet({
             {/* ── ROLES ─────────────────────────────────────────────────── */}
             <Row label="Roles">
               {!profile ? (
-                <p className="text-sm text-muted-foreground">No login yet — send the welcome mail from the row first. A role hangs off the login.</p>
+                <p className="text-sm text-muted-foreground">No login yet — roles are given with the invite: the ✉ on their row asks for a role and a unit before it sends.</p>
               ) : (
-                <div className="flex flex-wrap items-center gap-2">
-                  {roleIds.length === 0 && <span className="text-sm text-muted-foreground">No role yet</span>}
-                  {roleIds.map((id) => (
-                    <span key={id} className="inline-flex h-8 items-center gap-1 rounded-control bg-info/10 pl-3 pr-1 text-sm font-medium text-info">
-                      {roleName(id)}
-                      {!locked && (
-                        <button
-                          type="button"
-                          aria-label={`Remove role ${roleName(id)}`}
-                          className="inline-flex size-6 items-center justify-center rounded-full hover:bg-info/20"
-                          onClick={() => setRoleIds((ids) => ids.filter((x) => x !== id))}
-                        >
-                          <X className="size-3.5" aria-hidden />
-                        </button>
-                      )}
-                    </span>
-                  ))}
-                  {!locked && offeredRoles.length > 0 &&
-                    (adding ? (
-                      <div className="w-56">
-                        {/* Picking IS adding — no second "Assign" button (screenshot 4139). */}
-                        <Combobox
-                          id="pa-add-role"
-                          options={offeredRoles.map((r) => ({ value: r.id, label: r.name, sublabel: r.description ?? undefined }))}
-                          value={rolePick}
-                          onChange={(v) => {
-                            if (v) setRoleIds((ids) => (ids.includes(v) ? ids : [...ids, v]));
-                            setRolePick("");
-                            setAdding(false);
-                          }}
-                        />
-                      </div>
-                    ) : (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setAdding(true);
-                          // The picker mounts on this click; put the cursor in it.
-                          requestAnimationFrame(() => document.getElementById("pa-add-role")?.focus());
-                        }}
-                      >
-                        <Plus className="h-4 w-4" aria-hidden />
-                        Add role
-                      </Button>
-                    ))}
-                </div>
+                <RoleChips id="pa-add-role" roles={roles} value={roleIds} onChange={setRoleIds} readOnly={locked} />
               )}
             </Row>
 
@@ -270,42 +214,7 @@ export function PersonAccessSheet({
               {!access ? (
                 <p className="text-sm text-muted-foreground">No email in HR &amp; Payroll ▸ People ▸ Staff — add one there first.</p>
               ) : (
-                <div className="space-y-1.5">
-                  {/* Named, not counted: "1 units selected" never said WHICH unit. */}
-                  <div className="flex flex-wrap gap-2" role="group" aria-label="Units">
-                    {[{ id: ALL_UNITS, name: "All units" }, ...locations].map((l) => {
-                      const on = l.id === ALL_UNITS ? allUnits : allUnits || unitIds.includes(l.id);
-                      return (
-                        <label
-                          key={l.id}
-                          className={`inline-flex h-8 cursor-pointer items-center gap-2 rounded-control border px-3 text-sm ${
-                            on ? "border-primary bg-primary/10 font-medium text-primary" : "border-border text-foreground"
-                          } ${locked ? "pointer-events-none opacity-60" : ""}`}
-                        >
-                          <input
-                            type="checkbox"
-                            className="size-4 accent-[var(--primary)]"
-                            checked={on}
-                            disabled={locked}
-                            onChange={() => toggleUnit(l.id)}
-                          />
-                          {l.name}
-                        </label>
-                      );
-                    })}
-                    {/* A unit switched off since it was given stays listed, so Save never drops it silently. */}
-                    {unitIds
-                      .filter((id) => !locations.some((l) => l.id === id))
-                      .map((id) => (
-                        <span key={id} className="inline-flex h-8 items-center rounded-control border border-border px-3 text-sm text-muted-foreground">
-                          (inactive unit)
-                        </span>
-                      ))}
-                  </div>
-                  <p className={`text-xs ${noUnit ? "text-danger" : "text-muted-foreground"}`}>
-                    {noUnit ? "Tick at least one — with no unit they see no data." : "The units they may switch to in the top bar."}
-                  </p>
-                </div>
+                <UnitChips locations={locations} value={units} onChange={setUnits} readOnly={locked} />
               )}
             </Row>
           </dl>
@@ -337,6 +246,8 @@ export function PersonAccessSheet({
               offered={offered}
               roleTrees={roleIds.map((id) => ({ name: roleName(id), tree: roleTrees[id] ?? {} }))}
               extras={tree}
+              blocks={blocks}
+              onBlocksChange={setBlocks}
               readOnly={locked || !access}
               onChange={(t) => {
                 setTree(t);
@@ -347,18 +258,5 @@ export function PersonAccessSheet({
         )}
       </div>
     </Sheet>
-  );
-}
-
-/** One labelled line of the editor — label column left, content right. */
-function Row({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
-  return (
-    <div className="grid gap-2 px-4 py-3 sm:grid-cols-[8rem_1fr] sm:items-start">
-      <dt className="pt-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        {label}
-        {required && <span className="text-danger"> *</span>}
-      </dt>
-      <dd className="min-w-0">{children}</dd>
-    </div>
   );
 }

@@ -87,8 +87,9 @@ export function buildScreenCatalog(): CatalogModule[] {
       const loose: CatalogScreen[] = [];
       for (const e of grouping.entries) {
         if (e.kind === "link") {
-          // A module Overview rides on the module grant (`ModuleLink.moduleGrant`): no screen.
-          if (e.moduleGrant) continue;
+          // A module Overview IS a screen since 2026-11-13 (user: "I built the overview
+          // page, not added — why"). It used to ride on the module grant and was left
+          // out here, so it could not be given or taken away per role or person.
           loose.push({
             key: e.href,
             label: e.label,

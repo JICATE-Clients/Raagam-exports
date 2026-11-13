@@ -1,5 +1,4 @@
 import { requireUser } from "@/lib/auth/server";
-import { getCaps } from "@/lib/dashboard/service";
 import { PageHeader } from "@/components/ui/page-header";
 import { getMyFavorites } from "@/lib/favorites/service";
 import { FavoritesBar } from "@/components/favorites/favorites-bar";
@@ -21,10 +20,10 @@ import { PhoneHome } from "@/components/dashboard/phone-home";
  */
 export default async function FavouritesPage() {
   const user = await requireUser();
-  const [items, caps] = await Promise.all([getMyFavorites(user), getCaps()]);
+  const items = await getMyFavorites(user);
   return (
     <>
-      <PhoneHome user={user} caps={caps} />
+      <PhoneHome user={user} />
       <div className="hidden space-y-4 md:block">
         <PageHeader title="Favourites" back={false} />
         <FavoritesBar items={items} variant="desktop" />

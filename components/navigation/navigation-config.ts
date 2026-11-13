@@ -95,7 +95,7 @@ export function activeChildFor(
   return owningNavHref(moduleHref, pathname) ?? activeChildHref(pathname, children);
 }
 
-type NavUser = Pick<AppUser, "isSuperAdmin" | "permissions" | "moduleMode" | "screenGrants" | "myStaffId"> | null;
+type NavUser = Pick<AppUser, "isSuperAdmin" | "permissions" | "moduleMode" | "screenGrants" | "screenBlocks" | "myStaffId"> | null;
 
 /**
  * THE HR "STAFF" ROW IS "MY PROFILE" FOR A REGULAR STAFF MEMBER (user
