@@ -29,7 +29,16 @@ export default function ForgotPasswordPage() {
       redirectTo: `${window.location.origin}/auth/callback?next=${next}`,
     });
     setLoading(false);
-    if (error) return setError(error.message);
+    if (error) {
+      /* Supabase Auth's email limit (2026-11-13: the built-in mailer allowed 2 an hour for the
+         whole project and three operators were refused). Its raw text read as a broken screen. */
+      if (error.status === 429 || error.code === "over_email_send_rate_limit") {
+        return setError(
+          "Too many reset emails were sent in the last hour. Please try again later, or ask an admin to resend your login from Users & Access.",
+        );
+      }
+      return setError(error.message);
+    }
     setSent(true);
   }
 

@@ -1772,8 +1772,10 @@ an override, and the override lives INSIDE the two lock triggers, never beside t
 Spec `doc/email role system.md`; what was built and every decision against the spec in
 `doc/order/permission-override-findings.md` (0650 · 0651 · 0653 · 0655 · 0656).
 
-An admin or the MD grants `(email, key, expiry ≤ 30 days, reason)` on **Admin ▸ Access
-Control ▸ Permission Overrides**. The keys ARE the Raise Revision kinds (`price_change`,
+An admin or the MD grants `(email, key, expiry ≤ 30 days, reason)` on **Administration ▸
+Users & Access ▸ Approved Order Edits** (`/admin/permission-overrides` — restored
+2026-11-13; for six weeks it redirected to a screen that never rendered it, so nothing
+could be granted). The keys ARE the Raise Revision kinds (`price_change`,
 `qty_addition` … plus `material_bom` / `fabric_bom` / `order_budget`), and what a key
 opens is that kind's revision SEED — **without** 0627's whole-document overlay, so a Price
 Change override opens the price tables and nothing else. Four rules hold it together:
@@ -1860,7 +1862,8 @@ place and Head Office to Raagam HO; there is no Unit 1. Raagam HO is ONE unit, n
 more. Work still happens in one unit at a time (the topbar switcher); the
 allocation is the set a person may switch between.
 
-- **One source.** Users & Access ▸ User Permissions ▸ **Units** (`user_access` +
+- **One source.** Users & Access ▸ Users ▸ **Units** — the row's Units column, or
+  the person editor's Units section; User Permissions merged into Users 2026-11-13 (`user_access` +
   `user_access_locations`) is the only thing that gives a normal user a unit.
   A role's location no longer does (0680): `has_permission` never read it, so it
   only ever competed with the allocation, and a role given "at any location"

@@ -9,10 +9,9 @@ import { AccessControlScreen } from "./access-control-screen";
  *
  * A role's screens and actions, for everyone holding it, over the one
  * permission tree (0658). Until 2026-10-01 this page also carried a By User
- * tab; a person's own email-based access is now its own screen,
- * /admin/user-permissions (user: "list the by user as separate with a better
- * label"). The ROUTE stays /admin/access-control so every bookmark lands, and
- * an old `?tab=users` / `?user=` link is sent on to the new screen.
+ * tab; a person's own access is set on Users since 2026-11-13 (one editor:
+ * roles, units, extra screens). The ROUTE stays /admin/access-control so every
+ * bookmark lands, and an old `?tab=users` / `?user=` link is sent on to Users.
  * /admin/roles redirects here.
  */
 export default async function RolesAndPermissionsPage({
@@ -22,10 +21,10 @@ export default async function RolesAndPermissionsPage({
 }) {
   const { tab, user } = await searchParams;
   if (tab === "users" || user) {
-    redirect(user ? `/admin/user-permissions?user=${encodeURIComponent(user)}` : "/admin/user-permissions");
+    redirect(user ? `/admin/users?user=${encodeURIComponent(user)}` : "/admin/users");
   }
 
-  const me = await requirePermission("system_admin", "view");
+  await requirePermission("system_admin", "view");
   const [data, canCreate, canEdit, canDelete] = await Promise.all([
     loadAccessControl(),
     can("system_admin", "create"),
@@ -41,12 +40,9 @@ export default async function RolesAndPermissionsPage({
       />
       <AccessControlScreen
         data={data}
-        meId={me.id}
         canCreate={canCreate}
         canEdit={canEdit}
         canDelete={canDelete}
-        view="roles"
-        initialUser={null}
       />
     </div>
   );

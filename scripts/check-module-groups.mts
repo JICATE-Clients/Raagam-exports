@@ -533,7 +533,10 @@ const REDIRECTED: Record<string, string> = {
   // Roles & Permissions and Permission Overrides MERGED into one Access Control
   // screen (user 2026-09-30) — By Role / By User over the screen-level tree.
   "/admin/roles": "/admin/access-control",
-  "/admin/permission-overrides": "/admin/user-permissions",
+  // User Permissions MERGED into Users (user 2026-11-13: "user access control
+  // look much cluttered"). One person, one editor: roles, units and extra
+  // screens. The old address opens Users; `?user=` is carried by the page.
+  "/admin/user-permissions": "/admin/users",
   // Sample's four extra groups dissolved the day they were made (user
   // 2026-10-14: "no need grouping, list plainly under sample management").
   "/sales/pd": "/sales/management",

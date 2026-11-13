@@ -35,7 +35,7 @@ import {
 import type { OverrideGrant, OverrideGrantee, OverrideGrantHistoryRow } from "@/lib/orders/overrides/types";
 
 /**
- * Admin ▸ Access Control ▸ Permission Overrides (doc/email role system.md §7.1).
+ * Administration ▸ Users & Access ▸ Approved Order Edits (doc/email role system.md §7.1).
  *
  * A register of grants — who may edit which module of an APPROVED order, until
  * when, and why — with three doors: Grant (the + button), Renew and Revoke (row

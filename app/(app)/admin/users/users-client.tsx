@@ -6,7 +6,7 @@ import { useFacetFilter } from "@/components/ui/filter-drawer";
 import { useQuickStatus } from "@/components/orders/bom-queue";
 import { userFacets, userSearchText, userWord } from "./users-filters";
 import Link from "next/link";
-import { CircleAlert, CircleCheck, Mail, ShieldCheck, ToggleLeft, ToggleRight, Trash2 } from "lucide-react";
+import { CircleAlert, CircleCheck, Mail, Pencil, ShieldCheck, ToggleLeft, ToggleRight } from "lucide-react";
 import { SelectionBar } from "@/components/ui/selection-bar";
 import { useRowSelection } from "@/lib/data-io/use-row-selection";
 import { useRouter } from "next/navigation";
@@ -22,9 +22,15 @@ import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
-import { assignRole, removeRole } from "@/app/(app)/admin/actions";
+import { assignRole } from "@/app/(app)/admin/actions";
 import { createUserFromStaff, resendWelcome, setLoginActive } from "@/lib/users/actions";
 import { withCreatedColumns } from "@/components/ui/created-columns";
+import { Truncated } from "@/components/ui/truncated";
+import { UnitsCell } from "@/components/permissions/units-cell";
+import type { AccessLocation, AccessUser } from "@/lib/permissions/service";
+import type { PermissionTree as PermissionTreeT } from "@/lib/permissions/effective";
+import type { Action, Module } from "@/lib/auth/types";
+import { PersonAccessSheet } from "./person-access-sheet";
 
 /**
  * USERS = HR ▸ STAFF (user 2026-09-30, screenshot 3143; the source moved
@@ -70,156 +76,6 @@ function DeliveryNote({ result, onClose }: { result: Delivery; onClose: () => vo
 }
 
 /* ------------------------------------------------------------------ */
-/* Role Management Panel                                               */
-/* ------------------------------------------------------------------ */
-
-/* A ROLE NO LONGER CARRIES A LOCATION (0680, client 2026-10-03: "Users &
-   Access ▸ Location Allocation is the single source of truth"). A role says
-   what a person may DO; which units they may OPEN is their Units allocation
-   on User Permissions. The role's location used to open units too — a role
-   given "at any location" silently opened every unit — so it is no longer
-   asked for, written, or shown. Old rows keep their stored location_id, which
-   nothing reads any more. */
-function RolePanel({
-  userId,
-  userRoles,
-  roles,
-}: {
-  userId: string;
-  userRoles: UserRoleEntry[];
-  roles: RoleOption[];
-}) {
-  const router = useRouter();
-  const { success, error: toastError } = useToast();
-  const [isPending, startTransition] = useTransition();
-  /* No pre-filled role (users 2026-09-30 redesign): the old default picked the
-     first role in the list, so "Assign" on an untouched form granted it. */
-  const [roleId, setRoleId] = useState("");
-  /** The held role whose bin is asking "remove it?" — an inline confirm. */
-  const [removingId, setRemovingId] = useState<string | null>(null);
-
-  const holds = (rid: string) => userRoles.some((ur) => ur.role_id === rid);
-  const offered = roles.filter((r) => !holds(r.id));
-
-  function handleAssign(e: React.FormEvent) {
-    e.preventDefault();
-    if (!roleId || holds(roleId)) return;
-    startTransition(async () => {
-      const result = await assignRole(userId, roleId, null);
-      if (result.ok) {
-        success("Role assigned.");
-        setRoleId("");
-        router.refresh();
-      } else {
-        toastError(result.error);
-      }
-    });
-  }
-
-  function handleRemove(userRoleId: string) {
-    setRemovingId(null);
-    startTransition(async () => {
-      const result = await removeRole(userRoleId);
-      if (result.ok) {
-        success("Role removed.");
-        router.refresh();
-      } else {
-        toastError(result.error);
-      }
-    });
-  }
-
-  return (
-    <div className="space-y-4">
-      {/* Current roles */}
-      <div>
-        <p className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
-          Holds
-        </p>
-        {userRoles.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No roles assigned yet.</p>
-        ) : (
-          <div className="space-y-1.5">
-            {userRoles.map((ur) =>
-              removingId === ur.id ? (
-                /* INLINE CONFIRM — a removed grant takes screens away from
-                   someone at once, so the bin asks before it acts. */
-                <div key={ur.id} className="space-y-2 rounded-md border border-danger/40 bg-danger/5 px-3 py-2">
-                  <span className="text-sm font-semibold text-foreground">{ur.role_name}</span>
-                  <div className="flex items-center gap-2">
-                    <span className="mr-auto text-sm text-danger">Remove this role?</span>
-                    <Button type="button" variant="outline" size="sm" onClick={() => setRemovingId(null)}>
-                      Keep
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="danger"
-                      size="sm"
-                      disabled={isPending}
-                      onClick={() => handleRemove(ur.id)}
-                    >
-                      Remove
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <div
-                  key={ur.id}
-                  className="flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-1.5"
-                >
-                  <span className="min-w-0 flex-1 text-sm font-semibold text-foreground">{ur.role_name}</span>
-                  <RowIconAction
-                    label="Remove role"
-                    name={ur.role_name}
-                    icon={Trash2}
-                    danger
-                    onClick={() => setRemovingId(ur.id)}
-                  />
-                </div>
-              ),
-            )}
-          </div>
-        )}
-      </div>
-
-      <form onSubmit={handleAssign} className="space-y-3 border-t border-border pt-3">
-        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-          Assign another
-        </p>
-        <div>
-          <Label htmlFor="ar-role">Role *</Label>
-          <Select
-            id="ar-role"
-            value={roleId}
-            onChange={(e) => setRoleId(e.target.value)}
-            required
-          >
-            <option value="">{offered.length ? "Pick a role" : "Holds every role"}</option>
-            {offered.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name}
-              </option>
-            ))}
-          </Select>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Which units this person can open is set under{" "}
-          <Link href="/admin/user-permissions" className="text-primary underline-offset-2 hover:underline">
-            Users &amp; Access ▸ User Permissions ▸ Units
-          </Link>
-          , not here.
-        </p>
-        <div className="flex justify-end">
-          <Button type="submit" variant="primary" size="sm" disabled={isPending || !roleId}>
-            {isPending ? "Assigning…" : "Assign Role"}
-          </Button>
-        </div>
-      </form>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
 /* Root export                                                          */
 /* ------------------------------------------------------------------ */
 
@@ -228,11 +84,25 @@ export default function UsersClient({
   userRoles,
   roles,
   meId,
+  access,
+  canEdit,
+  initialEmail,
 }: {
   rows: UserRow[];
   userRoles: UserRoleEntry[];
   roles: RoleOption[];
   meId: string;
+  /** Each person's units and extra screens, keyed by email (2026-11-13 merge). */
+  access: {
+    users: AccessUser[];
+    locations: AccessLocation[];
+    offered: Partial<Record<Module, Action[]>>;
+    /** Each role's tree by role id — the editor's "Can open" summary. */
+    roleTrees: Record<string, PermissionTreeT>;
+  };
+  canEdit: boolean;
+  /** `?user=<email>` — an old User Permissions link opens that person's editor. */
+  initialEmail: string | null;
 }) {
   const router = useRouter();
   const [delivery, setDelivery] = useState<Delivery | null>(null);
@@ -241,22 +111,48 @@ export default function UsersClient({
   const [confirmingKey, setConfirmingKey] = useState<string | null>(null);
   const { success, error: toastError } = useToast();
 
-  const [open, setOpen] = useState(false);
   /* BULK (user 2026-09-30: "select check box in front … for bulk setting the
      data") — ticked rows, keyed by `UserRow.key`, and the Assign-role sheet. */
   const sel = useRowSelection();
   const [bulkRoleOpen, setBulkRoleOpen] = useState(false);
   const [bulkRoleId, setBulkRoleId] = useState("");
-  const [managing, setManaging] = useState<ProfileRow | null>(null);
+  /* THE PERSON EDITOR (2026-11-13) — the row whose roles, units and extra
+     screens are open. A key, not a copy: after a save `router.refresh()` hands
+     new rows down, and the editor must read them, not a snapshot. */
+  const [editingKey, setEditingKey] = useState<string | null>(() =>
+    initialEmail ? (rows.find((r) => r.email?.trim().toLowerCase() === initialEmail)?.key ?? null) : null,
+  );
   const [origin, setOrigin] = useState<DOMRect | null>(null);
 
-  function openManage(p: ProfileRow) {
+  function openEditor(r: UserRow) {
     /* `RowIconAction` hands no event over; the clicked icon is the focused
        element, so the sheet still grows out of it. */
     const el = document.activeElement;
     setOrigin(el instanceof HTMLElement ? el.getBoundingClientRect() : null);
-    setManaging(p);
-    setOpen(true);
+    setEditingKey(r.key);
+  }
+
+  /** A person's email access — as stored, or blank when it was never set up
+   *  (the same shape `loadAccessControl` gives an access-only row). Null when
+   *  HR holds no email: units and extra screens are keyed on it. */
+  const accessByEmail = useMemo(() => new Map(access.users.map((u) => [u.email, u])), [access.users]);
+  function accessOf(r: UserRow): AccessUser | null {
+    const email = r.email?.trim().toLowerCase();
+    if (!email) return null;
+    const stored = accessByEmail.get(email);
+    if (stored) return stored;
+    return {
+      id: r.profile?.id ?? `email:${email}`,
+      email,
+      full_name: r.name,
+      employee_code: r.code,
+      is_active: r.profile?.is_active ?? false,
+      is_super_admin: r.profile?.is_super_admin ?? false,
+      has_login: !!r.profile,
+      roles: [],
+      access: null,
+      tree: {},
+    };
   }
 
   /**
@@ -319,6 +215,7 @@ export default function UsersClient({
   const quick = useQuickStatus(userWord, { draft: false, countRows: base, updatedFirst: true });
   const filtered = base.filter(quick.matches);
   const selectedRows = rows.filter((r) => sel.selectedKeys.has(r.key));
+  const editing = editingKey ? (rows.find((r) => r.key === editingKey) ?? null) : null;
 
   /**
    * Run one row's own action over every ticked row, SKIPPING the rows that
@@ -494,22 +391,46 @@ export default function UsersClient({
       header: "Roles",
       cell: (r) => {
         if (r.profile?.is_super_admin) return <span className="text-xs text-muted-foreground">All access</span>;
-        const assigned = r.profile ? (rolesByUser[r.profile.id] ?? []) : [];
-        if (assigned.length === 0)
-          return <span className="text-xs text-muted-foreground">{r.profile ? "No role yet" : "—"}</span>;
-        /* One chip per role. No location: units are the person's allocation on
-           User Permissions, not a property of a role (0680). */
+        // A role hangs off a login — none yet, so the mail icon is the next step.
+        if (!r.profile) return <span className="text-xs text-muted-foreground">Send welcome mail first</span>;
+        const assigned = rolesByUser[r.profile.id] ?? [];
+        /* THE CELL IS THE WAY IN (user 2026-11-13, screenshot 4137: "there is no
+           option for giving roles access for the user"). After the merge the
+           only route to roles was the row's pencil, and nothing on the row said
+           "roles" — the old shield icon was labelled Roles. Now the Roles cell
+           itself opens the person's editor, whose first section is Roles:
+           "+ Give role" when they hold none, the names (one line — a chip per
+           line made a row as tall as its role count) when they do. */
         return (
-          <div className="flex flex-col items-start gap-1">
-            {assigned.map((ur) => (
-              <span
-                key={ur.id}
-                className="inline-flex h-6 items-center whitespace-nowrap rounded-full bg-info/10 px-2 text-xs font-medium text-info"
-              >
-                {ur.role_name}
-              </span>
-            ))}
-          </div>
+          <button
+            type="button"
+            onClick={() => openEditor(r)}
+            className="block max-w-[16rem] text-left text-sm text-primary underline-offset-2 hover:underline"
+            aria-label={`Roles for ${r.name ?? r.email ?? "user"}`}
+          >
+            {assigned.length === 0 ? (
+              <span className="font-medium">+ Give role</span>
+            ) : (
+              <Truncated text={assigned.map((ur) => ur.role_name).join(", ")} />
+            )}
+          </button>
+        );
+      },
+    },
+    {
+      /* UNITS BESIDE ROLES (2026-11-13) — the one setting nothing works
+         without, moved here from the retired User Permissions list. */
+      header: "Units *",
+      cell: (r) => {
+        const a = accessOf(r);
+        if (!a) return <span className="text-xs text-muted-foreground">—</span>;
+        return (
+          <UnitsCell
+            key={`${a.id}:${a.access?.all_locations ? "all" : (a.access?.location_ids ?? []).join(",")}`}
+            user={a}
+            locations={access.locations}
+            readOnly={!canEdit || r.profile?.id === meId}
+          />
         );
       },
     },
@@ -558,9 +479,18 @@ export default function UsersClient({
       cell: (r) => {
         const p = r.profile;
         const confirming = confirmingKey === r.key;
+        /* THE WELCOME MAIL IS A ONE-TIME STEP (user 2026-11-13, screenshot
+           4138: "its only need to that time only"). The icon shows until the
+           person has signed in and chosen their own password — no login yet,
+           or still on the temporary one — and then leaves the row. Past that
+           point a resend only REPLACED a password they chose; a forgotten
+           password is the sign-in page's "Forgot password?". A super admin
+           never gets one. The cell is right-aligned, so the pencil stays in
+           line down the column when the envelope is gone. */
+        const mailDue = !p || (p.must_change_password && !p.is_super_admin);
         return (
-          <span className="inline-flex gap-1">
-            <RowIconAction
+          <span className="inline-flex justify-end gap-1">
+            {mailDue && <RowIconAction
               label={
                 confirming
                   ? "Click again to confirm — this resets their password"
@@ -573,19 +503,15 @@ export default function UsersClient({
               danger={confirming}
               disabledReason={busy ? "Working…" : mailBlocked(r)}
               onClick={() => sendWelcome(r)}
-            />
+            />}
             <RowIconAction
-              label="Roles"
+              label="Roles, units & extra screens"
               name={r.name}
-              icon={ShieldCheck}
+              icon={Pencil}
               disabledReason={
-                !p
-                  ? "Needs a login first — send the welcome mail."
-                  : p.is_super_admin
-                    ? "Super admin has all access — no roles to assign."
-                    : null
+                !p && !r.email ? "Add an email for this person in HR & Payroll ▸ People ▸ Staff first." : null
               }
-              onClick={() => p && openManage(p)}
+              onClick={() => openEditor(r)}
             />
           </span>
         );
@@ -690,26 +616,25 @@ export default function UsersClient({
         empty={rows.length ? "No one matches these filters." : "No active staff in HR & Payroll ▸ People ▸ Staff."}
       />
 
-      <Sheet
-        open={open}
-        onClose={() => setOpen(false)}
-        title={managing ? `Roles — ${managing.full_name ?? managing.email ?? "User"}` : "Roles"}
-        size="sm"
-        origin={origin}
-        footer={
-          <span className="mr-auto text-xs text-muted-foreground">
-            Role changes save immediately — there is no separate Save button.
-          </span>
-        }
-      >
-        {managing && (
-          <RolePanel
-            userId={managing.id}
-            userRoles={rolesByUser[managing.id] ?? []}
-            roles={roles}
-          />
-        )}
-      </Sheet>
+      {editing && (
+        <PersonAccessSheet
+          key={editing.key}
+          open
+          onClose={() => setEditingKey(null)}
+          origin={origin}
+          name={editing.name ?? editing.email ?? "User"}
+          code={editing.code}
+          profile={editing.profile}
+          access={accessOf(editing)}
+          userRoles={editing.profile ? (rolesByUser[editing.profile.id] ?? []) : []}
+          roles={roles}
+          roleTrees={access.roleTrees}
+          locations={access.locations}
+          offered={access.offered}
+          canEdit={canEdit}
+          meId={meId}
+        />
+      )}
 
       <Sheet
         open={bulkRoleOpen}

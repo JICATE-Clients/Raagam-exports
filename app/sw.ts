@@ -58,7 +58,11 @@ self.addEventListener("push", (event) => {
   const options: NotificationOptions & { timestamp?: number; actions?: { action: string; title: string }[] } = {
     body: payload.body ?? "",
     icon: payload.icon ?? "/icons/icon-192x192.png",
-    badge: "/icons/badge-72x72.png",
+    /* The badge is used as a SHAPE: Android throws its colours away and paints every
+       non-transparent pixel white. The old badge was the whole green disc, so it showed
+       as a plain white circle (user 2026-11-13). This one is only the "Re" letters on
+       transparency, cut from public/brand/raagam-mark.png; 96px is Android's size. */
+    badge: "/icons/badge-96x96.png",
     data: { url: payload.url ?? "/" },
     // Same tag = a newer alert about the same thing replaces the older one.
     ...(payload.tag ? { tag: payload.tag } : {}),

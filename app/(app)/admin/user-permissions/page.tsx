@@ -1,49 +1,23 @@
-import { requirePermission, can } from "@/lib/auth/server";
-import { PageHeader } from "@/components/ui/page-header";
-import { loadAccessControl } from "@/lib/permissions/service";
-import { AccessControlScreen } from "../access-control/access-control-screen";
+import { redirect } from "next/navigation";
 
 /**
- * Administration ▸ Users & Access ▸ User Permissions (user 2026-10-01: "list
- * the by user as separate with a better label").
+ * MERGED INTO USERS (user 2026-11-13: "user access control look much
+ * cluttered … set up an organized one"). User Permissions was a second list of
+ * the same people as Users — its Status switch meant "email access" where
+ * Users' meant "login", and its bin deleted the login. A person's roles, units
+ * and extra screens are now one editor on Administration ▸ Users & Access ▸
+ * Users; `?user=<email>` still opens that person.
  *
- * A PERSON's own email-based access, added on top of their roles, switched
- * Active / Inactive from the list's Status column. It was the By User tab of
- * Access Control until today; it is the same screen component over the same
- * permission tree, rendering this one list (`view="users"`), so the two pages
- * can never save access two different ways. /admin/permission-overrides and
- * the old /admin/access-control?tab=users redirect here.
+ * A REDIRECT, NEVER A DELETION — every bookmark still lands. Declared in
+ * `REDIRECTED` in scripts/check-module-groups.mts. No gate here: the target
+ * runs its own.
  */
 export default async function UserPermissionsPage({
   searchParams,
 }: {
   searchParams: Promise<{ user?: string }>;
 }) {
-  const me = await requirePermission("system_admin", "view");
   const { user } = await searchParams;
-
-  const [data, canCreate, canEdit, canDelete] = await Promise.all([
-    loadAccessControl(),
-    can("system_admin", "create"),
-    can("system_admin", "edit"),
-    can("system_admin", "delete"),
-  ]);
-
-  return (
-    <div className="space-y-4">
-      <PageHeader
-        title="User Permissions"
-        description="Access given to one person by email, on top of their roles — switch it Active or Inactive from the list."
-      />
-      <AccessControlScreen
-        data={data}
-        meId={me.id}
-        canCreate={canCreate}
-        canEdit={canEdit}
-        canDelete={canDelete}
-        view="users"
-        initialUser={user ?? null}
-      />
-    </div>
-  );
+  if (user) redirect(`/admin/users?user=${encodeURIComponent(user)}`);
+  redirect("/admin/users");
 }

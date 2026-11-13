@@ -1,17 +1,49 @@
 import { redirect } from "next/navigation";
+import { requireUser } from "@/lib/auth/server";
+import { PageHeader } from "@/components/ui/page-header";
+import {
+  canManageOverrides,
+  canViewOverrides,
+  listOverrideGrantees,
+  listOverrideGrants,
+} from "@/lib/orders/overrides/service";
+import { PermissionOverridesScreen } from "./permission-overrides-screen";
 
 /**
- * MERGED INTO ACCESS CONTROL (user 2026-09-30). Approved-order corrections
- * (the permission overrides, 0650–0657) are now a section of each person's
- * access on Administration ▸ Users & Access ▸ User Permissions (its own
- * screen since 2026-10-01); the grant screen itself is `permission-overrides-screen.tsx`,
- * rendered there with `forEmail`.
+ * Administration ▸ Users & Access ▸ Approved Order Edits (doc/email role
+ * system.md §7.1) — the permission-override register.
  *
- * A REDIRECT, NEVER A DELETION — every bookmark still lands. Declared in
- * `REDIRECTED` in scripts/check-module-groups.mts.
+ * RESTORED 2026-11-13. The 2026-09-30 merge turned this route into a redirect
+ * to User Permissions on the promise that the grant screen would render there
+ * with `forEmail`; it never did, so for six weeks no override could be granted
+ * from anywhere in the app. It is a REGISTER — every live grant, its expiry and
+ * its history in one list — which is why it is its own row rather than a
+ * section of one person's editor.
  *
- * No gate here: the target runs its own.
+ * NOT `requirePermission("system_admin", "view")`: the Managing Director may
+ * grant overrides (R-15, D-7) without holding system_admin at all, so the gate
+ * is the database's own — `can_view_permission_overrides()`, the function the
+ * tables' RLS reads. Managing is `can_manage_permission_overrides()`; the grant
+ * RPCs refuse anyone else whatever this page shows.
  */
-export default function PermissionOverridesPage() {
-  redirect("/admin/user-permissions");
+export default async function PermissionOverridesPage() {
+  await requireUser();
+  const [canView, canManage] = await Promise.all([canViewOverrides(), canManageOverrides()]);
+  if (!canView) redirect("/?denied=system_admin");
+
+  const [grants, grantees] = await Promise.all([
+    listOverrideGrants(),
+    // The picker is a manager's; override_grantee_candidates() refuses anyone else.
+    canManage ? listOverrideGrantees() : Promise.resolve([]),
+  ]);
+
+  return (
+    <div className="space-y-4">
+      <PageHeader
+        title="Approved Order Edits"
+        description="Time-limited permission for a named person to correct an approved order in place — no revision, no MD approval, every edit audited."
+      />
+      <PermissionOverridesScreen grants={grants} grantees={grantees} canManage={canManage} />
+    </div>
+  );
 }
