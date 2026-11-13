@@ -8,6 +8,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { SEG_IDLE, SEG_ITEM, SEG_LIT, SEG_TRACK } from "@/components/ui/segmented";
 import { SubSheetFooter } from "@/components/orders/sub-sheet-footer";
+import { useOpenIntent } from "@/lib/use-open-intent";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -37,7 +38,7 @@ import {
   updateWorker,
   updateMyProfile,
 } from "@/lib/hr/masters-actions";
-import { SELF_SECTION_KEYS } from "@/lib/hr/self-profile";
+import { SELF_LOCKED_SECTIONS } from "@/lib/hr/self-profile";
 import { getPersonChildren } from "./person-children";
 import { fmtMoney } from "@/lib/format";
 import { DataTable } from "@/components/ui/data-table";
@@ -654,9 +655,9 @@ export default function PersonClient({
   canDelete?: boolean;
   /**
    * MY PROFILE (user 2026-10-01): a regular staff member's OWN record. The
-   * screen opens on its read-only page; Edit offers only the personal sections
-   * (`SELF_SECTION_KEYS`) and saves through `updateMyProfile`, which writes
-   * only those fields to the caller's own row — no list, no New, no Delete.
+   * screen opens on its read-only page; Edit offers every section since
+   * 2026-11-13 except the photo (lib/hr/self-profile.ts) and saves through
+   * `updateMyProfile`, to the caller's own row only — no list, no New, no Delete.
    */
   selfRow?: PersonRow;
 }) {
@@ -984,6 +985,13 @@ export default function PersonClient({
   }
 
   function submit() {
+    /* The child lists are REPLACED on save, so a save before they have loaded would write them
+       back empty — family, bank accounts, nominees gone. Refuse until they are on screen
+       (2026-11-13, when My Profile began saving every list). */
+    if (childrenLoading) {
+      toastError("Still loading the lists below — try Save again in a moment.");
+      return;
+    }
     const children = childPayload;
     const workerPayload = { ...(form as WorkerInput), code: editCode };
     startTransition(async () => {
@@ -1859,10 +1867,17 @@ export default function PersonClient({
    * where every hook in this file lives (AGENTS.md).
    */
   useCreateIntent(openAdd);
+  // MY PROFILE ▸ Edit (2026-11-13) links here with `?open=<own id>` so the editor opens at once
+  // rather than on a second read-only page. Only ever the caller's own row: the page already
+  // redirects any other id, and this ignores one that is not `selfRow`.
+  useOpenIntent((id) => {
+    if (selfRow && id === selfRow.id) openEdit(selfRow);
+  });
 
-  // My Profile shows only the personal rows; HR's sections are not offered.
+  // My Profile offers every section since 2026-11-13 (lib/hr/self-profile.ts); the set stays
+  // declared there so the rail and the save cannot disagree.
   const railSections = selfRow
-    ? personSections(kind).filter((s) => SELF_SECTION_KEYS.has(s.key))
+    ? personSections(kind).filter((s) => !SELF_LOCKED_SECTIONS.has(s.key))
     : personSections(kind);
 
   const validity = sectionValidity({
@@ -1897,7 +1912,9 @@ export default function PersonClient({
       {
         section: "detail-person",
         label: "Photo",
-        required: true,
+        // Not on My Profile: the person cannot upload it (the Admin's, 2026-11-13), so
+        // requiring it would leave a record with no photo unsaveable by its owner.
+        required: !selfRow,
         empty: (f) => !String(f.photo_url ?? "").trim(),
       },
     ],
@@ -4693,9 +4710,11 @@ export default function PersonClient({
         name={form.name}
         isActive={form.is_active}
         blocked={form.blocked}
-        photoRequired
+        photoRequired={!selfRow}
         photoUrl={form.photo_url ?? null}
         onPhotoChange={(url) => set({ photo_url: url })}
+        // The photo is the Admin's on a person's own record (lib/hr/self-profile.ts).
+        photoLockedNote={selfRow ? "Your photo is set by the Admin." : undefined}
         photoFolder={isWorker ? "workers" : "staff"}
         designation={nameOfOption(designations, form.designation_id)}
         department={nameOfOption(departments, form.department_id)}

@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
 // A regular staff member (My Profile) writes only through `updateMyProfile`.
 import { isOwnProfileOnly, myStaffId } from "@/lib/hr/own-profile";
-import { SELF_CHILDREN, SELF_COLUMNS } from "@/lib/hr/self-profile";
+import { SELF_CHILDREN, SELF_LOCKED_COLUMNS } from "@/lib/hr/self-profile";
 import { createAdminClient } from "@/lib/supabase/server";
 import { checkDuplicateName } from "@/lib/masters/dup-guard";
 import {
@@ -320,9 +320,14 @@ export async function updateStaff(
 
 /* ---- My Profile ---- */
 
-/** Where each self-editable child list lives. */
+/** Where each self-editable child list lives — the same tables `replacePersonChildren` writes. */
 const SELF_CHILD_TABLE: Record<(typeof SELF_CHILDREN)[number], string> = {
   family: "hr_family_members",
+  experience: "hr_work_experience",
+  internalRefs: "hr_internal_references",
+  nominations: "hr_nominations",
+  bankAccounts: "hr_bank_accounts",
+  externalRefs: "hr_external_references",
   emergencyContacts: "hr_emergency_contacts",
   education: "hr_education",
   technical: "hr_technical_details",
@@ -334,10 +339,11 @@ const SELF_CHILD_TABLE: Record<(typeof SELF_CHILDREN)[number], string> = {
  *
  * The record is NEVER taken from the browser: it is the caller's own
  * `myStaffId`, resolved on the server from their login (lib/auth/self-service.ts).
- * Of what is sent, only `SELF_COLUMNS` and the `SELF_CHILDREN` lists are
- * written (lib/hr/self-profile.ts) — salary, bank, statutory, posting, name and
- * email are dropped however the request was built, so a hand-made POST can
- * change nothing the screen does not offer.
+ * Every column is written EXCEPT `SELF_LOCKED_COLUMNS` — the photo (the Admin's),
+ * and the email and employee code a login finds its record by — and every list in
+ * `SELF_CHILDREN` (lib/hr/self-profile.ts; all details open since 2026-11-13). The
+ * locked three are dropped however the request was built, so a hand-made POST
+ * cannot change them.
  *
  * Service role, after that match: such a login usually holds no unit, so the
  * unit-scoped RLS that guards `staff` for operators would refuse the row. The
@@ -356,12 +362,12 @@ export async function updateMyProfile(
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Validation failed" };
   }
-  const noPhoto = missingPhoto(parsed.data);
-  if (noPhoto) return noPhoto;
+  // No photo rule here: the photo is the Admin's (SELF_LOCKED_COLUMNS), so the person can
+  // neither satisfy it nor change it — HR's own saves still require it.
 
-  const src = parsed.data as Record<string, unknown>;
   const patch: Record<string, unknown> = {};
-  for (const c of SELF_COLUMNS) if (c in src) patch[c] = src[c];
+  for (const [c, v] of Object.entries(withoutBlankLocation(parsed.data) as Record<string, unknown>))
+    if (!SELF_LOCKED_COLUMNS.has(c)) patch[c] = v;
 
   const admin = createAdminClient();
   const { error } = await admin.from("staff").update(patch).eq("id", id);

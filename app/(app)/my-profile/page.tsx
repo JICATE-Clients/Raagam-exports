@@ -14,7 +14,8 @@ import { SignatureUpload } from "@/components/me/signature-upload";
 
 /**
  * MY PROFILE (user 2026-10-01) — the signed-in person's own HR ▸ Staff record,
- * read-only, in the same layout the Staff details page uses.
+ * in the same layout the Staff details page uses. Edit (2026-11-13) opens every
+ * detail except the photo — see my-profile-client.tsx and lib/hr/self-profile.ts.
  *
  * `requireUser`, NOT `requirePermission`: every login reaches this page, and
  * that is the point — a staff member must not need HR ▸ Staff (which opens
@@ -72,6 +73,9 @@ export default async function MyProfilePage() {
     <div className="space-y-4">
       <MyProfileClient
         row={mine.row}
+        // Edit opens the HR editor on this record — only where that route serves it to this
+        // login (a self-service staff member: `myStaffId`, lib/auth/self-service.ts).
+        editHref={user.myStaffId === mine.row.id ? `/hr/staff/${mine.row.id}?open=${mine.row.id}` : null}
         locations={named(locations as { id: string; name?: string | null }[], (l) => l.name)}
         departments={named(departments, (d) => d.name ?? d.short_name)}
         divisions={named(divisions, (d) => d.division_name)}

@@ -49,6 +49,9 @@ export type PersonProfileAsideProps = {
   className?: string;
   /** The record cannot be saved without a photograph (client 2026-09-18). */
   photoRequired?: boolean;
+  /** MY PROFILE (user 2026-11-13: "open all except profile picture, only admin control"): the
+   *  person sees their photo but cannot change it — Upload / Remove give way to this line. */
+  photoLockedNote?: string;
 };
 
 /**
@@ -202,12 +205,16 @@ export function PersonProfileAside(p: PersonProfileAsideProps) {
             )}
             {/* `showPreview={false}`: the avatar above IS the preview, so the
                 control contributes only its buttons and the size hint. */}
-            <PhotoUpload
-              value={p.photoUrl}
-              onChange={p.onPhotoChange}
-              folder={p.photoFolder}
-              showPreview={false}
-            />
+            {p.photoLockedNote ? (
+              <p className="text-xs text-muted-foreground">{p.photoLockedNote}</p>
+            ) : (
+              <PhotoUpload
+                value={p.photoUrl}
+                onChange={p.onPhotoChange}
+                folder={p.photoFolder}
+                showPreview={false}
+              />
+            )}
           </div>
 
           <dl className="divide-y divide-border rounded-lg border border-border">
