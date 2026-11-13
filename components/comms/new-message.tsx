@@ -326,7 +326,7 @@ export function NewMessage({
             onClick={send}
             disabled={!canSend}
             aria-label="Send message"
-            title={to.length ? "Send (Enter)" : "Pick who to send to first"}
+            title={to.length ? "Send" : "Pick who to send to first"}
             className={cn(
               "flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               canSend ? "bg-primary hover:bg-primary/90" : "bg-muted-foreground/40",

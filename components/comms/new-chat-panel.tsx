@@ -210,6 +210,9 @@ export function NewChatPanel({
       <div
         role="dialog"
         aria-label={title}
+        // LIGHT AND NEAT (user 2026-11-13, artifact "New Chat Light", Soft 8%):
+        // a soft shade of the theme colour, dark names — see [data-new-chat] in globals.css.
+        data-new-chat=""
         aria-hidden={!open}
         inert={!open}
         onKeyDown={onKeyDown}
@@ -314,7 +317,14 @@ export function NewChatPanel({
             <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto pb-20" role="listbox" aria-label="People" aria-multiselectable={step === "group"}>
               {shortcuts.map((s, i) => (
                 <Row key={s.key} index={i} on={i === hlAt} onClick={s.run} onHover={() => setHl(i)}>
-                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground" aria-hidden>
+                  {/* Only the first (New group) is filled; the rest sit in a light tint. */}
+                  <span
+                    className={cn(
+                      "grid h-8 w-8 shrink-0 place-items-center rounded-full",
+                      i === 0 ? "bg-[var(--pane-tone-src)] text-white" : "bg-[var(--nc-tint2,var(--primary-soft))] text-primary",
+                    )}
+                    aria-hidden
+                  >
                     <s.icon className="h-4 w-4" />
                   </span>
                   <span className="text-[13.5px] font-medium text-foreground">{s.label}</span>

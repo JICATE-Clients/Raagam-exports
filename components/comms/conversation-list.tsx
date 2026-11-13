@@ -77,6 +77,7 @@ import { PhotoImg, useChannelPhoto, useUserPhoto } from "./person-photo";
 import { ShortScrollbar } from "./short-scrollbar";
 import { nameCase } from "@/lib/comms/name-case";
 import { WithPresence } from "./presence";
+import { CHANNELS_CHANGED } from "./sidebar-channels";
 
 type Filter = "all" | "unread" | "favorites" | "groups" | "communities" | "channels" | "files";
 
@@ -178,6 +179,7 @@ export function ConversationList({
   composing = false,
   home = false,
   mentionsOpen = false,
+  channelsOpen = false,
   communities,
   activeCommunityId = null,
   activeFileId = null,
@@ -203,6 +205,8 @@ export function ConversationList({
   home?: boolean;
   /** /comms/mentions — Pulse ▸ Mentions is open beside the list (lights its shortcut). */
   mentionsOpen?: boolean;
+  /** /comms/channels — the Channels browser is open beside the list (lights its shortcut). */
+  channelsOpen?: boolean;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -273,9 +277,25 @@ export function ConversationList({
   const [findChannels, setFindChannels] = useState<ChannelListing[] | null>(null);
   const [files, setFiles] = useState<PulseFile[] | null>(null);
   const [lazyError, setLazyError] = useState<string | null>(null);
+  // PUBLIC CHANNELS BEFORE YOU JOIN (user 2026-11-13, artifact "Public Channels
+  // In Pulse"): under All, the Channels section lists the public channels the
+  // caller has not joined, below their own, each with Join, so a public channel
+  // shows up for everyone the moment it is created. Same reader as Channels >
+  // Find channels. Re-read when the chat list itself changes (a join, a leave, a
+  // realtime refresh) and when a channel is created or changed in this tab.
+  const [seenConversations, setSeenConversations] = useState(conversations);
+  if (seenConversations !== conversations) {
+    setSeenConversations(conversations);
+    setFindChannels(null);
+  }
+  useEffect(() => {
+    const reread = () => setFindChannels(null);
+    window.addEventListener(CHANNELS_CHANGED, reread);
+    return () => window.removeEventListener(CHANNELS_CHANGED, reread);
+  }, []);
   useEffect(() => {
     let live = true;
-    if (filter === "channels" && findChannels === null) {
+    if ((filter === "channels" || filter === "all") && findChannels === null) {
       void loadChannelsToFind().then((r) => live && (r.ok ? setFindChannels(r.channels) : setLazyError(r.error)));
     }
     if (filter === "files" && files === null) {
@@ -701,6 +721,24 @@ export function ConversationList({
     </>
   );
 
+  function joinListed(ch: ChannelListing) {
+    start(async () => {
+      const r = await joinChannel(ch.id);
+      if (!r.ok) {
+        toast.error(r.error);
+        return;
+      }
+      toast.success(`You joined #${ch.name}`);
+      setFindChannels((list) => (list ?? []).filter((x) => x.id !== ch.id));
+      router.push(`/comms/c/${ch.id}`);
+      router.refresh();
+    });
+  }
+  // Public channels to join, shown under All only (a filter or a search is the
+  // person narrowing the list). A channel already in their list never repeats.
+  const joinable =
+    browseRow && findChannels ? findChannels.filter((ch) => !conversations.some((c) => c.id === ch.id)) : [];
+
   if (showArchived) {
     return (
       <div className="flex min-h-0 flex-1 flex-col bg-surface">
@@ -856,19 +894,7 @@ export function ConversationList({
                   key={ch.id}
                   ch={ch}
                   active={ch.id === activeId}
-                  onJoin={() =>
-                    start(async () => {
-                      const r = await joinChannel(ch.id);
-                      if (!r.ok) {
-                        toast.error(r.error);
-                        return;
-                      }
-                      toast.success(`You joined #${ch.name}`);
-                      setFindChannels((list) => (list ?? []).filter((x) => x.id !== ch.id));
-                      router.push(`/comms/c/${ch.id}`);
-                      router.refresh();
-                    })
-                  }
+                  onJoin={() => joinListed(ch)}
                 />
               ))}
             </ul>
@@ -949,6 +975,9 @@ export function ConversationList({
                   removed from the card, Starred added. Saved messages stay
                   reachable from the open chat's menu. */}
               <Shortcut onClick={() => setFilter("favorites")} icon={Star} label="Starred" count={countOf("favorites")} />
+              {/* Pulse > Channels, the browser (user 2026-11-13, artifact "Channels Beside
+                  Chat List"): find, join and create channels, beside this list. */}
+              <Shortcut href="/comms/channels" icon={Hash} label="Channels" on={channelsOpen} />
             </ul>
           </section>
         )}
@@ -986,6 +1015,7 @@ export function ConversationList({
               const items = only ? s.items.filter((c) => c.id === activeId || (!c.muted && c.unread_count > 0)) : s.items;
               // An empty section of your own still shows under All, so a section
               // just created is there to move chats into.
+              const joinHere = s.key === "channel" && !folded[s.key] ? joinable : [];
               return s.items.length === 0 && !((s.key === "channel" || s.mine) && browseRow) ? null : (
                 <section key={s.key} aria-labelledby={`pulse-sec-${s.key}`} className="group/sec">
                   <h2
@@ -1066,6 +1096,18 @@ export function ConversationList({
                   ) : s.mine ? (
                     <p className="px-3 py-1.5 text-xs text-muted-foreground">Move chats here from their ⌄ menu.</p>
                   ) : null}
+                  {joinHere.length > 0 && (
+                    <>
+                      <p className="px-3 pb-0.5 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        Public · join to take part
+                      </p>
+                      <ul>
+                        {joinHere.map((ch) => (
+                          <FindChannel key={ch.id} ch={ch} active={ch.id === activeId} onJoin={() => joinListed(ch)} compact />
+                        ))}
+                      </ul>
+                    </>
+                  )}
                 </section>
               );
             })}
@@ -1395,7 +1437,18 @@ function readSections(key: string): MySection[] {
 }
 
 /** A public channel the person is not in: open it to read, or Join. */
-function FindChannel({ ch, active, onJoin }: { ch: ChannelListing; active: boolean; onJoin: () => void }) {
+function FindChannel({
+  ch,
+  active,
+  onJoin,
+  compact = false,
+}: {
+  ch: ChannelListing;
+  active: boolean;
+  onJoin: () => void;
+  /** The All list's size (2026-11-13): a 32px circle with the channel's letter, like the rows above it. */
+  compact?: boolean;
+}) {
   return (
     <li className="flex items-center gap-2">
       <Link
@@ -1406,23 +1459,33 @@ function FindChannel({ ch, active, onJoin }: { ch: ChannelListing; active: boole
           active ? "bg-primary-soft" : "hover:bg-surface-muted",
         )}
       >
-        <span
-          aria-hidden
-          style={avatarStyle(ch.name)}
-          className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg font-extrabold", AVATAR_TINT)}
-        >
-          <Hash className="h-5 w-5" />
-        </span>
+        {compact ? (
+          <span aria-hidden className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--chan-pub-bg)] text-xs font-extrabold text-[var(--chan-pub-fg)]">
+            {(ch.name.match(/[\p{L}\p{N}]/u)?.[0] ?? "#").toUpperCase()}
+          </span>
+        ) : (
+          <span
+            aria-hidden
+            style={avatarStyle(ch.name)}
+            className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg font-extrabold", AVATAR_TINT)}
+          >
+            <Hash className="h-5 w-5" />
+          </span>
+        )}
         <span className="flex min-w-0 flex-1 flex-col">
-          <Truncated text={ch.name} className="text-[15px] font-bold text-heading" />
-          <Truncated text={ch.topic ?? ch.department_name ?? "Public channel"} className="text-[13px] text-muted-foreground" />
+          <Truncated text={ch.name} className={compact ? "text-[13.5px] font-medium text-foreground" : "text-[15px] font-bold text-heading"} />
+          <Truncated
+            text={ch.topic ?? ch.department_name ?? "Public channel"}
+            className={compact ? "text-[12px] text-muted-foreground" : "text-[13px] text-muted-foreground"}
+          />
         </span>
       </Link>
       {/* button-shape: exempt -- WhatsApp's outlined Join pill beside a channel (user 2026-10-31, the Pulse mockup) */}
       <button
         type="button"
         onClick={onJoin}
-        className="mr-1 h-8 shrink-0 rounded-full border border-[#15603e] px-3.5 text-[13px] font-bold text-[#15603e] hover:bg-[#d9fdd3] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-[#7ae3a5] dark:text-[#7ae3a5] dark:hover:bg-[#103529]"
+        className={cn(compact ? "mr-1 h-7 px-3 text-[12px]" : "mr-1 h-8 px-3.5 text-[13px]", "shrink-0 rounded-full border border-[#15603e] font-bold text-[#15603e] hover:bg-[#d9fdd3] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-[#7ae3a5] dark:text-[#7ae3a5] dark:hover:bg-[#103529]")}
+        aria-label={`Join #${ch.name}`}
       >
         Join
       </button>
@@ -1718,17 +1781,27 @@ export function ChatAvatar({ c, size }: { c: ConversationSummary; size: "row" | 
   // An announcement channel keeps its megaphone — that says what it is FOR.
   const Icon = c.is_announcement ? Megaphone : c.kind === "group" && !c.name ? Users : null;
   const letter = channel ? (c.title.match(/[\p{L}\p{N}]/u)?.[0] ?? "#").toUpperCase() : null;
+  // PUBLIC = GREEN CIRCLE, PRIVATE = AMBER SQUARE (user 2026-11-13, option B):
+  // the kind of channel is told by shape AND colour, so it reads without the
+  // corner lock it used to need. A channel photo keeps the same shape.
+  const isPrivateChannel = channel && c.visibility === "private";
   const box = (
     <span
       aria-hidden
-      style={avatarStyle(c.title)}
+      style={channel ? undefined : avatarStyle(c.title)}
       className={cn(
         "flex shrink-0 items-center justify-center overflow-hidden font-extrabold",
-        AVATAR_TINT,
+        channel
+          ? isPrivateChannel
+            ? "bg-[var(--chan-pri-bg)] text-[var(--chan-pri-fg)]"
+            : "bg-[var(--chan-pub-bg)] text-[var(--chan-pub-fg)]"
+          : AVATAR_TINT,
         size === "row"
           ? "h-8 w-8 text-[11px] max-md:h-9 max-md:w-9 max-md:text-[13px]"
           : size === "compact" ? "h-[38px] w-[38px] text-[13px] max-md:h-10 max-md:w-10 max-md:text-sm" : size === "sm" ? "h-9 w-9 text-sm" : size === "lg" ? "h-11 w-11 text-sm" : "h-[50px] w-[50px] text-[17px]",
-        c.kind === "direct" ? "rounded-full" : size === "md" ? "rounded-[15px]" : size === "row" ? "rounded-lg" : "rounded-xl",
+        c.kind === "direct" || (channel && !isPrivateChannel)
+          ? "rounded-full"
+          : size === "md" ? "rounded-[15px]" : size === "row" ? "rounded-lg" : "rounded-xl",
       )}
     >
       {photo ? <PhotoImg src={photo} /> : Icon ? <Icon className="h-5 w-5" /> : (letter ?? initials(c.title.replace(/^#/, "")))}
@@ -1736,15 +1809,7 @@ export function ChatAvatar({ c, size }: { c: ConversationSummary; size: "row" | 
   );
   // The online dot on a direct chat (user 2026-11-12, option C).
   if (c.kind === "direct") return <WithPresence userId={c.other_user_id} size={size === "row" || size === "compact" ? "sm" : "md"}>{box}</WithPresence>;
-  if (!(channel && c.visibility === "private")) return box;
-  return (
-    <span className="relative inline-flex shrink-0">
-      {box}
-      <span aria-label="Private" className="absolute -bottom-0.5 -right-0.5 grid h-4 w-4 place-items-center rounded-full bg-surface text-muted-foreground ring-2 ring-surface">
-        <Lock className="h-2.5 w-2.5" aria-hidden />
-      </span>
-    </span>
-  );
+  return box;
 }
 
 /**
@@ -1800,6 +1865,10 @@ function Row({
         )}
       >
         <ChatAvatar c={c} size="row" />
+        {/* Option B's second half: a private channel's name is led by an amber lock. */}
+        {c.kind === "channel" && c.visibility === "private" && (
+          <Lock className="-mr-1.5 h-3.5 w-3.5 shrink-0 text-[var(--chan-pri-fg)]" strokeWidth={2.4} aria-label="Private" />
+        )}
         <Truncated
           text={label}
           className={cn(

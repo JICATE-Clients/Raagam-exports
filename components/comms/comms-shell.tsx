@@ -135,6 +135,9 @@ export function CommsShell({
   const isNew = pathname === "/comms/new";
   // Pulse ▸ Mentions (user 2026-11-06): opens beside the list, Mentions lit.
   const isMentions = pathname === "/comms/mentions";
+  // Pulse > Channels opens beside the list too (user 2026-11-13, artifact
+  // "Channels Beside Chat List"): it was the one Pulse page that dropped the list.
+  const isChannels = pathname === "/comms/channels";
   // 0775: a community's page is part of Pulse too — the list stays beside it.
   const communityId = /^\/comms\/community\/([0-9a-f-]{36})/i.exec(pathname)?.[1]?.toLowerCase() ?? null;
   // Pulse ▸ Files opens a file beside the list too (user 2026-10-31).
@@ -142,7 +145,7 @@ export function CommsShell({
   // Every conversation opens beside the list since Pulse ▸ Channels (user
   // 2026-10-31): a public channel read before joining is one tap from the
   // list, as a WhatsApp channel is.
-  const pulse = !!chats && (isHome || isNew || isMentions || !!communityId || !!fileId || !!openId);
+  const pulse = !!chats && (isHome || isNew || isMentions || isChannels || !!communityId || !!fileId || !!openId);
 
   // NO OUTER CARD (user 2026-11-05, "remove this card based"): the frame has
   // no border or corners, and <main> drops its padding around it — sides and
@@ -164,6 +167,10 @@ export function CommsShell({
         <div className="flex min-h-0 flex-1">
           <aside
             aria-label="Chats"
+            // A LIGHT SHADE OF THE THEME COLOUR (user 2026-11-13, artifact "Pulse
+            // Light Sidebar", Medium): it replaced the dark list the same day and
+            // follows T ▸ Colour — see [data-pane-tone="light"] in globals.css.
+            data-pane-tone="light"
             className={cn(
               PANE,
               // WhatsApp's width (user 2026-10-31, screenshot 122843): 460px wide fits
@@ -179,6 +186,7 @@ export function CommsShell({
               composing={isNew}
               home={isHome}
               mentionsOpen={isMentions}
+              channelsOpen={isChannels}
               communities={communities}
               activeCommunityId={communityId}
               activeFileId={fileId}
