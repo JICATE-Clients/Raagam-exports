@@ -50,6 +50,15 @@ export interface AccessUser {
     location_ids: string[];
   } | null;
   tree: PermissionTree;
+  /** 0840: cells of their roles taken away from them alone. */
+  blocks: ScreenBlock[];
+}
+
+/** One blocked screen/action for one person (0840). */
+export interface ScreenBlock {
+  module: string;
+  screen: string;
+  action: Action;
 }
 
 /** A unit a person may be given (the topbar's switcher offers what they hold). */
@@ -97,6 +106,17 @@ export async function loadAccessControl(): Promise<AccessControlData> {
   ] as const) {
     if (r.error) throw new Error(`Could not read ${label}: ${r.error.message}`);
   }
+
+  /* 0840 — read apart from the batch above, and FORGIVING: a database the
+     migration has not reached yet has no table, and that must cost the screen
+     its blocks, not the whole Users page. Any other error still throws. */
+  const blR = await s.from("user_screen_blocks").select("user_email, module, screen_key, action");
+  if (blR.error && !/user_screen_blocks|PGRST205|42P01/.test(`${blR.error.code} ${blR.error.message}`)) {
+    throw new Error(`Could not read screen blocks: ${blR.error.message}`);
+  }
+  const bl = (blR.data ?? []) as { user_email: string; module: string; screen_key: string; action: Action }[];
+  const blocksOf = (email: string): ScreenBlock[] =>
+    bl.filter((b) => b.user_email === email).map((b) => ({ module: b.module, screen: b.screen_key, action: b.action }));
 
   const perms = (permsR.data ?? []) as { id: string; module: string; action: string }[];
   const permById = new Map(perms.map((p) => [p.id, p]));
@@ -159,6 +179,7 @@ export async function loadAccessControl(): Promise<AccessControlData> {
         roles: [...new Set(ur.filter((x) => x.user_id === p.id).map((x) => roleName.get(x.role_id)).filter((n): n is string => !!n))],
         access: acc ? accessOf(acc) : null,
         tree: treeFromRows(up.filter((x) => x.user_email === email), usp.filter((x) => x.user_email === email)),
+        blocks: blocksOf(email),
       };
     });
 
@@ -196,6 +217,7 @@ export async function loadAccessControl(): Promise<AccessControlData> {
       roles: [],
       access: accessOf(a),
       tree: treeFromRows(up.filter((x) => x.user_email === a.user_email), usp.filter((x) => x.user_email === a.user_email)),
+      blocks: blocksOf(a.user_email),
     });
   }
 

@@ -5,8 +5,7 @@ import { FilterBar } from "@/components/ui/filter-bar";
 import { useFacetFilter } from "@/components/ui/filter-drawer";
 import { useQuickStatus } from "@/components/orders/bom-queue";
 import { userFacets, userSearchText, userWord } from "./users-filters";
-import Link from "next/link";
-import { CircleAlert, CircleCheck, Mail, Pencil, ShieldCheck, ToggleLeft, ToggleRight } from "lucide-react";
+import { CircleAlert, Mail, Pencil, ShieldCheck } from "lucide-react";
 import { SelectionBar } from "@/components/ui/selection-bar";
 import { useRowSelection } from "@/lib/data-io/use-row-selection";
 import { useRouter } from "next/navigation";
@@ -17,20 +16,16 @@ import { DataTable } from "@/components/ui/data-table";
 import type { Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
 import { StatusToggle } from "@/components/ui/status-toggle";
-import { Button, buttonClasses } from "@/components/ui/button";
-import { Select } from "@/components/ui/select";
-import { Label } from "@/components/ui/label";
-import { Sheet } from "@/components/ui/sheet";
+import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
-import { assignRole } from "@/app/(app)/admin/actions";
-import { createUserFromStaff, resendWelcome, setLoginActive } from "@/lib/users/actions";
+import { setLoginActive } from "@/lib/users/actions";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 import { Truncated } from "@/components/ui/truncated";
-import { UnitsCell } from "@/components/permissions/units-cell";
 import type { AccessLocation, AccessUser } from "@/lib/permissions/service";
 import type { PermissionTree as PermissionTreeT } from "@/lib/permissions/effective";
 import type { Action, Module } from "@/lib/auth/types";
 import { PersonAccessSheet } from "./person-access-sheet";
+import { InviteSheet } from "./invite-sheet";
 
 /**
  * USERS = HR ▸ STAFF (user 2026-09-30, screenshot 3143; the source moved
@@ -107,15 +102,15 @@ export default function UsersClient({
   const router = useRouter();
   const [delivery, setDelivery] = useState<Delivery | null>(null);
   const [busy, startBusy] = useTransition();
-  /** The row whose button is asking "are you sure?" — see `sendWelcome`. */
-  const [confirmingKey, setConfirmingKey] = useState<string | null>(null);
+  /* THE INVITE SHEET (user 2026-11-13: "if we invite user should with role and
+     unit") — the rows being invited, by key; null when shut. */
+  /* `mail: false` is the bulk "Give role & unit": the same sheet, saved without a mail. */
+  const [invite, setInvite] = useState<{ keys: string[]; mail: boolean; skipped: string[] } | null>(null);
   const { success, error: toastError } = useToast();
 
   /* BULK (user 2026-09-30: "select check box in front … for bulk setting the
      data") — ticked rows, keyed by `UserRow.key`, and the Assign-role sheet. */
   const sel = useRowSelection();
-  const [bulkRoleOpen, setBulkRoleOpen] = useState(false);
-  const [bulkRoleId, setBulkRoleId] = useState("");
   /* THE PERSON EDITOR (2026-11-13) — the row whose roles, units and extra
      screens are open. A key, not a copy: after a save `router.refresh()` hands
      new rows down, and the editor must read them, not a snapshot. */
@@ -152,37 +147,41 @@ export default function UsersClient({
       roles: [],
       access: null,
       tree: {},
+      blocks: [],
     };
   }
 
   /**
-   * SEND WELCOME MAIL — a manual trigger now, automation later (user
-   * 2026-09-30). No login yet → the login is created and the mail goes out in
-   * one step. A login already → a NEW temporary password is issued and sent
-   * (the old one is never stored, so it cannot be re-sent). For someone who
-   * has already chosen their own password that REPLACES it, so their row asks
-   * for a second click first.
+   * SEND WELCOME MAIL = INVITE (user 2026-11-13). The ✉ no longer mails on the
+   * click: it opens `InviteSheet`, which asks for role(s) and unit(s) first and
+   * then makes the login, gives them, and mails. The bulk button opens the same
+   * sheet for every ticked row it can invite.
    */
-  function sendWelcome(r: UserRow) {
-    const p = r.profile;
-    if (p && !p.must_change_password && confirmingKey !== r.key) {
-      setConfirmingKey(r.key);
-      return;
-    }
-    setConfirmingKey(null);
-    startBusy(async () => {
-      const result = p
-        ? await resendWelcome(p.id)
-        : await createUserFromStaff({ staffId: r.staffId!, sendWelcome: true });
-      if (!result.ok) {
-        toastError(result.error);
-        return;
-      }
-      success(result.emailed ? `Welcome mail sent to ${result.email}.` : "Welcome mail not sent — see the note above the list.");
-      if (result.emailed || result.tempPassword) setDelivery(result);
-      router.refresh();
-    });
+  function openInvite(list: UserRow[], mail = true, skipped: string[] = []) {
+    const el = document.activeElement;
+    setOrigin(el instanceof HTMLElement ? el.getBoundingClientRect() : null);
+    setInvite({ keys: list.map((r) => r.key), mail, skipped });
   }
+
+  /**
+   * SAY WHO AND WHY (user 2026-11-13: "None of the 1 selected can take a role
+   * — no email in HR, or super admin — why this error is coming"). The old
+   * toast named two possible reasons for everyone at once and no person. Each
+   * skipped row now carries its own reason, by name: the toast when nobody is
+   * left, a line inside the sheet when some are.
+   */
+  function splitBulk(why: (r: UserRow) => string | null) {
+    const todo: UserRow[] = [];
+    const skipped: string[] = [];
+    for (const r of selectedRows) {
+      const w = why(r);
+      if (w) skipped.push(`${r.name ?? r.email ?? "Someone"} — ${w}`);
+      else todo.push(r);
+    }
+    return { todo, skipped };
+  }
+  const listed = (lines: string[]) =>
+    lines.length <= 3 ? lines.join("; ") : `${lines.slice(0, 3).join("; ")}; and ${lines.length - 3} more`;
 
   function setStatus(p: ProfileRow, active: boolean) {
     startBusy(async () => {
@@ -217,123 +216,39 @@ export default function UsersClient({
   const selectedRows = rows.filter((r) => sel.selectedKeys.has(r.key));
   const editing = editingKey ? (rows.find((r) => r.key === editingKey) ?? null) : null;
 
-  /**
-   * Run one row's own action over every ticked row, SKIPPING the rows that
-   * single action would refuse (no email, your own login, a super admin, …)
-   * instead of failing the batch. One toast: done · skipped · failed.
-   */
-  function runBulk(
-    items: UserRow[],
-    skip: (r: UserRow) => boolean,
-    act: (r: UserRow) => Promise<{ ok: boolean; error?: string }>,
-    /** A function when the wording depends on what the run did. */
-    doneWord: string | (() => string),
-    after?: () => void,
-  ) {
-    const todo = items.filter((r) => !skip(r));
-    const skipped = items.length - todo.length;
-    if (todo.length === 0) {
-      toastError(`None of the ${items.length} selected can take this — they were all skipped.`);
-      return;
-    }
-    startBusy(async () => {
-      let ok = 0;
-      let firstError: string | null = null;
-      for (const r of todo) {
-        const res = await act(r);
-        if (res.ok) ok++;
-        else firstError ??= res.error ?? "Failed";
-      }
-      const tail = [skipped ? `${skipped} skipped` : "", ok < todo.length ? `${todo.length - ok} failed: ${firstError}` : ""]
-        .filter(Boolean)
-        .join(" · ");
-      const word = typeof doneWord === "function" ? doneWord() : doneWord;
-      if (ok) success(`${ok} ${word}${tail ? ` (${tail})` : ""}`);
-      else toastError(tail);
-      sel.clear();
-      after?.();
-      router.refresh();
-    });
-  }
-
   /* Bulk welcome mail goes ONLY to people with no login yet or still on a
      temporary password. For someone who chose their own password a resend
      REPLACES it — the single row asks twice for that; a bulk button would
      do it to many at once, so it does not do it at all. */
-  const bulkMailSkip = (r: UserRow) => !!mailBlocked(r) || (!!r.profile && !r.profile.must_change_password);
-  const bulkMail = () =>
-    runBulk(
-      selectedRows,
-      bulkMailSkip,
-      async (r) => {
-        const res = r.profile
-          ? await resendWelcome(r.profile.id)
-          : await createUserFromStaff({ staffId: r.staffId!, sendWelcome: true });
-        return res.ok ? { ok: true } : { ok: false, error: res.error };
-      },
-      "welcome mail(s) sent",
-    );
-  const bulkLogin = (active: boolean) =>
-    runBulk(
-      selectedRows,
-      (r) => !r.profile || !!statusBlocked(r.profile) || r.profile.is_active === active,
-      (r) => setLoginActive(r.profile!.id, active),
-      active ? "login(s) switched on" : "login(s) switched off",
-    );
-  /* A PERSON WITH NO LOGIN YET GETS ONE FIRST (user 2026-09-30: "can't able
-     to assign role" — the ticked row was an HR Staff member without a login,
-     and the only answer was "they were all skipped"). A role hangs off a
-     login, so the login is created here — quietly, no welcome mail — and the
-     role follows; "Send welcome mail" stays the separate, deliberate step.
-     Still skipped: a super admin (every permission already), someone who
-     already holds this role here, and a no-login row with no email in HR
-     (a login cannot be made without one), each named in the toast. */
-  const bulkAssignSkip = (r: UserRow): string | null => {
-    if (!r.profile) return r.email ? null : "no email in HR";
-    if (r.profile.is_super_admin) return "super admin";
-    const mine = rolesByUser[r.profile.id] ?? [];
-    return mine.some((ur) => ur.role_id === bulkRoleId) ? "already has this role" : null;
-  };
-  const bulkAssign = () => {
-    if (!bulkRoleId) return;
-    let created = 0;
-    const why = selectedRows.map(bulkAssignSkip).filter((w): w is string => !!w);
-    if (why.length === selectedRows.length) {
-      const counts = new Map<string, number>();
-      for (const w of why) counts.set(w, (counts.get(w) ?? 0) + 1);
-      toastError(
-        `Nothing to assign — ${[...counts].map(([w, n]) => (selectedRows.length > 1 ? `${n} ${w}` : w)).join(" · ")}.`,
-      );
+  const inviteWhy = (r: UserRow): string | null =>
+    mailBlocked(r) ??
+    (r.profile && !r.profile.must_change_password ? "already signed in with their own password" : null);
+  const bulkMail = () => {
+    const { todo, skipped } = splitBulk(inviteWhy);
+    if (todo.length === 0) {
+      toastError(`Can't invite: ${listed(skipped)}.`);
       return;
     }
-    runBulk(
-      selectedRows,
-      (r) => !!bulkAssignSkip(r),
-      async (r) => {
-        let userId = r.profile?.id;
-        if (!userId) {
-          const made = await createUserFromStaff({ staffId: r.staffId!, sendWelcome: false });
-          if (!made.ok) return { ok: false, error: made.error };
-          userId = made.userId;
-          created++;
-          if (!userId) return { ok: false, error: "The login was created but its id did not come back — reload and assign again." };
-        }
-        // No location: a role says what they may DO; units are their allocation (0680).
-        if ((rolesByUser[userId] ?? []).some((ur) => ur.role_id === bulkRoleId)) return { ok: true };
-        const res = await assignRole(userId, bulkRoleId, null);
-        return res.ok ? { ok: true } : { ok: false, error: res.error };
-      },
-      // A login made here has a password nobody was told — say so, or the admin
-      // reads "assigned" as "they can sign in now".
-      () =>
-        created
-          ? `role(s) assigned — ${created} new login(s) created; send their welcome mail from the row or the bulk bar so they can sign in`
-          : "role(s) assigned",
-      () => {
-        setBulkRoleOpen(false);
-        setBulkRoleId("");
-      },
-    );
+    openInvite(todo, true, skipped);
+  };
+  /* GIVE ROLE & UNIT TO MANY (user 2026-11-13, screenshot 4148). Replaces
+     "Assign role" (one dropdown, no unit) and drops "Login on / Login off",
+     which only repeated each row's Status switch. Opens the Invite sheet
+     without the mail: roles and units added to each ticked person, a login
+     made quietly where they have none (a role hangs off one). */
+  const giveWhy = (r: UserRow): string | null => {
+    if (r.profile?.is_super_admin) return "super admin, already has every screen and unit";
+    if (!r.email) return "no email in HR & Payroll \u25b8 People \u25b8 Staff, so no login can be made";
+    if (!r.profile && !r.staffId) return "not in HR & Payroll \u25b8 People \u25b8 Staff";
+    return null;
+  };
+  const bulkGive = () => {
+    const { todo, skipped } = splitBulk(giveWhy);
+    if (todo.length === 0) {
+      toastError(`Can't give a role: ${listed(skipped)}.`);
+      return;
+    }
+    openInvite(todo, false, skipped);
   };
 
   /* THE REDESIGN (user-approved canvas, 2026-09-30) — one fixed set of columns
@@ -344,6 +259,8 @@ export default function UsersClient({
   function mailBlocked(r: UserRow): string | null {
     const p = r.profile;
     if (!r.email) return "Add an email for this person in HR & Payroll ▸ People ▸ Staff first.";
+    // A login is made from a staff row; an email-only access row has none.
+    if (!p && !r.staffId) return "Not in HR & Payroll ▸ People ▸ Staff — add them there to invite them.";
     if (p?.is_super_admin) return "Super admin — no welcome mail to send.";
     if (p && !p.is_active) return "Login is switched off — switch it on first.";
     return null;
@@ -392,7 +309,8 @@ export default function UsersClient({
       cell: (r) => {
         if (r.profile?.is_super_admin) return <span className="text-xs text-muted-foreground">All access</span>;
         // A role hangs off a login — none yet, so the mail icon is the next step.
-        if (!r.profile) return <span className="text-xs text-muted-foreground">Send welcome mail first</span>;
+        // A role hangs off a login; the invite (✉) gives one as it makes the login.
+        if (!r.profile) return <span className="text-xs text-muted-foreground">Given with the invite</span>;
         const assigned = rolesByUser[r.profile.id] ?? [];
         /* THE CELL IS THE WAY IN (user 2026-11-13, screenshot 4137: "there is no
            option for giving roles access for the user"). After the merge the
@@ -421,16 +339,27 @@ export default function UsersClient({
       /* UNITS BESIDE ROLES (2026-11-13) — the one setting nothing works
          without, moved here from the retired User Permissions list. */
       header: "Units *",
+      /* NAMES, NOT A DROPDOWN (user 2026-11-13, screenshot 4148: "1 units
+         select…" said neither which unit nor all of it). Read like the Roles
+         column beside it, and like it, the cell opens the person's editor,
+         whose Units row is where they are changed. */
       cell: (r) => {
         const a = accessOf(r);
         if (!a) return <span className="text-xs text-muted-foreground">—</span>;
+        if (r.profile?.is_super_admin) return <span className="text-xs text-muted-foreground">Every unit</span>;
+        const acc = a.access;
+        const names = acc?.all_locations
+          ? "All units"
+          : (acc?.location_ids ?? []).map((id) => access.locations.find((l) => l.id === id)?.name ?? "(inactive unit)").join(", ");
         return (
-          <UnitsCell
-            key={`${a.id}:${a.access?.all_locations ? "all" : (a.access?.location_ids ?? []).join(",")}`}
-            user={a}
-            locations={access.locations}
-            readOnly={!canEdit || r.profile?.id === meId}
-          />
+          <button
+            type="button"
+            onClick={() => openEditor(r)}
+            className={`block max-w-[14rem] text-left text-sm underline-offset-2 hover:underline ${names ? "text-primary" : "font-medium text-danger"}`}
+            aria-label={`Units for ${r.name ?? r.email ?? "user"}`}
+          >
+            {names ? <Truncated text={names} /> : "No unit — set one"}
+          </button>
         );
       },
     },
@@ -478,7 +407,6 @@ export default function UsersClient({
       className: "w-24",
       cell: (r) => {
         const p = r.profile;
-        const confirming = confirmingKey === r.key;
         /* THE WELCOME MAIL IS A ONE-TIME STEP (user 2026-11-13, screenshot
            4138: "its only need to that time only"). The icon shows until the
            person has signed in and chosen their own password — no login yet,
@@ -491,18 +419,11 @@ export default function UsersClient({
         return (
           <span className="inline-flex justify-end gap-1">
             {mailDue && <RowIconAction
-              label={
-                confirming
-                  ? "Click again to confirm — this resets their password"
-                  : p
-                    ? "Resend welcome mail"
-                    : "Send welcome mail"
-              }
+              label={p ? "Resend welcome mail" : "Invite — role, unit, then mail"}
               name={r.name}
               icon={Mail}
-              danger={confirming}
               disabledReason={busy ? "Working…" : mailBlocked(r)}
-              onClick={() => sendWelcome(r)}
+              onClick={() => openInvite([r])}
             />}
             <RowIconAction
               label="Roles, units & extra screens"
@@ -519,14 +440,6 @@ export default function UsersClient({
     },
   ];
 
-  /* THE SUMMARY STRIP — one line above the table on every tab (same height,
-     so the table never jumps). On Pending with people who have no email it is
-     the way forward: 19 orange cells said the same thing with no link. */
-  const noEmail = rows.filter((r) => !r.profile && !r.email).length;
-  const withLogin = rows.filter((r) => r.profile);
-  const temp = withLogin.filter((r) => r.profile!.must_change_password).length;
-  const off = withLogin.filter((r) => !r.profile!.is_active).length;
-  const warnStrip = quick.value === "pending" && noEmail > 0;
 
   return (
     <div className="space-y-4">
@@ -549,56 +462,18 @@ export default function UsersClient({
         }
       />
 
-      {warnStrip ? (
-        <div className="flex min-h-13 flex-wrap items-center gap-3 rounded-lg border border-warning/40 bg-warning/10 px-4 py-2">
-          <Mail className="size-4 shrink-0 text-warning" aria-hidden />
-          <p className="min-w-0 flex-1 text-sm">
-            <strong className="font-semibold">
-              {noEmail} {noEmail === 1 ? "person can't" : "people can't"} get a login yet
-            </strong>{" "}
-            <span className="text-muted-foreground">
-              — HR & Payroll ▸ People ▸ Staff has no email for them. Add it there and they are ready to invite.
-            </span>
-          </p>
-          <Link
-            href="/hr/staff"
-            className={buttonClasses({ size: "md" })}
-          >
-            Open Staff master
-          </Link>
-        </div>
-      ) : (
-        <div className="flex min-h-13 items-center gap-3 rounded-lg border border-border bg-surface px-4 py-2">
-          <CircleCheck className="size-4 shrink-0 text-success" aria-hidden />
-          <p className="text-sm">
-            <strong className="font-semibold">
-              {withLogin.length} {withLogin.length === 1 ? "user can" : "users can"} sign in
-            </strong>
-            <span className="text-muted-foreground">
-              {temp ? ` — ${temp} still on a temporary password` : ""}
-              {off ? `${temp ? " ·" : " —"} ${off} switched off` : ""}
-              {noEmail ? `${temp || off ? " ·" : " —"} ${noEmail} without an email` : ""}
-            </span>
-          </p>
-        </div>
-      )}
-
+      {/* NO SUMMARY STRIP (user 2026-11-13: "remove it i think no need this").
+          "26 users can sign in — 3 on a temporary password …" repeated what
+          Administration ▸ Overview already counts, and the Login column and
+          the Filters drawer answer per person. */}
       <SelectionBar count={selectedRows.length} onClear={sel.clear}>
         <Button type="button" variant="outline" size="sm" disabled={busy} onClick={bulkMail}>
           <Mail className="h-4 w-4" aria-hidden />
-          Send welcome mail
+          Invite
         </Button>
-        <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => bulkLogin(true)}>
-          <ToggleRight className="h-4 w-4" aria-hidden />
-          Login on
-        </Button>
-        <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => bulkLogin(false)}>
-          <ToggleLeft className="h-4 w-4" aria-hidden />
-          Login off
-        </Button>
-        <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => setBulkRoleOpen(true)}>
+        <Button type="button" variant="outline" size="sm" disabled={busy} onClick={bulkGive}>
           <ShieldCheck className="h-4 w-4" aria-hidden />
-          Assign role
+          Give role &amp; unit
         </Button>
       </SelectionBar>
 
@@ -615,6 +490,28 @@ export default function UsersClient({
         onToggleAll={() => sel.toggleAll(filtered.map((r) => r.key))}
         empty={rows.length ? "No one matches these filters." : "No active staff in HR & Payroll ▸ People ▸ Staff."}
       />
+
+      {invite && (
+        <InviteSheet
+          people={rows.filter((r) => invite.keys.includes(r.key))}
+          mail={invite.mail}
+          skipped={invite.skipped}
+          origin={origin}
+          onClose={() => {
+            setInvite(null);
+            sel.clear();
+          }}
+          onDelivered={(d) => {
+            if (d.emailed || d.tempPassword) setDelivery(d);
+          }}
+          roles={roles}
+          locations={access.locations}
+          accessOf={accessOf}
+          rolesByUser={rolesByUser}
+          roleTrees={access.roleTrees}
+          offered={access.offered}
+        />
+      )}
 
       {editing && (
         <PersonAccessSheet
@@ -636,36 +533,6 @@ export default function UsersClient({
         />
       )}
 
-      <Sheet
-        open={bulkRoleOpen}
-        onClose={() => setBulkRoleOpen(false)}
-        title={`Assign a role to ${selectedRows.length} selected`}
-        size="sm"
-        footer={
-          <>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setBulkRoleOpen(false)}>
-              Cancel
-            </Button>
-            <Button type="button" variant="primary" size="sm" disabled={busy || !bulkRoleId} onClick={bulkAssign}>
-              {busy ? "Assigning…" : "Assign role"}
-            </Button>
-          </>
-        }
-      >
-        <div className="space-y-3">
-          <div>
-            <Label htmlFor="bulk-role">Role *</Label>
-            <Select id="bulk-role" value={bulkRoleId} onChange={(e) => setBulkRoleId(e.target.value)} required>
-              <option value="">Pick a role</option>
-              {roles.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name}
-                </option>
-              ))}
-            </Select>
-          </div>
-        </div>
-      </Sheet>
     </div>
   );
 }

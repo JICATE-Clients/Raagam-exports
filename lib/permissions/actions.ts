@@ -90,6 +90,12 @@ export async function saveUserAccess(input: {
    * must not wipe a person's units by not mentioning them.
    */
   locations?: { all: boolean; ids: string[] };
+  /**
+   * 0840: the person's whole set of blocked screen/actions — cells of a role
+   * they hold, taken away from them alone. OMITTED = leave them as they are
+   * (the Units cell and the bulk switches save without mentioning them).
+   */
+  blocks?: { module: string; screen: string; action: string }[];
 }): Promise<Result> {
   if (!(await can("system_admin", "edit"))) return { ok: false, error: "Forbidden" };
   const email = input.email.trim().toLowerCase();
@@ -138,6 +144,12 @@ export async function saveUserAccess(input: {
       p_locations: input.locations.all ? [] : input.locations.ids,
     });
     if (locErr) return { ok: false, error: locErr.message };
+  }
+
+  // After `save_user_permissions` too: a block hangs off the `user_access` row.
+  if (input.blocks) {
+    const { error: blkErr } = await s.rpc("save_user_screen_blocks", { p_email: email, p_blocks: input.blocks });
+    if (blkErr) return { ok: false, error: blkErr.message };
   }
 
   await writeAudit({

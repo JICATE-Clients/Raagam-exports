@@ -87,13 +87,50 @@ async function deliver(to: string, name: string | null, password: string, resent
   };
 }
 
+/**
+ * NO WELCOME MAIL WITHOUT A ROLE AND A UNIT (user 2026-11-13: "if we invite
+ * user should with role and unit"). A login that signs in holding no role sees
+ * no screen, and one with no unit sees no data — inviting them is sending a
+ * key to an empty room. The Users screen asks for both in its Invite sheet;
+ * this is the guard behind it, so a stale tab or a bulk run is refused the
+ * same way. A super admin is never mailed from here at all.
+ *
+ * Roles hang off the login (`user_roles.user_id`); units off the email
+ * (`user_access` / `user_access_locations`, 0665).
+ */
+async function inviteMissing(
+  admin: ReturnType<typeof createAdminClient>,
+  userId: string,
+  email: string,
+): Promise<string | null> {
+  const [{ count: roles }, { data: acc }, { count: units }] = await Promise.all([
+    admin.from("user_roles").select("id", { count: "exact", head: true }).eq("user_id", userId),
+    admin.from("user_access").select("all_locations").eq("user_email", email).maybeSingle(),
+    admin.from("user_access_locations").select("location_id", { count: "exact", head: true }).eq("user_email", email),
+  ]);
+  const noRole = !roles;
+  const noUnit = !(acc as { all_locations?: boolean } | null)?.all_locations && !units;
+  if (noRole && noUnit) return "Give them a role and a unit before sending the welcome mail.";
+  if (noRole) return "Give them a role before sending the welcome mail.";
+  if (noUnit) return "Give them a unit before sending the welcome mail.";
+  return null;
+}
+
 export async function createUserFromStaff(input: {
   staffId: string;
   locationId?: string | null;
-  /** Email the welcome mail as part of creating the login. */
+  /**
+   * REFUSED since 2026-11-13: a brand-new login holds no role, so mailing it
+   * here would always invite an empty account. Create the login, give it a
+   * role (and the email a unit), then `resendWelcome(userId, { first: true })`
+   * — the Users screen's Invite sheet does exactly that.
+   */
   sendWelcome?: boolean;
 }): Promise<Delivered | Fail> {
   if (!(await can("system_admin", "create"))) return { ok: false, error: "Forbidden" };
+  if (input.sendWelcome || AUTO_WELCOME_ON_CREATE) {
+    return { ok: false, error: "Give them a role and a unit first — use Invite on the Users screen." };
+  }
   // Service role, after the permission check above: `staff_read` would also
   // demand hr_payroll:view and the current unit (see app/(app)/admin/users/page.tsx).
   const admin = createAdminClient();
@@ -143,9 +180,8 @@ export async function createUserFromStaff(input: {
   );
   if (profileError) return { ok: false, error: profileError.message };
 
-  const delivery = input.sendWelcome || AUTO_WELCOME_ON_CREATE
-    ? await deliver(email, e.name, password, false)
-    : { emailed: false };
+  // Never mailed here — see `sendWelcome` above. The invite mails it once a role and unit exist.
+  const delivery = { emailed: false };
   await writeAudit({
     action: "user.created",
     entityType: "profile",
@@ -216,7 +252,11 @@ async function syncLoginEmailFromHr(
   return { ok: true, email: hrEmail };
 }
 
-export async function resendWelcome(userId: string): Promise<Delivered | Fail> {
+export async function resendWelcome(
+  userId: string,
+  /** `first`: this is the person's INVITE (login just made), so the mail reads as a welcome, not a resend. */
+  opts: { first?: boolean } = {},
+): Promise<Delivered | Fail> {
   if (!(await can("system_admin", "edit"))) return { ok: false, error: "Forbidden" };
   const admin = createAdminClient();
   const { data: prof, error } = await admin
@@ -235,14 +275,17 @@ export async function resendWelcome(userId: string): Promise<Delivered | Fail> {
   if (!synced.ok) return synced;
   const email = synced.email;
 
+  const missing = await inviteMissing(admin, p.id, email);
+  if (missing) return { ok: false, error: missing };
+
   const password = tempPassword();
   const { error: pwErr } = await admin.auth.admin.updateUserById(p.id, { password });
   if (pwErr) return { ok: false, error: pwErr.message };
   await admin.from("profiles").update({ must_change_password: true }).eq("id", p.id);
 
-  const delivery = await deliver(email, p.full_name, password, true);
+  const delivery = await deliver(email, p.full_name, password, !opts.first);
   await writeAudit({
-    action: "user.welcome_resent",
+    action: opts.first ? "user.invited" : "user.welcome_resent",
     entityType: "profile",
     entityId: p.id,
     metadata: { email, emailed: delivery.emailed, ...(email !== loginEmail ? { previous_email: loginEmail } : {}) },

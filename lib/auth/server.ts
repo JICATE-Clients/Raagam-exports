@@ -142,19 +142,23 @@ async function loadAppUser(): Promise<AppUser | null> {
     permissions: preview.permissions,
     moduleMode: preview.moduleMode,
     screenGrants: preview.screenGrants,
+    // A role preview shows the ROLE, so no person's blocks apply to it.
+    screenBlocks: [],
   };
 }
 
-/** `my_screen_permissions()` rows → the two AppUser fields; absent on a failed read. */
-function screenFactsOf(rows: unknown): Pick<AppUser, "moduleMode" | "screenGrants"> {
+/** `my_screen_permissions()` rows → the AppUser screen fields; absent on a failed read. */
+function screenFactsOf(rows: unknown): Pick<AppUser, "moduleMode" | "screenGrants" | "screenBlocks"> {
   if (!Array.isArray(rows)) return {};
   const moduleMode: PermissionKey[] = [];
   const screenGrants: string[] = [];
+  const screenBlocks: string[] = [];
   for (const r of rows as { kind: string; key: string }[]) {
     if (r.kind === "module") moduleMode.push(r.key as PermissionKey);
     else if (r.kind === "screen") screenGrants.push(r.key);
+    else if (r.kind === "block") screenBlocks.push(r.key); // 0840
   }
-  return { moduleMode, screenGrants };
+  return { moduleMode, screenGrants, screenBlocks };
 }
 
 /**
