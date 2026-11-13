@@ -1793,31 +1793,29 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         slug: "access",
         label: "Users & Access",
         icon: UserCog,
-        description: "Users, roles and the audit trail",
+        description: "Who may sign in, what each role may open, and edits to approved orders",
+        // THREE ROWS, ONE JOB EACH (user 2026-11-13: "user access control look
+        // much cluttered … set up an organized one"). A person is set up on ONE
+        // screen — Users: login, roles, units and extra screens in one editor.
+        // User Permissions was a second list of the same people with a second
+        // Status switch meaning something else; it now redirects to Users
+        // (declared in REDIRECTED, scripts/check-module-groups.mts). Home
+        // Favourites and the Audit Log moved to System — neither grants access.
         children: [
-          { href: "/admin/users", label: "Users", description: "User accounts and their roles" },
-          // ONE ROW FOR ROLES, EMAIL ACCESS AND APPROVED-ORDER CORRECTIONS (user
-          // 2026-09-30: "role and permission and permission override need to
-          // merge"). /admin/roles and /admin/permission-overrides redirect here
-          // (declared in REDIRECTED, scripts/check-module-groups.mts).
-          // TWO SCREENS FROM ONE (user 2026-10-01: "list the by user as
-          // separate with a better label"). The roles half keeps the route
-          // (so bookmarks land) under the name of what is left on it; the
-          // person half is its own row. One component renders both.
+          { href: "/admin/users", label: "Users", description: "Each person's login, roles, units and extra screens" },
           {
             href: "/admin/access-control",
             label: "Roles & Permissions",
             description: "Screen access by role — everyone holding a role gets its access",
           },
+          // RESTORED (2026-11-13). The 09-30 merge redirected this route to
+          // User Permissions, which never rendered the grant screen — so no
+          // override could be granted from anywhere for six weeks.
           {
-            href: "/admin/user-permissions",
-            label: "User Permissions",
-            description: "Access given to one person by email, on top of their roles",
+            href: "/admin/permission-overrides",
+            label: "Approved Order Edits",
+            description: "Time-limited permission for one person to correct an approved order",
           },
-          // 0812 (user 2026-11-05): the tiles each role starts with on Home — "Everyone"
-          // first, because self-service staff sign in with no role at all.
-          { href: "/admin/home-favourites", label: "Home Favourites", description: "The tiles each role starts with on Home" },
-          { href: "/admin/audit", label: "Audit Log", description: "Who changed what, and when" },
         ],
       },
       {
@@ -1859,7 +1857,7 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
         slug: "system",
         label: "System",
         icon: Server,
-        description: "Notifications, the scheduled jobs behind them, and the design reference",
+        description: "Notifications, scheduled jobs, the audit log, Home tiles and the design reference",
         // doc/admin/notification-management-plan.md §5. Scheduled Jobs is its
         // own row, not a Notifications tab: the jobs advance approvals and
         // raise order alerts, not only notifications.
@@ -1874,6 +1872,10 @@ export const MODULE_GROUPS: Record<string, ModuleGrouping> = {
             label: "Scheduled Jobs",
             description: "The automatic jobs — when each last ran, whether it is late, and Run now",
           },
+          { href: "/admin/audit", label: "Audit Log", description: "Who changed what, and when" },
+          // 0812 (user 2026-11-05): the tiles each role starts with on Home — "Everyone"
+          // first, because self-service staff sign in with no role at all.
+          { href: "/admin/home-favourites", label: "Home Favourites", description: "The tiles each role starts with on Home" },
           {
             href: "/admin/design-reference",
             label: "Design Reference",

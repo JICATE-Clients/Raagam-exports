@@ -1,4 +1,5 @@
-import { requirePermission, requireUser } from "@/lib/auth/server";
+import { can, requirePermission, requireUser } from "@/lib/auth/server";
+import { loadAccessControl } from "@/lib/permissions/service";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui/page-header";
 import UsersClient from "./users-client";
@@ -52,9 +53,14 @@ export interface UserRow {
   created_at: string | null;
 }
 
-export default async function UsersPage() {
+export default async function UsersPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ user?: string }>;
+}) {
   await requirePermission("system_admin", "view");
   const me = await requireUser();
+  const { user: openEmail } = await searchParams;
 
   const supabase = await createClient();
   // STAFF IS READ WITH THE SERVICE ROLE, deliberately. `staff_read` needs
@@ -70,6 +76,8 @@ export default async function UsersPage() {
     { data: userRolesRaw },
     { data: rolesData },
     { data: employeesData },
+    access,
+    canEdit,
   ] = await Promise.all([
     supabase
       .from("profiles")
@@ -90,6 +98,10 @@ export default async function UsersPage() {
       .eq("is_active", true)
       .or("blocked.is.null,blocked.eq.false")
       .order("name"),
+    // Each person's units and extra screens (2026-11-13: User Permissions
+    // merged into this screen — one editor per person).
+    loadAccessControl(),
+    can("system_admin", "edit"),
   ]);
 
   const profiles = (profilesData ?? []) as ProfileRow[];
@@ -134,14 +146,34 @@ export default async function UsersPage() {
     if (claimed.has(p.id)) continue;
     rows.push({ key: `p:${p.id}`, staffId: null, name: p.full_name, code: p.employee_code, email: p.email, profile: p, created_at: p.created_at ?? null });
   }
+  // 0661: access given by email ahead of a login, for an address no staff row
+  // or login carries — otherwise it is saved and invisible on this screen.
+  const listed = new Set(rows.map((r) => norm(r.email)).filter((e): e is string => !!e));
+  for (const u of access.users) {
+    if (u.has_login || listed.has(u.email)) continue;
+    rows.push({ key: `e:${u.email}`, staffId: null, name: u.full_name, code: u.employee_code, email: u.email, profile: null, created_at: null });
+  }
 
   return (
     <div className="space-y-4">
       <PageHeader
         title="Users"
-        description="Everyone in HR & Payroll ▸ People ▸ Staff. Send welcome mail creates their login and emails the sign-in details."
+        description="Everyone in HR & Payroll ▸ People ▸ Staff. Send welcome mail creates their login; the pencil sets their roles, units and extra screens."
       />
-      <UsersClient rows={rows} userRoles={userRoles} roles={roles} meId={me.id} />
+      <UsersClient
+        rows={rows}
+        userRoles={userRoles}
+        roles={roles}
+        meId={me.id}
+        access={{
+          users: access.users,
+          locations: access.locations,
+          offered: access.offered,
+          roleTrees: Object.fromEntries(access.roles.map((r) => [r.id, r.tree])),
+        }}
+        canEdit={canEdit}
+        initialEmail={openEmail?.trim().toLowerCase() || null}
+      />
     </div>
   );
 }

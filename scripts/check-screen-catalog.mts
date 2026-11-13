@@ -119,7 +119,7 @@ const UNREGISTERED: Record<string, string> = {
   "/sales/planning": "redirect() to Sample Management — the Planning group dissolved 2026-10-14 (Sample is one plain list)",
   "/sales/revise": "redirect() to Sample Management — the Revise group dissolved 2026-10-14 (Sample is one plain list)",
   "/admin/roles": "redirect() to Access Control (merged 2026-09-30, REDIRECTED in check-module-groups)",
-  "/admin/permission-overrides": "redirect() to Access Control ▸ By User (merged 2026-09-30)",
+  "/admin/user-permissions": "redirect() to Users — merged into the one person editor 2026-11-13 (REDIRECTED in check-module-groups)",
   "/orders/profitability": "redirect() to /orders/profit-check — Order Profit Check moved 2026-10-01",
   "/orders/po-import": "entry page opened from Order Entry's Upload Buyer PO button — takes the Orders grant (requirePermission in the page)",
   "/me": "redirect() to /my-profile — My Profile's first address (moved 2026-10-01)",
