@@ -1,18 +1,17 @@
 import { requirePermission } from "@/lib/auth/server";
 import { createClient } from "@/lib/supabase/server";
 import { today } from "@/lib/calendar";
-import { getOrdersForPicker } from "@/lib/purchase/po-service";
 import { getProductionDcSetup } from "@/lib/stores/production-dc-service";
 import { listBinStock } from "@/lib/stores/process-dc-service";
-import { getKnitGauges, getKnitters } from "@/lib/production/knitting-service";
+import { getKnitGauges, getKnitOrderOptions, getKnitters } from "@/lib/production/knitting-service";
 import { KnittingEditor } from "../_components/knitting-editor";
 
 export default async function NewKnittingOrderPage() {
   await requirePermission("stores", "create");
   // The yarn rows pick a store · bin and can send at once (user 2026-11-12), so stock comes too.
   const supabase = await createClient();
-  const [orders, knitters, gauges, setup, binStock, next] = await Promise.all([
-    getOrdersForPicker(),
+  const [choices, knitters, gauges, setup, binStock, next] = await Promise.all([
+    getKnitOrderOptions(),
     getKnitters(),
     getKnitGauges(),
     getProductionDcSetup(),
@@ -23,7 +22,8 @@ export default async function NewKnittingOrderPage() {
   return (
     <KnittingEditor
       doc={null}
-      orders={orders}
+      orders={choices.orders}
+      categories={choices.categories}
       knitters={knitters}
       gauges={gauges}
       initialCandidates={[]}

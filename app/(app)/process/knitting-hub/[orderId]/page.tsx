@@ -1,10 +1,9 @@
 import { notFound } from "next/navigation";
 import { requirePermission, can } from "@/lib/auth/server";
 import { today } from "@/lib/calendar";
-import { getOrdersForPicker } from "@/lib/purchase/po-service";
 import { getProductionDcSetup } from "@/lib/stores/production-dc-service";
 import { listBinStock } from "@/lib/stores/process-dc-service";
-import { getKnitCandidates, getKnitGauges, getKnitters, getKnittingOrder, listYarnAtKnitter } from "@/lib/production/knitting-service";
+import { getKnitCandidates, getKnitGauges, getKnitOrderOptions, getKnitters, getKnittingOrder, listYarnAtKnitter } from "@/lib/production/knitting-service";
 import { KnittingEditor } from "../_components/knitting-editor";
 
 /** Yarn can still go out on these (a draft is issued and sent in the same click). */
@@ -17,8 +16,8 @@ export default async function KnittingOrderPage({ params }: { params: Promise<{ 
   if (!doc) notFound();
   // ONE SCREEN (user 2026-11-12): each yarn row picks its store · bin and shows what it holds.
   const dcOpen = OPEN_FOR_DC.includes(doc.status) && !doc.close_pending;
-  const [orders, knitters, gauges, canEdit, cand, setup, binStock, atKnitter] = await Promise.all([
-    getOrdersForPicker(),
+  const [choices, knitters, gauges, canEdit, cand, setup, binStock, atKnitter] = await Promise.all([
+    getKnitOrderOptions(),
     getKnitters(doc.vendor_id),
     getKnitGauges(),
     can("stores", "edit"),
@@ -31,7 +30,8 @@ export default async function KnittingOrderPage({ params }: { params: Promise<{ 
   return (
     <KnittingEditor
       doc={doc}
-      orders={orders}
+      orders={choices.orders}
+      categories={choices.categories}
       knitters={knitters}
       gauges={gauges}
       initialCandidates={cand.flatMap(({ c }) => (c.ok ? c.candidates : []))}

@@ -2,13 +2,13 @@
 
 import { Fragment, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { Plus, X } from "lucide-react";
+import { ClipboardList, Clock, FileText, Plus, Store, Tag, TrendingUp, User, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
-import { MultiSelect } from "@/components/ui/multi-select";
+import { FilterPill, type FilterPillOption } from "@/components/ui/filter-pill";
 import { Field, FieldRow } from "@/components/ui/field";
 import { Truncated } from "@/components/ui/truncated";
 import { PageHeader } from "@/components/ui/page-header";
@@ -23,7 +23,9 @@ import type { BinOption, StoreOption } from "@/lib/stores/production-dc-service"
 import type { BinStockOption } from "@/lib/stores/process-dc-service";
 import { FieldError } from "@/components/ui/field";
 import { KnitAtKnitterPanel } from "./knit-at-knitter-panel";
-import { cancelKnittingOrder, dispatchKnittingYarn, issueKnittingOrder, loadKnitCandidates, saveKnittingOrder, setKnittingDcCap } from "@/lib/production/knitting-actions";
+import { cancelKnittingOrder, undoKnittingDc, dispatchKnittingYarn, issueKnittingOrder, loadKnitCandidates, saveKnittingOrder, setKnittingDcCap } from "@/lib/production/knitting-actions";
+import type { KnitOrderOption } from "@/lib/production/knitting-service";
+import { ORDER_BY_BANDS, type OrderByBand } from "@/lib/purchase/re-po/filters";
 import { type KnitYarnAtKnitter,
   KNIT_STATUS_LABELS,
   PLY_OPTIONS,
@@ -150,9 +152,44 @@ function rowsFromDoc(doc: KnittingOrder): FabricRow[] {
  * Yarn Returns are their own screens under Process ▸ Knitting (user 2026-11-12: "remove it from
  * here"), so they are no longer tabs of the order.
  */
+/* ── THE HEADER PILLS (user 2026-11-13: Raise PO's filter row, "we need all that filters") ──
+   Raise PO's PO Type, Order Type and Item Class have one possible value on a Knitting Order (a
+   knitter, an RE, a fabric), so they are not drawn; Budget becomes "Fabric BOM" and Progress
+   means "already on another KO". Filters only — nothing here is saved. */
+const NO_BUYER = "__none__";
+type KoFilters = { buyer: string[]; category: string[]; ship: string[]; bom: string[]; progress: string[] };
+type KoFilterKey = keyof KoFilters;
+const NO_KO_FILTERS: KoFilters = { buyer: [], category: [], ship: [], bom: [], progress: [] };
+
+const dayNo = (iso: string) => Math.floor(Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)) / 86_400_000);
+
+/** Raise PO's bands, measured from today to the RE's ship date (no vendor lead days here). */
+function shipBand(ship: string | null, today: string): OrderByBand {
+  if (!ship) return "nodate";
+  const d = dayNo(ship) - dayNo(today);
+  return d < 0 ? "late" : d <= 7 ? "week" : d <= 14 ? "fortnight" : "later";
+}
+
+/** The values an RE holds for one pill — a list, since an RE has several fabric categories. */
+function koFacet(o: KnitOrderOption, k: KoFilterKey, today: string): string[] {
+  switch (k) {
+    case "buyer":
+      return [o.buyer_id ?? NO_BUYER];
+    case "category":
+      return o.category_ids;
+    case "ship":
+      return [shipBand(o.ship_date, today)];
+    case "bom":
+      return [o.has_bom ? "ready" : "none"];
+    case "progress":
+      return [o.programmed ? "part" : "new"];
+  }
+}
+
 export function KnittingEditor({
   doc,
   orders,
+  categories = [],
   knitters,
   gauges,
   initialCandidates,
@@ -173,7 +210,10 @@ export function KnittingEditor({
   stores?: StoreOption[];
   bins?: BinOption[];
   doc: KnittingOrder | null;
-  orders: { id: string; order_number: string | null }[];
+  /** Open REs with their buyer — the Buyer → Orders pills (user 2026-11-13, screenshot 4143). */
+  orders: KnitOrderOption[];
+  /** Names for the Category pill — the fabric categories on the REs' Fabric BOMs. */
+  categories?: { id: string; name: string }[];
   knitters: KnitOption[];
   gauges: KnitOption[];
   initialCandidates: KnitCandidate[];
@@ -202,6 +242,8 @@ export function KnittingEditor({
      offered, each tagged with its RE, and each saved line keeps its own RE. */
   const [reIds, setReIds] = useState<string[]>(() => doc?.res.map((r) => r.id) ?? []);
   const [vendorId, setVendorId] = useState(doc?.vendor_id ?? "");
+  /** The Buyer pill (screen-only, never saved): narrows the Orders pill as on Raise PO. */
+  const [pillFilters, setPillFilters] = useState<KoFilters>(NO_KO_FILTERS);
   const [orderDate, setOrderDate] = useState(doc?.order_date ?? today);
   const [expectedDate, setExpectedDate] = useState(doc?.expected_date ?? "");
   const [allowedLoss, setAllowedLoss] = useState(str(doc?.allowed_loss_pct));
@@ -211,6 +253,8 @@ export function KnittingEditor({
   const customer = [...new Set(reIds.map((id) => customerByRe[id]).filter((x): x is string => !!x))].join(", ") || null;
   const [note, setNote] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<"issue" | "send" | "cancel" | null>(null);
+  /** The sent DC whose yarn is being taken back to its bin (0841), while its confirm is open. */
+  const [undoDc, setUndoDc] = useState<{ id: string; code: string | null; kg: number } | null>(null);
   const [dcDate, setDcDate] = useState(today);
 
   // Row keys from a counter bumped only in handlers, so render stays pure.
@@ -592,7 +636,55 @@ export function KnittingEditor({
     });
   }
 
-  const reOptions = orders.map((o) => ({ id: o.id, label: o.order_number ?? "(no RE No)" }));
+  function undoSentDc() {
+    if (!doc || !undoDc) return;
+    const dc = undoDc;
+    start(async () => {
+      const res = await undoKnittingDc(doc.id, dc.id);
+      setUndoDc(null);
+      if (!res.ok) return toastError(res.error);
+      success(`${dc.code ?? "DC"} undone — the yarn is back in its bin`);
+      router.refresh();
+    });
+  }
+
+  /* THE RAISE PO PILLS (user 2026-11-13, screenshot 4143: "here we need to give that purchase
+     order filter type"): Buyer → Orders → Knitter, the same `FilterPill` row and colours as
+     Raise PO's header. No Order Type pill — a Knitting Order only ever takes REs, so it would
+     offer one choice. Buyer is a filter only; Orders IS the KO's RE list and Knitter its vendor. */
+  /* A choice's count is the REs it would leave with every OTHER pill applied, and a TICKED RE is
+     never filtered out — Raise PO's two rules (lib/purchase/re-po/filters.ts). */
+  const passes = (o: KnitOrderOption, skip: KoFilterKey | null) =>
+    (Object.keys(pillFilters) as KoFilterKey[]).every(
+      (k) => k === skip || !pillFilters[k].length || pillFilters[k].some((v) => koFacet(o, k, today).includes(v)),
+    );
+  const countOf = (k: KoFilterKey, v: string) => orders.filter((o) => passes(o, k) && koFacet(o, k, today).includes(v)).length;
+  const anyOf = (k: KoFilterKey) => orders.filter((o) => passes(o, k)).length;
+  const setPill = (k: KoFilterKey) => (v: string[]) => setPillFilters((f) => ({ ...f, [k]: v }));
+  const buyerOptions: FilterPillOption[] = [
+    ...new Map(orders.map((o) => [o.buyer_id ?? NO_BUYER, o.buyer_name ?? "No buyer"])).entries(),
+  ]
+    .map(([value, label]) => ({ value, label, count: countOf("buyer", value) }))
+    .sort((a, b) => (a.value === NO_BUYER ? 1 : b.value === NO_BUYER ? -1 : a.label.localeCompare(b.label)));
+  const categoryOptions: FilterPillOption[] = categories.map((c) => ({ value: c.id, label: c.name, count: countOf("category", c.id) }));
+  const shipOptions: FilterPillOption[] = ORDER_BY_BANDS.map((b) => ({
+    value: b.value,
+    label: b.label,
+    count: countOf("ship", b.value),
+    tone: b.value === "late" ? ("danger" as const) : undefined,
+  }));
+  const bomOptions: FilterPillOption[] = [
+    { value: "ready", label: "Fabric BOM ready", count: countOf("bom", "ready") },
+    { value: "none", label: "No Fabric BOM", count: countOf("bom", "none") },
+  ];
+  const progressOptions: FilterPillOption[] = [
+    { value: "new", label: "Not programmed yet", count: countOf("progress", "new") },
+    { value: "part", label: "Part programmed", count: countOf("progress", "part") },
+  ];
+  // A ticked RE stays listed whatever the pills say — a filter never takes a line off the KO.
+  const orderOptions: FilterPillOption[] = orders
+    .filter((o) => passes(o, null) || reIds.includes(o.id))
+    .map((o) => ({ value: o.id, label: o.order_number ?? "(no RE No)", sublabel: o.buyer_name ?? undefined }));
   const knitterOptions: ComboboxOption[] = knitters
     .filter((k) => !k.inactive || k.id === vendorId)
     .map((k) => ({ value: k.id, label: k.inactive ? `${k.name} (not a knitter)` : k.name }));
@@ -767,13 +859,11 @@ export function KnittingEditor({
       <div className={`${DOC_FRAME} flex min-h-[calc(100dvh-10rem)] flex-col`} data-focus-scope="">
         <div className="flex-1 space-y-4 p-4">
           {/*
-           * KO No 144 · KO Date 144 · RE No 176 · Knitter 200 · Delivery 144 · Allowed Loss 112
-           * = 920 + 5 x 12 gap = 980px. KO No at 112 cut "KO/26-27/0001" off, and "Allowed Loss %"
-           * at 88 wrapped its label to two lines and dropped its box below the row (screenshot
-           * 4115, 2026-11-12) — both are one step wider now. It was 1100px with a Customer box, and on the client's
-           * laptop Allowed Loss % fell to a second line (2026-11-12). Customer is read-only and
-           * follows the RE, so it now rides under RE No as the field's hint instead of costing
-           * 186px of the row. align="start" keeps the boxes level while that hint shows.
+           * KO No 144 · KO Date 144 · Delivery 144 · Allowed Loss 112 on the field row; RE No and
+           * Knitter moved to the pill row under it (Buyer → Orders → Knitter, Raise PO's filters,
+           * user 2026-11-13). Read-only, the two come back as plain boxes in this row. KO No at 112
+           * cut "KO/26-27/0001" off and "Allowed Loss %" at 88 wrapped (screenshot 4115), hence the
+           * one-step-wider boxes. align="start" keeps them level while a hint shows.
            */}
           <FieldRow align="start">
             <Field label="KO No" w="code">
@@ -782,27 +872,16 @@ export function KnittingEditor({
             <Field label="KO Date" required w="code">
               <Input type="date" value={orderDate} readOnly={readOnly} onChange={(e) => setOrderDate(e.target.value)} required />
             </Field>
-            {/* THE REs SIT IN THE BOX (screenshot 4124): the chip line stacked one RE per row under a
-                176px box and pushed the whole header down. Up to two RE Nos read in the box, a third
-                counts ("3 REs selected"), and every fabric block below carries its own RE tag. */}
-            <Field label="RE No" required w="party" hint={customer ? <Truncated text={customer} /> : undefined}>
-              {readOnly ? (
-                <Input readOnly value={doc?.order_number ?? "—"} />
-              ) : (
-                <div id="ko-re">
-                  <MultiSelect compact label="RE No" options={reOptions} values={reIds} onChange={pickOrders} required summarizeLabels hideChips summaryNoun="REs" autoOpenClose />
-                </div>
-              )}
-            </Field>
-            <Field label="Knitter" required w="party">
-              {readOnly ? (
-                <Input readOnly value={doc?.vendor_name ?? "—"} />
-              ) : (
-                <div id="ko-knitter">
-                  <Combobox options={knitterOptions} value={vendorId} onChange={setVendorId} placeholder={knitters.length ? "Pick the knitter" : "No knitter registered"} required />
-                </div>
-              )}
-            </Field>
+            {readOnly ? (
+              <>
+                <Field label="RE No" required w="party" hint={customer ? <Truncated text={customer} /> : undefined}>
+                  <Input readOnly value={doc?.order_number ?? "—"} />
+                </Field>
+                <Field label="Knitter" required w="party">
+                  <Input readOnly value={doc?.vendor_name ?? "—"} />
+                </Field>
+              </>
+            ) : null}
             <Field label="Delivery Date" w="code">
               <Input type="date" value={expectedDate} readOnly={readOnly} onChange={(e) => setExpectedDate(e.target.value)} />
             </Field>
@@ -810,6 +889,112 @@ export function KnittingEditor({
               <Input type="number" min="0" max="99" step="any" value={allowedLoss} readOnly={readOnly} onChange={(e) => changeAllowedLoss(e.target.value)} />
             </Field>
           </FieldRow>
+
+          {/* THE PILL ROW — Raise PO's header filters (screenshot 2026-11-13 142940). Orders and
+              Knitter are required pills: amber until chosen, and they hold the cursor like any
+              mandatory field. The customer rides under the row once an RE is ticked. */}
+          {readOnly ? null : (
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-x-1 gap-y-2 rounded-xl border border-[#dde4eb] bg-[#fafbfc] px-3 py-2.5">
+                <FilterPill
+                  id="ko-buyer"
+                  label="Buyer"
+                  family="order"
+                  icon={User}
+                  wide
+                  multiple
+                  options={buyerOptions}
+                  anyCount={anyOf("buyer")}
+                  value={pillFilters.buyer}
+                  emptyText="No open order"
+                  onChange={setPill("buyer")}
+                />
+                <FilterPill
+                  id="ko-re"
+                  label="Orders"
+                  family="order"
+                  icon={FileText}
+                  required
+                  wide
+                  multiple
+                  placeholder="Choose the RE No"
+                  options={orderOptions}
+                  value={reIds}
+                  emptyText="No open order is left by the pills before it"
+                  onChange={pickOrders}
+                />
+                <FilterPill
+                  label="Category"
+                  family="item"
+                  icon={Tag}
+                  multiple
+                  disabled={categoryOptions.length === 0}
+                  options={categoryOptions}
+                  anyCount={anyOf("category")}
+                  value={pillFilters.category}
+                  emptyText="No Fabric BOM lists a category yet"
+                  onChange={setPill("category")}
+                />
+                <span aria-hidden className="mx-0.5 hidden h-5 w-px shrink-0 bg-[#dde4eb] sm:block" />
+                <FilterPill
+                  id="ko-knitter"
+                  label="Knitter"
+                  family="vendor"
+                  icon={Store}
+                  required
+                  wide
+                  placeholder="Choose the knitter"
+                  options={knitterOptions}
+                  value={vendorId}
+                  emptyText="No vendor is registered as a knitter"
+                  onChange={setVendorId}
+                />
+                <span aria-hidden className="mx-0.5 hidden h-5 w-px shrink-0 bg-[#dde4eb] sm:block" />
+                {/* The three status pills show their icon alone until used, as on Raise PO. */}
+                <FilterPill
+                  label="Ship date"
+                  family="status"
+                  icon={Clock}
+                  collapse
+                  wide
+                  multiple
+                  options={shipOptions}
+                  anyCount={anyOf("ship")}
+                  note="Days from today to the RE's ship date"
+                  tone={pillFilters.ship.includes("late") ? "danger" : undefined}
+                  value={pillFilters.ship}
+                  onChange={setPill("ship")}
+                />
+                <FilterPill
+                  label="Fabric BOM"
+                  family="status"
+                  icon={ClipboardList}
+                  collapse
+                  wide
+                  multiple
+                  options={bomOptions}
+                  anyCount={anyOf("bom")}
+                  note="An RE with no approved Fabric BOM has nothing to knit"
+                  value={pillFilters.bom}
+                  onChange={setPill("bom")}
+                />
+                <FilterPill
+                  label="Progress"
+                  family="status"
+                  icon={TrendingUp}
+                  collapse
+                  wide
+                  multiple
+                  options={progressOptions}
+                  anyCount={anyOf("progress")}
+                  note="Part programmed = already on another Knitting Order"
+                  value={pillFilters.progress}
+                  onChange={setPill("progress")}
+                />
+              </div>
+              {customer ? <p className="px-1 text-xs text-muted-foreground">Customer: {customer}</p> : null}
+            </div>
+          )}
 
           {!readOnly && knitters.length === 0 ? (
             <p className="text-sm text-danger">
@@ -1428,6 +1613,24 @@ export function KnittingEditor({
               Cancel this knitting order
             </button>
           ) : null}
+          {/* UNDO A SENT DC (0841, user 2026-11-13: "return to the bin, that's all") — only while
+              nothing has come back, so the yarn is still whole at the knitter. Once every DC is
+              undone the order is Issued again, and Cancel / the list's Delete take over. */}
+          {canEdit && doc && ["in_process", "partially_received"].includes(doc.status) && !doc.close_pending && doc.receipts.length === 0
+            ? doc.dcs
+                .filter((d) => d.status === "issued" && !d.moved_from)
+                .map((d) => (
+                  <button
+                    key={d.id}
+                    type="button"
+                    className="text-sm text-muted-foreground hover:text-foreground hover:underline"
+                    onClick={() => setUndoDc({ id: d.id, code: d.code, kg: d.kg })}
+                    disabled={isPending}
+                  >
+                    Undo {d.code ?? "DC"} — yarn back to bin
+                  </button>
+                ))
+            : null}
           {/* WHY ISSUE IS GREYED, BESIDE IT (plan step 4) — the red items of "Before you issue". */}
           {sendable && blocking.length ? (
             <p className="ml-auto max-w-[28rem] truncate text-xs font-medium text-danger" title={blocking.join(" · ")}>
@@ -1512,6 +1715,16 @@ export function KnittingEditor({
         isPending={isPending}
         onConfirm={cancelDoc}
         onCancel={() => setConfirm(null)}
+      />
+      <ConfirmDialog
+        open={!!undoDc}
+        title={`Undo ${undoDc?.code ?? "this DC"}?`}
+        body={`${fmtNumber(undoDc?.kg ?? 0)} kg of yarn goes back to the bin it was sent from, and the DC is cancelled. With no other yarn out, ${doc?.code ?? "the order"} returns to Issued — then it can be cancelled or deleted.`}
+        confirmLabel="Undo DC"
+        cancelLabel="Keep"
+        isPending={isPending}
+        onConfirm={undoSentDc}
+        onCancel={() => setUndoDc(null)}
       />
     </div>
   );

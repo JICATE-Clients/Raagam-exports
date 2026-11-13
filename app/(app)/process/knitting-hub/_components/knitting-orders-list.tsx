@@ -24,7 +24,7 @@ export function KnittingOrdersList({ rows, canEdit, canDelete = false }: { rows:
      hiding is for missing permission only). An issued order whose DC was raised is refused by
      the server with its own sentence. */
   const deleteBlocked = (r: KnittingOrderListRow) =>
-    ["draft", "issued", "cancelled"].includes(r.status) ? null : `${KNIT_STATUS_LABELS[r.status]} — yarn is at the knitter, cancel or close it instead`;
+    ["draft", "issued", "cancelled"].includes(r.status) ? null : `${KNIT_STATUS_LABELS[r.status]} — yarn is at the knitter: open it and undo its yarn DC (back to the bin), or close it`;
   const remove = (r: KnittingOrderListRow) =>
     startTransition(async () => {
       const res = await deleteKnittingOrder(r.id);
