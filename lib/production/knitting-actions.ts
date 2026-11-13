@@ -154,6 +154,29 @@ export async function deleteKnittingOrder(id: string): Promise<{ ok: true } | Fa
   return { ok: true };
 }
 
+/**
+ * DELETE A FABRIC RECEIPT / YARN RETURN (user 2026-11-13, screenshot 4136: "add delete option …
+ * for the child"). A posted receipt has moved stock, so `knitting_receipt_delete` (0839) UNDOES
+ * it in one call — stock mirrored back, the DC lines' kg back at the knitter, the draft bill gone —
+ * and refuses, with its own sentence, once that stock has moved on, the bill left draft, or the
+ * Knitting Order closed.
+ */
+export async function deleteKnittingReceipt(id: string): Promise<{ ok: true } | Fail> {
+  if (!(await can("stores", "delete"))) return { ok: false, error: "You do not have permission to delete a knitting receipt" };
+  const s = await createClient();
+  const { data: k } = await s.from("knitting_receipts").select("code, kind, process_order_id").eq("id", id).maybeSingle();
+  const row = k as { code: string | null; kind: string; process_order_id: string } | null;
+  if (!row) return { ok: false, error: "Receipt not found" };
+  const { error } = await s.rpc("knitting_receipt_delete", { p_receipt_id: id });
+  if (error) return { ok: false, error: error.message };
+  await writeAudit({ action: "knitting_receipt.deleted", entityType: "knitting_receipt", entityId: id, metadata: { code: row.code, kind: row.kind } });
+  revalidateKnitting(row.process_order_id);
+  revalidatePath(row.kind === "fabric" ? "/process/knitting-receipts" : "/process/knitting-returns");
+  revalidatePath("/purchase/dc");
+  revalidatePath("/finance/payables");
+  return { ok: true };
+}
+
 // ---------------------------------------------------------------------------
 // Phase 3 (0830) — fabric receipt, yarn return, close
 // ---------------------------------------------------------------------------

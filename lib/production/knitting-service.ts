@@ -781,6 +781,8 @@ export type KnitReceiptListRow = {
   order_code: string | null;
   re_no: string | null;
   knitter: string | null;
+  /** The Knitting Order's status — a receipt is deletable (0839) only while it is open. */
+  order_status: string | null;
   rolls: number;
   kg: number;
   created_at: string;
@@ -798,7 +800,7 @@ export async function listKnittingReceipts(kind: "fabric" | "yarn_return"): Prom
     .from("knitting_receipts")
     .select(
       "id, code, receipt_date, vendor_dc_no, created_at, created_by, process_order_id, " +
-        "ko:process_orders!process_order_id(code, vendor:master_vendors!vendor_id(name), so:sales_orders!sales_order_id(order_number), " +
+        "ko:process_orders!process_order_id(code, status, vendor:master_vendors!vendor_id(name), so:sales_orders!sales_order_id(order_number), " +
         "kf:process_order_knit_fabrics(fso:sales_orders!sales_order_id(order_number))), " +
         "fabrics:knitting_receipt_fabrics(rolls, net_kg), yarns:knitting_receipt_yarns(kind, qty_kg)",
     )
@@ -812,7 +814,7 @@ export async function listKnittingReceipts(kind: "fabric" | "yarn_return"): Prom
   };
   return withCreators(
     ((data ?? []) as unknown as R[]).map((r) => {
-      const ko = one(r.ko as { code: string | null; vendor: unknown; so: unknown } | null);
+      const ko = one(r.ko as { code: string | null; status: string | null; vendor: unknown; so: unknown } | null);
       return {
         id: r.id,
         code: r.code,
@@ -823,6 +825,7 @@ export async function listKnittingReceipts(kind: "fabric" | "yarn_return"): Prom
         // Every RE on the Knitting Order (0836), else its header RE.
         re_no: koReNos(ko),
         knitter: one(ko?.vendor as { name: string } | null)?.name ?? null,
+        order_status: ko?.status ?? null,
         rolls: (r.fabrics ?? []).reduce((t, f) => t + num(f.rolls), 0),
         kg:
           kind === "fabric"

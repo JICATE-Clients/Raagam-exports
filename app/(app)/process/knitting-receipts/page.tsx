@@ -5,6 +5,6 @@ import { KnittingReceiptsRegister } from "../knitting-hub/_components/knitting-r
 /** Process ▸ Knitting ▸ Fabric Receipts (0831) — same `stores` permission as the Knitting Orders. */
 export default async function KnittingReceiptsPage() {
   await requirePermission("stores", "view");
-  const [rows, canCreate] = await Promise.all([listKnittingReceipts("fabric"), can("stores", "edit")]);
-  return <KnittingReceiptsRegister kind="fabric" rows={rows} canCreate={canCreate} />;
+  const [rows, canCreate, canDelete] = await Promise.all([listKnittingReceipts("fabric"), can("stores", "edit"), can("stores", "delete")]);
+  return <KnittingReceiptsRegister kind="fabric" rows={rows} canCreate={canCreate} canDelete={canDelete} />;
 }

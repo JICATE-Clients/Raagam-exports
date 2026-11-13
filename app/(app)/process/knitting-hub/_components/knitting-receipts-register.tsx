@@ -6,15 +6,27 @@ import { withCreatedColumns } from "@/components/ui/created-columns";
 import { PageHeader } from "@/components/ui/page-header";
 import { fmtDate, fmtNumber } from "@/lib/format";
 import type { KnitReceiptListRow } from "@/lib/production/knitting-service";
+import { KnitReceiptRowActions } from "./knit-receipt-row-actions";
 
 const BASE = "/process/knitting-hub";
 
 /**
  * The register of Fabric Receipts, or of Yarn Returns (client 2026-11-11, 0831: "distinct
- * screens/menus"). Server-rendered; a posted document cannot change. "+ New" opens the entry
+ * screens/menus"). Server-rendered; a posted document cannot change — it can only be deleted,
+ * which reverses its posting (0839). "+ New" opens the entry
  * screen (pick the Knitting Order, post) — since 2026-11-12 these are no longer tabs of the order.
  */
-export function KnittingReceiptsRegister({ kind, rows, canCreate }: { kind: "fabric" | "yarn_return"; rows: KnitReceiptListRow[]; canCreate: boolean }) {
+export function KnittingReceiptsRegister({
+  kind,
+  rows,
+  canCreate,
+  canDelete = false,
+}: {
+  kind: "fabric" | "yarn_return";
+  rows: KnitReceiptListRow[];
+  canCreate: boolean;
+  canDelete?: boolean;
+}) {
   const fabric = kind === "fabric";
   const columns: Column<KnitReceiptListRow>[] = [
     {
@@ -40,6 +52,12 @@ export function KnittingReceiptsRegister({ kind, rows, canCreate }: { kind: "fab
     { header: "Knitter DC", cell: (r) => <span className="text-sm">{r.vendor_dc_no ?? "—"}</span> },
     ...(fabric ? [{ header: "Rolls", align: "right" as const, cell: (r: KnitReceiptListRow) => <span className="tabular-nums text-sm">{r.rolls || "—"}</span> }] : []),
     { header: fabric ? "Fabric Kg" : "Yarn Back Kg", align: "right", cell: (r) => <span className="tabular-nums text-sm">{fmtNumber(r.kg)}</span> },
+    // Delete (0839, user 2026-11-13) — reverses the posting; the one client island on this page.
+    {
+      header: "",
+      align: "right",
+      cell: (r) => <KnitReceiptRowActions id={r.id} code={r.code} orderStatus={r.order_status} canDelete={canDelete} />,
+    },
   ];
   return (
     <div className="space-y-4">
