@@ -1,7 +1,7 @@
 "use client";
 
 import type { CSSProperties, MouseEvent, ReactNode } from "react";
-import { PanelLeftClose, Search, UsersRound, type LucideIcon } from "lucide-react";
+import { PanelLeftClose, Search, type LucideIcon } from "lucide-react";
 import { useSearch } from "@/components/search/search-provider";
 import { usePathname } from "next/navigation";
 import { useOpenWorkspaceTab } from "@/lib/workspace-tabs";
@@ -10,12 +10,11 @@ import type { StoreNavLink } from "@/components/shell/sidebar-types";
 import { cn } from "@/lib/utils";
 import { useRecent } from "@/lib/use-recent";
 import { useAccordion } from "@/lib/ui/use-accordion";
-import { hasPermission } from "@/lib/auth/types";
-import { ChannelsHeaderActions, SidebarChannels } from "@/components/comms/sidebar-channels";
 import {
   activeChildHref,
   activeModule,
   isStillNew,
+  NO_MENU_MODULES,
   visibleModules,
   type SubNavItem,
 } from "./navigation-config";
@@ -87,7 +86,7 @@ export function ContextSidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
 
   const items = visibleModules(user);
   const mod = activeModule(pathname, items);
-  if (!mod) return null;
+  if (!mod || NO_MENU_MODULES.has(mod.href)) return null;
 
   // Live store records are listed directly under the Stores group, ahead of
   // its fixed operation sub-modules (Opening Stock, Requisitions, …) — same
@@ -108,27 +107,9 @@ export function ContextSidebar({ stores = [] }: { stores?: StoreNavLink[] }) {
    */
   const blocks = toBlocks(children);
   const leaves = blocks.flatMap((b) => b.rows);
-  // THE CALLER'S CHANNELS (0751) — a fold of the SAME accordion as the hub's
-  // registry group, so "one open at a time" (AGENTS.md "Folds are accordions")
-  // holds across both. Appended after `leaves` is taken: its rows are records,
-  // not screens, and must not compete for the screen highlight.
-  if (mod.href === "/comms") {
-    const canCreateChannel = hasPermission(user, "communication", "create");
-    const openInTab = (href: string, title: string) => (e: MouseEvent<HTMLAnchorElement>) => {
-      e.preventDefault();
-      openTab({ href, title });
-    };
-    blocks.push({
-      key: "comms:channels",
-      label: "Channels",
-      // UsersRound, not Hash (user 2026-11-04: "i dont like that hash"): a
-      // channel is a group of people talking, which the heading should say.
-      icon: UsersRound,
-      rows: [],
-      actions: <ChannelsHeaderActions pathname={pathname} canCreate={canCreateChannel} navigate={openInTab} />,
-      content: <SidebarChannels pathname={pathname} navigate={openInTab} />,
-    });
-  }
+  // THE CHANNELS FOLD IS GONE (user 2026-11-13: "athu fulla vendam"). It was
+  // a live list of the caller's channels (0751) appended to Pulse's sidebar;
+  // channels are still reached from Messages and /comms/channels.
   const activeHref = activeChildHref(pathname, leaves);
   // The group to open: the one holding the screen in view, else the first
   // captioned group (a module's root page sits in no group). HR & Payroll

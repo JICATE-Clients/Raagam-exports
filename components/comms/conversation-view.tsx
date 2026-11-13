@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useTransition, type CSSProperties } from "react";
 import { CHAT_WALL_MASK } from "@/lib/comms/chat-wall";
-import { ArrowLeft, Hash, Loader2, Lock, Megaphone, MoreVertical, Pin, RotateCw, Users, WifiOff, X } from "lucide-react";
+import { ArrowLeft, Hash, Loader2, Lock, Megaphone, MoreVertical, Pin, RotateCw, Search, Users, WifiOff, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PulseConfirm } from "./pulse-confirm";
 import { DropdownMenu, type DropdownItem } from "@/components/ui/dropdown-menu";
@@ -535,13 +535,8 @@ export function ConversationView({
           label: conversation.kind === "direct" ? "Contact info" : conversation.kind === "channel" ? "Channel info" : "Group info",
           onClick: () => setDetailsOpen(true),
         },
-    {
-      label: "Search",
-      onClick: () => {
-        setThreadOf(null);
-        setSearchOpen(true);
-      },
-    },
+    // No "Search" here (user 2026-11-13, artifact "Chat Header Search"): it is
+    // the header's own 🔍 beside this ⋮, WhatsApp's way.
     // Add to favourites left this menu (user 2026-11-04); it stays on the list
     // row's own ⌄ menu. Saved messages stays here: the list header's bookmark
     // icon was removed the same day, and this is the one way to /comms/saved.
@@ -742,7 +737,28 @@ export function ConversationView({
             onOpenInfo={() => setDetailsOpen(true)}
           />
         )}
-        {/* No magnifier in the header (user 2026-11-02) — Search is in the ⋮ menu. */}
+        {/* 🔍 BESIDE THE ⋮ (user 2026-11-13, screenshots 100059 / 100441 and the
+            artifact "Chat Header Search"): Search left the ⋮ menu for its own icon,
+            reversing 2026-11-02's "no magnifier". It toggles the Search messages
+            panel; one side panel at a time, so it closes an open thread. */}
+        {/* button-shape: exempt -- a 32px header icon button, the same box as the ⋮ trigger beside it */}
+        <button
+          type="button"
+          onClick={() => {
+            if (searchOpen) {
+              setSearchOpen(false);
+              return;
+            }
+            setThreadOf(null);
+            setSearchOpen(true);
+          }}
+          aria-label="Search messages"
+          aria-pressed={searchOpen}
+          title="Search messages"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-control text-foreground hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring aria-pressed:bg-primary-soft aria-pressed:text-primary"
+        >
+          <Search className="h-[18px] w-[18px]" aria-hidden />
+        </button>
         <DropdownMenu
           label="Menu"
           trigger={<MoreVertical className="h-[18px] w-[18px]" />}

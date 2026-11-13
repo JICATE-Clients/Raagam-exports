@@ -2,6 +2,7 @@ import {
   CalendarDays,
   ClipboardCheck,
   Clock,
+  MessageCircle,
   PackageOpen,
   Plus,
   Route,
@@ -71,6 +72,9 @@ export const FAVORITE_ACTIONS: readonly FavoriteAction[] = [
   { key: "help-repair", label: "Help & Repair", where: "Resolve ▸ Raise a concern", href: "/resolve/report/complaint", icon: Wrench, module: null, action: "view", home: "/resolve" },
   { key: "trip-request", label: "Trip Request", where: "Logistics ▸ Transport ▸ Requests", href: "/logistics/transport/requests?new=1", icon: Truck, module: "logistics", action: "create", home: "/logistics/transport" },
   { key: "my-approvals", label: "My Approvals", where: "Pulse ▸ My Approvals", href: "/comms/approvals", icon: ClipboardCheck, module: null, action: "view", home: "/comms" },
+  // Pulse itself (user 2026-11-13, artifact "Favourites With Pulse"): one tap to the chats,
+  // with the unread count on the tile (service.ts addBadges).
+  { key: "pulse", label: "Pulse", where: "Pulse ▸ Chats", href: "/comms", icon: MessageCircle, module: "communication", action: "view", home: "/comms" },
   // ── Store / Purchase ──
   { key: "raise-po", label: "Raise PO", where: "Purchase ▸ Raise PO", href: "/purchase/requirement-po?new=1", icon: ShoppingCart, module: "materials_purchase", action: "create", home: "/purchase" },
   { key: "grn", label: "GRN", where: "Purchase ▸ GRN ▸ New", href: "/purchase/grn/new", icon: PackageOpen, module: "materials_purchase", action: "create", home: "/stores" },
