@@ -9,6 +9,7 @@ import {
   ChevronLeft,
   ChevronRight,
   LayoutGrid,
+  Star,
   Building2,
   Truck,
   Users,
@@ -86,7 +87,11 @@ const PREFERRED: readonly string[] = ["/orders", "/comms"];
 /** Home + 4 is the five a phone bar holds; a fifth module turns slot 4 into More. */
 const MAX_MODULE_TABS = 4;
 /** A module's bar label when it differs from its sidebar label. */
-const TAB_LABEL: Record<string, string> = { "/": "Home" };
+const TAB_LABEL: Record<string, string> = { "/": "Favourites" };
+/** The first tab's two routes (user 2026-11-13): on a phone `/` and `/favourites` render the
+ *  same page — Favourites with Home inside it — so there is no Home tab and no second
+ *  Favourites tab. Desktop keeps both rail items. */
+const FIRST_TAB_ROUTES = ["/", "/favourites"];
 
 /**
  * The screens a module holds for this login. Its ROOT counts as one unless it
@@ -274,7 +279,7 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
   const shown = modules.filter((m) => !m.hidden);
   const others = [
     ...PREFERRED.map((href) => shown.find((m) => m.href === href)).filter((m): m is NavItem => !!m),
-    ...shown.filter((m) => m.href !== "/" && !PREFERRED.includes(m.href)),
+    ...shown.filter((m) => !FIRST_TAB_ROUTES.includes(m.href) && !PREFERRED.includes(m.href)),
   ];
   const overflow = others.length > MAX_MODULE_TABS;
   const tabs = overflow ? others.slice(0, MAX_MODULE_TABS - 1) : others;
@@ -349,9 +354,9 @@ export function MobileNav({ stores = [] }: { stores?: StoreNavLink[] }) {
           {homeModule && (
             <TabLink
               href="/"
-              icon={homeModule.icon}
+              icon={Star}
               label={TAB_LABEL["/"]}
-              active={sheet === null && pathname === "/"}
+              active={sheet === null && FIRST_TAB_ROUTES.includes(pathname)}
               onClick={(e) => {
                 if (!isPlainClick(e)) return;
                 e.preventDefault();
