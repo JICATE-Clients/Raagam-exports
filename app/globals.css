@@ -3516,11 +3516,13 @@ table td.text-muted-foreground {
  *
  * One even weight for emphasis, which is most of what makes it read neat: the
  * list mixed bold (700) and extra-bold (800) names, badges and tags; inside
- * Pulse both draw at semibold (600).
+ * Pulse both draw at ONE weight. That weight was semibold (600) until
+ * 2026-11-14, when the Slack-style letters (artifact "Pulse Type and
+ * Spacing") asked for a true bold on unread chats and section headings: 700.
  */
 [data-comms-frame] {
   font-family: var(--font-roboto), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 [data-comms-frame] :is(.font-bold, .font-extrabold) {
-  font-weight: 600;
+  font-weight: 700;
 }

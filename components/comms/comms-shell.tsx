@@ -5,7 +5,8 @@ import { useEffect, useId, useState, type ReactNode } from "react";
 import { useAppUser } from "@/lib/auth/permission-context";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { createClient } from "@/lib/supabase/client";
-import type { CommunitySummary, ConversationSummary, ThreadSummary } from "@/lib/comms/types";
+import type { CommunitySummary, ConversationSummary } from "@/lib/comms/types";
+import { Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ConversationList } from "./conversation-list";
 import { NewChatPanel, type NewChatMode } from "./new-chat-panel";
@@ -55,7 +56,6 @@ export function CommsShell({
   top,
   chats,
   communities,
-  threads,
   photos,
   channelPhotos,
   favorites,
@@ -68,8 +68,6 @@ export function CommsShell({
   chats?: ConversationSummary[];
   /** 0775: the caller's communities; null before 0775 is applied. */
   communities?: CommunitySummary[] | null;
-  /** 0811: threads the caller is in, for the list's Threads section. */
-  threads?: ThreadSummary[];
   /** userId → HR photo URL (lib/comms/photos.ts). */
   photos?: Record<string, string>;
   /** 0839: conversationId → channel photo URL. */
@@ -171,6 +169,9 @@ export function CommsShell({
         <div className="flex min-h-0 flex-1">
           <aside
             aria-label="Chats"
+            // THE PHONE HOME (user 2026-11-14, artifact "Pulse Type and Spacing",
+            // Mobile ▸ Home): a floating + starts a chat. Its theme-colour band
+            // was removed the same day (screenshot 121350).
             // A LIGHT SHADE OF THE THEME COLOUR (user 2026-11-13, artifact "Pulse
             // Light Sidebar", Medium): it replaced the dark list the same day and
             // follows T ▸ Colour — see [data-pane-tone="light"] in globals.css.
@@ -183,9 +184,13 @@ export function CommsShell({
               isHome ? "flex w-full" : "hidden",
             )}
           >
+            {/* NO BAND ON THE PHONE (user 2026-11-14, screenshot 121350: "remove
+                this in mobile view"). The theme-colour band with the workspace
+                name and initials, added the same morning, is gone; the list
+                fills the pane as it does on a laptop. */}
+            <div className="flex min-h-0 flex-1 flex-col">
             <ConversationList
               conversations={chats}
-              threads={threads ?? []}
               activeId={openId}
               composing={isNew}
               home={isHome}
@@ -196,6 +201,19 @@ export function CommsShell({
               onNewChat={setNewChat}
               favorites={favorites}
             />
+            </div>
+            {newChat === null && (
+              // button-shape: exempt -- the phone's floating + (a 56px square with a shadow), not a toolbar button
+              <button
+                type="button"
+                onClick={() => setNewChat("direct")}
+                aria-label="New chat"
+                title="New chat"
+                className="absolute bottom-5 right-4 z-20 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-[0_6px_16px_rgba(0,0,0,.28)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:hidden"
+              >
+                <Plus className="h-6 w-6" aria-hidden />
+              </button>
+            )}
             {/* WhatsApp's New chat slides in over the list, same width. */}
             <NewChatPanel
               open={newChat !== null}

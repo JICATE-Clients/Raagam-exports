@@ -81,7 +81,7 @@ export function HomeFeed({ conversations }: { conversations: ConversationSummary
                   <Link
                     href={`/comms/c/${c.id}`}
                     aria-label={`${name}${u ? `, ${c.unread_count} unread` : ""}`}
-                    className="flex gap-3 rounded-xl px-2.5 py-3 transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="flex gap-3 rounded-xl px-2.5 py-2 transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <ChatAvatar c={c} size="lg" />
                     <span className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -89,7 +89,7 @@ export function HomeFeed({ conversations }: { conversations: ConversationSummary
                         <span className="flex min-w-0 flex-1 items-center gap-1.5">
                           <Truncated
                             text={name}
-                            className={cn("min-w-0 text-sm", u ? "font-bold text-heading" : "font-medium text-muted-foreground")}
+                            className={cn("min-w-0 text-[15px] leading-5", u ? "font-bold text-heading" : "font-normal text-foreground")}
                           />
                           {kind && (
                             <span
@@ -102,14 +102,14 @@ export function HomeFeed({ conversations }: { conversations: ConversationSummary
                             </span>
                           )}
                         </span>
-                        <span className={cn("flex shrink-0 items-center gap-1.5 text-xs tabular-nums", u ? "font-bold text-heading" : "text-muted-foreground")}>
+                        <span className={cn("flex shrink-0 items-center gap-1.5 text-[12px] tabular-nums", u ? "font-bold text-heading" : "text-muted-foreground")}>
                           {when(c.last_message_at)}
                           {u && <span aria-hidden className="h-2 w-2 rounded-full bg-primary" />}
                         </span>
                       </span>
                       <Truncated
                         text={preview(c)}
-                        className={cn("text-[13.5px]", c.last_deleted ? "italic text-muted-foreground" : u ? "font-semibold text-foreground" : "text-foreground/80")}
+                        className={cn("text-[14px] leading-5", c.last_deleted ? "italic text-muted-foreground" : u ? "font-semibold text-foreground" : "text-foreground/80")}
                       />
                     </span>
                   </Link>

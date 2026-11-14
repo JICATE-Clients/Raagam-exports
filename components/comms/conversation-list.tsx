@@ -13,7 +13,6 @@ import {
   EyeOff,
   Mail,
   MessageSquareDot,
-  MessageSquareText,
   Repeat,
   Volume2,
   VolumeX,
@@ -60,13 +59,13 @@ import { Truncated } from "@/components/ui/truncated";
 import { useToast } from "@/components/ui/toast";
 import { useAppUser } from "@/lib/auth/permission-context";
 import { hasPermission } from "@/lib/auth/types";
-import { deleteChatForMe, joinChannel, leaveConversation, markRead, markThreadSeen, markUnread, setBlocked, setChatFlags, setMuted } from "@/lib/comms/actions";
+import { deleteChatForMe, joinChannel, leaveConversation, markRead, markUnread, setBlocked, setChatFlags, setMuted } from "@/lib/comms/actions";
 import { setConversationPrefs } from "@/lib/comms/channel-actions";
 import { loadChannelsToFind, loadPulseFiles } from "@/lib/comms/pulse-actions";
 import type { FileKind, PulseFile } from "@/lib/comms/files-service";
 import { messageHref } from "@/lib/comms/search";
 import { searchMore } from "@/lib/comms/search-actions";
-import type { ChannelListing, CommunitySummary, ConversationSummary, MessageHit, ThreadSummary } from "@/lib/comms/types";
+import type { ChannelListing, CommunitySummary, ConversationSummary, MessageHit } from "@/lib/comms/types";
 import { fmtDate } from "@/lib/format";
 import { glowVars } from "@/lib/ui/buyer-glow";
 import { cn } from "@/lib/utils";
@@ -175,7 +174,6 @@ export function avatarStyle(name: string): CSSProperties {
  */
 export function ConversationList({
   conversations,
-  threads = [],
   activeId = null,
   composing = false,
   home = false,
@@ -190,8 +188,6 @@ export function ConversationList({
   /** The person's Home Favourites (lib/favorites/service.ts), drawn as a strip
    *  above the shortcuts. Absent = no strip. */
   favorites?: MyFavorite[];
-  /** 0811: threads the caller started or replied in, newest reply first. */
-  threads?: ThreadSummary[];
   /** 0775: the caller's communities; null when 0775 is not applied. */
   communities?: CommunitySummary[] | null;
   /** The community page open beside the list, lit. */
@@ -833,7 +829,7 @@ export function ConversationList({
             Panel") it slides the New chat panel in over this list on every
             width — no more /comms/new To: screen on wide and sheet on narrow. */}
         {onNewChat ? (
-          <button type="button" onClick={() => onNewChat("direct")} aria-label="New chat" title="New chat" className={cn(NEW_CHAT, "inline-flex")}>
+          <button type="button" onClick={() => onNewChat("direct")} aria-label="New chat" title="New chat" className={cn(NEW_CHAT, "inline-flex max-md:hidden")}>
             <Plus className="h-4 w-4" aria-hidden /> New
           </button>
         ) : (
@@ -842,7 +838,7 @@ export function ConversationList({
             aria-current={composing ? "page" : undefined}
             aria-label="New chat"
             title="New chat"
-            className={cn(NEW_CHAT, "inline-flex")}
+            className={cn(NEW_CHAT, "inline-flex max-md:hidden")}
           >
             <Plus className="h-4 w-4" aria-hidden /> New
           </Link>
@@ -958,7 +954,7 @@ export function ConversationList({
           the native bar is hidden and ShortScrollbar draws a fixed 56px one;
           scrolling itself stays native. It replaced the 4px hairline here. */}
       <ShortScrollbar target={listRef} />
-      <nav ref={listRef} className="scrollbar-none min-h-0 flex-1 overflow-y-auto px-1 pb-12" aria-label="Chats">
+      <nav ref={listRef} className="scrollbar-none min-h-0 flex-1 overflow-y-auto px-1 pb-12 max-md:px-0" aria-label="Chats">
         {/* SHORTCUTS (user 2026-11-05, the chat-app mockup): Home, Mentions and
             Saved above the chats. Flat since 2026-11-05 (user: "card mari
             irukkathalma remove pannu") — a hairline beneath, no grey box. Under All only — a filter or
@@ -968,11 +964,14 @@ export function ConversationList({
             Favourites", option A) and withdrawn; Favourites stay on Home. The
             `favorites` prop is still passed in, but nothing draws it. */}
         {!searching && filter === "all" && (
-          <section aria-labelledby="pulse-sec-shortcuts" className="mb-1 border-b border-border pb-1">
-            <h2 id="pulse-sec-shortcuts" className="flex items-center px-1 pb-0.5 pt-1 text-xs font-semibold text-muted-foreground">
+          <section aria-labelledby="pulse-sec-shortcuts" className="mb-1 border-b border-border pb-1 max-md:mb-0">
+            <h2 id="pulse-sec-shortcuts" className="flex items-center px-1 pb-0.5 pt-1 text-[15px] font-extrabold text-heading max-md:min-h-10 max-md:px-3 max-md:py-0 max-md:text-[16px]">
               <FoldToggle title="Shortcuts" folded={!!folded.shortcuts} onToggle={() => toggleFold("shortcuts")} />
             </h2>
-            <ul hidden={!!folded.shortcuts}>
+            {/* THREE CHIPS IN A ROW on a phone (user 2026-11-14, screenshot
+                123339: "compacted") — they were three tall cards with a second
+                line; now one 36px line each, sharing the width. */}
+            <ul hidden={!!folded.shortcuts} className="flex flex-col px-1 pb-1.5 pt-0.5 max-md:flex-row max-md:gap-2 max-md:px-4 max-md:pb-2 max-md:pt-0">
               <Shortcut href="/comms" icon={House} label="Home" on={home} />
               {/* Pulse ▸ Mentions, not Notifications (user 2026-11-06): the badge
                   counts unread @mentions, so the page lists exactly those. */}
@@ -996,7 +995,7 @@ export function ConversationList({
             <span aria-hidden className="flex h-8 w-8 items-center justify-center rounded-lg bg-[color-mix(in_srgb,#6c5ce7_16%,var(--surface))] text-[#5b4bd6] dark:text-[#b4a9ff]">
               <Archive className="h-[18px] w-[18px]" />
             </span>
-            <span className="flex-1 text-sm font-bold text-foreground">Archived</span>
+            <span className="flex-1 text-[15px] font-bold text-foreground">Archived</span>
             <span className="rounded-full bg-[color-mix(in_srgb,#6c5ce7_16%,var(--surface))] px-2.5 py-0.5 text-xs font-bold tabular-nums text-[#5b4bd6] dark:text-[#b4a9ff]">
               {archived.length}
             </span>
@@ -1023,12 +1022,13 @@ export function ConversationList({
               // just created is there to move chats into.
               const joinHere = s.key === "channel" && !folded[s.key] ? joinable : [];
               return s.items.length === 0 && !((s.key === "channel" || s.mine) && browseRow) ? null : (
-                <section key={s.key} aria-labelledby={`pulse-sec-${s.key}`} className="group/sec">
+                <section key={s.key} aria-labelledby={`pulse-sec-${s.key}`} className="group/sec max-md:border-b max-md:border-border max-md:pb-1.5">
                   <h2
                     id={`pulse-sec-${s.key}`}
-                    // Sentence case, quiet (user 2026-11-05, chat-app mockup) — was
-                    // primary-coloured capitals with a rule above each heading.
-                    className="flex items-center gap-2 px-1 pb-0.5 pt-3 text-xs font-semibold text-muted-foreground"
+                    // Sentence case (user 2026-11-05, chat-app mockup); 14px bold in
+                    // the ink colour since 2026-11-14 (artifact "Pulse Type and
+                    // Spacing", compact) — it was 12px grey.
+                    className="flex items-center gap-2 px-1 pb-0.5 pt-3 text-[15px] font-bold text-heading max-md:min-h-10 max-md:px-3 max-md:py-0 max-md:text-[16px] font-extrabold"
                   >
                     <FoldToggle title={s.title} folded={!searching && !!folded[s.key]} onToggle={() => toggleFold(s.key)} disabled={searching} />
                     {/* HOVER ONLY (user 2026-11-05, artifacts "unread switch on hover"
@@ -1084,7 +1084,7 @@ export function ConversationList({
                               type="button"
                               aria-expanded={open}
                               onClick={() => setExpanded((m) => ({ ...m, [s.key]: !open }))}
-                              className="flex h-8 w-full items-center gap-2.5 rounded-full px-3 text-left text-sm text-foreground transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-md:h-10"
+                              className="flex h-8 w-full items-center gap-2.5 rounded-full px-3 text-left text-[15px] text-foreground max-md:h-9 max-md:rounded-none max-md:px-4 max-md:text-[15px] max-md:text-muted-foreground transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                             >
                               {open ? (
                                 <ChevronsDownUp className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
@@ -1128,174 +1128,9 @@ export function ConversationList({
           </div>
         )}
 
-        {/* THREADS (0811, user 2026-11-05, the "Threads in the chat list"
-            artifact): threads the caller started or replied in, under the
-            kinds, newest reply first. Bold with a dot while a reply has not
-            been opened; the heading counts those. A row opens the chat with
-            its thread in the side panel (?m=&t=, the search hit's link).
-            Under All only, like Shortcuts — a filter or a search is the
-            operator narrowing the list. Peeks like the sections above. */}
-        {!searching && filter === "all" && threads.length > 0 && (() => {
-          const shut = !!folded.threads;
-          // Unread only (user 2026-11-05, artifact "Threads: unread switch and ⋮
-          // on hover") — the same per-section switch the kinds above carry.
-          const only = !!unreadOnly.threads;
-          const list = only ? threads.filter((t) => t.unread) : threads;
-          const long = !shut && list.length > SECTION_PEEK;
-          const open = !!expanded.threads;
-          const visible = shut ? [] : long && !open ? list.slice(0, SECTION_PEEK) : list;
-          const threadMenu: DropdownItem[] = [
-            // "Mark all as read" only while something is unread — the menu's
-            // own test, since the heading no longer carries a total.
-            ...(threads.some((t) => t.unread)
-              ? [
-                  {
-                    label: "Mark all as read",
-                    icon: CheckCheck,
-                    disabled: menuBusy,
-                    onClick: () =>
-                      runMenu(async () => {
-                        for (const t of threads.filter((x) => x.unread)) {
-                          const r = await markThreadSeen(t.id);
-                          if (!r.ok) return r;
-                        }
-                        return { ok: true as const };
-                      }, "All threads marked as read"),
-                  },
-                ]
-              : []),
-            // The ⋮ gained two items (user 2026-11-10, artifact "Threads Menu"): the unread
-            // switch in words — the icon beside ⋮ is easy to miss on a phone — and the
-            // whole list, which otherwise only a row at the foot of the peek opens.
-            {
-              label: "Show only unread",
-              icon: MessageSquareDot,
-              checked: only,
-              onClick: () => setUnreadOnly((m) => ({ ...m, threads: !only })),
-            },
-            ...(!shut && list.length > SECTION_PEEK
-              ? [
-                  {
-                    label: open ? "Show fewer" : "Show all threads",
-                    icon: open ? ChevronsDownUp : ChevronsUpDown,
-                    ...(open ? {} : { count: list.length }),
-                    onClick: () => setExpanded((m) => ({ ...m, threads: !open })),
-                  },
-                ]
-              : []),
-            {
-              label: shut ? "Expand section" : "Collapse section",
-              icon: shut ? ChevronsUpDown : ChevronsDownUp,
-              separatorBefore: true,
-              onClick: () => toggleFold("threads"),
-            },
-          ];
-          const chatOf = new Map(conversations.map((c) => [c.id, c]));
-          return (
-            <section aria-labelledby="pulse-sec-threads" className="group/sec">
-              <h2 id="pulse-sec-threads" className="flex items-center gap-2 px-1 pb-0.5 pt-3 text-xs font-semibold text-muted-foreground">
-                {/* No total beside the heading (user 2026-11-05, "not thread 4
-                    count"): the number is each thread's own, on its row. */}
-                <FoldToggle title="Threads" folded={shut} onToggle={() => toggleFold("threads")} />
-                {/* HOVER ONLY, the same rule as the kinds' headings above. */}
-                <span
-                  className={cn(
-                    "ml-auto flex items-center gap-0.5 transition-opacity",
-                    only
-                      ? "opacity-100"
-                      : "opacity-0 focus-within:opacity-100 group-hover/sec:opacity-100 has-[[aria-expanded=true]]:opacity-100 [@media(hover:none)]:opacity-100",
-                  )}
-                >
-                  <UnreadOnlyButton
-                    on={only}
-                    onChange={(v) => setUnreadOnly((m) => ({ ...m, threads: v }))}
-                    label="Show only unread threads"
-                  />
-                  <DropdownMenu
-                    label="Section actions for Threads"
-                    trigger={<EllipsisVertical className="h-4 w-4" aria-hidden />}
-                    triggerClassName="grid h-7 w-7 place-items-center rounded-full text-muted-foreground hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    items={threadMenu}
-                    compact
-                    menuWidth={210}
-                  />
-                </span>
-              </h2>
-              {only && !shut && list.length === 0 && (
-                <p className="px-3 py-1.5 text-xs text-muted-foreground">No new replies.</p>
-              )}
-              <ul>
-                {/* A ROW LIKE A DIRECT MESSAGE (user 2026-11-05, screenshot 144333
-                    and the "Threads rows like Direct messages" artifact: "no
-                    message … hi hello no need"): the chat's own avatar with a
-                    thread mark on its corner, its name, the last reply's time
-                    and, under it, the unread replies. The message the thread
-                    hangs off is in the hover title and the accessible name, so
-                    two threads in one chat can still be told apart. */}
-                {visible.map((t) => {
-                  const c = chatOf.get(t.conversation_id);
-                  const where = c ? (c.kind === "direct" ? nameCase(c.title) : c.title.replace(/^#/, "")) : "Chat";
-                  const n = t.unread_count;
-                  return (
-                    <li key={t.id}>
-                      <Link
-                        href={messageHref({ conversation_id: t.conversation_id, id: t.id, parent_id: t.id })}
-                        title={`Thread on: ${t.preview}`}
-                        aria-label={`Thread in ${where} on: ${t.preview}${n ? `, ${n} unread ${n === 1 ? "reply" : "replies"}` : ""}`}
-                        className="flex h-[46px] min-w-0 items-center gap-2.5 rounded-2xl pl-1.5 pr-2.5 transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-md:h-12"
-                      >
-                        <span className="relative inline-flex shrink-0">
-                          {c ? (
-                            <ChatAvatar c={c} size="row" />
-                          ) : (
-                            <span aria-hidden className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-soft text-primary">
-                              <MessageSquareText className="h-4 w-4" />
-                            </span>
-                          )}
-                          <span aria-hidden className="absolute -bottom-0.5 -right-0.5 grid h-4 w-4 place-items-center rounded-full bg-surface text-primary ring-2 ring-surface">
-                            <MessageSquareText className="h-2.5 w-2.5" strokeWidth={2.6} />
-                          </span>
-                        </span>
-                        <Truncated
-                          text={where}
-                          className={cn("min-w-0 flex-1 text-sm leading-snug", n > 0 ? "font-bold text-heading" : "font-medium text-foreground")}
-                        />
-                        <span className="flex min-w-11 shrink-0 flex-col items-end gap-[3px]">
-                          <span className={cn("h-4 text-[11px] leading-4 tabular-nums", n > 0 ? cn("font-extrabold", UNREAD_TEXT) : "font-medium text-muted-foreground")}>
-                            {when(t.last_reply_at)}
-                          </span>
-                          <span className="flex h-5 items-center">
-                            {n > 0 && (
-                              <span aria-hidden className={cn("flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-extrabold tabular-nums", UNREAD_FILL)}>
-                                {n > 99 ? "99+" : n}
-                              </span>
-                            )}
-                          </span>
-                        </span>
-                      </Link>
-                    </li>
-                  );
-                })}
-              </ul>
-              {long && (
-                // button-shape: exempt -- a list row ("Show all"), drawn like the chat rows above it
-                <button
-                  type="button"
-                  aria-expanded={open}
-                  onClick={() => setExpanded((m) => ({ ...m, threads: !open }))}
-                  className="flex h-8 w-full items-center gap-2.5 rounded-full px-3 text-left text-sm text-foreground transition-colors hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-md:h-10"
-                >
-                  {open ? (
-                    <ChevronsDownUp className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-                  ) : (
-                    <ChevronsUpDown className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-                  )}
-                  {open ? "Show fewer" : "Show all threads"}
-                </button>
-              )}
-            </section>
-          );
-        })()}
+        {/* NO THREADS SECTION (user 2026-11-14, "remove threads"): the list of
+            threads I started or replied in is gone from the chat list. A thread
+            is still opened from its message (Reply in thread) or a search hit. */}
 
         {term.length >= 2 && (
           <section aria-label="Messages" className="mt-3">
@@ -1388,9 +1223,14 @@ function FoldToggle({ title, folded, onToggle, disabled = false }: { title: stri
       disabled={disabled}
       aria-expanded={!folded}
       title={folded ? `Show ${title}` : `Hide ${title}`}
-      className="-my-0.5 flex min-w-0 items-center gap-1 rounded-md px-1 py-0.5 text-left hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:hover:bg-transparent"
+      // The ⌄ in a 20px column 12px in and the words 42px in, so a heading
+      // lines up with the icons and names of the rows under it (user
+      // 2026-11-14, artifact "Pulse Laptop Sidebar"); 26px / 18px on a phone.
+      className="-my-0.5 flex min-w-0 items-center gap-2.5 rounded-md px-2 py-0.5 text-left max-md:gap-[18px] max-md:px-1 hover:bg-surface-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:hover:bg-transparent"
     >
-      <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 transition-transform", folded && "-rotate-90")} strokeWidth={2.4} aria-hidden />
+      <span aria-hidden className="flex w-5 shrink-0 justify-center max-md:w-[26px]">
+        <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", folded && "-rotate-90")} strokeWidth={2.4} />
+      </span>
       <span className="min-w-0 break-words">{title}</span>
     </button>
   );
@@ -1730,16 +1570,25 @@ function Shortcut({
   count?: number;
   on?: boolean;
 }) {
+  // ONE LINE (user 2026-11-14, artifact "Compact Pulse Shortcuts"): a 30px
+  // card, 16px icon beside the word, no "Caught up" — a count is a small badge
+  // at the right, and only while there is something new.
   const cls = cn(
-    "flex h-8 w-full items-center gap-2.5 rounded-full px-2.5 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-md:h-10",
-    on ? "bg-primary-soft font-bold text-primary" : "text-foreground hover:bg-surface",
+    // A ROW ON A LAPTOP (user 2026-11-14, artifact "Pulse Laptop Sidebar"):
+    // icon in the 20px column, full word, count at the right — never cut.
+    // COMPACT ON A PHONE TOO (user 2026-11-14, screenshot 123339: "compacted"):
+    // the three tall cards became one-line chips — icon, word, badge — 36px high.
+    "flex h-[30px] w-full items-center gap-1.5 rounded-lg border px-2 text-left text-[13px] transition-colors md:gap-2.5 md:rounded-md md:border-0 md:text-[15px] max-md:h-9 max-md:gap-1.5 max-md:px-2.5 max-md:text-[14px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+    on
+      ? "border-primary bg-primary-soft font-bold max-md:text-primary md:bg-primary md:text-primary-foreground"
+      : "border-border bg-surface text-foreground hover:bg-surface-muted md:bg-transparent",
   );
   const body = (
     <>
-      <Icon className={cn("h-4 w-4 shrink-0", on ? "text-primary" : "text-muted-foreground")} aria-hidden />
-      <span className="flex-1">{label}</span>
+      <Icon className={cn("h-4 w-4 shrink-0 md:mx-0.5", on ? "max-md:text-primary md:text-primary-foreground" : "text-foreground")} strokeWidth={1.8} aria-hidden />
+      <Truncated text={label} className="min-w-0 flex-1" />
       {count > 0 && (
-        <span aria-hidden className={cn("flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-extrabold tabular-nums", UNREAD_FILL)}>
+        <span aria-hidden className={cn("h-[18px] min-w-[18px] shrink-0 rounded-full px-1.5 text-center text-[11px] font-bold leading-[18px] tabular-nums", UNREAD_FILL)}>
           {count > 99 ? "99+" : count}
         </span>
       )}
@@ -1747,7 +1596,7 @@ function Shortcut({
   );
   const name = count > 0 ? `${label}, ${count}` : label;
   return (
-    <li>
+    <li className="max-md:min-w-0 max-md:flex-1">
       {href ? (
         <Link href={href} aria-current={on ? "page" : undefined} aria-label={name} className={cls}>
           {body}
@@ -1803,11 +1652,13 @@ export function ChatAvatar({ c, size }: { c: ConversationSummary; size: "row" | 
             : "bg-[var(--chan-pub-bg)] text-[var(--chan-pub-fg)]"
           : AVATAR_TINT,
         size === "row"
-          ? "h-8 w-8 text-[11px] max-md:h-9 max-md:w-9 max-md:text-[13px]"
+          ? "h-5 w-5 text-[9px] max-md:h-[22px] max-md:w-[22px] max-md:rounded-[6px] max-md:text-[10px]"
           : size === "compact" ? "h-[38px] w-[38px] text-[13px] max-md:h-10 max-md:w-10 max-md:text-sm" : size === "sm" ? "h-9 w-9 text-sm" : size === "lg" ? "h-11 w-11 text-sm" : "h-[50px] w-[50px] text-[17px]",
-        c.kind === "direct" || (channel && !isPrivateChannel)
+        size === "row"
+          ? "rounded-md"
+          : c.kind === "direct" || (channel && !isPrivateChannel)
           ? "rounded-full"
-          : size === "md" ? "rounded-[15px]" : size === "row" ? "rounded-lg" : "rounded-xl",
+          : size === "md" ? "rounded-[15px]" : size === "row" ? "rounded-md" : "rounded-xl",
       )}
     >
       {photo ? <PhotoImg src={photo} /> : Icon ? <Icon className="h-5 w-5" /> : (letter ?? initials(c.title.replace(/^#/, "")))}
@@ -1864,22 +1715,39 @@ function Row({
         // ONE LINE, A PILL (user 2026-11-05, chat-app mockup): avatar, name,
         // marks, count and time on a single 36px row; 44px on a phone for the thumb.
         className={cn(
-          "flex h-[46px] min-w-0 flex-1 items-center gap-2.5 rounded-2xl pl-1.5 pr-2.5 transition-colors max-md:h-12 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          // SLACK ROWS, COMPACT (user 2026-11-14, artifact "Pulse Type and Spacing", compact row):
+          // 32px tall (40px on a phone, for the thumb), 10px icon to name.
+          // LAPTOP, ONE NEAT COLUMN (user 2026-11-14, artifact "Pulse Laptop
+          // Sidebar"): 30px rows, every icon in one 20px column 12px in, every
+          // name 42px in; the open chat a filled theme-colour row.
+          "flex h-8 min-w-0 flex-1 items-center gap-2.5 rounded-lg pl-2 pr-2 transition-colors md:h-[30px] md:rounded-md max-md:h-9 max-md:gap-3.5 max-md:rounded-none max-md:px-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           // The row stays lit while its ⌄ menu is open (artifact "row ⌄ on hover").
-          active ? "bg-primary-soft" : "hover:bg-surface-muted group-has-[[aria-expanded=true]]/row:bg-surface-muted",
+          active ? "bg-primary-soft md:bg-primary" : "hover:bg-surface-muted group-has-[[aria-expanded=true]]/row:bg-surface-muted",
           c.muted && !active && "opacity-60",
         )}
       >
-        <ChatAvatar c={c} size="row" />
-        {/* Option B's second half: a private channel's name is led by an amber lock. */}
-        {c.kind === "channel" && c.visibility === "private" && (
-          <Lock className="-mr-1.5 h-3.5 w-3.5 shrink-0 text-[var(--chan-pri-fg)]" strokeWidth={2.4} aria-label="Private" />
+        {/* A CHANNEL IS A # AGAIN, a private one a lock (user 2026-11-14,
+            artifact "Pulse Type and Spacing") — this replaces the letter
+            avatar of 2026-11-04 in the list. An announcement channel keeps
+            its megaphone avatar. */}
+        {c.kind === "channel" && !c.is_announcement ? (
+          <span className="flex h-5 w-5 shrink-0 items-center justify-center max-md:h-[22px] max-md:w-[22px]">
+            {c.visibility === "private" ? (
+              <Lock className={cn("h-4 w-4 max-md:h-5 max-md:w-5", active ? "text-foreground md:text-primary-foreground" : unread > 0 ? "text-foreground [&>rect]:fill-current" : "text-muted-foreground")} strokeWidth={unread > 0 && !active ? 2.4 : 2} aria-label="Private" />
+            ) : (
+              <Hash className={cn("h-[17px] w-[17px] max-md:h-[21px] max-md:w-[21px]", active ? "text-foreground md:text-primary-foreground" : unread > 0 ? "text-foreground" : "text-muted-foreground")} strokeWidth={unread > 0 && !active ? 2.6 : 2} aria-hidden />
+            )}
+          </span>
+        ) : (
+          <ChatAvatar c={c} size="row" />
         )}
         <Truncated
           text={label}
           className={cn(
-            "min-w-0 flex-1 text-sm leading-snug",
-            active ? "font-bold text-primary" : unread > 0 ? "font-bold text-heading" : "font-medium text-foreground",
+            // SLACK-STYLE LETTERS, COMPACT (user 2026-11-14, artifact "Pulse Type and Spacing", compact row):
+            // 15px / 20px, regular when read, bold when unread.
+            "min-w-0 flex-1 text-[15px] leading-5 max-md:text-[16px] max-md:leading-5",
+            active ? "font-bold max-md:text-primary md:text-primary-foreground" : unread > 0 ? "font-extrabold text-heading" : "font-normal text-foreground",
           )}
         />
         {tag && (
@@ -1908,20 +1776,28 @@ function Row({
         {/* TIME ON TOP, COUNT BENEATH (user 2026-11-05, artifact "unread count
             under the time"): a small right-hand stack, the badge's slot kept
             empty on a read chat so every time lines up. */}
-        <span className="flex min-w-11 shrink-0 flex-col items-end gap-[3px]">
+        {/* NO TIME ON A LAPTOP (user 2026-11-14, artifact "Pulse Laptop
+            Sidebar", Slack's list): unread is the bold name and the count,
+            centred on the row. THE PHONE FOLLOWED (user 2026-11-14, artifact
+            "Pulse Mobile List", option B): no time, a 20px count, 36px rows of
+            16px names (compacted same day from 42px: "please compacted in mobile view") — dark when read, extra bold when unread, a filled lock on
+            an unread private channel. The laptop took the same weights (same day:
+            "also this in computer laptop view") at its own 30px / 15px size and
+            an 18px count. */}
+        <span className="flex shrink-0 flex-row items-center">
           {/* The time never hides now: the ⌄ moved to the line below it. */}
           <span
             className={cn(
-              "h-4 text-[11px] leading-4 tabular-nums",
+              "hidden h-3.5 text-[11px] leading-[14px] tabular-nums",
               unread > 0 ? cn("font-extrabold", UNREAD_TEXT) : "font-medium text-muted-foreground",
             )}
           >
             {when}
           </span>
-          <span className="flex h-5 items-center gap-0.5">
+          <span className="flex h-4 items-center gap-0.5 md:h-[18px] max-md:h-5">
             {unread > 0 && (
               <span
-                className={cn("flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-extrabold tabular-nums", UNREAD_FILL)}
+                className={cn("flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-extrabold tabular-nums md:h-[18px] md:min-w-[18px] md:px-1.5 md:text-[11px] max-md:h-5 max-md:min-w-5 max-md:px-1.5 max-md:text-[11px]", UNREAD_FILL)}
                 aria-hidden
               >
                 {unread > 99 ? "99+" : unread}
@@ -1932,7 +1808,7 @@ function Row({
                 (a sibling of the link, below) sits in the gap. */}
             <span
               aria-hidden
-              className="w-0 transition-[width] max-md:hidden md:group-focus-within/row:w-5 md:group-hover/row:w-5 md:group-has-[[aria-expanded=true]]/row:w-5 [@media(hover:none)]:md:w-5"
+              className="w-0 transition-[width] max-md:hidden md:group-focus-within/row:w-4 md:group-hover/row:w-4 md:group-has-[[aria-expanded=true]]/row:w-4 [@media(hover:none)]:md:w-4"
             />
           </span>
         </span>
@@ -1942,11 +1818,11 @@ function Row({
           count, shown on hover / focus / while its menu is open; the time above
           stays. A sibling of the link, never inside it, so opening the menu
           never opens the chat. It sits over the slot the link opens for it. */}
-      <div className="absolute bottom-1 right-2.5 opacity-0 max-md:hidden transition-opacity focus-within:opacity-100 group-hover/row:opacity-100 has-[[aria-expanded=true]]:opacity-100 [@media(hover:none)]:opacity-100">
+      <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 max-md:hidden transition-opacity focus-within:opacity-100 group-hover/row:opacity-100 has-[[aria-expanded=true]]:opacity-100 [@media(hover:none)]:opacity-100">
         <DropdownMenu
           label={`Actions for ${label}`}
-          trigger={<ChevronDown className="h-4 w-4" aria-hidden />}
-          triggerClassName="inline-flex h-5 w-5 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-muted hover:text-foreground aria-[expanded=true]:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          trigger={<ChevronDown className="h-3.5 w-3.5" aria-hidden />}
+          triggerClassName="inline-flex h-4 w-4 items-center justify-center rounded-md text-muted-foreground group-has-[[aria-current=page]]/row:text-primary-foreground hover:bg-surface-muted hover:text-foreground aria-[expanded=true]:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           items={menu}
           // Compact (user 2026-11-04): still wide enough for "Remove from favourites".
           compact

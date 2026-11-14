@@ -44,12 +44,13 @@ import { MessageItem, type MessageActions } from "./message-item";
 import { MessageBody, dayKey, initials } from "./message-body";
 import { AVATAR_TINT, avatarStyle } from "./conversation-list";
 import { PinnedSheet } from "./pinned-sheet";
+import { MessageInfoSheet } from "./message-info-sheet";
 import { ThreadPanel } from "./thread-panel";
 import { ForwardSheet } from "./forward-sheet";
 import { ChannelHeaderPeople } from "./add-channel-people";
 import { ChatSearchPanel } from "./chat-search-panel";
 import { suggestReplies } from "@/lib/comms/smart-reply-actions";
-import { PhotoImg, useChannelPhoto, useUserPhoto } from "./person-photo";
+import { PhotoImg, useUserPhoto } from "./person-photo";
 import { ruleReplies } from "@/lib/comms/smart-reply-rules";
 import { PRESENCE_WORD, WithPresence, usePresence } from "./presence";
 
@@ -132,8 +133,6 @@ export function ConversationView({
   // The other person's HR photo in a direct chat's header (lib/comms/photos.ts).
   const otherId = conversation.kind === "direct" ? (conversation.members.find((x) => x.user_id !== meId && !x.removed_at)?.user_id ?? null) : null;
   const headerPhoto = useUserPhoto(otherId);
-  // 0839: the channel's profile photo, when one is set.
-  const channelPhoto = useChannelPhoto(conversation.kind === "channel" ? conversation.id : null);
   const otherPresence = usePresence(otherId);
   const [cursor, setCursor] = useState<string | null>(initialPage.next_cursor);
   const [pending, setPending] = useState<Pending[]>([]);
@@ -144,6 +143,7 @@ export function ConversationView({
   const [threadOf, setThreadOf] = useState<CommMessage | null>(null);
   // 0812: the message whose photos the Forward sheet is sending on.
   const [forwardOf, setForwardOf] = useState<CommMessage | null>(null);
+  const [infoOf, setInfoOf] = useState<CommMessage | null>(null);
   const [threadVersion, setThreadVersion] = useState(0);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [pinnedOpen, setPinnedOpen] = useState(false);
@@ -411,6 +411,7 @@ export function ConversationView({
   const actions: MessageActions = {
     onOpenFile: (a) => void openFile(a),
     onForward: (m) => setForwardOf(m),
+    onInfo: (m) => setInfoOf(m),
     // 0776: a vote / an answer comes back as the message with fresh counts.
     onReplace: (fresh) => setMessages((prev) => prev.map((x) => (x.id === fresh.id ? fresh : x))),
     // One side panel at a time: a thread replaces Search messages.
@@ -516,6 +517,7 @@ export function ConversationView({
   const pinnedLoaded = messages.filter((m) => m.pinned && !m.deleted_at);
   const latestPin = pinnedLoaded.length > 0 ? pinnedLoaded[pinnedLoaded.length - 1] : null;
   const pinCount = pinnedLoaded.length;
+  const activeMembers = conversation.members.filter((x) => !x.removed_at).length;
   const subtitle =
     conversation.topic ??
     conversation.description ??
@@ -587,9 +589,22 @@ export function ConversationView({
   // full-width cards" artifact), the GROUP BUBBLES: others on the left with a
   // photo and a coloured name, yours on the right. The full-width white cards
   // tried first are gone. Quick replies and the header stay chat-only.
+  //
+  // CHANNELS ARE FLAT AGAIN (user 2026-11-14, artifact "Pulse Type and
+  // Spacing", Mobile ▸ Channel chat, "phone and laptop"): Slack's rows — a
+  // photo, the name and time, then the text — on a plain page, everywhere.
+  // This withdraws 2026-11-06's wall and group bubbles for CHANNELS only;
+  // direct and group chats keep both.
+  //
+  // CHATS ARE FLAT TOO (user 2026-11-14, artifact "Pulse Flat Messages",
+  // "apply"): direct and group chats now draw the same Slack rows as a channel
+  // — no bubble, no border, no doodle wall, everyone on the left under their
+  // photo and name. The read ticks went too (user 2026-11-14: "remove this
+  // tick mark") — MessageItem's `ticks` is no longer passed. The header,
+  // quick replies and system notes stay chat-only.
   const channel = conversation.kind === "channel";
-  const wall = !!chat || channel;
-  const bubble = chat ?? "group";
+  const wall = false;
+  const bubble = null;
 
   // ONLY "WHO ADDED WHOM" IN A CHANNEL (same day, "remove the channel only
   // added and add panna person"): the one event note a channel shows is
@@ -661,28 +676,35 @@ export function ConversationView({
             {headerPhoto ? <PhotoImg src={headerPhoto} /> : chat === "group" && !conversation.name ? <Users className="h-4 w-4" /> : initials(conversation.title)}
           </span>
           </WithPresence>
-        ) : conversation.kind === "channel" ? (
-          // A CHANNEL'S PROFILE TILE, NOT A "#" (user 2026-11-06: "remove the #",
-          // then "give profile in channel"): its first letter on its own colour,
-          // the same tile and colour the chat list's ChatAvatar draws for it, so
-          // the row you clicked and the header you land on match. A private
-          // channel keeps the small 🔒 on the corner, as in the list.
-          <span className="relative inline-flex shrink-0" aria-hidden>
-            <span
-              style={avatarStyle(conversation.title)}
-              className={cn("flex h-[30px] w-[30px] items-center justify-center overflow-hidden rounded-lg text-[12px] font-extrabold", AVATAR_TINT)}
-            >
-              {channelPhoto ? <PhotoImg src={channelPhoto} /> : (conversation.title.match(/[\p{L}\p{N}]/u)?.[0] ?? "#").toUpperCase()}
-            </span>
-            {conversation.visibility === "private" && (
-              <span className="absolute -bottom-0.5 -right-0.5 grid h-3.5 w-3.5 place-items-center rounded-full bg-surface text-muted-foreground ring-2 ring-surface">
-                <Lock className="h-2 w-2" />
-              </span>
-            )}
-          </span>
-        ) : (
+        ) : conversation.kind === "channel" ? null : (
+          // A channel's lock / # now sits inside its name box, below.
           <KindIcon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
         )}
+        {conversation.kind === "channel" && !announcement ? (
+          // THE NAME IN A GREY BOX (user 2026-11-14, artifact "Pulse Type and
+          // Spacing", Mobile ▸ Channel chat): a lock or #, the name in bold and
+          // the member count under it — the count returns, withdrawing
+          // 2026-11-06's "remove this 6 member". The box opens Channel info.
+          // button-shape: exempt -- the header's title block, not an action button
+          <button
+            type="button"
+            onClick={() => setDetailsOpen(true)}
+            className="flex min-w-0 flex-1 items-center gap-2.5 rounded-xl bg-surface-muted px-3 py-1.5 text-left hover:bg-[color-mix(in_srgb,var(--surface-muted)_80%,var(--border))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {conversation.visibility === "private" ? (
+              <Lock className="h-4 w-4 shrink-0 text-foreground" strokeWidth={2.4} aria-label="Private" />
+            ) : (
+              <Hash className="h-4 w-4 shrink-0 text-foreground" strokeWidth={2.4} aria-hidden />
+            )}
+            <span className="flex min-w-0 flex-col">
+              <h1 className="break-words text-[15px] font-bold leading-5 text-heading">{conversation.title.replace(/^#/, "")}</h1>
+              <span className="text-[12.5px] leading-4 text-muted-foreground">
+                {activeMembers} {activeMembers === 1 ? "member" : "members"}
+                {conversation.community && <> · {conversation.community.name}</>}
+              </span>
+            </span>
+          </button>
+        ) : (
         <div className="min-w-0 flex-1">
           <h1 className="break-words text-[13.5px] font-semibold leading-snug text-heading">
             {announcement ? "Announcements" : conversation.kind === "channel" ? conversation.title.replace(/^#/, "") : conversation.title}
@@ -720,6 +742,7 @@ export function ConversationView({
           </p>
           )}
         </div>
+        )}
         {!connected && (
           <span className="flex items-center gap-1 text-xs text-warning" role="status">
             <WifiOff className="h-3.5 w-3.5" aria-hidden /> Reconnecting…
@@ -922,9 +945,9 @@ export function ConversationView({
               {newDay && wall ? (
                 dayChip
               ) : newDay && (
-                <div className="my-2 flex items-center gap-3 px-3" role="separator">
+                <div className="my-2 flex items-center gap-2.5 px-3" role="separator">
                   <span className="h-px flex-1 bg-border" />
-                  <span className="text-[11px] font-semibold text-muted-foreground">{fmtDate(m.created_at)}</span>
+                  <span className="rounded-full border border-border bg-surface px-2.5 py-0.5 text-[12px] font-bold text-muted-foreground">{dayLabel(m.created_at)}</span>
                   <span className="h-px flex-1 bg-border" />
                 </div>
               )}
@@ -1064,7 +1087,7 @@ export function ConversationView({
         onChanged={() => void refreshLatest()}
         highlightId={focus?.threadParentId ? focus.messageId : null}
         onOpenFile={(a) => void openFile(a)}
-        bubble={chat ?? "group"}
+        bubble={chat}
         mayDelete={mayDelete}
       />
       </div>
@@ -1076,6 +1099,7 @@ export function ConversationView({
           void refreshLatest();
         }}
       />
+      <MessageInfoSheet message={infoOf} conversation={conversation} meId={meId} names={names} onClose={() => setInfoOf(null)} />
       <PinnedSheet
         open={pinnedOpen}
         conversationId={id}

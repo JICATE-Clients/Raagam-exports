@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { requirePermission } from "@/lib/auth/server";
-import { isCommsMissing, listMyConversations, listMyThreads } from "@/lib/comms/service";
+import { isCommsMissing, listMyConversations } from "@/lib/comms/service";
 import { getWorkspace } from "@/lib/comms/workspace-service";
 import { listMyCommunities } from "@/lib/comms/community-service";
 import type { Workspace } from "@/lib/comms/workspace";
@@ -41,14 +41,13 @@ export default async function CommsLayout({ children }: { children: ReactNode })
     if (isCommsMissing(e)) return <CommsNotInstalled />;
     throw e;
   }
-  // 0811: the list's Threads section. A failed read leaves the section out
-  // rather than taking the whole hub down with it.
+  // No Threads section in the list since 2026-11-14 (user, "remove threads"),
+  // so listMyThreads is no longer read here.
   // The Favourites strip atop the list (user 2026-11-13, option A) — the same
   // list as Home. getMyFavorites already answers a failed read with [].
-  const [photos, channelPhotos, threads, favorites] = await Promise.all([
+  const [photos, channelPhotos, favorites] = await Promise.all([
     getUserPhotos(),
     getChannelPhotos(),
-    listMyThreads().catch(() => []),
     getMyFavorites(user),
   ]);
   if (workspace?.my_status === "deactivated") return <WorkspaceDeactivated workspace={workspace} />;
@@ -56,7 +55,7 @@ export default async function CommsLayout({ children }: { children: ReactNode })
   // The workspace name bar is hidden (user 2026-11-02: remove the "RAAGAM"
   // strip); it only shows while the workspace is suspended, to carry the Paused pill.
   return (
-    <CommsShell top={workspace?.status === "suspended" ? <WorkspaceBar workspace={workspace} /> : null} chats={chats} threads={threads} communities={communities} photos={photos} channelPhotos={channelPhotos} favorites={favorites}>
+    <CommsShell top={workspace?.status === "suspended" ? <WorkspaceBar workspace={workspace} /> : null} chats={chats} communities={communities} photos={photos} channelPhotos={channelPhotos} favorites={favorites}>
       {children}
     </CommsShell>
   );

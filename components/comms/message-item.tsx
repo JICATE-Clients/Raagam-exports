@@ -9,6 +9,7 @@ import {
   ChevronDown,
   Copy,
   Forward,
+  Info,
   MessageSquareReply,
   Pencil,
   Pin,
@@ -47,6 +48,8 @@ export type MessageActions = {
   onForward?: (m: CommMessage) => void;
   /** 0776: a poll / event the server just re-read (a vote, an answer) replaces the one on screen. */
   onReplace?: (m: CommMessage) => void;
+  /** Message info (user 2026-11-14): who has read one of MY messages. */
+  onInfo?: (m: CommMessage) => void;
 };
 
 /**
@@ -80,6 +83,7 @@ export function MessageItem({
   highlight = false,
   bubble = null,
   seen = false,
+  ticks = false,
   quickEdit = false,
   editRequest = 0,
   onEditDone,
@@ -100,6 +104,9 @@ export function MessageItem({
   bubble?: "direct" | "group" | null;
   /** On a message the viewer sent: every other member has read it (two blue ticks). */
   seen?: boolean;
+  /** A flat row in a direct or group chat: the sent / seen ticks at the row's
+   *  end on the viewer's own messages (a bubble carries them in its time line). */
+  ticks?: boolean;
   /** THE THREAD'S EDIT (user 2026-11-05, the "Edit and Delete in a thread"
    *  artifact): a ✎ beside the time on the viewer's own message (shown on
    *  hover, like the ⌄), and "Edit message" first in the ⌄ menu. */
@@ -183,6 +190,9 @@ export function MessageItem({
     deleted || editing
       ? []
       : [
+          // MESSAGE INFO FIRST, ON MY OWN MESSAGES ONLY (user 2026-11-14,
+          // WhatsApp's order): who has read it, and when it was delivered.
+          ...(mine && actions.onInfo ? [{ label: "Message info", icon: Info, onClick: () => actions.onInfo!(m) }] : []),
           ...(quickEdit && canEdit ? [{ label: "Edit message", icon: Pencil, onClick: () => setEditing(true) }] : []),
           ...(canAct && actions.onReply && !m.parent_id
             ? [{ label: "Reply in thread", icon: MessageSquareReply, onClick: () => actions.onReply!(m) }]
@@ -471,7 +481,8 @@ export function MessageItem({
   // artifact); the classic rows below remain for any caller passing null.
   // Same pieces, same actions, same tap rule.
   // A system line ("Roja added Yogesh") is nobody's bubble: a centred note.
-  if (bubble && m.kind === "system") {
+  // Flat chat rows (2026-11-14) keep the same note — channels filter theirs out.
+  if (m.kind === "system") {
     return (
       <div id={`msg-${m.id}`} className="flex justify-center px-3 py-1">
         <p className="max-w-[80%] rounded-[7.5px] bg-[#f8f9fa] px-3 pb-1.5 pt-[5px] text-center text-[12.5px] leading-tight text-[#54656f] shadow-[0_1px_.5px_rgba(11,20,26,.13)] dark:bg-surface dark:text-muted-foreground">{plainText(m.body, names)}</p>
@@ -565,7 +576,7 @@ export function MessageItem({
           }}
         >
           {showWho && !grouped && (
-            <p style={avatarStyle(author)} className="text-[11.5px] font-bold leading-[14px] text-[var(--ink)]">
+            <p style={avatarStyle(author)} className="text-[13px] font-bold leading-4 text-[var(--ink)]">
               {author}
             </p>
           )}
@@ -758,17 +769,29 @@ export function MessageItem({
     <div
       id={`msg-${m.id}`}
       className={cn(
-        "group relative flex scroll-mt-16 gap-[9px] px-3 hover:bg-surface-muted/60 focus-within:bg-surface-muted/60 [&_.text-sm]:text-[13.5px] [&_.text-sm]:leading-[1.45]",
-        grouped ? "py-px" : "pb-px pt-1.5",
+        // SLACK SPACING, COMPACT (user 2026-11-14, artifact "Pulse Type and
+        // Spacing"): a 34px avatar, 10px to the words, 12px sides, a gap above
+        // each new author. (Was 30px / 9px / 13.5px — the 2026-11-04 board.)
+        "group relative flex scroll-mt-16 gap-2.5 px-3 hover:bg-surface-muted/60 focus-within:bg-surface-muted/60",
+        grouped ? "py-px" : "pb-px pt-2.5",
         highlight && "bg-warning-soft ring-2 ring-warning/60 transition-colors",
       )}
     >
-      <div className="w-[30px] shrink-0">
+      <div className="w-[34px] shrink-0 max-md:w-9">
+        {/* A follow-on line's time in the gutter, on hover (artifact "Pulse Flat Messages"). */}
+        {grouped && (
+          <time
+            dateTime={m.created_at}
+            className="invisible block whitespace-nowrap pt-[3px] text-right text-[10px] tabular-nums text-muted-foreground group-hover:visible group-focus-within:visible"
+          >
+            {clockTime(m.created_at).replace(/\s?[ap]m$/i, "")}
+          </time>
+        )}
         {!grouped && (
           <span
             aria-hidden
             style={avatarStyle(author)}
-            className={cn("mt-0.5 flex h-[30px] w-[30px] items-center justify-center overflow-hidden rounded-full text-[11px] font-bold", AVATAR_TINT)}
+            className={cn("mt-0.5 flex h-[34px] w-[34px] items-center justify-center overflow-hidden rounded-[7px] text-[13px] font-bold max-md:h-9 max-md:w-9 max-md:rounded-lg", AVATAR_TINT)}
           >
             {authorPhoto ? <PhotoImg src={authorPhoto} /> : initials(author)}
           </span>
@@ -777,9 +800,9 @@ export function MessageItem({
 
       <div className="min-w-0 flex-1">
         {!grouped && (
-          <div className="flex items-baseline gap-[7px]">
-            <span className="text-[13px] font-bold text-foreground">{author}</span>
-            <time dateTime={m.created_at} className="text-[11px] tabular-nums text-muted-foreground">
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-[15px] font-bold leading-5 text-foreground">{author}</span>
+            <time dateTime={m.created_at} className="text-[11px] tabular-nums max-md:text-[12px] text-muted-foreground">
               {clockTime(m.created_at)}
             </time>
             {m.pinned && (
@@ -799,6 +822,16 @@ export function MessageItem({
           the row's top edge as before. */}
       {channelTools && !toolsInText && grouped && (
         <div className="shrink-0 self-start pt-0.5">{channelTools}</div>
+      )}
+      {/* A chat keeps WhatsApp's ticks on my own lines: one grey = sent, two blue = everyone has read it. */}
+      {ticks && mine && !deleted && (
+        <div className="shrink-0 self-end pb-[3px] text-muted-foreground">
+          {seen ? (
+            <CheckCheck className="h-[14px] w-[14px] text-[#34a7e0]" aria-label="Seen" />
+          ) : (
+            <Check className="h-[14px] w-[14px]" aria-label="Sent" />
+          )}
+        </div>
       )}
     </div>
   );

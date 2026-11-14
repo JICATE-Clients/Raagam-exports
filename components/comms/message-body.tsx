@@ -50,7 +50,7 @@ export function MessageBody({
   const blocks = parseBlocks(body);
   const lastIsText = blocks.length > 0 && !["code", "quote", "ul", "ol"].includes(blocks[blocks.length - 1].kind);
   return (
-    <div className={cn("space-y-1 break-words text-sm leading-relaxed text-foreground", className)}>
+    <div className={cn("space-y-1 break-words text-[15px] leading-[21px] text-foreground max-md:text-[16px] max-md:leading-6", className)}>
       {blocks.map((b, i) => {
         switch (b.kind) {
           case "code":
@@ -167,7 +167,9 @@ function tokens(text: string, ctx: Ctx): ReactNode[] {
       <span
         key={i}
         className={cn(
-          "inline-block rounded-full px-1.5 align-[1px] text-[12px] font-medium leading-[17px]",
+          // Same size as the text around it on a soft tint (user 2026-11-14,
+          // artifact "Pulse Type and Spacing") — replaces the 12px pill.
+          "rounded px-1 font-medium",
           p.mention === ctx.meId ? "bg-warning-soft text-warning" : "bg-primary-soft text-primary",
         )}
       >

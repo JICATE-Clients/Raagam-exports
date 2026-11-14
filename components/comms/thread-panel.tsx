@@ -74,6 +74,11 @@ export function ThreadPanel({
   const [error, setError] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
+  // ALSO SEND TO THE CHAT (user 2026-11-14, screenshot 111619: "Also send to
+  // # general" under the Reply box, "apply in pulse module"). Off by default
+  // and off again after every send, so a reply reaches the main stream only
+  // when it was ticked for THAT reply.
+  const [alsoSend, setAlsoSend] = useState(false);
   const parentId = parent?.id ?? null;
 
   useEffect(() => {
@@ -109,11 +114,39 @@ export function ThreadPanel({
       setSendError(r.error);
       return false;
     }
+    // The copy in the chat is a second, ordinary message carrying the TEXT
+    // only. Attachments are not re-posted: both messages would point at the
+    // same stored bytes, and deleting either would remove the file from the
+    // other. An attachment-only reply therefore stays in the thread.
+    if (alsoSend && body && body.trim()) {
+      const copy = await sendMessage({
+        conversation_id: conversation.id,
+        client_id: crypto.randomUUID(),
+        body,
+        parent_id: null,
+        attachments: [],
+      });
+      if (!copy.ok) {
+        // The reply itself is in; say only that the copy is missing.
+        setSendError(`Replied in the thread, but not sent to ${alsoLabel}: ${copy.error}`);
+        setRetry((n) => n + 1);
+        onChanged();
+        return true;
+      }
+    }
+    setAlsoSend(false);
     setSendError(null);
     setRetry((n) => n + 1);
     onChanged();
     return true;
   }
+
+  const alsoLabel =
+    conversation.kind === "channel"
+      ? `# ${conversation.name ?? conversation.title}`
+      : conversation.kind === "group"
+        ? conversation.title
+        : "the chat";
 
   const shown = thread && thread.parent.id === parentId ? thread : null;
   const [flash, setFlash] = useState<string | null>(highlightId);
@@ -332,6 +365,19 @@ export function ThreadPanel({
           autoFocus
           chat
         />
+      )}
+      {canPost && parentId && (
+        <label className="flex cursor-pointer select-none items-center gap-2 px-4 pb-2 text-xs text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={alsoSend}
+            onChange={(e) => setAlsoSend(e.target.checked)}
+            className="h-3.5 w-3.5 accent-[var(--primary)]"
+          />
+          <span>
+            Also send to <span className="font-semibold text-foreground">{alsoLabel}</span>
+          </span>
+        </label>
       )}
       <DeleteMessageDialog
         open={!!confirmDelete}

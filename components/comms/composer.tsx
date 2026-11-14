@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type DragEvent, type KeyboardEvent } from "react";
 import {
   AtSign,
   Bold,
@@ -16,7 +16,6 @@ import {
   SquareCode,
   Strikethrough,
   TextQuote,
-  Type,
   Underline,
   X,
   type LucideIcon,
@@ -49,6 +48,37 @@ import { ContactSheet, EventSheet, PollSheet } from "./attach-sheets";
 import { STICKER_TOKEN, contactBody } from "@/lib/comms/cards";
 
 type FormatKey = "b" | "i" | "u" | "s" | "link" | "ol" | "ul" | "quote" | "code" | "codeblock";
+
+/*
+ * Aa IN THE CHAT BOX (user 2026-11-14, artifact "Pulse Type and Spacing",
+ * Message box ▸ Aa): the formatting bar comes back above the pill, opened and
+ * shut by an Aa button inside it. The choice is this browser's own convenience
+ * (one key, every chat), so it lives in localStorage — read through
+ * useSyncExternalStore so the server render and the first paint agree (shut).
+ */
+const AA_KEY = "pulse:aa";
+const aaListeners = new Set<() => void>();
+function readAa(): boolean {
+  try {
+    return localStorage.getItem(AA_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+function writeAa(on: boolean) {
+  try {
+    localStorage.setItem(AA_KEY, on ? "1" : "0");
+  } catch {
+    /* private window: the bar still toggles for this page */
+  }
+  aaListeners.forEach((l) => l());
+}
+function subscribeAa(l: () => void) {
+  aaListeners.add(l);
+  return () => {
+    aaListeners.delete(l);
+  };
+}
 const MARKER: Record<"b" | "i" | "u" | "s" | "code", string> = { b: "**", i: "_", u: "__", s: "~~", code: "`" };
 
 /** The formatting bar, left to right; `sep` draws a divider before the button. */
@@ -202,6 +232,7 @@ export function Composer({
   // its ten buttons would wrap to two rows over the message (2026-10-29). Aa
   // then turns it on or off explicitly on either.
   const [format, setFormat] = useState<"auto" | "on" | "off">("auto");
+  const aaOn = useSyncExternalStore(subscribeAa, readAa, () => false);
   // The emoji button that opened the picker, or null while it is shut.
   const [emojiAt, setEmojiAt] = useState<HTMLButtonElement | null>(null);
   // Not the `autoFocus` attribute: it fires during hydration, before the phone
@@ -635,6 +666,15 @@ export function Composer({
           and `order-*` puts them in WhatsApp's places; the formatting bar and
           the @ button stand down (Ctrl+B / I / U and typing @ still work).
           A channel keeps the box with its toolbar. */}
+      {chat && aaOn && (
+        <div
+          role="toolbar"
+          aria-label="Formatting"
+          className="scrollbar-none mb-1.5 flex items-center gap-0.5 overflow-x-auto rounded-lg border border-border bg-surface-muted px-1 py-0.5"
+        >
+          {formatButtons}
+        </div>
+      )}
       <div
         className={cn(
           chat
@@ -678,7 +718,7 @@ export function Composer({
           onBlur={() => setMention(null)}
           className={
             chat
-              ? "order-3 field-sizing-content max-h-32 min-h-[44px] min-w-0 flex-1 resize-none rounded-3xl border-2 border-transparent bg-[#f0f2f5] py-2.5 pl-11 pr-11 text-sm shadow-none md:text-sm placeholder:text-muted-foreground focus-visible:border-primary focus-visible:bg-surface focus-visible:ring-0 focus-visible:ring-offset-0 dark:bg-surface-muted max-md:max-h-28"
+              ? "order-3 field-sizing-content max-h-32 min-h-[44px] min-w-0 flex-1 resize-none rounded-3xl border-2 border-transparent bg-[#f0f2f5] py-2.5 pl-11 text-sm shadow-none md:text-sm placeholder:text-muted-foreground focus-visible:border-primary focus-visible:bg-surface focus-visible:ring-0 focus-visible:ring-offset-0 dark:bg-surface-muted max-md:max-h-28 pr-[84px]"
               : "max-h-48 min-h-14 w-full resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 max-md:max-h-28"
           }
         />
@@ -703,23 +743,35 @@ export function Composer({
           <span title={`Attach: ${ATTACHMENT_TYPES_LABEL}`} className={cn(chat && "absolute bottom-[5px] right-14 z-10")}>
             <AttachMenu onPick={pickAttach} disabled={stickering} />
           </span>
+          {/* button-shape: exempt -- in a chat, a 34px icon inside the message pill, the same box as the 😊 and 📎 beside it */}
           <Button
             type="button"
             variant="ghost"
             size="icon"
+            // Keeps focus (and the phone keyboard) on the box.
+            onMouseDown={(e) => e.preventDefault()}
             onClick={() => {
+              if (chat) {
+                writeAa(!aaOn);
+                return;
+              }
               // What "auto" is showing right now decides which way Aa flips it.
               // responsive: exempt -- reads the width in a click handler to match what CSS is showing; it chooses no layout
               const shown = format === "on" || (format === "auto" && window.matchMedia("(min-width: 768px)").matches);
               setFormat(shown ? "off" : "on");
             }}
             aria-label="Show or hide formatting"
-            aria-expanded={format === "auto" ? undefined : format === "on"}
+            aria-expanded={chat ? aaOn : format === "auto" ? undefined : format === "on"}
             title="Show or hide formatting"
-            className={cn(chat && "hidden")}
+            className={cn(
+              "text-[15px] font-bold underline underline-offset-[3px]",
+              chat && "absolute bottom-[5px] right-[92px] z-10 h-[34px] w-[34px] text-[#54656f] dark:text-[#aebac1]",
+              chat && aaOn && "bg-primary-soft text-primary dark:text-primary",
+            )}
           >
-            <Type className="h-4 w-4" />
+            <span aria-hidden>Aa</span>
           </Button>
+          {/* button-shape: exempt -- in a chat, the 34px 😊 inside the message pill (WhatsApp's row, 2026-10-31) */}
           <Button
             type="button"
             variant="ghost"
