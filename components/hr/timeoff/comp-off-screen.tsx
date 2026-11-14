@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
 import { Button, buttonClasses } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { VoiceTextarea } from "@/components/ui/voice-textarea";
-import { Combobox } from "@/components/ui/combobox";
+import { PersonField, PHONE_FIELDS, PhoneActionBar, PhoneCard, PhoneCards } from "./shared";
 import { Field, FieldRow } from "@/components/ui/field";
 import { Segmented, ToggleGroup } from "@/components/ui/segmented";
 import { Sheet } from "@/components/ui/sheet";
@@ -41,9 +41,11 @@ type Props = {
   rows: CompOffCredit[];
   people: PersonOption[];
   selfOnly: boolean;
+  /** The signed-in person ("staff:<id>"); the form opens with them picked. */
+  me?: string | null;
 };
 
-export function CompOffScreen({ rows, people, selfOnly }: Props) {
+export function CompOffScreen({ rows, people, selfOnly, me }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -79,7 +81,7 @@ export function CompOffScreen({ rows, people, selfOnly }: Props) {
   useUnsavedGuard(dirty || isPending);
 
   function openClaim() {
-    setPerson(selfOnly ? (people[0]?.key ?? "") : "");
+    setPerson(selfOnly ? (people[0]?.key ?? "") : people.some((p) => p.key === me) ? (me as string) : "");
     setDates([]);
     setNextDate("");
     setCredit("1");
@@ -158,13 +160,14 @@ export function CompOffScreen({ rows, people, selfOnly }: Props) {
         <StatusPill tone={timeoffTone(r.status)}>{statusLabel(r.status)}</StatusPill>
       ),
   };
-  const actions = rowActionsColumn<CompOffCredit>((r) => (
+  const rowActs = (r: CompOffCredit) => (
     <RowActions
       label={r.person_name}
       isPending={isPending}
       menu={r.status === "pending" ? [{ label: "Withdraw claim", icon: Undo2, onClick: () => withdraw(r) }] : []}
     />
-  ));
+  );
+  const actions = rowActionsColumn<CompOffCredit>(rowActs);
 
   return (
     <div className="space-y-4">
@@ -190,19 +193,54 @@ export function CompOffScreen({ rows, people, selfOnly }: Props) {
           ]}
         />
         <div className="flex flex-wrap gap-2">
-          <Link href="/hr/time-off/leave?new=1" className={buttonClasses({ variant: "outline" })}>
+          <Link href="/hr/time-off/leave?new=1" className={buttonClasses({ variant: "outline", className: "hidden md:inline-flex" })}>
             Book comp-off as leave
           </Link>
-          {people.length > 0 && <Button onClick={openClaim}>+ Claim Credit</Button>}
+          {people.length > 0 && (
+            <Button className="hidden md:inline-flex" onClick={openClaim}>
+              + Claim Credit
+            </Button>
+          )}
         </div>
       </div>
 
-      <DataTable
-        columns={[...withCreatedColumns(columns, visible), statusColumn, actions]}
-        rows={visible}
-        getKey={(r) => r.id}
-        empty="No comp-off credits yet."
-      />
+      <PhoneCards empty="No comp-off credits yet.">
+        {visible.map((r) => (
+          <PhoneCard
+            key={r.id}
+            color={r.expired ? "var(--muted-foreground)" : "var(--success)"}
+            title={`${fmtDays(r.credit_days)} day credit`}
+            status={
+              r.expired ? (
+                <StatusPill tone={timeoffTone("expired")}>Expired</StatusPill>
+              ) : (
+                <StatusPill tone={timeoffTone(r.status)}>{statusLabel(r.status)}</StatusPill>
+              )
+            }
+            when={`Worked ${fmtDate(r.worked_date)}`}
+            figure={`Use by ${fmtDate(r.expires_on)} · punch ${r.had_punch ? "found" : "none"}`}
+            person={selfOnly ? null : { name: r.person_name, key: personKeyOf(r) }}
+            note={r.reason}
+            actions={r.status === "pending" ? rowActs(r) : undefined}
+          />
+        ))}
+      </PhoneCards>
+
+      <div className="hidden md:block">
+        <DataTable
+          columns={[...withCreatedColumns(columns, visible), statusColumn, actions]}
+          rows={visible}
+          getKey={(r) => r.id}
+          empty="No comp-off credits yet."
+        />
+      </div>
+
+      <PhoneActionBar>
+        <Link href="/hr/time-off/leave?new=1" className={buttonClasses({ variant: "outline" })}>
+          Book as leave
+        </Link>
+        {people.length > 0 && <Button onClick={openClaim}>+ Claim Credit</Button>}
+      </PhoneActionBar>
 
       <Sheet
         open={open}
@@ -223,23 +261,9 @@ export function CompOffScreen({ rows, people, selfOnly }: Props) {
           </div>
         }
       >
-        <div className="max-w-[48rem] space-y-4">
+        <div className={`max-w-[48rem] space-y-4 ${PHONE_FIELDS}`}>
           <FieldRow>
-            {!selfOnly && (
-              <Field label="Person" w="name" required>
-                <Combobox
-                  options={people.map((p) => ({
-                    value: p.key,
-                    label: p.name,
-                    person: p.key,
-                    sublabel: p.kind === "worker" ? "Worker" : "Staff",
-                    search: p.code,
-                  }))}
-                  value={person}
-                  onChange={setPerson}
-                />
-              </Field>
-            )}
+            {!selfOnly && <PersonField people={people} value={person} onChange={setPerson} me={me} />}
             <Field label="Credit per day">
               <Segmented
                 name="comp-off-credit"

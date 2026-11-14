@@ -29,6 +29,7 @@ export default async function Page() {
           types={types}
           people={people}
           selfOnly={!!viewer.myStaffId}
+          me={viewer.meKey}
           canRevoke={viewer.canEdit}
         />
       </Suspense>

@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { VoiceTextarea } from "@/components/ui/voice-textarea";
 import { Select } from "@/components/ui/select";
-import { Combobox } from "@/components/ui/combobox";
 import { Field, FieldRow } from "@/components/ui/field";
 import { Segmented, ToggleGroup } from "@/components/ui/segmented";
 import { Sheet } from "@/components/ui/sheet";
@@ -46,7 +45,20 @@ import {
   type RequestStatus,
   type TimeoffRequest,
 } from "@/lib/hr/timeoff-types";
-import { ApprovalTrail, Fact, ReasonSheet, TypeDot, whenOf } from "./shared";
+import {
+  ApprovalTrail,
+  Fact,
+  PersonField,
+  PHONE_FIELDS,
+  PhoneActionBar,
+  PhoneBalanceStrip,
+  PhoneCard,
+  PhoneCards,
+  ReasonSheet,
+  TimeSelect,
+  TypeDot,
+  whenOf,
+} from "./shared";
 
 /**
  * HR ▸ Time Off ▸ Leave, Permission and On Duty Requests (0770, MyJKKN
@@ -76,8 +88,12 @@ type Props = {
   people: PersonOption[];
   /** A regular staff member applying for themself — no person picker. */
   selfOnly: boolean;
+  /** The signed-in person ("staff:<id>"); the form opens with them picked. */
+  me?: string | null;
   /** HR may revoke an approved request. */
   canRevoke: boolean;
+  /** The signed-in person's balances — the phone's "My balance" rings (Leave only). */
+  myBalances?: BalanceRow[];
 };
 
 type Draft = {
@@ -94,7 +110,7 @@ type Draft = {
 type Closing = { row: TimeoffRequest; mode: "withdraw" | "cancel" | "revoke" };
 type Panel = Awaited<ReturnType<typeof loadTimeoffPanel>> & { id: string };
 
-export function RequestsScreen({ mode, rows, types, people, selfOnly, canRevoke }: Props) {
+export function RequestsScreen({ mode, rows, types, people, selfOnly, me, canRevoke, myBalances = [] }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -114,7 +130,7 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, canRevoke 
 
   function blank(): Draft {
     return {
-      person: selfOnly ? (people[0]?.key ?? "") : "",
+      person: selfOnly ? (people[0]?.key ?? "") : people.some((p) => p.key === me) ? (me as string) : "",
       leave_type_id: usable.length === 1 ? usable[0].id : "",
       start_date: t0,
       end_date: t0,
@@ -275,7 +291,7 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, canRevoke 
       </span>
     ),
   };
-  const actions = rowActionsColumn<TimeoffRequest>((r) => (
+  const rowActs = (r: TimeoffRequest) => (
     <RowActions
       label={r.person_name}
       onView={() => openView(r)}
@@ -292,7 +308,9 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, canRevoke 
           : []),
       ]}
     />
-  ));
+  );
+  const actions = rowActionsColumn<TimeoffRequest>(rowActs);
+  const colorOf = (id: string) => types.find((t) => t.id === id)?.color ?? "var(--primary)";
 
   const noun = WORDS[mode].noun;
 
@@ -323,15 +341,50 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, canRevoke 
             ))}
           </Select>
         </div>
-        {people.length > 0 && <Button onClick={openApply}>{WORDS[mode].button}</Button>}
+        {people.length > 0 && (
+          <Button className="hidden md:inline-flex" onClick={openApply}>
+            {WORDS[mode].button}
+          </Button>
+        )}
       </div>
 
-      <DataTable
-        columns={[...withCreatedColumns(columns, visible), statusColumn, actions]}
-        rows={visible}
-        getKey={(r) => r.id}
-        empty={scope === "open" ? `Nothing pending or upcoming — switch to All to see past ${noun}.` : `No ${noun} yet.`}
-      />
+      {mode === "leave" && (
+        <PhoneBalanceStrip rows={myBalances.filter((b) => b.entitled + b.accrued + b.carried > 0)} colorOf={colorOf} />
+      )}
+
+      {/* Phone: each request as a ticket; the table below is desktop only. */}
+      <PhoneCards empty={scope === "open" ? `Nothing pending or upcoming — switch to All to see past ${noun}.` : `No ${noun} yet.`}>
+        {visible.map((r) => (
+          <PhoneCard
+            key={r.id}
+            color={r.leave_color}
+            title={r.leave_name}
+            status={<StatusPill tone={timeoffTone(r.status)}>{statusLabel(r.status)}</StatusPill>}
+            when={whenOf(r)}
+            figure={r.day_part === "hourly" ? fmtMinutes(r.duration_minutes) : `${fmtDays(r.total_days)} day(s)`}
+            person={selfOnly ? null : { name: r.person_name, key: personKeyOf(r) }}
+            note={r.reason}
+            stage={r.status === "pending" ? r.stage : null}
+            onOpen={() => openView(r)}
+            actions={rowActs(r)}
+          />
+        ))}
+      </PhoneCards>
+
+      <div className="hidden md:block">
+        <DataTable
+          columns={[...withCreatedColumns(columns, visible), statusColumn, actions]}
+          rows={visible}
+          getKey={(r) => r.id}
+          empty={scope === "open" ? `Nothing pending or upcoming — switch to All to see past ${noun}.` : `No ${noun} yet.`}
+        />
+      </div>
+
+      {people.length > 0 && (
+        <PhoneActionBar>
+          <Button onClick={openApply}>{WORDS[mode].button}</Button>
+        </PhoneActionBar>
+      )}
 
       {/* ── Apply ──────────────────────────────────────────────────────── */}
       <Sheet
@@ -356,23 +409,9 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, canRevoke 
         }
       >
         {/* 288 person + 176 type + 3×144 dates/times + gaps ≈ 940px → cap 60rem */}
-        <div className="max-w-[60rem] space-y-4">
+        <div className={`max-w-[60rem] space-y-4 ${PHONE_FIELDS}`}>
           <FieldRow>
-            {!selfOnly && (
-              <Field label="Person" w="name" required>
-                <Combobox
-                  options={people.map((p) => ({
-                    value: p.key,
-                    label: p.name,
-                    person: p.key,
-                    sublabel: p.kind === "worker" ? "Worker" : "Staff",
-                    search: p.code,
-                  }))}
-                  value={draft.person}
-                  onChange={(v) => set("person", v)}
-                />
-              </Field>
-            )}
+            {!selfOnly && <PersonField people={people} value={draft.person} onChange={(v) => set("person", v)} me={me} />}
             <Field label={WORDS[mode].typeLabel} w="term" required>
               <Select value={draft.leave_type_id} onChange={(e) => set("leave_type_id", e.target.value)}>
                 <option value="">—</option>
@@ -390,37 +429,45 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, canRevoke 
               <Field label="Date" w="code" required>
                 <Input type="date" min={t0} value={draft.start_date} onChange={(e) => set("start_date", e.target.value)} />
               </Field>
-              <Field label="From" w="code" required>
-                <Input type="time" value={draft.start_time} onChange={(e) => set("start_time", e.target.value)} />
-              </Field>
-              <Field label="To" w="code" required>
-                <Input type="time" value={draft.end_time} onChange={(e) => set("end_time", e.target.value)} />
-              </Field>
+              {/* From and To share ONE line on a phone (user 2026-11-14: "make from and to
+                  in 1 line"); `sm:contents` hands both back to the row from 640px up. */}
+              <div className="grid w-full grid-cols-2 gap-3 sm:contents">
+                <Field label="From" w="code" required>
+                  <TimeSelect value={draft.start_time} onChange={(v) => set("start_time", v)} />
+                </Field>
+                <Field label="To" w="code" required>
+                  <TimeSelect value={draft.end_time} onChange={(v) => set("end_time", v)} min={draft.start_time || undefined} />
+                </Field>
+              </div>
             </FieldRow>
           ) : (
             <FieldRow>
-              <Field label="From" w="code" required>
-                <Input
-                  type="date"
-                  min={t0}
-                  value={draft.start_date}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setDraft((d) => ({ ...d, start_date: v, end_date: d.end_date < v ? v : d.end_date }));
-                    setDirty(true);
-                  }}
-                />
-              </Field>
-              {!isHalf && (
-                <Field label="To" w="code" required>
+              {/* From and To share ONE line on a phone (user 2026-11-14: "make from and to
+                  in 1 line"); `sm:contents` hands both back to the row from 640px up. */}
+              <div className={isHalf ? "contents" : "grid w-full grid-cols-2 gap-3 sm:contents"}>
+                <Field label="From" w="code" required>
                   <Input
                     type="date"
-                    min={draft.start_date}
-                    value={draft.end_date}
-                    onChange={(e) => set("end_date", e.target.value)}
+                    min={t0}
+                    value={draft.start_date}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setDraft((d) => ({ ...d, start_date: v, end_date: d.end_date < v ? v : d.end_date }));
+                      setDirty(true);
+                    }}
                   />
                 </Field>
-              )}
+                {!isHalf && (
+                  <Field label="To" w="code" required>
+                    <Input
+                      type="date"
+                      min={draft.start_date}
+                      value={draft.end_date}
+                      onChange={(e) => set("end_date", e.target.value)}
+                    />
+                  </Field>
+                )}
+              </div>
               {type?.allow_half_day && (
                 <Field label="Day">
                   <Segmented
@@ -476,7 +523,7 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, canRevoke 
       <Sheet
         open={!!viewFor}
         onClose={() => setViewFor(null)}
-        title={viewFor ? `${viewFor.person_name} — ${viewFor.leave_name}` : "Request"}
+        title={viewFor ? (selfOnly || viewFor.person_name === "—" ? viewFor.leave_name : `${viewFor.person_name} — ${viewFor.leave_name}`) : "Request"}
         asPage
       >
         {viewFor && (

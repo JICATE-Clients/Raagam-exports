@@ -39,12 +39,33 @@ export type TimeoffViewer = {
   /** HR operator: may act for everyone in the current unit. */
   isHr: boolean;
   canEdit: boolean;
+  /**
+   * The signed-in person's own record ("staff:<id>"), WHATEVER their role — an
+   * HR operator or a HOD who is also on the Staff master. Request forms open
+   * with it picked (user 2026-11-14: "their name should be default pre fill
+   * who signed in"); null for a login with no staff record.
+   */
+  meKey: string | null;
 };
 
 export async function timeoffViewer(): Promise<TimeoffViewer> {
   const [user, view, edit] = await Promise.all([getAppUser(), can("hr_payroll", "view"), can("hr_payroll", "edit")]);
   const myStaffId = user?.myStaffId ?? null;
-  return { myStaffId, isHr: view && !myStaffId, canEdit: edit && !myStaffId };
+  let meId = myStaffId;
+  const email = user?.email?.trim().toLowerCase();
+  if (!meId && email) {
+    // Service role, by the login's own verified email: `staff_read` is unit-scoped.
+    const { data } = await createAdminClient()
+      .from("staff")
+      .select("id")
+      // `ilike` for case only — `%`, `_` and `\` escaped so an address is never a pattern.
+      .ilike("email", email.replace(/[\\%_]/g, (c) => "\\" + c))
+      .eq("is_active", true)
+      .order("created_at")
+      .limit(1);
+    meId = ((data ?? [])[0] as { id: string } | undefined)?.id ?? null;
+  }
+  return { myStaffId, isHr: view && !myStaffId, canEdit: edit && !myStaffId, meKey: meId ? `staff:${meId}` : null };
 }
 
 /**

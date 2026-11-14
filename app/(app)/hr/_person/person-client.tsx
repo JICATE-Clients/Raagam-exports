@@ -634,6 +634,7 @@ export default function PersonClient({
   canExport = false,
   canDelete = false,
   selfRow,
+  deptHeads = {},
 }: {
   kind: PersonKind;
   rows: PersonRow[];
@@ -660,6 +661,12 @@ export default function PersonClient({
    * only those fields to the caller's own row — no list, no New, no Delete.
    */
   selfRow?: PersonRow;
+  /**
+   * Staff only: department id → its HOD's staff id, from Time Off Setup ▸
+   * Approval Flow. Picking a Department fills Manager with that HOD (user
+   * 2026-11-14).
+   */
+  deptHeads?: Record<string, string>;
 }) {
   const isWorker = kind === "worker";
   const copy = COPY[kind];
@@ -2217,7 +2224,21 @@ export default function PersonClient({
                     id="st-department"
                     options={departments}
                     value={form.department_id}
-                    onChange={(v) => set({ department_id: v })}
+                    onChange={(v) => {
+                      /* THE DEPARTMENT'S HOD IS THE MANAGER (user 2026-11-14:
+                         "the manager field should automatically filled from
+                         the approval flow"). A department with no HOD clears a
+                         Manager only if it was the old department's HOD, so a
+                         manager picked by hand is never wiped. The HOD's own
+                         record gets their own name — asked for, not a slip. */
+                      const head = isWorker || !v ? undefined : deptHeads[v];
+                      const wasAuto =
+                        !!form.manager_id && form.manager_id === deptHeads[form.department_id ?? ""];
+                      set({
+                        department_id: v,
+                        ...(head ? { manager_id: head } : wasAuto ? { manager_id: null } : {}),
+                      });
+                    }}
                   />
                 </Field>
 
@@ -2344,7 +2365,8 @@ export default function PersonClient({
                   >
                     <option value=""></option>
                     {rows
-                      .filter((m) => m.id !== editId)
+                      // The HOD may be their own manager (see Department above).
+                      .filter((m) => m.id !== editId || m.id === form.manager_id)
                       .map((m) => (
                         <option key={m.id} value={m.id} data-person={`${isWorker ? "worker" : "staff"}:${m.id}`}>
                           {m.name}
