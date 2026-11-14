@@ -331,6 +331,12 @@ export default function UsersClient({
             ) : (
               <Truncated text={assigned.map((ur) => ur.role_name).join(", ")} />
             )}
+            {/* 2026-11-14: a role with screens unticked must not read as the whole role. */}
+            {(() => {
+              const bl = accessOf(r)?.blocks ?? [];
+              const n = new Set(bl.map((b) => b.screen)).size;
+              return n > 0 ? <span className="block text-xs text-danger">{n} screen{n === 1 ? "" : "s"} unticked</span> : null;
+            })()}
           </button>
         );
       },
@@ -481,7 +487,15 @@ export default function UsersClient({
         /* Decided on ALL rows, not the filtered page: a Pending tab of people with
            no login has no created_at, and the pair would vanish there only —
            the column jump the redesign removes. */
-        columns={withCreatedColumns(columns, rows)}
+        /* PENDING DROPS ROLES + UNITS (user 2026-11-14, screenshot 4159): a
+           pending person gets both in the one ✉ invite sheet, so the two
+           columns only repeated "Given with the invite" / "No unit — set one".
+           This reverses the 2026-09-30 "one fixed set of columns" for Pending
+           only; Updated and All keep them. */
+        columns={withCreatedColumns(
+          quick.value === "pending" ? columns.filter((c) => c.header !== "Roles" && c.header !== "Units *") : columns,
+          rows,
+        )}
         rows={filtered}
         getKey={(r) => r.key}
         selectable

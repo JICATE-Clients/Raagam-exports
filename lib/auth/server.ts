@@ -3,6 +3,7 @@ import { cache } from "react";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { fetchAll } from "@/lib/supabase/fetch-all";
 import { resolveMyStaffId } from "./self-service";
 import { getPreviewedRoleIds, getRolesPreview } from "./role-simulation";
 import { screenOfPath, type CatalogScreen } from "@/lib/permissions/screen-catalog";
@@ -86,7 +87,10 @@ async function loadAppUser(): Promise<AppUser | null> {
          in the same parallel batch, so screen permissions cost no extra
          round trip. A failed read leaves them absent = module mode, the
          answer every user had before screen permissions existed. */
-      supabase.rpc("my_screen_permissions"),
+      /* PAGED (2026-11-14): grants + per-person blocks pass PostgREST's
+         silent 1,000-row cap (one person had 1,306 blocks) — the rows past it
+         would be unticked screens that still opened. */
+      fetchAll((f, t) => supabase.rpc("my_screen_permissions").order("kind").order("key").range(f, t)),
       getPreviewedRoleIds(),
     ]);
 

@@ -129,6 +129,7 @@ export function AccessMatrix({
     if (t !== extras) onChange(t);
     if (bl !== blocks) onBlocksChange(bl);
   }
+  const blockedScreens = new Set(blocks.map((b) => b.screen)).size;
   /** How much of these screens is on: "all", "some" or "none". */
   const share = (screens: CatalogScreen[]) => {
     const cells = screens.flatMap((sc) => acts(sc).map((a) => on(sc, a)));
@@ -167,6 +168,26 @@ export function AccessMatrix({
           ]}
         />
       </div>
+
+      {/* BLOCKS ARE NEVER SILENT (2026-11-14): the role chip still names the
+          whole role, so what was taken away is said here, with a way back. */}
+      {blocks.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-danger/40 bg-danger/5 px-3 py-2 text-sm">
+          <span className="font-medium text-danger">
+            {blockedScreens} screen{blockedScreens === 1 ? "" : "s"} unticked for this person
+          </span>
+          <span className="text-muted-foreground">— their role gives these, but they cannot open them.</span>
+          {!readOnly && (
+            <button
+              type="button"
+              onClick={() => onBlocksChange([])}
+              className="font-medium text-primary underline-offset-2 hover:underline"
+            >
+              Give them all back
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="overflow-x-auto rounded-lg border border-border">
         <table className="w-full min-w-[40rem] border-collapse text-sm tabular-nums">

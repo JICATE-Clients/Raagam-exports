@@ -9,7 +9,7 @@ import { useToast } from "@/components/ui/toast";
 import { AccessMatrix } from "@/components/permissions/access-matrix";
 import { ALL_UNITS, AccessRow as Row, RoleChips, UnitChips, unitsPayload } from "@/components/permissions/access-pickers";
 import { useUnsavedGuard } from "@/lib/reload-guard";
-import { screenCatalog } from "@/lib/permissions/screen-catalog";
+import { menuCatalog } from "@/lib/permissions/screen-catalog";
 import { treeHas, type PermissionTree as Tree } from "@/lib/permissions/effective";
 import { saveUserAccess } from "@/lib/permissions/actions";
 import type { AccessLocation, AccessUser, ScreenBlock } from "@/lib/permissions/service";
@@ -85,7 +85,7 @@ export function PersonAccessSheet({
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, start] = useTransition();
-  const catalog = screenCatalog();
+  const catalog = menuCatalog();
 
   const isMe = !!profile && profile.id === meId;
   const superAdmin = !!profile?.is_super_admin;

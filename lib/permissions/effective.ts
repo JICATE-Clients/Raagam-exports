@@ -20,7 +20,7 @@
  */
 
 import type { Action, Module, PermissionKey } from "@/lib/auth/types";
-import type { CatalogModule, CatalogScreen } from "./screen-catalog";
+import { menuCatalog, screenCatalog, type CatalogModule, type CatalogScreen } from "./screen-catalog";
 
 /** The user's screen-permission facts, as `my_screen_permissions()` returns them. */
 export type ScreenPermissionFacts = {
@@ -108,7 +108,15 @@ export function treeToggle(
   const cur = tree[screen.module];
   const grants: Record<string, Action[]> = {};
   if (cur?.mode === "module") {
+    /* EXPAND OVER THE FULL CATALOG, ALWAYS (2026-11-14). The access screens
+       draw `menuCatalog()` — the sidebar only — so `catalogModule` may be
+       missing screens that still open by URL (Purchase Orders, opened from PO
+       Approval). Expanding over the drawn list alone would quietly take those
+       away the first time one box was touched. */
     for (const sub of catalogModule.submodules) for (const sc of sub.screens) {
+      if (sc.module === screen.module) grants[sc.key] = [...cur.actions];
+    }
+    for (const cm of screenCatalog()) for (const sub of cm.submodules) for (const sc of sub.screens) {
       if (sc.module === screen.module) grants[sc.key] = [...cur.actions];
     }
   } else if (cur?.mode === "screen") {
@@ -154,8 +162,16 @@ export function payloadFromTree(
       continue;
     }
     const known = screensOf(m);
-    const sets = known.map((s) => [...(setting.grants[s.key] ?? [])].sort().join(","));
-    const uniform = known.length > 0 && sets.every((x) => x === sets[0]);
+    /* "Every screen alike" is judged over the screens the access screens DRAW
+       (2026-11-14, `menuCatalog`): an off-the-menu screen has no box, so it can
+       never be ticked to match, and counting it would leave a fully ticked
+       module in screen mode with that page refused. Uniform = module mode,
+       which carries the off-menu pages with it. A module with nothing on the
+       menu (Approvals) is judged over all of its screens, as before. */
+    const drawn = new Set(menuCatalog(catalog as CatalogModule[]).flatMap((cm) => cm.submodules.flatMap((s) => s.screens.map((x) => x.key))));
+    const judged = known.some((s) => drawn.has(s.key)) ? known.filter((s) => drawn.has(s.key)) : known;
+    const sets = judged.map((s) => [...(setting.grants[s.key] ?? [])].sort().join(","));
+    const uniform = judged.length > 0 && sets.every((x) => x === sets[0]);
     if (uniform) {
       const actions = (sets[0] ? sets[0].split(",") : []) as Action[];
       if (actions.length) out.push({ module: m, mode: "module", actions });
