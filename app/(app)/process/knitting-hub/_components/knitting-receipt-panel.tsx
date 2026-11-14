@@ -368,55 +368,28 @@ export function KnittingReceiptPanel({
   ];
 
   /*
-   * # · Yarn 200 · At Knitter 112 · Goes to 200 · Bags 72 · Kg Back 112 · Store / Bin (or
-   * Knitting Order) 288 · Split 88 = 1072, + 72 chrome = 1144 <= 1155. GOES TO (client
-   * 2026-11-12, 0837): Own Store sends it back to a store and bin; Party Stock sends it straight
-   * to another knitter's Knitting Order (`knitting_transfer_to_party`) — one picker, no bin.
+   * THE COMPACT YARN RETURN GRID (Session 4 spec, 2026-11-14): four columns — Yarn Description ·
+   * Returned Weight (kg) · Location Type · Destination — plus the Split action.
+   * # · Yarn Description 200 · Returned Weight 112 · Location Type 200 · Destination 288 · Split 88
+   * = 888, + 72 chrome = 960 <= 1155. "At Knitter" is the description's second line (the cap the
+   * weight is checked against); the Bags column went with the spec (bags post as blank).
+   * LOCATION TYPE (client 2026-11-12, 0837): Own Store sends it back to a store and bin; Party
+   * Stock sends it straight to another knitter's Knitting Order (`knitting_transfer_to_party`).
    * A Party Stock line is tinted warm (`data-party-row`, read by the grid wrapper below).
    */
   const yarnBackColumns: ChildGridColumn<YarnBack>[] = [
     {
-      header: "Yarn",
+      header: "Yarn Description",
       width: FIELD_WIDTH_CSS.party,
       cell: (y) => (
-        <span className="text-sm" data-party-row={y.where === "party" ? "" : undefined}>
-          {y.yarn}
+        <span className="block text-sm" data-party-row={y.where === "party" ? "" : undefined}>
+          <span className="block">{y.yarn}</span>
+          {y.splitOf ? null : <span className="block text-xs text-muted-foreground tabular-nums">At knitter {fmtNumber(y.atKnitter)} kg</span>}
         </span>
       ),
     },
     {
-      header: "At Knitter",
-      width: FIELD_WIDTH_CSS.range,
-      align: "right",
-      cell: (y) => <span className="tabular-nums text-sm">{y.splitOf ? "" : fmtNumber(y.atKnitter)}</span>,
-    },
-    {
-      header: "Goes to",
-      width: FIELD_WIDTH_CSS.party,
-      // pick-once: exempt -- every line may go to its own store, or to party stock
-      cell: (y) => (
-        <Segmented<"own" | "party">
-          // Radios group by `name` across the page — the line's own key keeps each row its own group.
-          name={`goes-to-${y.key}`}
-          className="h-7"
-          value={y.where}
-          onChange={(v) => setYarn(y.key, { where: v, toOrderId: "" })}
-          options={[
-            { value: "own", label: "Own Store" },
-            { value: "party", label: "Party Stock" },
-          ]}
-        />
-      ),
-    },
-    {
-      header: "Bags",
-      width: FIELD_WIDTH_CSS.num,
-      align: "right",
-      total: { kind: "sum", of: (y) => n(y.bags) },
-      cell: (y) => <Input type="number" min="0" step="1" aria-label={`Bags returned, ${y.yarn}`} value={y.bags} onChange={(e) => setYarn(y.key, { bags: e.target.value })} />,
-    },
-    {
-      header: "Kg Back",
+      header: "Returned Weight (kg)",
       width: FIELD_WIDTH_CSS.range,
       align: "right",
       total: { kind: "sum", of: (y) => n(y.kg) },
@@ -434,7 +407,25 @@ export function KnittingReceiptPanel({
       ),
     },
     {
-      header: "Store / Bin",
+      header: "Location Type",
+      width: FIELD_WIDTH_CSS.party,
+      // pick-once: exempt -- every line may go to its own store, or to party stock
+      cell: (y) => (
+        <Segmented<"own" | "party">
+          // Radios group by `name` across the page — the line's own key keeps each row its own group.
+          name={`goes-to-${y.key}`}
+          className="h-7"
+          value={y.where}
+          onChange={(v) => setYarn(y.key, { where: v, toOrderId: "" })}
+          options={[
+            { value: "own", label: "Own Store" },
+            { value: "party", label: "Party Stock" },
+          ]}
+        />
+      ),
+    },
+    {
+      header: "Destination",
       width: FIELD_WIDTH_CSS.name,
       // pick-once: exempt -- several lines may go to the same store, bin or other order
       cell: (y) => {

@@ -3,7 +3,7 @@ import { Plus } from "lucide-react";
 import { requirePermission, can } from "@/lib/auth/server";
 import { PageHeader } from "@/components/ui/page-header";
 import { buttonClasses } from "@/components/ui/button";
-import { listKnittingOrders } from "@/lib/production/knitting-service";
+import { listKnitBalancesToProgram, listKnittingOrders } from "@/lib/production/knitting-service";
 import { KnittingOrdersList } from "./_components/knitting-orders-list";
 
 /**
@@ -13,7 +13,13 @@ import { KnittingOrdersList } from "./_components/knitting-orders-list";
  */
 export default async function KnittingHubPage() {
   await requirePermission("stores", "view");
-  const [rows, canCreate, canEdit, canDelete] = await Promise.all([listKnittingOrders(), can("stores", "create"), can("stores", "edit"), can("stores", "delete")]);
+  const [rows, canCreate, canEdit, canDelete, balances] = await Promise.all([
+    listKnittingOrders(),
+    can("stores", "create"),
+    can("stores", "edit"),
+    can("stores", "delete"),
+    listKnitBalancesToProgram(),
+  ]);
   return (
     <div className="space-y-4">
       <PageHeader
@@ -28,7 +34,7 @@ export default async function KnittingHubPage() {
           ) : null
         }
       />
-      <KnittingOrdersList rows={rows} canEdit={canEdit} canDelete={canDelete} />
+      <KnittingOrdersList rows={rows} canEdit={canEdit} canDelete={canDelete} balances={balances} canCreate={canCreate} />
     </div>
   );
 }

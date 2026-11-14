@@ -9,9 +9,17 @@ import { KnittingEditor } from "../_components/knitting-editor";
 /** Yarn can still go out on these (a draft is issued and sent in the same click). */
 const OPEN_FOR_DC = ["draft", "issued", "in_process", "partially_received"];
 
-export default async function KnittingOrderPage({ params }: { params: Promise<{ orderId: string }> }) {
+export default async function KnittingOrderPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ orderId: string }>;
+  searchParams: Promise<{ send?: string }>;
+}) {
   await requirePermission("stores", "view");
   const { orderId } = await params;
+  // ?send=1 — opened from the list's Send Yarn icon: Send Qty starts at what is left to send.
+  const { send } = await searchParams;
   const doc = await getKnittingOrder(orderId);
   if (!doc) notFound();
   // ONE SCREEN (user 2026-11-12): each yarn row picks its store · bin and shows what it holds.
@@ -24,7 +32,7 @@ export default async function KnittingOrderPage({ params }: { params: Promise<{ 
     // Every RE on the order (0836) — its fabrics' picks come from each RE's own Fabric BOM.
     Promise.all(doc.res.map((re) => getKnitCandidates(re.id, doc.id).then((c) => ({ re: re.id, c })))),
     getProductionDcSetup(),
-    dcOpen ? listBinStock() : Promise.resolve([]),
+    dcOpen ? listBinStock({ withAge: true }) : Promise.resolve([]),
     dcOpen && doc.status !== "draft" ? listYarnAtKnitter(doc) : Promise.resolve([]),
   ]);
   return (
@@ -42,6 +50,7 @@ export default async function KnittingOrderPage({ params }: { params: Promise<{ 
       bins={setup.bins}
       binStock={binStock}
       atKnitter={atKnitter}
+      prefillSend={send === "1" && dcOpen}
     />
   );
 }

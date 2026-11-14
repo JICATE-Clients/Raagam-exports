@@ -7,7 +7,10 @@ import { writeAudit } from "@/lib/audit";
 import { refuseReopenedBudget } from "@/lib/purchase/bom-ceiling-service";
 import { getKnitCandidates, getKnittingOrder } from "./knitting-service";
 import { saveProcessDc } from "@/lib/stores/process-dc-actions";
-import type { KnitCandidatesResult, KnitReceiptInput, KnitSendLine, KnittingOrderInput } from "./knitting-types";
+import { startApproval } from "@/lib/approvals/actions";
+import { WORKFLOWS } from "@/lib/approvals/workflows";
+import { knitSourceKey } from "./knitting-types";
+import type { KnitCandidatesResult, KnitGrnInput, KnitReceiptInput, KnitSendLine, KnittingOrderInput } from "./knitting-types";
 
 /**
  * KNITTING HUB writes (DB 0825). The save is ONE call to `knitting_order_save`, which writes
@@ -36,6 +39,43 @@ export async function loadKnitCandidates(salesOrderId: string, excludeOrderId: s
   }
 }
 
+/**
+ * PARTIAL RE ALLOCATION (0847, user 2026-11-14): a slice's Program Qty may not exceed its BALANCE —
+ * the Fabric BOM's kg less what PLACED Knitting Orders of that RE already hold (this order left out).
+ * Checked here because the BOM requirement of a slice is assembled in TypeScript (getKnitCandidates);
+ * a short-closed slice is refused by the database too (`knitting_fabric_placed_by`). Null = fine.
+ */
+async function knitBalanceProblem(
+  orderId: string | null,
+  lines: { sales_order_id: string | null; fabric_item_id: string; source_key: string | null; finished_dia: string | null; width_form: string | null; programmed_kg: number }[],
+): Promise<string | null> {
+  const byRe = new Map<string, typeof lines>();
+  for (const l of lines) {
+    if (!l.sales_order_id) continue;
+    byRe.set(l.sales_order_id, [...(byRe.get(l.sales_order_id) ?? []), l]);
+  }
+  for (const [re, reLines] of byRe) {
+    const cand = await getKnitCandidates(re, orderId);
+    if (!cand.ok) continue; // the save's own checks speak for an RE with no current Fabric BOM
+    const bySlice = new Map(cand.candidates.map((c) => [c.key, c]));
+    const asked = new Map<string, number>();
+    for (const l of reLines) {
+      const key = l.source_key || knitSourceKey(l.fabric_item_id, l.finished_dia, l.width_form);
+      asked.set(key, (asked.get(key) ?? 0) + Number(l.programmed_kg || 0));
+    }
+    for (const [key, kg] of asked) {
+      const c = bySlice.get(key);
+      if (!c) continue; // a line no longer on the BOM keeps what it had
+      if (c.short_closed) return `${c.fabric_name}: its balance was short-closed (${c.short_closed.reason}) — reopen it first`;
+      const balance = Math.max(0, Math.round((c.bom_kg - c.placed_kg) * 1000) / 1000);
+      if (kg > balance + 0.0005) {
+        return `${c.fabric_name}${c.finish_dia ? ` (Fin Dia ${c.finish_dia})` : ""}: Program Qty ${kg} kg is more than the balance ${balance} kg (RE ${c.bom_kg} kg − already placed ${c.placed_kg} kg)`;
+      }
+    }
+  }
+  return null;
+}
+
 export async function saveKnittingOrder(id: string | null, input: KnittingOrderInput): Promise<{ ok: true; id: string } | Fail> {
   if (!(await can("stores", id ? "edit" : "create"))) return { ok: false, error: "Forbidden" };
 
@@ -51,6 +91,12 @@ export async function saveKnittingOrder(id: string | null, input: KnittingOrderI
   const noDia = input.fabrics.find((f) => !f.knit_dia?.trim());
   if (noDia) return { ok: false, error: `Type the Knit Dia for every fabric${noDia.finished_dia ? ` (Fin Dia ${noDia.finished_dia})` : ""}` };
 
+  const over = await knitBalanceProblem(
+    id,
+    input.fabrics.map((f) => ({ ...f, sales_order_id: f.sales_order_id ?? input.sales_order_id })),
+  );
+  if (over) return { ok: false, error: over };
+
   const s = await createClient();
   const { data, error } = await s.rpc("knitting_order_save", { p_order_id: id, p: input });
   if (error) return { ok: false, error: error.message };
@@ -65,16 +111,24 @@ export async function saveKnittingOrder(id: string | null, input: KnittingOrderI
 }
 
 /** Issue = the order goes to the knitter; it is then read-only and Process DC can send yarn. */
-export async function issueKnittingOrder(id: string): Promise<{ ok: true } | Fail> {
+export async function issueKnittingOrder(id: string): Promise<{ ok: true; sentToMd?: boolean } | Fail> {
   if (!(await can("stores", "edit"))) return { ok: false, error: "Forbidden" };
   const s = await createClient();
   const { data: po, error: poErr } = await s
     .from("process_orders")
-    .select("sales_order_id, process_type, status, fabrics:process_order_knit_fabrics(id, sales_order_id)")
+    .select("code, sales_order_id, process_type, status, is_by_vendor, total_amount, fabrics:process_order_knit_fabrics(id, sales_order_id)")
     .eq("id", id)
     .maybeSingle();
   if (poErr) return { ok: false, error: `Could not read the knitting order: ${poErr.message}` };
-  const row = po as { sales_order_id: string | null; process_type: string; status: string; fabrics: { id: string; sales_order_id: string | null }[] | null } | null;
+  const row = po as {
+    code: string | null;
+    sales_order_id: string | null;
+    process_type: string;
+    status: string;
+    is_by_vendor: boolean | null;
+    total_amount: number | null;
+    fabrics: { id: string; sales_order_id: string | null }[] | null;
+  } | null;
   if (!row || row.process_type !== "knitting") return { ok: false, error: "Knitting order not found" };
   if (row.status !== "draft") return { ok: false, error: "Only a draft knitting order can be issued" };
   if (!row.fabrics?.length) return { ok: false, error: "Add a fabric and save before issuing" };
@@ -82,38 +136,73 @@ export async function issueKnittingOrder(id: string): Promise<{ ok: true } | Fai
   const reopened = await refuseReopenedBudget(res.map((sales_order_id) => ({ sales_order_id })));
   if (reopened) return { ok: false, error: reopened };
 
-  const { error } = await s.from("process_orders").update({ status: "issued" }).eq("id", id).eq("status", "draft");
+  /* THE BALANCE AGAIN AT ISSUE (0847): two drafts may each have taken the whole balance; the
+     first to be issued wins, the second is told what is left. */
+  const { data: kf } = await s
+    .from("process_order_knit_fabrics")
+    .select("sales_order_id, fabric_item_id, source_key, finished_dia, width_form, programmed_kg")
+    .eq("process_order_id", id);
+  const over = await knitBalanceProblem(
+    id,
+    ((kf ?? []) as { sales_order_id: string | null; fabric_item_id: string; source_key: string | null; finished_dia: string | null; width_form: string | null; programmed_kg: number }[]).map((f) => ({
+      ...f,
+      sales_order_id: f.sales_order_id ?? row.sales_order_id,
+      programmed_kg: Number(f.programmed_kg),
+    })),
+  );
+  if (over) return { ok: false, error: over };
+
+  /* NET RATE vs BUDGET (0845, user 2026-11-14): a line above its RE's approved budget Knitting
+     rate — or with no approved budget rate — goes to the MD in My Approvals instead of issuing.
+     The trigger `trg_proc_k_rate_gate` refuses the status change below on its own, so this is the
+     friendly door, not the guard. */
+  const { data: needsMd, error: reqErr } = await s.rpc("knitting_rate_request", { p_order_id: id });
+  if (reqErr) return { ok: false, error: reqErr.message };
+  if (needsMd) {
+    const { data: lines } = await s.rpc("knitting_rate_lines", { p_order_id: id });
+    const over = ((lines ?? []) as { fabric_name: string | null; rate_per_kg: number; budget_rate: number | null; over_budget: boolean }[])
+      .filter((l) => l.over_budget)
+      .map((l) => `${l.fabric_name ?? "Fabric"}: ₹${Number(l.rate_per_kg).toFixed(2)}/kg vs ${l.budget_rate == null ? "no approved budget" : `budget ₹${Number(l.budget_rate).toFixed(2)}/kg`}`);
+    const started = await startApproval({
+      workflowKey: WORKFLOWS.knitting_rate.key,
+      subjectTable: WORKFLOWS.knitting_rate.subjectTable,
+      subjectId: id,
+      context: { ko_code: row.code, total: `₹ ${Number(row.total_amount ?? 0).toFixed(2)}`, above_budget: true, lines: over.join("; ") },
+    });
+    if (!started.ok) {
+      // A run already open for this order is the one the MD is looking at — nothing to undo.
+      if (!/already|open run|one open/i.test(started.error)) {
+        await s.rpc("knitting_rate_request_undo", { p_order_id: id });
+        return { ok: false, error: `Could not send the rate to the MD: ${started.error}` };
+      }
+    }
+    await writeAudit({ action: "knitting_order.rate_sent_to_md", entityType: "process_order", entityId: id, metadata: { lines: over } });
+    revalidateKnitting(id);
+    return { ok: true, sentToMd: true };
+  }
+
+  /* BY VENDOR (0845): the knitter uses their own yarn — nothing to send, so the order goes
+     straight to In Knitting, the state a fabric receipt needs. */
+  const next = row.is_by_vendor ? "in_process" : "issued";
+  const { error } = await s.from("process_orders").update({ status: next }).eq("id", id).eq("status", "draft");
   if (error) return { ok: false, error: error.message };
   await writeAudit({ action: "knitting_order.issued", entityType: "process_order", entityId: id });
   revalidateKnitting(id);
   return { ok: true };
 }
 
-/** Cancel — only while no yarn has gone out (a draft, or an issued order with no DC sent). */
-export async function cancelKnittingOrder(id: string): Promise<{ ok: true } | Fail> {
+/**
+ * Cancel (Session 4, 0844) — also with yarn out: every sent yarn DC is undone in SQL (yarn back to
+ * the store · bin · lot it left) and the order goes to Cancelled with a reason, which is what
+ * frees its fabric slices for a new Knitting Order. Refused once anything has come back.
+ */
+export async function cancelKnittingOrder(id: string, reason: string): Promise<{ ok: true } | Fail> {
   if (!(await can("stores", "edit"))) return { ok: false, error: "Forbidden" };
+  if (!reason.trim()) return { ok: false, error: "Say why the knitting order is cancelled" };
   const s = await createClient();
-  // Any DC carrying this order's lines — including one raised from another Knitting Order (0832).
-  const { data: pol } = await s.from("process_order_lines").select("id").eq("process_order_id", id);
-  const polIds = ((pol ?? []) as { id: string }[]).map((x) => x.id);
-  const { data: dcs, error: dcErr } = polIds.length
-    ? await s
-        .from("dc_line_items")
-        .select("id, dc:delivery_challans!inner(status)")
-        .in("process_order_line_id", polIds)
-        .neq("dc.status", "cancelled")
-        .limit(1)
-    : { data: [], error: null };
-  if (dcErr) return { ok: false, error: `Could not check the yarn DCs: ${dcErr.message}` };
-  if (dcs?.length) return { ok: false, error: "A yarn DC is raised against this order — cancel that DC first" };
-  const { error } = await s
-    .from("process_orders")
-    .update({ status: "cancelled" })
-    .eq("id", id)
-    .eq("process_type", "knitting")
-    .in("status", ["draft", "issued"]);
+  const { error } = await s.rpc("knitting_order_cancel", { p_order_id: id, p_reason: reason.trim() });
   if (error) return { ok: false, error: error.message };
-  await writeAudit({ action: "knitting_order.cancelled", entityType: "process_order", entityId: id });
+  await writeAudit({ action: "knitting_order.cancelled", entityType: "process_order", entityId: id, metadata: { reason: reason.trim() } });
   revalidateKnitting(id);
   return { ok: true };
 }
@@ -237,6 +326,38 @@ export async function receiveKnitting(orderId: string, input: KnitReceiptInput):
   return { ok: true, id: String(data) };
 }
 
+
+/**
+ * MULTI-ORDER FABRIC GRN (Session 3, 0846) — one knitter's DC, fabric for several Knitting
+ * Orders, ONE database call: each order's lines post as its own receipt under the GRN, and
+ * Close & Completion closes every order on it in the same transaction, so nothing half-posts.
+ */
+export async function receiveKnittingGrn(input: KnitGrnInput): Promise<{ ok: true; id: string } | Fail> {
+  if (!(await can("stores", "edit"))) return { ok: false, error: "You do not have permission to receive knitted fabric" };
+  const orders = input.orders.map((o) => ({ order_id: o.order_id, fabrics: o.fabrics.filter((f) => f.net_kg > 0) }));
+  if (!orders.length) return { ok: false, error: "Pick the knitting orders this fabric came for" };
+  if (!orders.some((o) => o.fabrics.length)) return { ok: false, error: "Enter the weight received for at least one fabric" };
+  if (!input.header.receipt_date) return { ok: false, error: "Pick the GRN date" };
+  if (!input.header.vendor_dc_no.trim() || !input.header.vendor_dc_date)
+    return { ok: false, error: "Enter the Knitter DC No and Knitter DC Date the fabric came with" };
+  const s = await createClient();
+  const { data, error } = await s.rpc("knitting_grn_post", {
+    p_header: input.header,
+    p_orders: orders,
+    p_close: input.close,
+    p_reason: input.reason.trim() || null,
+  });
+  if (error) return { ok: false, error: error.message };
+  await writeAudit({ action: "knitting_grn.posted", entityType: "knitting_grn", entityId: String(data) });
+  for (const o of orders) {
+    if (input.close) await writeAudit({ action: "knitting_order.closed", entityType: "process_order", entityId: o.order_id });
+    revalidateKnitting(o.order_id);
+  }
+  revalidatePath("/purchase/dc");
+  revalidatePath("/finance/payables");
+  return { ok: true, id: String(data) };
+}
+
 /**
  * Close — ALWAYS DIRECT since 0837 (user 2026-11-12 dropped D1's MD approval): the balance at
  * the knitter is written off and the order closes now, over the Allowed Loss % or not. A balance
@@ -337,4 +458,43 @@ export async function setKnittingDcCap(orderId: string, yarnId: string, kg: numb
   });
   revalidateKnitting(orderId);
   return { ok: true, cap: Number(data) };
+}
+
+/**
+ * SHORT CLOSE (0847, user 2026-11-14): the balance of one RE fabric slice is too small to knit and
+ * will not get another Knitting Order — closed by hand with a reason. The slice then reads Fully
+ * Placed in every picker, and the database refuses a new program on it. Reopen undoes it.
+ */
+export async function shortCloseKnitBalance(input: {
+  salesOrderId: string;
+  sliceKey: string;
+  fabricItemId: string;
+  kg: number;
+  reason: string;
+  orderId?: string | null;
+}): Promise<{ ok: true } | Fail> {
+  if (!(await can("stores", "edit"))) return { ok: false, error: "Forbidden" };
+  if (!input.reason.trim()) return { ok: false, error: "Say why the balance is short-closed" };
+  const s = await createClient();
+  const { error } = await s.rpc("knitting_short_close", {
+    p_sales_order_id: input.salesOrderId,
+    p_slice_key: input.sliceKey,
+    p_fabric_item_id: input.fabricItemId,
+    p_kg: input.kg,
+    p_reason: input.reason.trim(),
+  });
+  if (error) return { ok: false, error: error.message };
+  await writeAudit({ action: "knitting.balance_short_closed", entityType: "sales_order", entityId: input.salesOrderId, metadata: { slice: input.sliceKey, kg: input.kg, reason: input.reason.trim() } });
+  revalidateKnitting(input.orderId ?? undefined);
+  return { ok: true };
+}
+
+export async function reopenKnitBalance(input: { salesOrderId: string; sliceKey: string; orderId?: string | null }): Promise<{ ok: true } | Fail> {
+  if (!(await can("stores", "edit"))) return { ok: false, error: "Forbidden" };
+  const s = await createClient();
+  const { error } = await s.rpc("knitting_short_close_undo", { p_sales_order_id: input.salesOrderId, p_slice_key: input.sliceKey });
+  if (error) return { ok: false, error: error.message };
+  await writeAudit({ action: "knitting.balance_reopened", entityType: "sales_order", entityId: input.salesOrderId, metadata: { slice: input.sliceKey } });
+  revalidateKnitting(input.orderId ?? undefined);
+  return { ok: true };
 }

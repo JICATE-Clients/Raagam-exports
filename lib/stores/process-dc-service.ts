@@ -53,7 +53,14 @@ export type KnitLineMeta = {
 };
 
 /** What a bin of this unit holds (`stock_bin_balances`) — the DC's per-bin stock and bin list. */
-export type BinStockOption = { store_id: string; bin_id: string | null; item_id: string; qty: number };
+export type BinStockOption = {
+  store_id: string;
+  bin_id: string | null;
+  item_id: string;
+  qty: number;
+  /** The oldest lot still in this bin (stock_lot_balances.first_in_date) — only with `withAge`. */
+  first_in?: string | null;
+};
 
 /** Knitting facts for these order lines (empty map for any other process). */
 export async function knitMetaByLine(lineIds: readonly string[]): Promise<Map<string, KnitLineMeta>> {
@@ -98,22 +105,37 @@ export async function knitMetaByLine(lineIds: readonly string[]): Promise<Map<st
   return out;
 }
 
-/** Stock by bin in this unit's holding stores (positive balances only). */
-export async function listBinStock(): Promise<BinStockOption[]> {
+/**
+ * Stock by bin in this unit's holding stores (positive balances only). `withAge` also reads the
+ * oldest lot date per bin, in parallel, so a caller can take the OLDEST stock first (Knitting
+ * "Delivery Now" picks its bins itself — Session 2, 2026-11-14).
+ */
+export async function listBinStock(opts: { withAge?: boolean } = {}): Promise<BinStockOption[]> {
   const s = await createClient();
   const { location } = await getCurrentLocation();
   if (!location) return [];
-  const { data, error } = await s
-    .from("stock_bin_balances")
-    .select("store_id, bin_id, item_id, quantity")
-    .eq("location_id", location.id)
-    .gt("quantity", 0);
-  if (error) throw new Error(`Bin stock: ${error.message}`);
-  return ((data ?? []) as { store_id: string; bin_id: string | null; item_id: string; quantity: number }[]).map((b) => ({
+  const [res, lots] = await Promise.all([
+    s.from("stock_bin_balances").select("store_id, bin_id, item_id, quantity").eq("location_id", location.id).gt("quantity", 0),
+    opts.withAge
+      ? s.from("stock_lot_balances").select("store_id, bin_id, item_id, first_in_date").eq("location_id", location.id).gt("quantity", 0)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (res.error) throw new Error(`Bin stock: ${res.error.message}`);
+  if (lots.error) throw new Error(`Bin stock age: ${lots.error.message}`);
+  const key = (x: { store_id: string; bin_id: string | null; item_id: string }) => `${x.store_id}|${x.bin_id ?? ""}|${x.item_id}`;
+  const oldest = new Map<string, string>();
+  for (const l of (lots.data ?? []) as { store_id: string; bin_id: string | null; item_id: string; first_in_date: string | null }[]) {
+    if (!l.first_in_date) continue;
+    const k = key(l);
+    const was = oldest.get(k);
+    if (!was || l.first_in_date < was) oldest.set(k, l.first_in_date);
+  }
+  return ((res.data ?? []) as { store_id: string; bin_id: string | null; item_id: string; quantity: number }[]).map((b) => ({
     store_id: b.store_id,
     bin_id: b.bin_id,
     item_id: b.item_id,
     qty: Number(b.quantity) || 0,
+    ...(opts.withAge ? { first_in: oldest.get(key(b)) ?? null } : {}),
   }));
 }
 
