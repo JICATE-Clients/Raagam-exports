@@ -268,3 +268,29 @@ function editDistanceAtMostOne(a: string, b: string): boolean {
   }
   return edits + (a.length - i) + (b.length - j) <= 1;
 }
+
+/**
+ * THE CELLS THAT DIFFER between two trees, over the FULL catalog — how an edit
+ * made on a whole tree (the `PermissionTree` editor) becomes cell changes for
+ * one person (`applyPersonCells`: a role cell off = a block, anything else = an
+ * extra). Restored editor, user 2026-11-14 (screenshot 4179: "previously look
+ * easier").
+ */
+export function treeDiff(before: PermissionTree, after: PermissionTree, offered: Offered): CellChange[] {
+  return cellsOf(screenCatalog().flatMap(screensOf), offered)
+    .map((c) => ({ ...c, on: treeHas(after, c.sc, c.a) }))
+    .filter((c) => treeHas(before, c.sc, c.a) !== c.on);
+}
+
+/** The catalog cut to the screens with at least one cell `keep` passes — the
+ *  "Role's modules" view. Empty sub-modules and modules drop out. */
+export function catalogWithin(catalog: CatalogModule[], offered: Offered, keep: Has): CatalogModule[] {
+  return catalog
+    .map((cm) => ({
+      ...cm,
+      submodules: cm.submodules
+        .map((s) => ({ ...s, screens: s.screens.filter((sc) => (offered[sc.module] ?? []).some((a) => keep(sc, a))) }))
+        .filter((s) => s.screens.length > 0),
+    }))
+    .filter((cm) => cm.submodules.length > 0);
+}

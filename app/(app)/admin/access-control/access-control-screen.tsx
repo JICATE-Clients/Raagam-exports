@@ -17,12 +17,12 @@ import { MasterListShell } from "@/components/masters/master-list-shell";
 import { useFacetFilter } from "@/components/ui/filter-drawer";
 import { roleFacets } from "./access-control-filters";
 import type { Column } from "@/components/ui/data-table";
-import { ModuleAccessList } from "@/components/permissions/module-access";
-import { applyCells, roleInWords } from "@/lib/permissions/levels";
+import { PermissionTree } from "@/components/permissions/permission-tree";
+import { roleInWords } from "@/lib/permissions/levels";
 import { SUGGESTED_ROLES, suggestedTree, type SuggestedRole } from "@/lib/permissions/suggested-roles";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { menuCatalog } from "@/lib/permissions/screen-catalog";
-import { treeHas, type PermissionTree as Tree } from "@/lib/permissions/effective";
+import type { PermissionTree as Tree } from "@/lib/permissions/effective";
 import { deleteRole, saveRoleAccess } from "@/lib/permissions/actions";
 import type { AccessControlData, AccessRole } from "@/lib/permissions/service";
 
@@ -39,8 +39,8 @@ import type { AccessControlData, AccessRole } from "@/lib/permissions/service";
  * role's tree and a person's extra screens still go through one normalisation.
  *
  * ROLES ARE JOBS (plan approved 2026-11-14, D1/D2). The permission tree is now
- * `ModuleAccessList` - one row per sidebar module, Full / View only / Custom /
- * None - the same control a person's access uses. Suggested job roles not yet
+ * `PermissionTree` - the module rail + screen grid (restored 2026-11-14,
+ * screenshot 4179: "previously look easier"), the same editor a person's access uses. Suggested job roles not yet
  * created sit above the list as drafts to review; a role an approval step
  * routes to cannot be deleted.
  */
@@ -354,13 +354,13 @@ export function AccessControlScreen({ data, canCreate, canEdit, canDelete, appro
                 this role (Users ▸ Roles).
               </p>
             )}
-            <ModuleAccessList
+            <PermissionTree
               catalog={catalog}
               offered={data.offered}
-              has={(sc, a) => treeHas(roleTree, sc, a)}
+              value={roleTree}
               readOnly={(!canEdit && !!roleId) || (roleSystem && roleName === "Super Admin")}
-              onCells={(c) => {
-                setRoleTree((t) => applyCells(t, c));
+              onChange={(t) => {
+                setRoleTree(t);
                 setRoleDirty(true);
               }}
             />

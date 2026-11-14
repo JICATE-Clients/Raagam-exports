@@ -317,97 +317,46 @@ export default function UsersClient({
 
   const columns: Column<UserRow>[] = [
     {
+      /* COMPACT ROWS (plan approved 2026-11-14, C1 — screenshots 4183/4184):
+         name + code on line 1, the email as the tinted detail line, tight
+         leading, so a row is ~48px and a 1080p screen shows ~15 people. */
       header: "Person",
-      className: "w-64",
+      className: "min-w-[16rem]",
       cell: (r) => (
-        <div className="flex min-w-0 flex-col gap-0.5">
+        <div className="flex min-w-0 flex-col leading-tight">
           <span className="flex min-w-0 items-center gap-1.5">
             <Truncated text={r.name ?? "—"} className="font-semibold text-foreground" />
+            <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{r.code ?? ""}</span>
             {r.profile?.is_super_admin && (
               /* A plain chip, not a StatusPill: the info tone carries a
                  pencil glyph, which read as "editable" (redesign issue 1). */
-              <span className="inline-flex h-5 shrink-0 items-center whitespace-nowrap rounded-full bg-info/10 px-2 text-[11px] font-medium text-info">
+              <span className="inline-flex h-4 shrink-0 items-center whitespace-nowrap rounded-full bg-info/10 px-1.5 text-[11px] font-medium text-info">
                 Super admin
               </span>
             )}
           </span>
           {r.email ? (
-            <Truncated text={`${r.code ?? "—"} · ${r.email}`} className="text-xs text-muted-foreground" />
+            <Truncated text={r.email} className="text-xs text-muted-foreground" />
           ) : (
-            <span className="text-xs text-muted-foreground">
-              <span className="font-mono text-[11px]">{r.code ?? "—"}</span>
-              <span className="ml-1 inline-flex items-center gap-1 whitespace-nowrap text-warning">
-                <CircleAlert className="size-3.5" aria-hidden />
-                Email missing
-              </span>
+            <span className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-warning">
+              <CircleAlert className="size-3.5" aria-hidden />
+              Email missing
             </span>
           )}
         </div>
       ),
     },
-    {
-      header: "Job role",
-      cell: (r) => {
-        if (r.profile?.is_super_admin) return <span className="text-xs text-muted-foreground">All access</span>;
-        // A role hangs off a login — none yet, so the mail icon is the next step.
-        // A role hangs off a login; the invite (✉) gives one as it makes the login.
-        if (!r.profile) return <span className="text-xs text-muted-foreground">Given with the invite</span>;
-        const assigned = rolesByUser[r.profile.id] ?? [];
-        /* THE CELL IS THE WAY IN (user 2026-11-13, screenshot 4137: "there is no
-           option for giving roles access for the user"). After the merge the
-           only route to roles was the row's pencil, and nothing on the row said
-           "roles" — the old shield icon was labelled Roles. Now the Roles cell
-           itself opens the person's editor, whose first section is Roles:
-           "+ Give role" when they hold none, the names (one line — a chip per
-           line made a row as tall as its role count) when they do. */
-        return (
-          <button
-            type="button"
-            onClick={() => openEditor(r)}
-            className="block max-w-[16rem] text-left text-sm text-primary underline-offset-2 hover:underline"
-            aria-label={`Roles for ${r.name ?? r.email ?? "user"}`}
-          >
-            {assigned.length === 0 ? (
-              <span className="font-medium">+ Give role</span>
-            ) : (
-              <Truncated text={assigned.map((ur) => ur.role_name).join(", ")} />
-            )}
-          </button>
-        );
-      },
-    },
-    {
-      /* UNITS BESIDE ROLES (2026-11-13) — the one setting nothing works
-         without, moved here from the retired User Permissions list. */
-      header: "Units *",
-      /* NAMES, NOT A DROPDOWN (user 2026-11-13, screenshot 4148: "1 units
-         select…" said neither which unit nor all of it). Read like the Roles
-         column beside it, and like it, the cell opens the person's editor,
-         whose Units row is where they are changed. */
-      cell: (r) => {
-        const a = accessOf(r);
-        if (!a) return <span className="text-xs text-muted-foreground">—</span>;
-        if (r.profile?.is_super_admin) return <span className="text-xs text-muted-foreground">Every unit</span>;
-        const acc = a.access;
-        const names = acc?.all_locations
-          ? "All units"
-          : (acc?.location_ids ?? []).map((id) => access.locations.find((l) => l.id === id)?.name ?? "(inactive unit)").join(", ");
-        return (
-          <button
-            type="button"
-            onClick={() => openEditor(r)}
-            className={`block max-w-[14rem] text-left text-sm underline-offset-2 hover:underline ${names ? "text-primary" : "font-medium text-danger"}`}
-            aria-label={`Units for ${r.name ?? r.email ?? "user"}`}
-          >
-            {names ? <Truncated text={names} /> : "No unit — set one"}
-          </button>
-        );
-      },
-    },
+    /* NO JOB ROLE / UNITS COLUMNS, ON ANY TAB (user 2026-11-14, screenshot
+       4177: "already we done it while inviting, so remove it from all state").
+       Both are given in the invite (✉, or the bulk "Give role & unit") and
+       changed in the person's editor (the pencil). A missing one still shows:
+       "No job role" / "No unit" in Changes for this person, and Needs attention.
+       This widens the 11-14 Not-invited-only drop to every tab. */
     {
       /* IN WORDS (plan screen A): what differs from the role, and anything that
          needs a look — no unit, no role, a typo-twin email. */
       header: "Changes for this person",
+      className: "w-60",
       cell: (r) => {
         const f = facts.get(r.key);
         if (!f) return <span className="text-xs text-muted-foreground">—</span>;
@@ -423,38 +372,31 @@ export default function UsersClient({
           <button
             type="button"
             onClick={() => openEditor(r)}
-            className="block max-w-[16rem] text-left text-sm underline-offset-2 hover:underline"
+            className="block max-w-[15rem] text-left text-sm leading-tight underline-offset-2 hover:underline"
             aria-label={`Changes for ${r.name ?? r.email ?? "user"}`}
+            title={many ? "More than 5 modules differ from the role — make it a role of its own" : undefined}
           >
             {words.length > 0 && <Truncated text={words.join(" · ")} className={many ? "text-danger" : "text-foreground"} />}
-            {many && <span className="block text-xs text-muted-foreground">Make it a role of its own</span>}
-            {flags.map((x) => (
-              <span key={x} className="block text-xs text-warning">{x}</span>
-            ))}
+            {flags.length > 0 && <Truncated text={flags.join(" · ")} className="text-xs text-warning" />}
           </button>
         );
       },
     },
     {
+      /* LOGIN AND STATUS ARE ONE CELL (plan C2, 2026-11-14). The pill says how
+         far the invite got — Not invited, Invited — and once they have signed
+         in the cell IS the on/off switch (the listing's StatusToggle, AGENTS.md
+         "Active leads the form" ▸ Not the listing). Before, an "Active" pill
+         sat beside an "Active" switch. A switched-off login shows the switch
+         off, whatever stage it reached. Switching off an Invited login is on
+         the person's editor ("Switch login off"). */
       header: "Login",
-      className: "w-40",
-      cell: (r) =>
-        !r.profile ? (
-          <StatusPill tone="neutral" className="whitespace-nowrap">Not invited</StatusPill>
-        ) : !r.profile.is_active ? (
-          <StatusPill tone="neutral" className="whitespace-nowrap">Switched off</StatusPill>
-        ) : r.profile.must_change_password ? (
-          <StatusPill tone="warning" className="whitespace-nowrap">Invited</StatusPill>
-        ) : (
-          <StatusPill tone="success" className="whitespace-nowrap">Active</StatusPill>
-        ),
-    },
-    {
-      header: "Status",
-      className: "w-32",
+      className: "w-[8.5rem]",
       cell: (r) => {
         const p = r.profile;
-        if (!p) return <span className="text-xs text-muted-foreground">—</span>;
+        if (!p) return <StatusPill tone="neutral" className="whitespace-nowrap">Not invited</StatusPill>;
+        if (p.is_active && p.must_change_password)
+          return <StatusPill tone="warning" className="whitespace-nowrap">Invited</StatusPill>;
         const why = statusBlocked(p);
         const toggle = (
           <StatusToggle
@@ -478,7 +420,7 @@ export default function UsersClient({
          action column by it and splices Created Date / User in before it. */
       header: "",
       align: "right",
-      className: "w-24",
+      className: "w-20",
       cell: (r) => {
         const p = r.profile;
         /* THE WELCOME MAIL IS A ONE-TIME STEP (user 2026-11-13, screenshot
@@ -514,6 +456,24 @@ export default function UsersClient({
     },
   ];
 
+  /* NOT INVITED SHOWS ONLY WHAT IT NEEDS (plan C3, 2026-11-14). For people
+     with no login, Changes / Login / Created / Status were the same blank or
+     the same word on every row. What matters is whether they CAN be invited. */
+  const notInvitedColumns: Column<UserRow>[] = [
+    columns[0],
+    {
+      header: "What's missing to invite",
+      className: "w-[22rem]",
+      cell: (r) => {
+        const why = mailBlocked(r);
+        const twins = facts.get(r.key)?.twins ?? [];
+        if (why) return <Truncated text={why} className="text-sm text-warning" />;
+        if (twins.length) return <Truncated text={`Email like ${twins[0]} — check it is not the same person`} className="text-sm text-warning" />;
+        return <span className="text-sm text-muted-foreground">Ready to invite</span>;
+      },
+    },
+    columns[columns.length - 1],
+  ];
 
   return (
     <div className="space-y-4">
@@ -557,15 +517,11 @@ export default function UsersClient({
         /* Decided on ALL rows, not the filtered page: a Pending tab of people with
            no login has no created_at, and the pair would vanish there only —
            the column jump the redesign removes. */
-        /* PENDING DROPS ROLES + UNITS (user 2026-11-14, screenshot 4159): a
-           pending person gets both in the one ✉ invite sheet, so the two
-           columns only repeated "Given with the invite" / "No unit — set one".
-           This reverses the 2026-09-30 "one fixed set of columns" for Pending
-           only; Updated and All keep them. */
-        columns={withCreatedColumns(
-          tab === "not_invited" ? columns.filter((c) => c.header !== "Job role" && c.header !== "Units *") : columns,
-          rows,
-        )}
+        /* Job role / Units are gone from every tab (screenshot 4177, see the
+           note in `columns`); Not invited has its own short set (C3). */
+        columns={tab === "not_invited" ? notInvitedColumns : withCreatedColumns(columns, rows)}
+        /* C1: the spacing half of dense — same type size, tighter gutters. */
+        dense="spacing"
         rows={filtered}
         getKey={(r) => r.key}
         selectable
