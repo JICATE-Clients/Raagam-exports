@@ -79,6 +79,15 @@ export type KnitCandidate = {
   /** The PLACED knitting order (not draft / cancelled) of this RE that already holds this slice —
    *  the picker greys it "(Program Placed — KO/..)" (0835). Null = free. */
   placed_on: string | null;
+  /** PARTIAL ALLOCATION (0847, user 2026-11-14): kg of this slice on PLACED Knitting Orders of this
+   *  RE (not draft, not cancelled, not this order). Balance = bom_kg − placed_kg. */
+  placed_kg: number;
+  /** The balance was closed by hand — the slice reads Fully Placed (0847). */
+  short_closed: { kg: number; reason: string } | null;
+  /** The fabric item's Category — the header's Category pill narrows the picker to it (0845). */
+  category_id: string | null;
+  /** 0845 — this RE's approved budget Knitting rate for the fabric; null = none. */
+  budget_rate: number | null;
   /** The fabric master's blend (`material_mixings`). Empty = no composition. */
   yarns: { yarn_item_id: string; yarn_name: string; blend_pct: number | null }[];
 };
@@ -120,6 +129,9 @@ export type KnitFabric = {
   re_no: string | null;
   fabric_item_id: string;
   fabric_name: string;
+  /** The fabric item's Category (0846 — the Fabric GRN filters by it). */
+  category_id: string | null;
+  category_name: string | null;
   source_key: string | null;
   width_form: KnitWidthForm | null;
   knit_dia: string | null;
@@ -136,6 +148,8 @@ export type KnitFabric = {
   roll_weight_kg: number | null;
   expected_rolls: number | null;
   rate_per_kg: number;
+  /** 0845 — the RE's approved budget Knitting rate for this fabric; null = none to compare. */
+  budget_rate: number | null;
   yarns: KnitYarn[];
   /** Fabric received back so far (0830). */
   received_kg: number;
@@ -266,6 +280,15 @@ export type KnittingOrder = {
   close_pending: boolean;
   close_reason: string | null;
   close_remark: string | null;
+  /** 0844 — why the order was cancelled. */
+  cancel_reason: string | null;
+  /** 0845 — GST % on the knitting charge; Net Rate is before GST. */
+  gst_rate_pct: number | null;
+  /** 0845 — By Vendor: the knitter uses their own yarn (no yarn lines, no DC). */
+  is_by_vendor: boolean;
+  /** 0845 — the MD's word on a Net Rate above (or without) budget. Null = not asked. */
+  rate_approval: "pending" | "approved" | "rejected" | null;
+  rate_approval_note: string | null;
 };
 
 export type KnittingOrderListRow = {
@@ -278,6 +301,29 @@ export type KnittingOrderListRow = {
   expected_date: string | null;
   programmed_kg: number;
   fabric_count: number;
+  /** Fabric categories on the order (one KO may knit several fabrics) — the Category filter. */
+  categories: { id: string; name: string }[];
+  vendor_id: string | null;
+  /** Yarn the program needs: sum of the yarn rows' required kg (blend x allowance, before the bag round-up). */
+  yarn_program_kg: number;
+  /** Yarn that has left on a sent Job Work DC (draft and cancelled DCs move nothing). */
+  yarn_issued_kg: number;
+  /** max(program - issued, 0) per yarn row, summed — an over-sent row never hides another's shortfall. */
+  yarn_pending_kg: number;
+  /**
+   * Can this unit's bins cover what is still to issue, yarn by yarn, today?
+   * null when nothing is pending, or the order is finished / cancelled — a badge there would
+   * answer a question nobody is asking.
+   */
+  stock_status: "available" | "deficit" | null;
+  /** The yarns short, for the badge's tooltip: "COTTON 30S — short 120 kg". */
+  stock_short: string[];
+  /** Kg this unit's bins hold of the yarns still to issue (each pending yarn counted once). */
+  yarn_stock_kg: number;
+  /** FILTER FACETS (2026-11-14, the Orders drawer): every RE on the order, its buyers, By Vendor. */
+  re_numbers: string[];
+  buyer_names: string[];
+  is_by_vendor: boolean;
   created_at: string;
   created_by: string | null;
 };
@@ -292,7 +338,13 @@ export type KnittingOrderInput = {
   expected_date: string | null;
   allowed_loss_pct: number | null;
   notes: string | null;
+  /** 0845 — GST % on the knitting charge. */
+  gst_rate_pct: number | null;
+  /** 0845 — the knitter uses their own yarn: the server writes no yarn lines. */
+  is_by_vendor: boolean;
   fabrics: {
+    /** 0849: the saved line's id — an order past draft is updated IN PLACE (DCs and receipts point at it). */
+    id?: string | null;
     /** The fabric's own RE (0836); blank = the header's. */
     sales_order_id: string | null;
     fabric_item_id: string;
@@ -311,7 +363,7 @@ export type KnittingOrderInput = {
     roll_weight_kg: number | null;
     rate_per_kg: number;
     /** `dc_cap_kg`: the store's DC Cap (0837); null = calculated. */
-    yarns: { yarn_item_id: string; blend_pct: number; allowance_pct: number; bag_weight_kg: number | null; dc_cap_kg: number | null }[];
+    yarns: { id?: string | null; yarn_item_id: string; blend_pct: number; allowance_pct: number; bag_weight_kg: number | null; dc_cap_kg: number | null }[];
   }[];
 };
 
@@ -323,6 +375,17 @@ export type KnitReceiptInput = {
   returns: { knit_yarn_id: string; kg: number; bags: number | null; store_id: string; bin_id: string | null }[];
   /** PARTY STOCK (0837): yarn this knitter sends straight to another knitter's Knitting Order. */
   party?: { knit_yarn_id: string; to_order_id: string; kg: number }[];
+};
+
+/**
+ * MULTI-ORDER FABRIC GRN (0846): one knitter's DC, fabric for several Knitting Orders. Each
+ * order's lines post as its own receipt under the GRN; `close` closes every order on it.
+ */
+export type KnitGrnInput = {
+  header: { receipt_date: string; vendor_id: string; vendor_dc_no: string; vendor_dc_date: string; vehicle_no: string | null; category_id: string | null };
+  orders: { order_id: string; fabrics: KnitReceiptInput["fabrics"] }[];
+  close: boolean;
+  reason: string;
 };
 
 /** An open Knitting Order of ANOTHER knitter that Party Stock yarn may go to (0837). */

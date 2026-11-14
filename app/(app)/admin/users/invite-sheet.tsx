@@ -6,15 +6,24 @@ import { useRouter } from "next/navigation";
 import { Check, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
+import { ToggleGroup } from "@/components/ui/segmented";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { ALL_UNITS, UnitChips, unitsPayload } from "@/components/permissions/access-pickers";
 import { menuCatalog } from "@/lib/permissions/screen-catalog";
 import { treeHas, type PermissionTree as Tree } from "@/lib/permissions/effective";
-import { LEVEL_WORD, cellsOf, levelOf, nearEmails, roleInWords, screensOf } from "@/lib/permissions/levels";
+import {
+  LEVEL_WORD,
+  cellsOf,
+  levelOf,
+  nearEmails,
+  roleInWords,
+  screensOf,
+} from "@/lib/permissions/levels";
+import { PersonAccessTree } from "@/components/permissions/person-access-tree";
 import type { Action, Module } from "@/lib/auth/types";
 import { saveUserAccess } from "@/lib/permissions/actions";
-import type { AccessLocation, AccessUser } from "@/lib/permissions/service";
+import type { AccessLocation, AccessUser, ScreenBlock } from "@/lib/permissions/service";
 import { assignRole, removeRole } from "@/app/(app)/admin/actions";
 import { createUserFromStaff, resendWelcome } from "@/lib/users/actions";
 import type { RoleOption, UserRoleEntry, UserRow } from "./page";
@@ -38,10 +47,14 @@ const STEPS: { n: Step; word: string }[] = [
  *                    both required;
  *   3 REVIEW & SEND  what they will be able to open, in words, and one button.
  *
- * NO ACCESS TABLE IN THE INVITE (D4). The 11-13 sheet put the whole access
- * table under the roles, and an invite started by unticking — that is how one
- * person got ALL with 1,306 boxes unticked. Adjusting one person is the person
- * page's job, after the invite. A person's existing changes are kept as they are.
+ * MODULE ACCESS IS EDITABLE ON REVIEW, FOR ONE PERSON (user 2026-11-14,
+ * screenshot 4178: "this area needs to allow edit the user give module access").
+ * D4 had made it a read-only "Can open" line; that is reversed for a single
+ * invite. It is the person editor's list, SCOPED TO THE CHOSEN ROLE(S) — so it
+ * opens on the role's modules, and "All modules" adds any other on the client's
+ * request — it still starts from the role, never from ALL with 1,306 boxes to
+ * untick (D4's real point). A bulk invite keeps
+ * the read-only summary: one person's exceptions are not a batch decision.
  *
  * Send does, per person (unchanged): units on their email (`saveUserAccess`),
  * the login if they have none (`createUserFromStaff`), the roles
@@ -97,6 +110,11 @@ export function InviteSheet({
   const [roleIds, setRoleIds] = useState<string[]>(() => (single ? heldOf(single).map((u) => u.role_id) : []));
   const [units, setUnits] = useState<string[]>(() => (single ? storedUnitsOf(single) : []));
   const [tried, setTried] = useState(false);
+  const singleAccess = single ? accessOf(single) : null;
+  const [tree, setTree] = useState<Tree>(() => singleAccess?.tree ?? {});
+  const [blocks, setBlocks] = useState<ScreenBlock[]>(() => singleAccess?.blocks ?? []);
+  /* Role's modules by default; All modules adds what the client asks for beyond it. */
+  const [scope, setScope] = useState<ModuleScope>("role");
   useUnsavedGuard(isPending);
 
   const noRole = roleIds.length === 0;
@@ -119,8 +137,13 @@ export function InviteSheet({
   const unitWords = units.includes(ALL_UNITS)
     ? "All units"
     : units.map((u) => locations.find((l) => l.id === u)?.name ?? "(inactive unit)").join(", ");
-  const singleAccess = single ? accessOf(single) : null;
-  const keptChanges = singleAccess ? singleAccess.blocks.length > 0 || Object.keys(singleAccess.tree).length > 0 : false;
+  /* One person's list: their role(s) as picked in step 2, plus their own changes. */
+  const liveBlocks = blocks.filter((b) => picked.some((t) => treeHas(t, { key: b.screen, module: b.module as Module }, b.action)));
+  const blocksKey = (b: ScreenBlock[]) => b.map((x) => `${x.screen}|${x.action}`).sort().join(",");
+  const accessDirty =
+    !!singleAccess &&
+    (JSON.stringify(tree) !== JSON.stringify(singleAccess.tree) || blocksKey(liveBlocks) !== blocksKey(singleAccess.blocks));
+  const editsAccess = !!single && !!singleAccess;
 
   function next() {
     if (step === 2) {
@@ -157,14 +180,16 @@ export function InviteSheet({
             ? [ALL_UNITS]
             : [...new Set([...stored, ...units])];
         const same = nextUnits.length === stored.length && nextUnits.every((u) => stored.includes(u));
-        if (!same || !a.access) {
-          // Their own changes (extras, blocks) are left exactly as they are.
+        if (!same || !a.access || (single && accessDirty)) {
+          // One person: the module access as set on Review. Several: their own
+          // changes (extras, blocks) are left exactly as they are.
           const res = await saveUserAccess({
             email: a.email,
             active: a.access?.is_active ?? true,
             note: a.access?.note ?? null,
-            tree: a.tree,
+            tree: single ? tree : a.tree,
             locations: unitsPayload(nextUnits),
+            ...(single ? { blocks: liveBlocks } : {}),
           });
           if (!res.ok) {
             fail(res.error);
@@ -262,8 +287,13 @@ export function InviteSheet({
         </>
       }
     >
-      {/* 52rem: the step rail (11rem) + one column of cards / chips. */}
-      <div className="mx-auto grid max-w-[52rem] gap-4 sm:grid-cols-[11rem_minmax(0,1fr)]">
+      {/* 52rem: the step rail (11rem) + one column of cards / chips. Review with
+          the access editor takes the sheet's whole width — the rail + grid need
+          it, and a narrow centred column left blank space on both sides
+          (user 2026-11-14, screenshot 4181). */}
+      <div
+        className={`mx-auto grid gap-4 sm:grid-cols-[11rem_minmax(0,1fr)] ${step === 3 && editsAccess ? "max-w-none" : "max-w-[52rem]"}`}
+      >
         <ol className="flex gap-1 overflow-x-auto sm:flex-col" aria-label="Steps">
           {STEPS.map((s) => {
             const done = s.n < step;
@@ -381,7 +411,12 @@ export function InviteSheet({
           {/* ── 3 · REVIEW & SEND ───────────────────────────────────────── */}
           {step === 3 && (
             <div className="space-y-3 text-sm">
-              <dl className="divide-y divide-border rounded-lg border border-border">
+              {/* One row of three when the editor follows, so it starts higher up. */}
+              <dl
+                className={`rounded-lg border border-border ${
+                  editsAccess ? "grid divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0 [&>div]:sm:grid-cols-1" : "divide-y divide-border"
+                }`}
+              >
                 <div className="grid gap-1 px-3 py-2 sm:grid-cols-[8rem_1fr]">
                   <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Who</dt>
                   <dd>{single ? `${who} · ${single.email}` : people.map((p) => p.name ?? p.email).join(", ")}</dd>
@@ -394,25 +429,54 @@ export function InviteSheet({
                   <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Units</dt>
                   <dd>{unitWords}</dd>
                 </div>
-                <div className="grid gap-1 px-3 py-2 sm:grid-cols-[8rem_1fr]">
-                  <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Can open</dt>
-                  <dd>
-                    {opens.length === 0 ? (
-                      <span className="text-danger">Nothing — this role opens no module yet.</span>
-                    ) : (
-                      <ul className="grid gap-x-4 gap-y-0.5 sm:grid-cols-2">
-                        {opens.map((o) => (
-                          <li key={o.label}>
-                            {o.label} <span className="text-muted-foreground">· {LEVEL_WORD[o.level]}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </dd>
-                </div>
+                {!editsAccess && (
+                  <div className="grid gap-1 px-3 py-2 sm:grid-cols-[8rem_1fr]">
+                    <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Can open</dt>
+                    <dd>
+                      {opens.length === 0 ? (
+                        <span className="text-danger">Nothing — this role opens no module yet.</span>
+                      ) : (
+                        <ul className="grid gap-x-4 gap-y-0.5 sm:grid-cols-2">
+                          {opens.map((o) => (
+                            <li key={o.label}>
+                              {o.label} <span className="text-muted-foreground">· {LEVEL_WORD[o.level]}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </dd>
+                  </div>
+                )}
               </dl>
-              {keptChanges && (
-                <p className="text-xs text-muted-foreground">Their own changes from before are kept. Adjust them on their access page.</p>
+              {editsAccess && (
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Module access <span className="font-normal normal-case">— from {roleIds.map(roleNameOf).join(", ")}; add or narrow for this person</span>
+                    </p>
+                    <ToggleGroup<ModuleScope>
+                label="Modules shown"
+                value={scope}
+                onChange={setScope}
+                options={[
+                  { value: "role", label: "Role's modules" },
+                  { value: "all", label: "All modules" },
+                ]}
+              />
+                  </div>
+                  <PersonAccessTree
+                    catalog={catalog}
+                    offered={offered}
+                    roleTrees={picked}
+                    tree={tree}
+                    blocks={liveBlocks}
+                    scope={scope}
+                    onChange={(next) => {
+                      setTree(next.extras);
+                      setBlocks(next.blocks);
+                    }}
+                  />
+                </div>
               )}
               <p className="text-xs text-muted-foreground">
                 {!mail
@@ -426,3 +490,5 @@ export function InviteSheet({
     </Sheet>
   );
 }
+
+type ModuleScope = "role" | "all";

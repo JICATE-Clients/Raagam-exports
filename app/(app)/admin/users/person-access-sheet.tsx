@@ -5,24 +5,20 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Sheet } from "@/components/ui/sheet";
+import { ToggleGroup } from "@/components/ui/segmented";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
-import { ModuleAccessList } from "@/components/permissions/module-access";
+import { PersonAccessTree } from "@/components/permissions/person-access-tree";
 import { ALL_UNITS, RoleChips, UnitChips, unitsPayload } from "@/components/permissions/access-pickers";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { menuCatalog } from "@/lib/permissions/screen-catalog";
 import { treeHas, type PermissionTree as Tree } from "@/lib/permissions/effective";
 import {
   EXCEPTION_LIMIT,
-  LEVEL_WORD,
-  applyPersonCells,
-  cellsOf,
   changesInWords,
   effectiveTree,
-  levelOf,
   personChanges,
   personModel,
-  screensOf,
 } from "@/lib/permissions/levels";
 import { saveRoleAccess, saveUserAccess } from "@/lib/permissions/actions";
 import { setLoginActive } from "@/lib/users/actions";
@@ -37,7 +33,7 @@ import type { RoleOption, UserRoleEntry, ProfileRow } from "./page";
  *
  * LEFT: who they are and their login — email, roles, units, resend the
  * sign-in mail, switch the login off. RIGHT: what they can open, one row per
- * sidebar module, Full · View only · Custom · None (`ModuleAccessList`); only
+ * sidebar module, the module rail + screen grid (`PersonAccessTree`); only
  * Custom opens the screen boxes.
  *
  * Storage is unchanged: what the role gives and this person should not have is
@@ -108,6 +104,8 @@ export function PersonAccessSheet({
   const [blocks, setBlocks] = useState<ScreenBlock[]>(access?.blocks ?? []);
   const [newRoleName, setNewRoleName] = useState("");
   const [keepExceptions, setKeepExceptions] = useState(false);
+  /* Role's modules by default; All modules adds what the client asks for beyond it. */
+  const [scope, setScope] = useState<ModuleScope>("role");
 
   const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x));
   const rolesDirty = !sameSet(roleIds, heldIds);
@@ -221,9 +219,6 @@ export function PersonAccessSheet({
   ) : (
     <StatusPill tone="success">Active</StatusPill>
   );
-
-  const roleWord = (cm: (typeof catalog)[number]) =>
-    levelOf(cellsOf(screensOf(cm), offered), (sc, a) => model.roleHas(sc, a));
 
   return (
     <Sheet
@@ -349,37 +344,47 @@ export function PersonAccessSheet({
               </div>
             ) : null}
 
-            <ModuleAccessList
+            {/* ROLE'S MODULES FIRST, ANY MODULE ON REQUEST (user 2026-11-14). The
+                list opens on what the chosen job role(s) give ("role access only");
+                "All modules" offers every module, because access is also given
+                on the client's request ("we need to give access based on client
+                request"). An added module reads "Added for this person". */}
+            {!locked && access && (roleIds.length > 0 || changes.total > 0) && <ToggleGroup<ModuleScope>
+                label="Modules shown"
+                value={scope}
+                onChange={setScope}
+                options={[
+                  { value: "role", label: "Role's modules" },
+                  { value: "all", label: "All modules" },
+                ]}
+              />}
+            {scope === "role" && roleIds.length === 0 && changes.total === 0 ? (
+              <p className="rounded-lg border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
+                {profile
+                  ? "Pick a job role on the left, or switch to All modules to give access on request."
+                  : "No job role yet — it is given with the invite."}
+              </p>
+            ) : (
+            <PersonAccessTree
               catalog={catalog}
               offered={offered}
-              has={model.has}
+              roleTrees={pickedTrees}
+              tree={tree}
+              blocks={liveBlocks}
+              scope={scope}
               readOnly={locked || !access}
-              onCells={(c) => {
-                const next = applyPersonCells(pickedTrees, tree, liveBlocks, c);
+              onChange={(next) => {
                 setTree(next.extras);
                 setBlocks(next.blocks);
                 setActive(true);
               }}
-              noteOf={(cm, level) => {
-                const fromRole = roleWord(cm);
-                if (fromRole === "none") return level === "none" ? null : "Added for this person";
-                if (level === "none") return `Removed for this person · role gives ${LEVEL_WORD[fromRole]}`;
-                if (level === fromRole && level !== "custom") return "From role";
-                return null;
-              }}
-              cellTitle={(sc, a) =>
-                model.roleHas(sc, a)
-                  ? model.isBlocked(sc, a)
-                    ? "Removed for this person — tick to give it back"
-                    : "From their role"
-                  : model.extraHas(sc, a)
-                    ? "Added for this person"
-                    : undefined
-              }
             />
+            )}
           </section>
         )}
       </div>
     </Sheet>
   );
 }
+
+type ModuleScope = "role" | "all";

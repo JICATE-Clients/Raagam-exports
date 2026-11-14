@@ -6,8 +6,9 @@ import type { ProcessDc } from "@/lib/stores/process-dc-service";
 /**
  * THE KNITTER'S JOB-WORK CHALLAN (doc/process/knitting update.md §5, client 2026-11-12): one A4
  * page the yarn travels on — DC and order refs at the left, the knitter at the right, the
- * program each fabric is knitted to, the yarn with its program / earlier / this-DC quantities
- * and source bin, the declaration and three signatures.
+ * program each fabric is knitted to, the yarn with its program / earlier / this-DC quantities,
+ * the declaration and three signatures. NO BIN on the paper (client 2026-11-14, Session 2): the
+ * bin is the store's internal address and means nothing to the knitter.
  *
  * Every figure is READ, never typed here: the spec off the knitting order's fabric rows, Program
  * Qty off the yarn row's required kg, Prev Sent off the OTHER dispatched DCs raised before this
@@ -40,8 +41,7 @@ export type KnitChallanLine = {
   program_qty: number | null;
   prev_sent: number;
   send_qty: number;
-  /** A bin code, or null with `vendor_held` when the yarn is already at the knitter. */
-  bin: string | null;
+  /** The yarn is already at the knitter (a transfer DC, or sent from no store) — its qty carries a *. */
   vendor_held: boolean;
   bags: number | null;
 };
@@ -169,7 +169,6 @@ export function KnitJobWorkChallan({
               <Th right>Program Qty</Th>
               <Th right>Prev Sent</Th>
               <Th right>Send Qty</Th>
-              <Th>Source Bin</Th>
               {anyBags ? <Th right>Bags</Th> : null}
             </tr>
           </thead>
@@ -193,7 +192,6 @@ export function KnitJobWorkChallan({
                   <span className="font-semibold">{fmtNumber(l.send_qty)}</span>
                   {l.vendor_held ? "*" : ""} <span className="text-[10.5px] text-[#7b8594]">{l.uom ?? ""}</span>
                 </Td>
-                <Td mono>{l.vendor_held ? "Vendor Stk" : dash(l.bin)}</Td>
                 {anyBags ? <Td right>{l.bags ?? "—"}</Td> : null}
               </tr>
             ))}
@@ -207,7 +205,6 @@ export function KnitJobWorkChallan({
                 {fmtNumber(sendTotal)}
                 {unit ? <span className="text-[10.5px] text-[#7b8594]"> {unit}</span> : null}
               </Td>
-              <Td>{""}</Td>
               {anyBags ? <Td right>{bagsTotal || "—"}</Td> : null}
             </tr>
           </tbody>

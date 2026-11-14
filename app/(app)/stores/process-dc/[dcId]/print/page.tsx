@@ -23,8 +23,7 @@ type Dc = NonNullable<Awaited<ReturnType<typeof getProcessDc>>>;
  */
 async function loadKnitChallanExtras(s: Sb, dc: Dc): Promise<{ fabrics: KnitChallanFabric[]; lines: KnitChallanLine[]; party: string | null }> {
   const polIds = [...new Set(dc.lines.map((l) => l.process_order_line_id).filter((x): x is string => !!x))];
-  const binIds = [...new Set(dc.lines.map((l) => l.bin_id).filter((x): x is string => !!x))];
-  const [yarnRes, polRes, sentRes, binRes, hdrRes] = await Promise.all([
+  const [yarnRes, polRes, sentRes, hdrRes] = await Promise.all([
     polIds.length
       ? s.from("process_order_knit_yarns").select("process_order_line_id, knit_fabric_id, required_kg").in("process_order_line_id", polIds)
       : Promise.resolve({ data: [], error: null }),
@@ -38,14 +37,12 @@ async function loadKnitChallanExtras(s: Sb, dc: Dc): Promise<{ fabrics: KnitChal
           .not("dc.status", "in", "(draft,cancelled)")
           .lt("dc.created_at", dc.created_at)
       : Promise.resolve({ data: [], error: null }),
-    binIds.length ? s.from("bins").select("id, bin_code").in("id", binIds) : Promise.resolve({ data: [], error: null }),
     s.from("delivery_challans").select("party_name, party_address").eq("id", dc.id).maybeSingle(),
   ]);
   for (const [what, r] of [
     ["Knitting yarn rows", yarnRes],
     ["Order lines", polRes],
     ["Sent on earlier DCs", sentRes],
-    ["Bins", binRes],
     ["DC header", hdrRes],
   ] as const) {
     if (r.error) throw new Error(`Job work DC print — ${what}: ${r.error.message}`);
@@ -58,7 +55,6 @@ async function loadKnitChallanExtras(s: Sb, dc: Dc): Promise<{ fabrics: KnitChal
   for (const r of (sentRes.data ?? []) as unknown as { process_order_line_id: string; sent_qty: number }[]) {
     prevOf.set(r.process_order_line_id, (prevOf.get(r.process_order_line_id) ?? 0) + (Number(r.sent_qty) || 0));
   }
-  const binCode = new Map(((binRes.data ?? []) as { id: string; bin_code: string }[]).map((b) => [b.id, b.bin_code]));
 
   // Knitting GSM (0835, `knit_gsm`) is read on its own so the print still works on a database
   // that does not have the column yet — it then falls back to the finished GSM.
@@ -104,14 +100,30 @@ async function loadKnitChallanExtras(s: Sb, dc: Dc): Promise<{ fabrics: KnitChal
       program_qty: y?.required_kg != null ? Number(y.required_kg) : l.process_order_line_id ? (orderedOf.get(l.process_order_line_id) ?? null) : null,
       prev_sent: l.process_order_line_id ? (prevOf.get(l.process_order_line_id) ?? 0) : 0,
       send_qty: l.sent_qty,
-      bin: l.bin_id ? (binCode.get(l.bin_id) ?? null) : null,
       vendor_held: vendorHeld,
       bags: l.bags,
     };
   });
+  // ONE LINE PER YARN (Session 2): "Delivery Now" splits a Send Qty across bins, one DC line per
+  // bin. With no bin on the paper those are the same yarn twice, and Program Qty would count twice
+  // in the Total — so lines of one order line fold into one, their Send Qty and bags summed.
+  const folded: KnitChallanLine[] = [];
+  const at = new Map<string, KnitChallanLine>();
+  dc.lines.forEach((l, i) => {
+    const line = lines[i];
+    const k = l.process_order_line_id ? `${l.process_order_line_id}|${line.vendor_held}` : null;
+    const was = k ? at.get(k) : undefined;
+    if (!was) {
+      folded.push(line);
+      if (k) at.set(k, line);
+      return;
+    }
+    was.send_qty = Math.round((was.send_qty + line.send_qty) * 1000) / 1000;
+    was.bags = was.bags == null && line.bags == null ? null : (was.bags ?? 0) + (line.bags ?? 0);
+  });
   const h = (hdrRes.data ?? null) as { party_name: string | null; party_address: string | null } | null;
   const party = [h?.party_name, h?.party_address].filter((x) => !!x && x.trim()).join(", ") || null;
-  return { fabrics: [...fabrics.values()], lines, party };
+  return { fabrics: [...fabrics.values()], lines: folded, party };
 }
 
 /**

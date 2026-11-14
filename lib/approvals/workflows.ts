@@ -33,6 +33,7 @@ export type WorkflowKey =
   | "po_rate_amendment"
   | "po_cancellation"
   | "knitting_close"
+  | "knitting_rate"
   | "hr_fine"
   | "sample_costing"
   | "sample_revision"
@@ -114,6 +115,15 @@ export const WORKFLOWS: Record<WorkflowKey, WorkflowDecl> = {
     key: "knitting_close",
     subjectTable: "process_orders",
     label: "Knitting Close",
+    href: "/process/knitting-hub/:id",
+  },
+  /* 0845 — a Knitting Order whose Net Rate is above its RE's approved budget Knitting rate, or
+     whose RE has no approved budget rate (user 2026-11-14). Started by `issueKnittingOrder`;
+     decided in `knitting_rate_apply_decision` — Approve lets the order be issued. */
+  knitting_rate: {
+    key: "knitting_rate",
+    subjectTable: "process_orders",
+    label: "Knitting Rate",
     href: "/process/knitting-hub/:id",
   },
   po_cancellation: {
