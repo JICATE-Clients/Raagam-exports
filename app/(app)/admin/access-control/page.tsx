@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { requirePermission, can } from "@/lib/auth/server";
 import { PageHeader } from "@/components/ui/page-header";
 import { loadAccessControl } from "@/lib/permissions/service";
+import { approvalStepCountsByRole } from "@/lib/permissions/actions";
 import { AccessControlScreen } from "./access-control-screen";
 
 /**
@@ -25,24 +26,26 @@ export default async function RolesAndPermissionsPage({
   }
 
   await requirePermission("system_admin", "view");
-  const [data, canCreate, canEdit, canDelete] = await Promise.all([
+  const [data, canCreate, canEdit, canDelete, approvalSteps] = await Promise.all([
     loadAccessControl(),
     can("system_admin", "create"),
     can("system_admin", "edit"),
     can("system_admin", "delete"),
+    approvalStepCountsByRole(),
   ]);
 
   return (
     <div className="space-y-4">
       <PageHeader
         title="Roles & Permissions"
-        description="Who can open and change each screen, by role — everyone holding a role gets its access."
+        description="A role is a job — Merchandiser, Store Keeper, Accounts. Everyone holding it gets its access."
       />
       <AccessControlScreen
         data={data}
         canCreate={canCreate}
         canEdit={canEdit}
         canDelete={canDelete}
+        approvalSteps={approvalSteps}
       />
     </div>
   );

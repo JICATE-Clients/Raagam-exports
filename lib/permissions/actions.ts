@@ -178,12 +178,47 @@ export async function deleteRole(roleId: string): Promise<Result> {
   const { count, error: cErr } = await s.from("user_roles").select("id", { count: "exact", head: true }).eq("role_id", roleId);
   if (cErr) return { ok: false, error: cErr.message };
   if ((count ?? 0) > 0) return { ok: false, error: `${r.name} is held by ${count} user(s) — remove it from them first.` };
+  /* 2026-11-14 (plan "Roles & Permissions": delete refused while an approval
+     step names it). Steps route by role NAME (approver_role_key), so deleting
+     the role strands every request that reaches those steps. */
+  const steps = await approvalStepsNaming(r.name);
+  if (steps.length)
+    return {
+      ok: false,
+      error: `${r.name} is the approver on ${steps.length} approval step(s) (${steps.slice(0, 3).join(", ")}${steps.length > 3 ? "…" : ""}) — change those steps first.`,
+    };
   const { error: dErr, count: deleted } = await s.from("roles").delete({ count: "exact" }).eq("id", roleId);
   if (dErr) return { ok: false, error: dErr.message };
   if (!deleted) return { ok: false, error: "The role could not be deleted." };
   await writeAudit({ action: "role.deleted", entityType: "role", entityId: roleId, metadata: { name: r.name } });
   rev();
   return { ok: true };
+}
+
+/** "Flow name · step 2" for every ACTIVE approval step routed to this role name. */
+async function approvalStepsNaming(roleName: string): Promise<string[]> {
+  const { data } = await createAdminClient().from("approval_flows").select("flow_name, steps").eq("is_active", true);
+  const out: string[] = [];
+  for (const f of (data ?? []) as { flow_name: string; steps: { approver_role_key?: string | null }[] | null }[]) {
+    (f.steps ?? []).forEach((s, i) => {
+      if ((s.approver_role_key ?? "").trim().toLowerCase() === roleName.trim().toLowerCase()) out.push(`${f.flow_name} · step ${i + 1}`);
+    });
+  }
+  return out;
+}
+
+/** Role name → how many active approval steps route to it (greys the bin on Roles & Permissions). */
+export async function approvalStepCountsByRole(): Promise<Record<string, number>> {
+  if (!(await can("system_admin", "view"))) return {};
+  const { data } = await createAdminClient().from("approval_flows").select("steps").eq("is_active", true);
+  const out: Record<string, number> = {};
+  for (const f of (data ?? []) as { steps: { approver_role_key?: string | null }[] | null }[]) {
+    for (const s of f.steps ?? []) {
+      const k = (s.approver_role_key ?? "").trim();
+      if (k) out[k] = (out[k] ?? 0) + 1;
+    }
+  }
+  return out;
 }
 
 /**

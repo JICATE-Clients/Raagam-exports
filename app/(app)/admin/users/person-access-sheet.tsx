@@ -3,51 +3,56 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Sheet } from "@/components/ui/sheet";
 import { StatusPill } from "@/components/ui/status-pill";
 import { useToast } from "@/components/ui/toast";
-import { AccessMatrix } from "@/components/permissions/access-matrix";
-import { ALL_UNITS, AccessRow as Row, RoleChips, UnitChips, unitsPayload } from "@/components/permissions/access-pickers";
+import { ModuleAccessList } from "@/components/permissions/module-access";
+import { ALL_UNITS, RoleChips, UnitChips, unitsPayload } from "@/components/permissions/access-pickers";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { menuCatalog } from "@/lib/permissions/screen-catalog";
 import { treeHas, type PermissionTree as Tree } from "@/lib/permissions/effective";
-import { saveUserAccess } from "@/lib/permissions/actions";
+import {
+  EXCEPTION_LIMIT,
+  LEVEL_WORD,
+  applyPersonCells,
+  cellsOf,
+  changesInWords,
+  effectiveTree,
+  levelOf,
+  personChanges,
+  personModel,
+  screensOf,
+} from "@/lib/permissions/levels";
+import { saveRoleAccess, saveUserAccess } from "@/lib/permissions/actions";
+import { setLoginActive } from "@/lib/users/actions";
 import type { AccessLocation, AccessUser, ScreenBlock } from "@/lib/permissions/service";
 import type { Action, Module } from "@/lib/auth/types";
 import { assignRole, removeRole } from "@/app/(app)/admin/actions";
 import type { RoleOption, UserRoleEntry, ProfileRow } from "./page";
 
 /**
- * ONE PERSON'S ACCESS, ON ONE PAGE, WITH ONE SAVE (user 2026-11-13,
- * screenshot 4139: "plan this page UI" — approved: role chips, unit buttons, a
- * "Can open" summary, extra screens folded, one Save button).
+ * ONE PERSON'S ACCESS (plan approved 2026-11-14, screen C —
+ * https://claude.ai/artifact/JopxLF22KNdjwGEjYzMQFt).
  *
- * The first cut of this editor (same day) was three bordered boxes: a Roles
- * box holding a card per role plus an "Assign another" form whose button sat
- * greyed until a pick; a Units box half the screen wide for one dropdown that
- * said "1 units selected" without naming the unit; and the whole permission
- * tree open underneath with a Status switch that read like the PERSON's
- * status. Roles and units saved on each click and extra screens on a button —
- * two rules on one page.
+ * LEFT: who they are and their login — email, roles, units, resend the
+ * sign-in mail, switch the login off. RIGHT: what they can open, one row per
+ * sidebar module, Full · View only · Custom · None (`ModuleAccessList`); only
+ * Custom opens the screen boxes.
  *
- * Now, top to bottom:
- *   ROLES          chips; ✕ takes one off, "+ Add role" picks one on.
- *   UNITS *        the units as named buttons, ticked on or off.
- *   ACCESS TABLE   `AccessMatrix` — what the roles give (blue; untick = BLOCK it
- *                  for this person only, 0840) and this
- *                  person's extras (green), one table (plan approved 2026-11-13,
- *                  https://claude.ai/artifact/JGQev3raC2WCeMyVULxE9j). It replaced
- *                  a "Can open" list and a separate tree that disagreed.
- * No on/off switch for extras any more: an extra is removed by unticking it.
- * The stored `is_active` is kept as it is unless the extras are edited, when
- * Save switches them on — a change nobody could see working would be a lie.
- * Nothing is stored until Save; Cancel drops every change. Save writes the
- * role changes (assign / remove, the same actions as before) and then the
- * email access — units, switch and tree — in one `saveUserAccess`.
+ * Storage is unchanged: what the role gives and this person should not have is
+ * a BLOCK (0840); what they have beyond the role is an EXTRA (their email
+ * grants). The control turns a module level into exactly those, so a role
+ * keeps routing approvals and alerts to them.
  *
- * Roles hang off a LOGIN; units and extra screens off the EMAIL (0661), so they
- * can be set before the person has ever signed in. Mount with a `key` per
- * person: state seeds from props once.
+ * EXCEPTIONS STAY RARE (D3). Past `EXCEPTION_LIMIT` modules differing from the
+ * role, the page says the role is wrong for them and offers "Save as a new
+ * role": their access as it stands becomes a role, they get it instead, and
+ * their exceptions are cleared. That is the "ALL minus 13 modules = Pulse only"
+ * case that produced 1,306 blocks for one person.
+ *
+ * Nothing is stored until Save (or Save as a new role); Cancel drops it all.
+ * Mount with a `key` per person: state seeds from props once.
  */
 export function PersonAccessSheet({
   open,
@@ -64,6 +69,7 @@ export function PersonAccessSheet({
   offered,
   canEdit,
   meId,
+  onInvite,
 }: {
   open: boolean;
   onClose: () => void;
@@ -75,17 +81,18 @@ export function PersonAccessSheet({
   access: AccessUser | null;
   userRoles: UserRoleEntry[];
   roles: RoleOption[];
-  /** Each role's permission tree, by role id — for the "Can open" summary. */
   roleTrees: Record<string, Tree>;
   locations: AccessLocation[];
   offered: Partial<Record<Module, Action[]>>;
   canEdit: boolean;
   meId: string;
+  /** Opens the invite sheet for this person (send / resend the sign-in mail). */
+  onInvite: (() => void) | null;
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, start] = useTransition();
-  const catalog = menuCatalog();
+  const catalog = useMemo(() => menuCatalog(), []);
 
   const isMe = !!profile && profile.id === meId;
   const superAdmin = !!profile?.is_super_admin;
@@ -99,6 +106,8 @@ export function PersonAccessSheet({
   const [active, setActive] = useState(access?.access?.is_active ?? true);
   const [tree, setTree] = useState<Tree>(access?.tree ?? {});
   const [blocks, setBlocks] = useState<ScreenBlock[]>(access?.blocks ?? []);
+  const [newRoleName, setNewRoleName] = useState("");
+  const [keepExceptions, setKeepExceptions] = useState(false);
 
   const sameSet = (a: string[], b: string[]) => a.length === b.length && a.every((x) => b.includes(x));
   const rolesDirty = !sameSet(roleIds, heldIds);
@@ -113,6 +122,12 @@ export function PersonAccessSheet({
   const roleName = (id: string) => roles.find((r) => r.id === id)?.name ?? "Unknown role";
   const noUnit = !units.includes(ALL_UNITS) && units.length === 0;
 
+  const pickedTrees = roleIds.map((id) => roleTrees[id] ?? {});
+  /* Blocks only mean something on a cell a role they hold gives. */
+  const liveBlocks = blocks.filter((b) => pickedTrees.some((t) => treeHas(t, { key: b.screen, module: b.module as Module }, b.action)));
+  const model = personModel(pickedTrees, tree, liveBlocks);
+  const changes = personChanges(pickedTrees, tree, liveBlocks, offered);
+  const tooMany = changes.total > EXCEPTION_LIMIT && roleIds.length > 0;
 
   function save() {
     if (access && !superAdmin && active && noUnit) {
@@ -120,7 +135,6 @@ export function PersonAccessSheet({
       return;
     }
     start(async () => {
-      // Roles first — they hang off the login. Same actions the old panel used.
       if (profile && rolesDirty) {
         for (const id of roleIds.filter((id) => !heldIds.includes(id))) {
           const r = await assignRole(profile.id, id, null);
@@ -138,11 +152,7 @@ export function PersonAccessSheet({
           note: access.access?.note ?? null,
           tree,
           locations: unitsPayload(units),
-          /* Only blocks a role they still hold gives: remove the role and a
-             block on its cells would be a rule about nothing. */
-          blocks: blocks.filter((b) =>
-            roleIds.some((id) => treeHas(roleTrees[id] ?? {}, { key: b.screen, module: b.module as Module }, b.action)),
-          ),
+          blocks: liveBlocks,
         });
         if (!res.ok) return toastError(res.error);
       }
@@ -152,17 +162,68 @@ export function PersonAccessSheet({
     });
   }
 
+  /** D3: their access as it stands becomes a role; they hold it instead; exceptions cleared. */
+  function saveAsRole() {
+    const roleTitle = newRoleName.trim();
+    if (!roleTitle) {
+      document.getElementById("pa-new-role")?.focus();
+      return;
+    }
+    if (!profile || !access) return;
+    if (noUnit) {
+      toastError("Unit is required — tick at least one unit.");
+      return;
+    }
+    start(async () => {
+      const made = await saveRoleAccess({
+        name: roleTitle,
+        description: `Made from ${name}'s access`,
+        tree: effectiveTree(model.has, offered),
+      });
+      if (!made.ok) return toastError(made.error);
+      const given = await assignRole(profile.id, made.roleId, null);
+      if (!given.ok) return toastError(given.error);
+      for (const ur of userRoles) {
+        const r = await removeRole(ur.id);
+        if (!r.ok) return toastError(r.error);
+      }
+      const res = await saveUserAccess({
+        email: access.email,
+        active: true,
+        note: access.access?.note ?? null,
+        tree: {},
+        locations: unitsPayload(units),
+        blocks: [],
+      });
+      if (!res.ok) return toastError(res.error);
+      success(`${roleTitle} created and given to ${name}. Their exceptions are cleared.`);
+      onClose();
+      router.refresh();
+    });
+  }
+
+  function switchLogin(on: boolean) {
+    if (!profile) return;
+    start(async () => {
+      const res = await setLoginActive(profile.id, on);
+      if (!res.ok) return toastError(res.error);
+      success(on ? "Login switched on." : "Login switched off — they can no longer sign in.");
+      router.refresh();
+    });
+  }
+
   const loginPill = !profile ? (
-    <StatusPill tone="neutral">No login yet</StatusPill>
+    <StatusPill tone="neutral">Not invited</StatusPill>
   ) : !profile.is_active ? (
     <StatusPill tone="neutral">Login switched off</StatusPill>
   ) : profile.must_change_password ? (
-    <StatusPill tone="warning">Temporary password</StatusPill>
+    <StatusPill tone="warning">Invited · temporary password</StatusPill>
   ) : (
-    <StatusPill tone="success">Password set</StatusPill>
+    <StatusPill tone="success">Active</StatusPill>
   );
 
-  const paused = !!access?.access && !access.access.is_active && Object.values(access.tree).some(Boolean);
+  const roleWord = (cm: (typeof catalog)[number]) =>
+    levelOf(cellsOf(screensOf(cm), offered), (sc, a) => model.roleHas(sc, a));
 
   return (
     <Sheet
@@ -181,78 +242,140 @@ export function PersonAccessSheet({
         </>
       }
     >
-      {/* 60rem: the widest row is the permission tree (rail 15rem + six action
-          columns); every other row is a label column (8rem) + chips. */}
-      <div className="mx-auto max-w-[60rem] space-y-5">
-        {/* Who this is — the facts the bare name in the title left out. */}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
-          {code && <span className="font-mono text-xs">{code}</span>}
-          {access?.email && <span>{access.email}</span>}
-          {loginPill}
-        </div>
+      {/* 68rem: side panel 16rem + module rows (name + the four-word control). */}
+      <div className="mx-auto grid max-w-[68rem] gap-5 lg:grid-cols-[16rem_minmax(0,1fr)]">
+        {/* ── LEFT: the person and their login ─────────────────────────── */}
+        <aside className="space-y-4 rounded-lg border border-border bg-surface p-4 text-sm lg:self-start">
+          <div className="space-y-1">
+            <p className="font-semibold text-foreground">{name}</p>
+            {code && <p className="font-mono text-xs text-muted-foreground">{code}</p>}
+            {access?.email && <p className="break-all text-muted-foreground">{access.email}</p>}
+            <div>{loginPill}</div>
+          </div>
 
-        {isMe && <p className="text-sm text-warning">Your own access is set by another administrator.</p>}
+          {isMe && <p className="text-warning">Your own access is set by another administrator.</p>}
 
-        {superAdmin ? (
-          <p className="rounded-lg border border-border bg-surface px-4 py-3 text-sm">
-            <strong className="font-semibold">Super admin</strong>
-            <span className="text-muted-foreground"> — every module, every screen and every unit. There is nothing to set here.</span>
-          </p>
-        ) : (
-          <dl className="divide-y divide-border rounded-lg border border-border bg-surface">
-            {/* ── ROLES ─────────────────────────────────────────────────── */}
-            <Row label="Roles">
-              {!profile ? (
-                <p className="text-sm text-muted-foreground">No login yet — roles are given with the invite: the ✉ on their row asks for a role and a unit before it sends.</p>
-              ) : (
-                <RoleChips id="pa-add-role" roles={roles} value={roleIds} onChange={setRoleIds} readOnly={locked} />
+          {superAdmin ? (
+            <p className="text-muted-foreground">Super admin — every module, every screen and every unit.</p>
+          ) : (
+            <>
+              <div className="space-y-1.5">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Job role</p>
+                {!profile ? (
+                  <p className="text-muted-foreground">Given with the invite.</p>
+                ) : (
+                  <RoleChips id="pa-add-role" roles={roles} value={roleIds} onChange={setRoleIds} readOnly={locked} />
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Units <span className="text-danger">*</span>
+                </p>
+                {!access ? (
+                  <p className="text-muted-foreground">No email in HR &amp; Payroll ▸ People ▸ Staff — add one there first.</p>
+                ) : (
+                  <UnitChips locations={locations} value={units} onChange={setUnits} readOnly={locked} />
+                )}
+              </div>
+            </>
+          )}
+
+          {!superAdmin && !locked && (
+            <div className="flex flex-col items-start gap-1 border-t border-border pt-3">
+              {onInvite && (
+                <button type="button" onClick={onInvite} className="text-primary underline-offset-2 hover:underline">
+                  {profile ? "Resend sign-in mail" : "Invite — send sign-in mail"}
+                </button>
               )}
-            </Row>
-
-            {/* ── UNITS ─────────────────────────────────────────────────── */}
-            <Row label="Units" required>
-              {!access ? (
-                <p className="text-sm text-muted-foreground">No email in HR &amp; Payroll ▸ People ▸ Staff — add one there first.</p>
-              ) : (
-                <UnitChips locations={locations} value={units} onChange={setUnits} readOnly={locked} />
+              {profile && (
+                <button
+                  type="button"
+                  disabled={isPending}
+                  onClick={() => switchLogin(!profile.is_active)}
+                  className={`underline-offset-2 hover:underline ${profile.is_active ? "text-danger" : "text-primary"}`}
+                >
+                  {profile.is_active ? "Switch login off" : "Switch login on"}
+                </button>
               )}
-            </Row>
-          </dl>
-        )}
+            </div>
+          )}
+        </aside>
 
+        {/* ── RIGHT: what they can open ────────────────────────────────── */}
         {!superAdmin && (
-          <section className="space-y-2" aria-label="What they can open">
+          <section className="min-w-0 space-y-3" aria-label="What they can open">
             <h3 className="text-sm font-semibold text-foreground">What they can open</h3>
-            {!access ? (
-              <p className="text-sm text-muted-foreground">
-                Extra screens need an email in HR &amp; Payroll ▸ People ▸ Staff. Their roles still apply.
-              </p>
-            ) : (
-              <>
-                {paused && (
-                  <p className="text-sm text-warning">
-                    Their extra screens are switched off and do not count today. Change any tick and Save switches them back on.
-                  </p>
-                )}
-                {!access.has_login && (
-                  <p className="text-xs text-muted-foreground">
-                    No login yet — extras start working the first time they sign in with {access.email}.
-                  </p>
-                )}
-              </>
+
+            {!access && (
+              <p className="text-sm text-muted-foreground">Changes for one person need an email in HR &amp; Payroll ▸ People ▸ Staff. Their role still applies.</p>
             )}
-            <AccessMatrix
+
+            {tooMany && !keepExceptions && profile && access && !locked ? (
+              <div className="space-y-2 rounded-lg border border-danger/40 bg-danger/5 px-3 py-2 text-sm">
+                <p>
+                  <span className="font-medium text-danger">
+                    {changes.total} modules differ from {roleIds.map(roleName).join(", ")}.
+                  </span>{" "}
+                  <span className="text-muted-foreground">That usually means the role is wrong for them. Save what they have as a role of its own:</span>
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="w-56">
+                    <Input id="pa-new-role" aria-label="New role name" value={newRoleName} onChange={(e) => setNewRoleName(e.target.value)} />
+                  </div>
+                  <Button type="button" variant="outline" size="md" disabled={isPending} onClick={saveAsRole}>
+                    Save as a new role
+                  </Button>
+                  <button type="button" className="text-primary underline-offset-2 hover:underline" onClick={() => setKeepExceptions(true)}>
+                    Keep as exceptions
+                  </button>
+                </div>
+              </div>
+            ) : changes.total > 0 ? (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                <span className="text-muted-foreground">Changed for this person:</span>
+                <span className="font-medium text-foreground">{changesInWords(changes).join(" · ")}</span>
+                {!locked && access && (
+                  <button
+                    type="button"
+                    className="text-primary underline-offset-2 hover:underline"
+                    onClick={() => {
+                      setTree({});
+                      setBlocks([]);
+                    }}
+                  >
+                    Back to the role only
+                  </button>
+                )}
+              </div>
+            ) : null}
+
+            <ModuleAccessList
               catalog={catalog}
               offered={offered}
-              roleTrees={roleIds.map((id) => ({ name: roleName(id), tree: roleTrees[id] ?? {} }))}
-              extras={tree}
-              blocks={blocks}
-              onBlocksChange={setBlocks}
+              has={model.has}
               readOnly={locked || !access}
-              onChange={(t) => {
-                setTree(t);
+              onCells={(c) => {
+                const next = applyPersonCells(pickedTrees, tree, liveBlocks, c);
+                setTree(next.extras);
+                setBlocks(next.blocks);
                 setActive(true);
               }}
+              noteOf={(cm, level) => {
+                const fromRole = roleWord(cm);
+                if (fromRole === "none") return level === "none" ? null : "Added for this person";
+                if (level === "none") return `Removed for this person · role gives ${LEVEL_WORD[fromRole]}`;
+                if (level === fromRole && level !== "custom") return "From role";
+                return null;
+              }}
+              cellTitle={(sc, a) =>
+                model.roleHas(sc, a)
+                  ? model.isBlocked(sc, a)
+                    ? "Removed for this person — tick to give it back"
+                    : "From their role"
+                  : model.extraHas(sc, a)
+                    ? "Added for this person"
+                    : undefined
+              }
             />
           </section>
         )}

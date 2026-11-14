@@ -89,19 +89,3 @@ export function userSearchText(r: UserRow, userRoles: UserRoleEntry[]): string {
     .join(" ")
     .toLowerCase();
 }
-
-/**
- * THE PENDING · UPDATED BOX, Order Entry's own (`useQuickStatus`, user
- * 2026-09-30: "use the same UI as Order Entry"). The words are the app's
- * fixed vocabulary, so they are given the meaning they carry everywhere else —
- * the work still to do, and the work done:
- *   Pending  onboarding not finished — no login yet, or still on the
- *            temporary password (a welcome mail to send, or to be used)
- *   Updated  has a login and has chosen their own password
- * A switched-off login is neither (null): it shows under All, and the Status
- * facet finds it. Draft is off — nothing on this screen is a draft.
- */
-export function userWord(r: UserRow): "pending" | "updated" | null {
-  if (!r.profile || r.profile.must_change_password) return "pending";
-  return r.profile.is_active ? "updated" : null;
-}
