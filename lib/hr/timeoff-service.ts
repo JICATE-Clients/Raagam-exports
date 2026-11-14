@@ -6,8 +6,8 @@ import { today } from "@/lib/calendar";
 import { fmtDate, fmtMoney } from "@/lib/format";
 import { WORKFLOWS } from "@/lib/approvals/workflows";
 import type {
+  WorkHours,
   BalanceRow,
-  Blackout,
   CompOffCredit,
   DepartmentHead,
   Encashment,
@@ -39,12 +39,33 @@ export type TimeoffViewer = {
   /** HR operator: may act for everyone in the current unit. */
   isHr: boolean;
   canEdit: boolean;
+  /**
+   * The signed-in person's own record ("staff:<id>"), WHATEVER their role — an
+   * HR operator or a HOD who is also on the Staff master. Request forms open
+   * with it picked (user 2026-11-14: "their name should be default pre fill
+   * who signed in"); null for a login with no staff record.
+   */
+  meKey: string | null;
 };
 
 export async function timeoffViewer(): Promise<TimeoffViewer> {
   const [user, view, edit] = await Promise.all([getAppUser(), can("hr_payroll", "view"), can("hr_payroll", "edit")]);
   const myStaffId = user?.myStaffId ?? null;
-  return { myStaffId, isHr: view && !myStaffId, canEdit: edit && !myStaffId };
+  let meId = myStaffId;
+  const email = user?.email?.trim().toLowerCase();
+  if (!meId && email) {
+    // Service role, by the login's own verified email: `staff_read` is unit-scoped.
+    const { data } = await createAdminClient()
+      .from("staff")
+      .select("id")
+      // `ilike` for case only — `%`, `_` and `\` escaped so an address is never a pattern.
+      .ilike("email", email.replace(/[\\%_]/g, (c) => "\\" + c))
+      .eq("is_active", true)
+      .order("created_at")
+      .limit(1);
+    meId = ((data ?? [])[0] as { id: string } | undefined)?.id ?? null;
+  }
+  return { myStaffId, isHr: view && !myStaffId, canEdit: edit && !myStaffId, meKey: meId ? `staff:${meId}` : null };
 }
 
 /**
@@ -124,18 +145,58 @@ export async function listYears(): Promise<LeaveYear[]> {
   return withCreators((data ?? []) as LeaveYear[]);
 }
 
+/**
+ * HR decides the leave year on Time Off Setup ▸ Leave Years (user 2026-11-14:
+ * "bring back the leave year, we want that"). So that nobody is ever refused
+ * because next year was not added in time, a date past the LAST year gets the
+ * next one made on the same shape: it starts the day after the last one ends
+ * and runs one year (Apr–Mar stays Apr–Mar, Jan–Dec stays Jan–Dec). It never
+ * invents a shape — with no year at all, or a date BEFORE the first one,
+ * nothing is made and the request says to add one.
+ *
+ * Admin client: only HR may write the table and a staff member's apply must
+ * not fail on it. A second caller racing this one hits the overlap trigger or
+ * the unique name; that is ignored — the year is there.
+ */
+export async function ensureLeaveYear(day: string): Promise<void> {
+  const admin = createAdminClient();
+  const { data: covering } = await admin.from("timeoff_years").select("id").lte("start_date", day).gte("end_date", day).limit(1);
+  if (covering?.length) return;
+  const { data: last } = await admin.from("timeoff_years").select("end_date").order("end_date", { ascending: false }).limit(1);
+  let end = (last?.[0] as { end_date: string } | undefined)?.end_date;
+  // Add years one after another until one covers the day (a gap of more than one year is rare).
+  for (let i = 0; end && end < day && i < 5; i++) {
+    const start = nextDay(end);
+    const next = nextDay(addYears(start, 1), -1);
+    const y1 = start.slice(0, 4);
+    const y2 = next.slice(0, 4);
+    await admin.from("timeoff_years").insert({
+      name: y1 === y2 ? y1 : `${y1}-${y2.slice(2)}`,
+      start_date: start,
+      end_date: next,
+    });
+    end = next;
+  }
+}
+
+/** "2027-03-31" → "2027-04-01" (or back a day with -1), in UTC so no time zone shifts it. */
+function nextDay(iso: string, by = 1): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + by);
+  return d.toISOString().slice(0, 10);
+}
+function addYears(iso: string, n: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCFullYear(d.getUTCFullYear() + n);
+  return d.toISOString().slice(0, 10);
+}
+
 export async function currentYearId(): Promise<string | null> {
+  await ensureLeaveYear(today());
   const s = await createClient();
   const { data, error } = await s.rpc("timeoff_year_of", { p_day: today() });
   if (error) throw new Error(error.message);
   return (data as string | null) ?? null;
-}
-
-export async function listBlackouts(): Promise<Blackout[]> {
-  const s = await createClient();
-  const { data, error } = await s.from("timeoff_blackouts").select("*").order("created_at");
-  if (error) throw new Error(error.message);
-  return withCreators((data ?? []) as Blackout[]);
 }
 
 // ─── Approval flow: department heads (0817) ────────────────────────────────
@@ -211,7 +272,7 @@ export async function listHodOptions(): Promise<HodOption[]> {
 const REQUEST_SELECT =
   "id, code, staff_id, worker_id, leave_type_id, year_id, request_category, start_date, end_date, day_part, " +
   "start_time, end_time, total_days, duration_minutes, reason, status, decision_remark, decided_at, " +
-  "close_reason, closed_at, created_by, created_at, " +
+  "close_reason, closed_at, attachment_path, attachment_name, created_by, created_at, " +
   "staff:staff!staff_id(name, code), worker:workers!worker_id(name, code), " +
   "type:timeoff_leave_types!leave_type_id(code, name, color)";
 
@@ -465,6 +526,8 @@ export async function getTimeoffQueue(): Promise<QueueItem[]> {
       when,
       amount: r.day_part === "hourly" ? fmtMinutes(r.duration_minutes) : `${fmtDays(r.total_days)} day(s)`,
       reason: r.reason,
+      attachment_path: r.attachment_path,
+      attachment_name: r.attachment_name,
       created_at: r.created_at,
       can_act: onMyStep.has(r.id),
       stage: reqStage.get(r.id)?.stage ?? null,
@@ -679,4 +742,36 @@ function whenOf(r: { day_part: string; start_date: string; end_date: string; sta
     : r.start_date === r.end_date
       ? fmtDate(r.start_date) + (r.day_part === "full" ? "" : r.day_part === "first_half" ? " (1st half)" : " (2nd half)")
       : `${fmtDate(r.start_date)} → ${fmtDate(r.end_date)}`;
+}
+
+/**
+ * Each person's timing group and every group's dated hours (0769) — for
+ * Permission's time lists. Read with the admin client: a self-service login
+ * holds no unit, so the staff table's RLS would hide its own category. Only
+ * the group word and the hours leave the server.
+ */
+export async function getWorkHours(people: PersonOption[]): Promise<WorkHours> {
+  const admin = createAdminClient();
+  const staffIds = people.filter((p) => p.kind === "staff").map((p) => p.id);
+  const workerIds = people.filter((p) => p.kind === "worker").map((p) => p.id);
+  type Row = { id: string; category: { timing_group: string | null } | null };
+  const [st, wk, tm] = await Promise.all([
+    staffIds.length
+      ? admin.from("staff").select("id, category:employee_categories!category_id(timing_group)").in("id", staffIds)
+      : Promise.resolve({ data: [], error: null }),
+    workerIds.length
+      ? admin.from("workers").select("id, category:employee_categories!category_id(timing_group)").in("id", workerIds)
+      : Promise.resolve({ data: [], error: null }),
+    admin.from("hr_group_timings").select("timing_group, in_time, out_time, effective_from").order("effective_from"),
+  ]);
+  if (st.error) throw new Error(st.error.message);
+  if (wk.error) throw new Error(wk.error.message);
+  if (tm.error) throw new Error(tm.error.message);
+  const groupOf: Record<string, string> = {};
+  for (const r of (st.data ?? []) as unknown as Row[]) if (r.category?.timing_group) groupOf[personKey("staff", r.id)] = r.category.timing_group;
+  for (const r of (wk.data ?? []) as unknown as Row[]) if (r.category?.timing_group) groupOf[personKey("worker", r.id)] = r.category.timing_group;
+  const timings = ((tm.data ?? []) as { timing_group: string; in_time: string; out_time: string; effective_from: string }[]).map(
+    (t) => ({ group: t.timing_group, in_time: t.in_time, out_time: t.out_time, effective_from: t.effective_from }),
+  );
+  return { groupOf, timings };
 }

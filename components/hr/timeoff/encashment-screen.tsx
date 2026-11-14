@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { VoiceTextarea } from "@/components/ui/voice-textarea";
 import { Select } from "@/components/ui/select";
-import { Combobox } from "@/components/ui/combobox";
 import { Field, FieldRow } from "@/components/ui/field";
 import { Sheet } from "@/components/ui/sheet";
 import { DataTable, type Column } from "@/components/ui/data-table";
@@ -37,7 +36,7 @@ import {
   type LeaveType,
   type PersonOption,
 } from "@/lib/hr/timeoff-types";
-import { ApprovalTrail, Fact, ReasonSheet } from "./shared";
+import { ApprovalTrail, Fact, PersonField, PHONE_FIELDS, PhoneActionBar, PhoneCard, PhoneCards, ReasonSheet } from "./shared";
 
 /**
  * HR ▸ Time Off ▸ Leave Encashment (0770). A stub in MyJKKN (request only);
@@ -52,11 +51,13 @@ type Props = {
   types: LeaveType[];
   people: PersonOption[];
   selfOnly: boolean;
+  /** The signed-in person ("staff:<id>"); the form opens with them picked. */
+  me?: string | null;
   canPay: boolean;
 };
 type Panel = Awaited<ReturnType<typeof loadTimeoffPanel>> & { id: string };
 
-export function EncashmentScreen({ rows, types, people, selfOnly, canPay }: Props) {
+export function EncashmentScreen({ rows, types, people, selfOnly, me, canPay }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -86,7 +87,7 @@ export function EncashmentScreen({ rows, types, people, selfOnly, canPay }: Prop
   const type = encashable.find((t) => t.id === typeId);
 
   function openNew() {
-    setPerson(selfOnly ? (people[0]?.key ?? "") : "");
+    setPerson(selfOnly ? (people[0]?.key ?? "") : people.some((p) => p.key === me) ? (me as string) : "");
     setTypeId(encashable.length === 1 ? encashable[0].id : "");
     setDays("");
     setReason("");
@@ -182,7 +183,7 @@ export function EncashmentScreen({ rows, types, people, selfOnly, canPay }: Prop
       </span>
     ),
   };
-  const actions = rowActionsColumn<Encashment>((r) => (
+  const rowActs = (r: Encashment) => (
     <RowActions
       label={r.person_name}
       onView={() => openView(r)}
@@ -194,7 +195,9 @@ export function EncashmentScreen({ rows, types, people, selfOnly, canPay }: Prop
           : []),
       ]}
     />
-  ));
+  );
+  const actions = rowActionsColumn<Encashment>(rowActs);
+  const colorOf = (id: string) => types.find((t) => t.id === id)?.color ?? "var(--primary)";
 
   return (
     <div className="space-y-4">
@@ -204,15 +207,44 @@ export function EncashmentScreen({ rows, types, people, selfOnly, canPay }: Prop
             ? `Encashable: ${encashable.map((t) => t.name).join(", ")}.`
             : "No leave type is encashable yet — tick Encashable on Time Off Setup."}
         </span>
-        {people.length > 0 && encashable.length > 0 && <Button onClick={openNew}>+ Request Encashment</Button>}
+        {people.length > 0 && encashable.length > 0 && (
+          <Button className="hidden md:inline-flex" onClick={openNew}>
+            + Request Encashment
+          </Button>
+        )}
       </div>
 
-      <DataTable
-        columns={[...withCreatedColumns(columns, rows), statusColumn, actions]}
-        rows={rows}
-        getKey={(r) => r.id}
-        empty="No encashments yet."
-      />
+      <PhoneCards empty="No encashments yet.">
+        {rows.map((r) => (
+          <PhoneCard
+            key={r.id}
+            color={colorOf(r.leave_type_id)}
+            title={r.leave_name}
+            status={<StatusPill tone={timeoffTone(r.status)}>{statusLabel(r.status)}</StatusPill>}
+            when={fmtMoney(r.amount)}
+            figure={`${fmtDays(r.days)} day(s) × ${fmtMoney(r.rate_per_day)}`}
+            person={selfOnly ? null : { name: r.person_name, key: personKeyOf(r) }}
+            stage={r.status === "pending" ? r.stage : null}
+            onOpen={() => openView(r)}
+            actions={rowActs(r)}
+          />
+        ))}
+      </PhoneCards>
+
+      <div className="hidden md:block">
+        <DataTable
+          columns={[...withCreatedColumns(columns, rows), statusColumn, actions]}
+          rows={rows}
+          getKey={(r) => r.id}
+          empty="No encashments yet."
+        />
+      </div>
+
+      {people.length > 0 && encashable.length > 0 && (
+        <PhoneActionBar>
+          <Button onClick={openNew}>+ Request Encashment</Button>
+        </PhoneActionBar>
+      )}
 
       <Sheet
         open={open}
@@ -235,23 +267,9 @@ export function EncashmentScreen({ rows, types, people, selfOnly, canPay }: Prop
           </div>
         }
       >
-        <div className="max-w-[44rem] space-y-4">
+        <div className={`max-w-[44rem] space-y-4 ${PHONE_FIELDS}`}>
           <FieldRow>
-            {!selfOnly && (
-              <Field label="Person" w="name" required>
-                <Combobox
-                  options={people.map((p) => ({
-                    value: p.key,
-                    label: p.name,
-                    person: p.key,
-                    sublabel: p.kind === "worker" ? "Worker" : "Staff",
-                    search: p.code,
-                  }))}
-                  value={person}
-                  onChange={setPerson}
-                />
-              </Field>
-            )}
+            {!selfOnly && <PersonField people={people} value={person} onChange={setPerson} me={me} />}
             <Field label="Leave Type" w="term" required>
               <Select value={typeId} onChange={(e) => setTypeId(e.target.value)}>
                 <option value="">—</option>
@@ -281,7 +299,7 @@ export function EncashmentScreen({ rows, types, people, selfOnly, canPay }: Prop
       <Sheet
         open={!!viewFor}
         onClose={() => setViewFor(null)}
-        title={viewFor ? `${viewFor.person_name} — Encashment` : "Encashment"}
+        title={viewFor && !selfOnly && viewFor.person_name !== "—" ? `${viewFor.person_name} — Encashment` : "Encashment"}
         asPage
       >
         {viewFor && (
