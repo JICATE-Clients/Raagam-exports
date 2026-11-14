@@ -64,6 +64,8 @@ export type CatalogModule = {
   label: string;
   module: Module;
   submodules: CatalogSubmodule[];
+  /** The whole module is off the rail (`hidden` on its NAV item — Approvals). */
+  note?: "hidden";
 };
 
 /**
@@ -123,7 +125,8 @@ export function buildScreenCatalog(): CatalogModule[] {
         submodules.push({
           key: `${item.href}#off-menu`,
           label: "Off the menu",
-          screens: offMenu.map((c) => ({ key: c.href, label: c.label, module: grouping.module })),
+          screens: offMenu.map((c) => ({ key: c.href, label: c.label, module: grouping.module, note: "hidden" as const })),
+          note: "hidden",
         });
     } else if (item.href === "/masters") {
       for (const sub of SUBMODULES) {
@@ -145,11 +148,17 @@ export function buildScreenCatalog(): CatalogModule[] {
     } else {
       const screens: CatalogScreen[] = [];
       if (ROOT_SCREENS.has(item.href)) screens.push(rootScreen());
+      const offMenuHere = new Set((OFF_MENU_SCREENS[item.href] ?? []).map((c) => c.href));
       for (const c of [...(item.children ?? []), ...(OFF_MENU_SCREENS[item.href] ?? [])]) {
         // A child row that IS the module's root screen (Pulse ▸ Messages = /comms, 2026-11-04)
         // is that one screen, not a second one with the same key — one permission tick.
         if (screens.some((x) => x.key === c.href)) continue;
-        screens.push({ key: c.href, label: c.label, module: item.module });
+        screens.push({
+          key: c.href,
+          label: c.label,
+          module: item.module,
+          ...(offMenuHere.has(c.href) ? { note: "hidden" as const } : {}),
+        });
       }
       if (screens.length === 0) screens.push(rootScreen());
       submodules.push({ key: `${item.href}#screens`, label: item.label, screens });
@@ -157,7 +166,8 @@ export function buildScreenCatalog(): CatalogModule[] {
     if (grouping && ROOT_SCREENS.has(item.href)) {
       submodules.unshift({ key: `${item.href}#root`, label: item.label, screens: [rootScreen()] });
     }
-    if (submodules.length) out.push({ key: item.href, label: item.label, module: item.module, submodules });
+    if (submodules.length)
+      out.push({ key: item.href, label: item.label, module: item.module, submodules, ...(item.hidden ? { note: "hidden" as const } : {}) });
   }
   return out;
 }
@@ -205,6 +215,31 @@ export const SCREEN_ALIASES: Readonly<Record<string, string>> = {
   // Development hub retired into it (2026-10-06).
   "/sales/samples": "/sales/sample-entry",
 };
+
+/**
+ * WHAT THE ACCESS SCREENS DRAW: the sidebar, and nothing else (user 2026-11-14:
+ * expanding a module showed "பழைய மெனு" — old menu rows no longer on the
+ * sidebar). The full catalog keeps every page that opens by URL, because that
+ * is what `screenOfPath()` must be able to refuse; this view drops what the
+ * sidebar drops — a hidden module (Approvals), a hidden group, an off-the-menu
+ * screen — so a tick is only ever offered for a row the operator can see.
+ * `unavailable` screens stay: the sidebar still lists them.
+ *
+ * A grant already stored on a dropped screen is kept, not deleted; it simply
+ * has no box. Bring the row back to the sidebar and its box returns with it.
+ */
+export function menuCatalog(catalog: CatalogModule[] = screenCatalog()): CatalogModule[] {
+  return catalog
+    .filter((cm) => cm.note !== "hidden")
+    .map((cm) => ({
+      ...cm,
+      submodules: cm.submodules
+        .filter((sub) => sub.note !== "hidden")
+        .map((sub) => ({ ...sub, screens: sub.screens.filter((sc) => sc.note !== "hidden") }))
+        .filter((sub) => sub.screens.length > 0),
+    }))
+    .filter((cm) => cm.submodules.length > 0);
+}
 
 let cached: CatalogModule[] | null = null;
 /** The catalog, built once per process (the registries are compile-time data). */

@@ -1,5 +1,6 @@
 import "server-only";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
+import { fetchAll } from "@/lib/supabase/fetch-all";
 import { ACTIONS, type Action, type Module } from "@/lib/auth/types";
 import { treeFromRows, type PermissionTree } from "./effective";
 
@@ -89,14 +90,14 @@ export async function loadAccessControl(): Promise<AccessControlData> {
   const [rolesR, permsR, rpR, rspR, profR, urR, uaR, upR, uspR, ualR, locR] = await Promise.all([
     s.from("roles").select("id, name, description, is_system, created_at, home_path").order("name"),
     s.from("permissions").select("id, module, action"),
-    s.from("role_permissions").select("role_id, permission_id"),
-    s.from("role_screen_permissions").select("role_id, module, screen_key, action"),
+    fetchAll((f, t) => s.from("role_permissions").select("role_id, permission_id").order("role_id").order("permission_id").range(f, t)),
+    fetchAll((f, t) => s.from("role_screen_permissions").select("role_id, module, screen_key, action").order("role_id").order("screen_key").order("action").range(f, t)),
     s.from("profiles").select("id, email, full_name, employee_code, is_active, is_super_admin").order("full_name"),
     s.from("user_roles").select("user_id, role_id"),
     s.from("user_access").select("user_email, is_active, note, updated_at, all_locations"),
-    s.from("user_permissions").select("user_email, module, action"),
-    s.from("user_screen_permissions").select("user_email, module, screen_key, action"),
-    s.from("user_access_locations").select("user_email, location_id"),
+    fetchAll((f, t) => s.from("user_permissions").select("user_email, module, action").order("user_email").order("module").order("action").range(f, t)),
+    fetchAll((f, t) => s.from("user_screen_permissions").select("user_email, module, screen_key, action").order("user_email").order("screen_key").order("action").range(f, t)),
+    fetchAll((f, t) => s.from("user_access_locations").select("user_email, location_id").order("user_email").order("location_id").range(f, t)),
     s.from("locations").select("id, name, is_active").order("name"),
   ]);
   for (const [label, r] of [
@@ -110,7 +111,10 @@ export async function loadAccessControl(): Promise<AccessControlData> {
   /* 0840 — read apart from the batch above, and FORGIVING: a database the
      migration has not reached yet has no table, and that must cost the screen
      its blocks, not the whole Users page. Any other error still throws. */
-  const blR = await s.from("user_screen_blocks").select("user_email, module, screen_key, action");
+  // Paged (fetch-all.ts): one person unticked down to Pulse is 1,306 rows.
+  const blR = await fetchAll((f, t) =>
+    s.from("user_screen_blocks").select("user_email, module, screen_key, action").order("user_email").order("screen_key").order("action").range(f, t),
+  );
   if (blR.error && !/user_screen_blocks|PGRST205|42P01/.test(`${blR.error.code} ${blR.error.message}`)) {
     throw new Error(`Could not read screen blocks: ${blR.error.message}`);
   }

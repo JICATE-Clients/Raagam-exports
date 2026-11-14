@@ -9,7 +9,7 @@ import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { ALL_UNITS, AccessRow, RoleChips, UnitChips, unitsPayload } from "@/components/permissions/access-pickers";
 import { AccessMatrix } from "@/components/permissions/access-matrix";
-import { screenCatalog } from "@/lib/permissions/screen-catalog";
+import { menuCatalog } from "@/lib/permissions/screen-catalog";
 import { treeHas, type PermissionTree as Tree } from "@/lib/permissions/effective";
 import type { Action, Module } from "@/lib/auth/types";
 import { saveUserAccess } from "@/lib/permissions/actions";
@@ -103,7 +103,7 @@ export function InviteSheet({
   const singleAccess = single ? accessOf(single) : null;
   const [tree, setTree] = useState<Tree>(() => singleAccess?.tree ?? {});
   const [blocks, setBlocks] = useState<ScreenBlock[]>(() => singleAccess?.blocks ?? []);
-  const catalog = useMemo(() => screenCatalog(), []);
+  const catalog = useMemo(() => menuCatalog(), []);
   const roleNameOf = (id: string) => roles.find((r) => r.id === id)?.name ?? "Unknown role";
   useUnsavedGuard(isPending);
 

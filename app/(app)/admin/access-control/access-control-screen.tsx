@@ -20,7 +20,7 @@ import type { Column } from "@/components/ui/data-table";
 import { PermissionTree } from "@/components/permissions/permission-tree";
 import { treeSummary } from "@/components/permissions/tree-summary";
 import { useUnsavedGuard } from "@/lib/reload-guard";
-import { screenCatalog } from "@/lib/permissions/screen-catalog";
+import { menuCatalog } from "@/lib/permissions/screen-catalog";
 import type { PermissionTree as Tree } from "@/lib/permissions/effective";
 import { deleteRole, saveRoleAccess } from "@/lib/permissions/actions";
 import type { AccessControlData, AccessRole } from "@/lib/permissions/service";
@@ -49,7 +49,7 @@ export function AccessControlScreen({ data, canCreate, canEdit, canDelete }: Pro
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, start] = useTransition();
-  const catalog = screenCatalog();
+  const catalog = menuCatalog();
   // ── Role sheet ──────────────────────────────────────────────────────────────
   const [roleOpen, setRoleOpen] = useState(false);
   const [roleId, setRoleId] = useState<string | null>(null);
