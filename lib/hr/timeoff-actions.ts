@@ -16,6 +16,7 @@ import {
   leaveTypeInput,
   splitPersonKey,
   yearInput,
+  TIMEOFF_FILE_BUCKET,
   type ApplyInput,
   type BalanceRow,
   type BlackoutInput,
@@ -34,7 +35,7 @@ import {
  * blackouts, entitlement overrides) are plain table writes under RLS.
  */
 
-type R = { ok: true; id?: string; count?: number } | { ok: false; error: string };
+type R = { ok: true; id?: string; count?: number; warning?: string } | { ok: false; error: string };
 const bad = (error: string): R => ({ ok: false, error });
 
 function dbMessage(e: { message?: string; code?: string } | null, fallback: string): string {
@@ -58,9 +59,17 @@ function notifyStarted(table: string, id: string): void {
 
 // ─── Requests ──────────────────────────────────────────────────────────────
 
-export async function applyTimeoff(payload: ApplyInput): Promise<R> {
+/**
+ * `file` is an upload the browser has already put in the private bucket
+ * (0843, On Duty). It is linked once the request exists; an apply the
+ * database refuses removes it again, so nothing is left orphaned.
+ */
+export async function applyTimeoff(payload: ApplyInput, file?: { path: string; name: string } | null): Promise<R> {
   const p = applyInput.safeParse(payload);
-  if (!p.success) return bad(p.error.issues[0]?.message ?? "Invalid input");
+  if (!p.success) {
+    if (file) await discardTimeoffFile(file.path);
+    return bad(p.error.issues[0]?.message ?? "Invalid input");
+  }
   const v = p.data;
   const who = splitPersonKey(v.person);
   const s = await createClient();
@@ -75,11 +84,36 @@ export async function applyTimeoff(payload: ApplyInput): Promise<R> {
     p_end_time: v.day_part === "hourly" ? v.end_time : null,
     p_reason: v.reason,
   });
-  if (error) return bad(dbMessage(error, "Could not apply"));
+  if (error) {
+    if (file) await s.storage.from(TIMEOFF_FILE_BUCKET).remove([file.path]);
+    return bad(dbMessage(error, "Could not apply"));
+  }
   const id = data as string;
+  let warning: string | undefined;
+  if (file) {
+    const at = await s.rpc("timeoff_attach_file", { p_id: id, p_path: file.path, p_name: file.name });
+    if (at.error) {
+      await s.storage.from(TIMEOFF_FILE_BUCKET).remove([file.path]);
+      warning = `Applied, but the file was not attached — ${dbMessage(at.error, "it could not be linked")}`;
+    }
+  }
   notifyStarted(WORKFLOWS.timeoff_request.subjectTable, id);
   revalidateTimeoff();
-  return { ok: true, id };
+  return { ok: true, id, warning };
+}
+
+/** An upload abandoned before it was linked (the sheet was cancelled). */
+export async function discardTimeoffFile(path: string): Promise<void> {
+  const s = await createClient();
+  await s.storage.from(TIMEOFF_FILE_BUCKET).remove([path]);
+}
+
+/** A short-lived link to a request's attached file — RLS decides who may read it. */
+export async function timeoffFileLink(path: string): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  const s = await createClient();
+  const { data, error } = await s.storage.from(TIMEOFF_FILE_BUCKET).createSignedUrl(path, 60);
+  if (error || !data?.signedUrl) return { ok: false, error: "The file could not be opened" };
+  return { ok: true, url: data.signedUrl };
 }
 
 export async function withdrawTimeoff(kind: "request" | "encashment", id: string, reason: string): Promise<R> {

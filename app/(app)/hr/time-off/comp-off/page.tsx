@@ -17,7 +17,7 @@ export default async function Page() {
         description="Claim a credit for a day worked off-schedule. HR approves it; it is then booked as leave within a month."
       />
       <Suspense>
-        <CompOffScreen rows={ownRows(rows, viewer)} people={people} selfOnly={!!viewer.myStaffId} />
+        <CompOffScreen rows={ownRows(rows, viewer)} people={people} selfOnly={!!viewer.myStaffId} me={viewer.meKey} />
       </Suspense>
     </div>
   );

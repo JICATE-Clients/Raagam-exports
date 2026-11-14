@@ -12,6 +12,7 @@ import { isInactive } from "@/lib/masters/inactive";
 import PersonClient from "../_person/person-client";
 import { redirect } from "next/navigation";
 import { myStaffId } from "@/lib/hr/own-profile";
+import { listDepartmentHeads } from "@/lib/hr/timeoff-service";
 
 // The browser tab. A regular staff member never sees this page — they are
 // redirected to /hr/staff/<id>, titled "My Profile".
@@ -39,6 +40,7 @@ export default async function StaffPage() {
     canCreate,
     canExport,
     canDelete,
+    heads,
   ] = await Promise.all([
     listStaff(),
     getLocations(),
@@ -52,6 +54,7 @@ export default async function StaffPage() {
     can("hr_payroll", "create"),
     can("hr_payroll", "export"),
     can("hr_payroll", "delete"),
+    listDepartmentHeads(),
   ]);
 
   /**
@@ -108,6 +111,7 @@ export default async function StaffPage() {
       canCreate={canCreate}
       canExport={canExport}
       canDelete={canDelete}
+      deptHeads={Object.fromEntries(heads.filter((h) => h.hod_staff_id).map((h) => [h.department_id, h.hod_staff_id as string]))}
     />
   );
 }

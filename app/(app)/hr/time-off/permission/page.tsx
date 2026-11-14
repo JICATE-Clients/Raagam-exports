@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import { requirePermission } from "@/lib/auth/server";
 import { PageHeader } from "@/components/ui/page-header";
 import { RequestsScreen } from "@/components/hr/timeoff/requests-screen";
-import { listLeaveTypes, listRequests, listTimeoffPeople, ownRows, timeoffViewer } from "@/lib/hr/timeoff-service";
+import { getWorkHours, listLeaveTypes, listRequests, listTimeoffPeople, ownRows, timeoffViewer } from "@/lib/hr/timeoff-service";
 
 export const metadata = { title: "Permission Requests" };
 
@@ -14,6 +14,8 @@ export default async function Page() {
     listLeaveTypes(),
     listTimeoffPeople(viewer),
   ]);
+  // Each person's working day, so From / To are offered only inside it.
+  const workHours = await getWorkHours(people);
   return (
     <div className="space-y-4">
       <PageHeader title="Permission Requests" description="Short time off in hours. Limits per day and per month are set on Time Off Setup." />
@@ -25,7 +27,9 @@ export default async function Page() {
           types={types}
           people={people}
           selfOnly={!!viewer.myStaffId}
+          me={viewer.meKey}
           canRevoke={viewer.canEdit}
+          workHours={workHours}
         />
       </Suspense>
     </div>
