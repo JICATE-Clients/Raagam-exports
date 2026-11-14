@@ -18,6 +18,7 @@ import { rowActionsColumn } from "@/components/ui/row-actions-column";
 import { withCreatedColumns } from "@/components/ui/created-columns";
 import { Truncated } from "@/components/ui/truncated";
 import { useToast } from "@/components/ui/toast";
+import { createClient } from "@/lib/supabase/client";
 import { useCreateIntent } from "@/lib/use-create-intent";
 import { useOpenIntent } from "@/lib/use-open-intent";
 import { useUnsavedGuard } from "@/lib/reload-guard";
@@ -44,9 +45,15 @@ import {
   type PersonOption,
   type RequestStatus,
   type TimeoffRequest,
+  type WorkHours,
+  TIMEOFF_FILE_BUCKET,
+  workHoursOn,
 } from "@/lib/hr/timeoff-types";
 import {
+  addMinutes,
   ApprovalTrail,
+  AttachmentLink,
+  AttachmentPicker,
   Fact,
   PersonField,
   PHONE_FIELDS,
@@ -94,6 +101,8 @@ type Props = {
   canRevoke: boolean;
   /** The signed-in person's balances — the phone's "My balance" rings (Leave only). */
   myBalances?: BalanceRow[];
+  /** Each person's working day (Permission only) — From / To stay inside it. */
+  workHours?: WorkHours;
 };
 
 type Draft = {
@@ -110,7 +119,7 @@ type Draft = {
 type Closing = { row: TimeoffRequest; mode: "withdraw" | "cancel" | "revoke" };
 type Panel = Awaited<ReturnType<typeof loadTimeoffPanel>> & { id: string };
 
-export function RequestsScreen({ mode, rows, types, people, selfOnly, me, canRevoke, myBalances = [] }: Props) {
+export function RequestsScreen({ mode, rows, types, people, selfOnly, me, canRevoke, myBalances = [], workHours }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -155,6 +164,8 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, me, canRev
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<Draft>(blank);
   const [dirty, setDirty] = useState(false);
+  // On Duty only (user 2026-11-14: "in od req give a option to attach a file").
+  const [file, setFile] = useState<File | null>(null);
   useUnsavedGuard((open && dirty) || isPending);
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => {
     setDraft((d) => ({ ...d, [k]: v }));
@@ -162,6 +173,7 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, me, canRev
   };
   function openApply() {
     setDraft(blank());
+    setFile(null);
     setDirty(false);
     setOpen(true);
   }
@@ -192,6 +204,22 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, me, canRev
     balances?.person === draft.person ? balances.rows.find((b) => b.leave_type_id === draft.leave_type_id) : undefined;
   const isHalf = draft.day_part === "first_half" || draft.day_part === "second_half";
 
+  // Permission's To is offered only inside the type's duration (Time Off Setup
+  // ▸ shortest / longest; user 2026-11-14: "30 min shortest, 60 longest → from
+  // 9 AM, To shows 9:30 to 10:00 only"). No shortest set → 15 minutes after From.
+  // And both stay inside the person's working day (timing group hours; user
+  // 2026-11-14: "for staff we already set up work timings 9 am to 7 pm"): From
+  // runs from In to the last start that still fits the shortest permission
+  // before Out, and To never passes Out. No hours set → the 6 AM–10 PM list.
+  const hours = mode === "permission" ? workHoursOn(workHours, draft.person, draft.start_date) : null;
+  const fromMin = hours?.in;
+  const fromMax = hours ? addMinutes(hours.out, -(type?.sto_min_minutes || 15)) : undefined;
+  const toMin = draft.start_time ? addMinutes(draft.start_time, type?.sto_min_minutes || 15) : undefined;
+  const toMaxByType = draft.start_time && type?.sto_max_minutes ? addMinutes(draft.start_time, type.sto_max_minutes) : undefined;
+  const toMax = hours && (!toMaxByType || hours.out < toMaxByType) ? (draft.start_time ? hours.out : undefined) : toMaxByType;
+  const toFits = (from: string, to: string, t = type) =>
+    !from || !to || (to >= addMinutes(from, t?.sto_min_minutes || 15) && (!t?.sto_max_minutes || to <= addMinutes(from, t.sto_max_minutes)));
+
   const problem = (() => {
     if (!draft.person) return "Pick the person";
     if (!draft.leave_type_id) return WORDS[mode].pick;
@@ -210,6 +238,25 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, me, canRev
 
   function apply() {
     startTransition(async () => {
+      // The file goes up first, into the applicant's own folder (0843); the
+      // action links it once the request exists, or removes it if refused.
+      let upload: { path: string; name: string } | null = null;
+      if (mode === "on_duty" && file) {
+        const sb = createClient();
+        const uid = (await sb.auth.getUser()).data.user?.id;
+        if (!uid) {
+          toastError("Sign in again to attach a file");
+          return;
+        }
+        const ext = (file.name.split(".").pop() ?? "bin").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 8) || "bin";
+        const path = `${uid}/${crypto.randomUUID()}.${ext}`;
+        const up = await sb.storage.from(TIMEOFF_FILE_BUCKET).upload(path, file, { upsert: false, contentType: file.type });
+        if (up.error) {
+          toastError(`Upload failed — ${up.error.message}`);
+          return;
+        }
+        upload = { path, name: file.name };
+      }
       const r = await applyTimeoff({
         person: draft.person,
         leave_type_id: draft.leave_type_id,
@@ -219,14 +266,15 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, me, canRev
         start_time: mode === "permission" ? draft.start_time : null,
         end_time: mode === "permission" ? draft.end_time : null,
         reason: draft.reason,
-      });
+      }, upload);
       if (!r.ok) {
         toastError(r.error);
         return;
       }
       setDirty(false);
       setOpen(false);
-      success("Applied — sent for approval");
+      if (r.warning) toastError(r.warning);
+      else success("Applied — sent for approval");
       router.refresh();
     });
   }
@@ -265,7 +313,15 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, me, canRev
     ...(selfOnly
       ? []
       : [{ header: "Person", cell: (r: TimeoffRequest) => <PersonCell name={r.person_name} person={personKeyOf(r)} /> }]),
-    { header: "Type", cell: (r) => <TypeDot color={r.leave_color}>{r.leave_name}</TypeDot> },
+    {
+      header: "Type",
+      cell: (r) => (
+        <span className="inline-flex items-center gap-1.5">
+          <TypeDot color={r.leave_color}>{r.leave_name}</TypeDot>
+          {r.attachment_path && <AttachmentLink path={r.attachment_path} name={r.attachment_name} iconOnly />}
+        </span>
+      ),
+    },
     { header: "When", cell: (r) => <span className="text-sm tabular-nums">{whenOf(r)}</span> },
     {
       header: mode === "permission" ? "Time" : "Days",
@@ -413,7 +469,15 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, me, canRev
           <FieldRow>
             {!selfOnly && <PersonField people={people} value={draft.person} onChange={(v) => set("person", v)} me={me} />}
             <Field label={WORDS[mode].typeLabel} w="term" required>
-              <Select value={draft.leave_type_id} onChange={(e) => set("leave_type_id", e.target.value)}>
+              <Select
+                value={draft.leave_type_id}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  const t = usable.find((x) => x.id === id);
+                  setDraft((d) => ({ ...d, leave_type_id: id, end_time: toFits(d.start_time, d.end_time, t) ? d.end_time : "" }));
+                  setDirty(true);
+                }}
+              >
                 <option value="">—</option>
                 {typesForPerson.map((t) => (
                   <option key={t.id} value={t.id}>
@@ -433,10 +497,19 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, me, canRev
                   in 1 line"); `sm:contents` hands both back to the row from 640px up. */}
               <div className="grid w-full grid-cols-2 gap-3 sm:contents">
                 <Field label="From" w="code" required>
-                  <TimeSelect value={draft.start_time} onChange={(v) => set("start_time", v)} />
+                  <TimeSelect
+                    min={fromMin}
+                    max={fromMax}
+                    value={draft.start_time}
+                    onChange={(v) => {
+                      // A To that no longer fits the new From is cleared, not kept.
+                      setDraft((d) => ({ ...d, start_time: v, end_time: toFits(v, d.end_time) ? d.end_time : "" }));
+                      setDirty(true);
+                    }}
+                  />
                 </Field>
                 <Field label="To" w="code" required>
-                  <TimeSelect value={draft.end_time} onChange={(v) => set("end_time", v)} min={draft.start_time || undefined} />
+                  <TimeSelect value={draft.end_time} onChange={(v) => set("end_time", v)} min={toMin} max={toMax} everyMinute />
                 </Field>
               </div>
             </FieldRow>
@@ -516,6 +589,16 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, me, canRev
           <Field label="Reason" required>
             <VoiceTextarea rows={3} value={draft.reason} onValueChange={(v) => set("reason", v)} />
           </Field>
+
+          {mode === "on_duty" && (
+            <AttachmentPicker
+              file={file}
+              onChange={(f) => {
+                setFile(f);
+                setDirty(true);
+              }}
+            />
+          )}
         </div>
       </Sheet>
 
@@ -544,6 +627,11 @@ export function RequestsScreen({ mode, rows, types, people, selfOnly, me, canRev
               <Fact label="Reason" className="whitespace-pre-wrap">
                 {viewFor.reason}
               </Fact>
+              {viewFor.attachment_path && (
+                <Fact label="Attachment">
+                  <AttachmentLink path={viewFor.attachment_path} name={viewFor.attachment_name} />
+                </Fact>
+              )}
               {viewFor.decided_at && (
                 <Fact label="Decided">
                   {fmtDateTime(viewFor.decided_at)}

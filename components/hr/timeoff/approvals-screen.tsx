@@ -20,7 +20,7 @@ import { useUnsavedGuard } from "@/lib/reload-guard";
 import { useOpenIntent } from "@/lib/use-open-intent";
 import { fmtDateTime } from "@/lib/format";
 import { decideTimeoff, forwardTimeoff, loadTimeoffPanel } from "@/lib/hr/timeoff-actions";
-import { ApprovalTrail, Fact, type TimeoffPanel } from "./shared";
+import { ApprovalTrail, AttachmentLink, Fact, type TimeoffPanel } from "./shared";
 import { statusLabel, timeoffTone, type QueueItem } from "@/lib/hr/timeoff-types";
 
 /**
@@ -133,7 +133,15 @@ export function ApprovalsScreen({ items }: Props) {
         </PersonCell>
       ),
     },
-    { header: "What", cell: (r) => <span className="text-sm">{r.what}</span> },
+    {
+      header: "What",
+      cell: (r) => (
+        <span className="inline-flex items-center gap-1.5 text-sm">
+          {r.what}
+          {r.attachment_path && <AttachmentLink path={r.attachment_path} name={r.attachment_name ?? null} iconOnly />}
+        </span>
+      ),
+    },
     { header: "When", cell: (r) => <span className="text-sm tabular-nums">{r.when}</span> },
     { header: "Amount", align: "right", cell: (r) => <span className="text-sm tabular-nums">{r.amount}</span> },
     { header: "Reason", cell: (r) => <Truncated className="max-w-[16rem] text-sm text-muted-foreground">{r.reason}</Truncated> },
@@ -282,6 +290,11 @@ export function ApprovalsScreen({ items }: Props) {
               <Fact label="Reason" className="whitespace-pre-wrap">
                 {viewing.reason}
               </Fact>
+              {viewing.attachment_path && (
+                <Fact label="Attachment">
+                  <AttachmentLink path={viewing.attachment_path} name={viewing.attachment_name ?? null} />
+                </Fact>
+              )}
               <Fact label="Asked" className="tabular-nums">
                 {fmtDateTime(viewing.created_at)}
               </Fact>

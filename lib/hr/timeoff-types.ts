@@ -158,6 +158,9 @@ export type TimeoffRequest = {
   decided_at: string | null;
   close_reason: string | null;
   closed_at: string | null;
+  /** A file the person attached — the letter or order behind an On Duty (0843). */
+  attachment_path: string | null;
+  attachment_name: string | null;
   created_by: string | null;
   created_at: string;
 };
@@ -254,6 +257,9 @@ export type QueueItem = {
   stage: string | null;
   /** pending · approved · rejected · paid · consumed — the row's own status. */
   status: string;
+  /** A request's attached file (0843). */
+  attachment_path?: string | null;
+  attachment_name?: string | null;
   /** Who it is for — the photo beside the name (PersonAvatar). */
   staff_id: string | null;
   worker_id: string | null;
@@ -395,4 +401,34 @@ export function fmtMinutes(m: number | null): string {
 /** "09:30:00" → "09:30". */
 export function hhmm(t: string | null): string {
   return t ? t.slice(0, 5) : "";
+}
+
+/** A file attached to a request (0843) — private bucket, one file, 5 MB. */
+export const TIMEOFF_FILE_BUCKET = "hr-timeoff-files";
+export const TIMEOFF_FILE_MAX_BYTES = 5 * 1024 * 1024;
+export const TIMEOFF_FILE_ACCEPT = "application/pdf,image/jpeg,image/png";
+
+/**
+ * The working day each person keeps (0769 timing groups): a category belongs
+ * to Staff / Security / Production Staff, and the group's dated hours say In
+ * and Out. Permission's From / To are offered inside them.
+ */
+export type WorkHours = {
+  /** person key → timing group; a person whose category has no group is absent. */
+  groupOf: Record<string, string>;
+  /** Every dated row of hours, oldest first. */
+  timings: { group: string; in_time: string; out_time: string; effective_from: string }[];
+};
+
+/** The hours in force for this person on this date, or null (no group / no hours / a night shift). */
+export function workHoursOn(w: WorkHours | undefined, person: string, date: string): { in: string; out: string } | null {
+  const g = w?.groupOf[person];
+  if (!w || !g) return null;
+  const t = w.timings.filter((x) => x.group === g && x.effective_from <= date).at(-1);
+  if (!t) return null;
+  const inT = t.in_time.slice(0, 5);
+  const outT = t.out_time.slice(0, 5);
+  // Out before In is a night shift (Security 20:00 → 08:00) — it crosses midnight,
+  // which a one-day list cannot show, so it keeps the full list.
+  return outT > inT ? { in: inT, out: outT } : null;
 }

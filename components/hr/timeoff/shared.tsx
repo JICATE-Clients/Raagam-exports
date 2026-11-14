@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useTransition, type ReactNode } from "react";
+import { useRef, useState, useTransition, type ReactNode } from "react";
+import { Paperclip, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Combobox } from "@/components/ui/combobox";
@@ -8,11 +9,18 @@ import { PersonCell } from "@/components/ui/person-avatar";
 import { Select } from "@/components/ui/select";
 import { Sheet } from "@/components/ui/sheet";
 import { VoiceTextarea } from "@/components/ui/voice-textarea";
+import { useToast } from "@/components/ui/toast";
 import { ApprovalTimeline } from "@/components/approvals/approval-timeline";
 import { ApprovalActionBar } from "@/components/approvals/approval-action-bar";
-import { forwardTimeoff, type loadTimeoffPanel } from "@/lib/hr/timeoff-actions";
+import { forwardTimeoff, timeoffFileLink, type loadTimeoffPanel } from "@/lib/hr/timeoff-actions";
 import { fmtDate } from "@/lib/format";
-import { hhmm, type PersonOption, type TimeoffRequest } from "@/lib/hr/timeoff-types";
+import {
+  hhmm,
+  TIMEOFF_FILE_ACCEPT,
+  TIMEOFF_FILE_MAX_BYTES,
+  type PersonOption,
+  type TimeoffRequest,
+} from "@/lib/hr/timeoff-types";
 
 /** Shared pieces of the HR ▸ Time Off screens (0770). */
 
@@ -34,10 +42,30 @@ const TIME_SLOTS = Array.from({ length: 65 }, (_, i) => {
  * for time … I want to select the time from table"). 15-minute steps; on a
  * desktop the list filters as you type ("9:3" → 09:30 AM), on a phone it is
  * the phone's own list. A stored time off the 15-minute grid stays shown.
+ * `min` / `max` are inclusive "HH:MM" bounds — Permission's To list is cut
+ * to the type's shortest and longest duration after From (`addMinutes`).
+ * `everyMinute` with BOTH bounds lists EVERY MINUTE between them (user 2026-11-14:
+ * "I set up permission per minutes, so in between every minute counts") —
+ * 30 to 60 minutes is 31 choices, not the three 15-minute marks.
  */
-export function TimeSelect({ value, onChange, min }: { value: string; onChange: (v: string) => void; min?: string }) {
+export function TimeSelect({
+  value,
+  onChange,
+  min,
+  max,
+  everyMinute: perMinute,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  min?: string;
+  max?: string;
+  everyMinute?: boolean;
+}) {
   const v = value ? value.slice(0, 5) : "";
-  const slots = min ? TIME_SLOTS.filter((s) => s.value > min.slice(0, 5)) : TIME_SLOTS;
+  const slots =
+    perMinute && min && max
+      ? everyMinute(min.slice(0, 5), max.slice(0, 5))
+      : TIME_SLOTS.filter((s) => (!min || s.value >= min.slice(0, 5)) && (!max || s.value <= max.slice(0, 5)));
   const extra = v && !slots.some((s) => s.value === v) ? [{ value: v, label: v }] : [];
   return (
     <Select value={v} onChange={(e) => onChange(e.target.value)}>
@@ -49,6 +77,25 @@ export function TimeSelect({ value, onChange, min }: { value: string; onChange: 
       ))}
     </Select>
   );
+}
+
+/** Every minute from `from` to `to` inclusive, labelled like TIME_SLOTS. */
+function everyMinute(from: string, to: string) {
+  const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+  const out: { value: string; label: string }[] = [];
+  for (let t = toMin(from); t <= toMin(to); t++) {
+    const h = Math.floor(t / 60);
+    const m = String(t % 60).padStart(2, "0");
+    out.push({ value: `${String(h).padStart(2, "0")}:${m}`, label: `${String(h % 12 || 12).padStart(2, "0")}:${m} ${h < 12 ? "AM" : "PM"}` });
+  }
+  return out;
+}
+
+/** "09:00" + 30 → "09:30"; capped at 23:59 so a long duration never wraps past midnight. */
+export function addMinutes(hhmm: string, minutes: number): string {
+  const [h, m] = hhmm.split(":").map(Number);
+  const t = Math.min(h * 60 + m + minutes, 23 * 60 + 59);
+  return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`;
 }
 
 /**
@@ -119,6 +166,98 @@ export function Fact({ label, className, children }: { label: string; className?
       <dt className="w-36 shrink-0 text-muted-foreground">{label}</dt>
       <dd className={className}>{children}</dd>
     </div>
+  );
+}
+
+/**
+ * Pick ONE file to go with a request (0843, On Duty) — held in the browser
+ * until Apply, which uploads it. PDF, JPEG or PNG up to 5 MB.
+ */
+export function AttachmentPicker({ file, onChange }: { file: File | null; onChange: (f: File | null) => void }) {
+  const { error: toastError } = useToast();
+  const ref = useRef<HTMLInputElement>(null);
+  function pick(f: File | undefined) {
+    if (!f) return;
+    if (!TIMEOFF_FILE_ACCEPT.split(",").includes(f.type)) {
+      toastError("Attach a PDF, JPEG or PNG");
+      return;
+    }
+    if (f.size > TIMEOFF_FILE_MAX_BYTES) {
+      toastError("The file is over 5 MB");
+      return;
+    }
+    onChange(f);
+  }
+  return (
+    <Field label="Attachment">
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <input
+          ref={ref}
+          type="file"
+          accept={TIMEOFF_FILE_ACCEPT}
+          className="hidden"
+          // autofill: exempt -- a file input has no suggestion list
+          onChange={(e) => {
+            pick(e.target.files?.[0]);
+            e.target.value = "";
+          }}
+        />
+        <Button variant="outline" onClick={() => ref.current?.click()}>
+          <Paperclip className="size-4" />
+          {file ? "Change file" : "Attach file"}
+        </Button>
+        {file ? (
+          <span className="inline-flex min-w-0 max-w-full items-center gap-1 rounded-control border border-border bg-muted/40 px-2 py-1 text-sm">
+            <span className="min-w-0 break-all">{file.name}</span>
+            {/* button-shape: exempt -- a round ✕ chip on the picked file */}
+            <button
+              type="button"
+              aria-label={`Remove ${file.name}`}
+              className="shrink-0 rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+              onClick={() => onChange(null)}
+            >
+              <X className="size-3.5" />
+            </button>
+          </span>
+        ) : (
+          <span className="text-xs text-muted-foreground">Optional · PDF, JPEG or PNG, up to 5 MB</span>
+        )}
+      </div>
+    </Field>
+  );
+}
+
+/**
+ * A request's attached file, opened through a one-minute signed link.
+ * `iconOnly` is the 📎 in a list row — a row has no view of its own any more
+ * (RowActions, client 2026-10-30), so the file opens straight from the list.
+ */
+export function AttachmentLink({ path, name, iconOnly }: { path: string; name: string | null; iconOnly?: boolean }) {
+  const { error: toastError } = useToast();
+  const [busy, startTransition] = useTransition();
+  return (
+    // button-shape: exempt -- an inline link-styled file name inside a fact list
+    <button
+      type="button"
+      disabled={busy}
+      aria-label={iconOnly ? `Open ${name ?? "attached file"}` : undefined}
+      title={iconOnly ? (name ?? "Attached file") : undefined}
+      className={
+        iconOnly
+          ? "inline-flex size-6 items-center justify-center rounded-control text-muted-foreground hover:bg-muted hover:text-primary disabled:opacity-60"
+          : "inline-flex max-w-full items-center gap-1 text-left text-primary underline-offset-2 hover:underline disabled:opacity-60"
+      }
+      onClick={() =>
+        startTransition(async () => {
+          const r = await timeoffFileLink(path);
+          if (r.ok) window.open(r.url, "_blank", "noopener");
+          else toastError(r.error);
+        })
+      }
+    >
+      <Paperclip className="size-3.5 shrink-0" />
+      {!iconOnly && <span className="min-w-0 break-all">{name ?? "Attached file"}</span>}
+    </button>
   );
 }
 
