@@ -4,7 +4,6 @@ import { useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
 import { Field, FieldRow } from "@/components/ui/field";
 import { ActiveField } from "@/components/ui/active-field";
@@ -21,9 +20,7 @@ import { useUnsavedGuard } from "@/lib/reload-guard";
 import { activeTone } from "@/lib/ui/status-tone";
 import { fmtDate } from "@/lib/format";
 import {
-  deleteBlackout,
   deleteLeaveType,
-  saveBlackout,
   saveDepartmentHead,
   saveLeaveType,
   saveStageRole,
@@ -33,7 +30,6 @@ import {
   isOnDuty,
   fmtDays,
   fmtMinutes,
-  type Blackout,
   type DepartmentHead,
   type HodOption,
   type LeaveType,
@@ -45,8 +41,10 @@ import {
 
 /**
  * HR ▸ Time Off ▸ Time Off Setup (0770, MyJKKN §9.4 / `admin/leave-types`,
- * `admin/academic-years`, and the blackout table MyJKKN never gave a screen).
- * Tabs: Leave Types, Other Types, Leave Years, Blackout Dates, Approval Flow. The two TYPE
+ * `admin/academic-years`).
+ * Tabs: Leave Types, Other Types, Leave Years, Approval Flow. Blackout Dates was
+ * a tab until the user dropped it (2026-11-14: "no needed so remove it"); no
+ * blackout is set, and the table and its check stay, empty. The two TYPE
  * tabs are one table split in two (user 2026-11-05: "separate tabs for leaves
  * and the other things — OD, permission, comp off", then "why those 3
  * separate, why not in one"): the leaves (CL, SL, EL, LOP …) and everything
@@ -82,8 +80,6 @@ function inGroup(t: LeaveType, g: TypeGroup): boolean {
 type Props = {
   types: LeaveType[];
   years: LeaveYear[];
-  blackouts: Blackout[];
-  locations: { id: string; name: string }[];
   heads: DepartmentHead[];
   hodOptions: HodOption[];
   /** null until 0842 is applied. */
@@ -102,7 +98,6 @@ export function SetupScreen(props: Props) {
           content: <TypesTab {...props} group={g} />,
         })),
         { key: "years", label: "Leave Years", content: <YearsTab {...props} /> },
-        { key: "blackouts", label: "Blackout Dates", content: <BlackoutsTab {...props} /> },
         { key: "flow", label: "Approval Flow", content: <FlowTab {...props} /> },
       ]}
     />
@@ -570,164 +565,6 @@ function YearsTab({ years, canEdit }: Props) {
             </Field>
           </FieldRow>
           {editId && <Toggle checked={d.is_closed} onChange={(v) => put({ is_closed: v })} label="Closed" />}
-        </div>
-      </Sheet>
-    </div>
-  );
-}
-
-// ─── Blackout dates ────────────────────────────────────────────────────────
-
-function BlackoutsTab({ blackouts, types, locations, canEdit, canDelete }: Props) {
-  const router = useRouter();
-  const { success, error: toastError } = useToast();
-  const [isPending, startTransition] = useTransition();
-  const [editId, setEditId] = useState<string | null>(null);
-  const [open, setOpen] = useState(false);
-  const blank = { name: "", start_date: "", end_date: "", leave_type_id: "", location_id: "", reason: "" };
-  const [d, setD] = useState(blank);
-  const [dirty, setDirty] = useState(false);
-  useUnsavedGuard((open && dirty) || isPending);
-  const typeName = new Map(types.map((t) => [t.id, t.name]));
-  const locName = new Map(locations.map((l) => [l.id, l.name]));
-
-  function openEdit(b?: Blackout) {
-    setEditId(b?.id ?? null);
-    setD(
-      b
-        ? {
-            name: b.name,
-            start_date: b.start_date,
-            end_date: b.end_date,
-            leave_type_id: b.leave_type_id ?? "",
-            location_id: b.location_id ?? "",
-            reason: b.reason ?? "",
-          }
-        : blank,
-    );
-    setDirty(false);
-    setOpen(true);
-  }
-  const put = (patch: Partial<typeof d>) => {
-    setD((x) => ({ ...x, ...patch }));
-    setDirty(true);
-  };
-  function save() {
-    startTransition(async () => {
-      const r = await saveBlackout(editId, {
-        name: d.name,
-        start_date: d.start_date,
-        end_date: d.end_date,
-        leave_type_id: d.leave_type_id || null,
-        location_id: d.location_id || null,
-        reason: d.reason,
-      });
-      if (!r.ok) {
-        toastError(r.error);
-        return;
-      }
-      setDirty(false);
-      setOpen(false);
-      success("Blackout saved");
-      router.refresh();
-    });
-  }
-  function remove(b: Blackout) {
-    startTransition(async () => {
-      const r = await deleteBlackout(b.id);
-      if (!r.ok) toastError(r.error);
-      else {
-        success("Deleted");
-        router.refresh();
-      }
-    });
-  }
-
-  const columns: Column<Blackout>[] = [
-    { header: "Name", cell: (b) => <span className="text-sm font-medium">{b.name}</span> },
-    { header: "From", cell: (b) => <span className="text-sm tabular-nums">{fmtDate(b.start_date)}</span> },
-    { header: "To", cell: (b) => <span className="text-sm tabular-nums">{fmtDate(b.end_date)}</span> },
-    { header: "Leave Type", cell: (b) => <span className="text-sm">{b.leave_type_id ? (typeName.get(b.leave_type_id) ?? "—") : "Every type"}</span> },
-    { header: "Unit", cell: (b) => <span className="text-sm">{b.location_id ? (locName.get(b.location_id) ?? "—") : "Every unit"}</span> },
-  ];
-  const actions = rowActionsColumn<Blackout>((b) => (
-    <RowActions
-      label={b.name}
-      onEdit={() => openEdit(b)}
-      canEdit={canEdit}
-      onDelete={() => remove(b)}
-      canDelete={canDelete}
-      isPending={isPending}
-    />
-  ));
-
-  return (
-    <div className="space-y-4 pt-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="min-w-0 text-xs text-muted-foreground">
-          No leave can be applied for on these dates — peak shipment weeks, audits, stock-taking.
-        </span>
-        {canEdit && <Button onClick={() => openEdit()}>+ Add Blackout</Button>}
-      </div>
-      <DataTable
-        columns={[...withCreatedColumns(columns, blackouts), actions]}
-        rows={blackouts}
-        getKey={(b) => b.id}
-        empty="No blackout dates."
-      />
-      <Sheet
-        open={open}
-        onClose={() => setOpen(false)}
-        title={editId ? `Edit ${d.name}` : "New blackout"}
-        asPage
-        footer={
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setOpen(false)}>
-              Cancel
-            </Button>
-            <Button disabled={isPending || !d.name.trim() || !d.start_date || !d.end_date} onClick={save}>
-              Save
-            </Button>
-          </div>
-        }
-      >
-        <div className="space-y-4">
-          <Field label="Name" required>
-            <Input value={d.name} onChange={(e) => put({ name: e.target.value })} />
-          </Field>
-          <FieldRow>
-            <Field label="From" w="code" required>
-              <Input type="date" value={d.start_date} onChange={(e) => put({ start_date: e.target.value })} />
-            </Field>
-            <Field label="To" w="code" required>
-              <Input type="date" min={d.start_date} value={d.end_date} onChange={(e) => put({ end_date: e.target.value })} />
-            </Field>
-          </FieldRow>
-          <Field label="Leave type">
-            <Select value={d.leave_type_id} onChange={(e) => put({ leave_type_id: e.target.value })}>
-              <option value="">Every type</option>
-              {types
-                .filter((t) => t.is_active || t.id === d.leave_type_id)
-                .map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-            </Select>
-          </Field>
-          <Field label="Unit">
-            <Select value={d.location_id} onChange={(e) => put({ location_id: e.target.value })}>
-              <option value="">Every unit</option>
-              {locations.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Reason">
-            <Textarea rows={2} value={d.reason} onChange={(e) => put({ reason: e.target.value })} />
-          </Field>
         </div>
       </Sheet>
     </div>

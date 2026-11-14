@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { today } from "@/lib/calendar";
 import { after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { can } from "@/lib/auth/server";
@@ -8,10 +9,9 @@ import { getRunForSubject } from "@/lib/approvals/service";
 import { notifyCurrentApprovers } from "@/lib/approvals/notify";
 import { getApprovalPanel, actOnSubject } from "@/lib/approvals/actions";
 import { WORKFLOWS } from "@/lib/approvals/workflows";
-import { currentYearId, getBalanceSheet } from "./timeoff-service";
+import { currentYearId, ensureLeaveYear, getBalanceSheet } from "./timeoff-service";
 import {
   applyInput,
-  blackoutInput,
   entitlementInput,
   leaveTypeInput,
   splitPersonKey,
@@ -19,7 +19,6 @@ import {
   TIMEOFF_FILE_BUCKET,
   type ApplyInput,
   type BalanceRow,
-  type BlackoutInput,
   type EntitlementInput,
   type LeaveTypeInput,
   type YearInput,
@@ -72,6 +71,9 @@ export async function applyTimeoff(payload: ApplyInput, file?: { path: string; n
   }
   const v = p.data;
   const who = splitPersonKey(v.person);
+  // The leave year is automatic now — make sure one covers both ends.
+  await ensureLeaveYear(v.start_date);
+  await ensureLeaveYear(v.end_date);
   const s = await createClient();
   const { data, error } = await s.rpc("timeoff_apply", {
     p_staff_id: who.staff_id,
@@ -290,6 +292,8 @@ export async function requestEncashment(person: string, leaveTypeId: string, day
   if (!(days > 0)) return bad("Enter the days to encash");
   if (!reason.trim()) return bad("The reason is mandatory");
   const who = splitPersonKey(person);
+  // Encashment is counted in today's leave year, which is automatic now.
+  await ensureLeaveYear(today());
   const s = await createClient();
   const { data, error } = await s.rpc("timeoff_request_encashment", {
     p_staff_id: who.staff_id,
@@ -358,29 +362,6 @@ export async function saveYear(id: string | null, payload: YearInput): Promise<R
   if (error || !data) return bad(dbMessage(error, "Could not save the year"));
   revalidateTimeoff();
   return { ok: true, id: (data as { id: string }).id };
-}
-
-export async function saveBlackout(id: string | null, payload: BlackoutInput): Promise<R> {
-  if (!(await can("hr_payroll", "edit"))) return bad("Forbidden");
-  const p = blackoutInput.safeParse(payload);
-  if (!p.success) return bad(p.error.issues[0]?.message ?? "Invalid input");
-  const s = await createClient();
-  const q = id
-    ? s.from("timeoff_blackouts").update(p.data).eq("id", id).select("id").single()
-    : s.from("timeoff_blackouts").insert(p.data).select("id").single();
-  const { data, error } = await q;
-  if (error || !data) return bad(dbMessage(error, "Could not save the blackout"));
-  revalidateTimeoff();
-  return { ok: true, id: (data as { id: string }).id };
-}
-
-export async function deleteBlackout(id: string): Promise<R> {
-  if (!(await can("hr_payroll", "delete"))) return bad("Forbidden");
-  const s = await createClient();
-  const { error } = await s.from("timeoff_blackouts").delete().eq("id", id);
-  if (error) return bad(dbMessage(error, "Could not delete"));
-  revalidateTimeoff();
-  return { ok: true };
 }
 
 // ─── Approval flow: department heads (0817) ────────────────────────────────
