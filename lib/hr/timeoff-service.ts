@@ -1,5 +1,5 @@
 import "server-only";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { withCreators } from "@/lib/created-by";
 import { getAppUser, can } from "@/lib/auth/server";
 import { today } from "@/lib/calendar";
@@ -18,6 +18,7 @@ import type {
   PersonOption,
   QueueItem,
   RequestCategory,
+  StageRoles,
   TimeoffRequest,
 } from "./timeoff-types";
 import { CATEGORY_LABELS, fmtDays, fmtMinutes, hhmm, personKey } from "./timeoff-types";
@@ -155,6 +156,46 @@ export async function listDepartmentHeads(): Promise<DepartmentHead[]> {
     // A switched-off department keeps its row only while it still names an HOD.
     .filter((d) => !d.inactive || hod.has(d.id))
     .map((d) => ({ department_id: d.id, department_name: d.name, hod_staff_id: hod.get(d.id) ?? null }));
+}
+
+/**
+ * The HR and ED stages' roles (0842) and every role with who holds it. The
+ * holders are read with the service role: `user_roles` / `profiles` let a user
+ * see only their own rows, and HR needs to see who a stage would reach.
+ */
+export async function getStageRoles(): Promise<StageRoles | null> {
+  if (!(await can("hr_payroll", "view"))) return null;
+  const s = await createClient();
+  const set = await s.from("hr_approval_settings").select("hr_role_id, ed_role_id").maybeSingle();
+  // 0842 not applied yet — the screen says so instead of offering a picker.
+  if (set.error?.code === "PGRST205" || set.error?.code === "42P01") return null;
+  if (set.error) throw new Error(set.error.message);
+  const admin = createAdminClient();
+  const [roles, held, people] = await Promise.all([
+    admin.from("roles").select("id, name").order("name"),
+    admin.from("user_roles").select("role_id, user_id"),
+    admin.from("profiles").select("id, full_name, email, is_active"),
+  ]);
+  for (const r of [roles, held, people]) if (r.error) throw new Error(r.error.message);
+  const nameOf = new Map(
+    ((people.data ?? []) as { id: string; full_name: string | null; email: string | null; is_active: boolean | null }[])
+      .filter((p) => p.is_active !== false)
+      .map((p) => [p.id, p.full_name || p.email || "—"]),
+  );
+  const heldBy = new Map<string, string[]>();
+  for (const h of (held.data ?? []) as { role_id: string; user_id: string }[]) {
+    const n = nameOf.get(h.user_id);
+    if (n) heldBy.set(h.role_id, [...(heldBy.get(h.role_id) ?? []), n]);
+  }
+  return {
+    hr_role_id: (set.data as { hr_role_id: string | null } | null)?.hr_role_id ?? null,
+    ed_role_id: (set.data as { ed_role_id: string | null } | null)?.ed_role_id ?? null,
+    roles: ((roles.data ?? []) as { id: string; name: string }[]).map((r) => ({
+      id: r.id,
+      name: r.name,
+      holders: (heldBy.get(r.id) ?? []).sort(),
+    })),
+  };
 }
 
 /** Active staff, for the HOD picker. */

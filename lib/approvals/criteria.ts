@@ -107,8 +107,9 @@ export const RESOLVER_WORDS: Record<string, string> = {
   // 0817 — HR requests: Department HOD → HR Manager → ED.
   hr_department_head:
     "the HOD of the person's department (HR ▸ Time Off Setup ▸ Approval Flow); with no HOD, the HR Manager",
-  hr_manager: 'anyone with the "HR Manager" role; with nobody holding it, the "Managing Director"',
-  hr_executive_director: 'the ED — anyone with the "Managing Director" role',
+  // 0842 — the role for each is picked on Time Off Setup ▸ Approval Flow.
+  hr_manager: "anyone holding the HR Manager stage's role (HR ▸ Time Off Setup ▸ Approval Flow); with nobody, the ED",
+  hr_executive_director: "anyone holding the ED stage's role (HR ▸ Time Off Setup ▸ Approval Flow)",
 };
 
 function humaniseKey(key: string): string {

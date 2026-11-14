@@ -363,6 +363,22 @@ export async function saveDepartmentHead(departmentId: string, staffId: string |
   return { ok: true };
 }
 
+/** Which role answers the HR Manager stage or the ED stage (0842); null = not set. */
+export async function saveStageRole(stage: "hr" | "ed", roleId: string | null): Promise<R> {
+  if (!(await can("hr_payroll", "edit"))) return bad("Forbidden");
+  const s = await createClient();
+  const { data, error } = await s
+    .from("hr_approval_settings")
+    .update(stage === "hr" ? { hr_role_id: roleId } : { ed_role_id: roleId })
+    .eq("id", true)
+    .select("id");
+  if (error) return bad(dbMessage(error, "Could not save the stage"));
+  // RLS turns a refused UPDATE into 0 rows, not an error.
+  if (!data?.length) return bad("Could not save the stage — run migration 0842 first.");
+  revalidateTimeoff();
+  return { ok: true };
+}
+
 // ─── Balances: overrides and opening figures ───────────────────────────────
 
 export async function saveEntitlement(payload: EntitlementInput): Promise<R> {
