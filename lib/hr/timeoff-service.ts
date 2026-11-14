@@ -8,7 +8,6 @@ import { WORKFLOWS } from "@/lib/approvals/workflows";
 import type {
   WorkHours,
   BalanceRow,
-  Blackout,
   CompOffCredit,
   DepartmentHead,
   Encashment,
@@ -146,18 +145,58 @@ export async function listYears(): Promise<LeaveYear[]> {
   return withCreators((data ?? []) as LeaveYear[]);
 }
 
+/**
+ * HR decides the leave year on Time Off Setup ▸ Leave Years (user 2026-11-14:
+ * "bring back the leave year, we want that"). So that nobody is ever refused
+ * because next year was not added in time, a date past the LAST year gets the
+ * next one made on the same shape: it starts the day after the last one ends
+ * and runs one year (Apr–Mar stays Apr–Mar, Jan–Dec stays Jan–Dec). It never
+ * invents a shape — with no year at all, or a date BEFORE the first one,
+ * nothing is made and the request says to add one.
+ *
+ * Admin client: only HR may write the table and a staff member's apply must
+ * not fail on it. A second caller racing this one hits the overlap trigger or
+ * the unique name; that is ignored — the year is there.
+ */
+export async function ensureLeaveYear(day: string): Promise<void> {
+  const admin = createAdminClient();
+  const { data: covering } = await admin.from("timeoff_years").select("id").lte("start_date", day).gte("end_date", day).limit(1);
+  if (covering?.length) return;
+  const { data: last } = await admin.from("timeoff_years").select("end_date").order("end_date", { ascending: false }).limit(1);
+  let end = (last?.[0] as { end_date: string } | undefined)?.end_date;
+  // Add years one after another until one covers the day (a gap of more than one year is rare).
+  for (let i = 0; end && end < day && i < 5; i++) {
+    const start = nextDay(end);
+    const next = nextDay(addYears(start, 1), -1);
+    const y1 = start.slice(0, 4);
+    const y2 = next.slice(0, 4);
+    await admin.from("timeoff_years").insert({
+      name: y1 === y2 ? y1 : `${y1}-${y2.slice(2)}`,
+      start_date: start,
+      end_date: next,
+    });
+    end = next;
+  }
+}
+
+/** "2027-03-31" → "2027-04-01" (or back a day with -1), in UTC so no time zone shifts it. */
+function nextDay(iso: string, by = 1): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + by);
+  return d.toISOString().slice(0, 10);
+}
+function addYears(iso: string, n: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCFullYear(d.getUTCFullYear() + n);
+  return d.toISOString().slice(0, 10);
+}
+
 export async function currentYearId(): Promise<string | null> {
+  await ensureLeaveYear(today());
   const s = await createClient();
   const { data, error } = await s.rpc("timeoff_year_of", { p_day: today() });
   if (error) throw new Error(error.message);
   return (data as string | null) ?? null;
-}
-
-export async function listBlackouts(): Promise<Blackout[]> {
-  const s = await createClient();
-  const { data, error } = await s.from("timeoff_blackouts").select("*").order("created_at");
-  if (error) throw new Error(error.message);
-  return withCreators((data ?? []) as Blackout[]);
 }
 
 // ─── Approval flow: department heads (0817) ────────────────────────────────
