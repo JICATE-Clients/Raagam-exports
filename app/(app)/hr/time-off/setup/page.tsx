@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { SetupScreen } from "@/components/hr/timeoff/setup-screen";
 import {
   listBlackouts,
+  getStageRoles,
   listDepartmentHeads,
   listHodOptions,
   listLeaveTypes,
@@ -16,7 +17,7 @@ export const metadata = { title: "Time Off Setup" };
 export default async function Page() {
   await requirePermission("hr_payroll", "view");
   const s = await createClient();
-  const [types, years, blackouts, viewer, canDelete, locs, heads, hodOptions] = await Promise.all([
+  const [types, years, blackouts, viewer, canDelete, locs, heads, hodOptions, stageRoles] = await Promise.all([
     listLeaveTypes(),
     listYears(),
     listBlackouts(),
@@ -25,6 +26,7 @@ export default async function Page() {
     s.from("locations").select("id, name").order("name"),
     listDepartmentHeads(),
     listHodOptions(),
+    getStageRoles(),
   ]);
   if (locs.error) throw new Error(locs.error.message);
   return (
@@ -40,6 +42,7 @@ export default async function Page() {
         locations={(locs.data ?? []) as { id: string; name: string }[]}
         heads={heads}
         hodOptions={hodOptions}
+        stageRoles={stageRoles}
         canEdit={viewer.canEdit}
         canDelete={canDelete && viewer.canEdit}
       />

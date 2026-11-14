@@ -54,7 +54,7 @@ const VERB: Record<EventAction, string> = {
 const HINT_WORDS: Record<string, string> = {
   hr_department_head: "the department's HOD",
   hr_manager: "the HR Manager",
-  hr_executive_director: "the ED (Managing Director)",
+  hr_executive_director: "the ED",
   md_or_hr_manager: "the Managing Director or an HR Manager",
 };
 

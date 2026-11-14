@@ -268,6 +268,17 @@ export type DepartmentHead = {
   hod_staff_id: string | null;
 };
 
+/**
+ * Which role answers the HR Manager stage and the ED stage (0842). A role id,
+ * not a name, so a renamed role keeps its stage; `null` = not set.
+ */
+export type StageRoles = {
+  hr_role_id: string | null;
+  ed_role_id: string | null;
+  /** Every role, with the names of the logins holding it. */
+  roles: { id: string; name: string; holders: string[] }[];
+};
+
 /** A staff member who can be named HOD. */
 export type HodOption = { id: string; name: string; code: string | null; department_id: string | null };
 

@@ -26,6 +26,7 @@ import {
   saveBlackout,
   saveDepartmentHead,
   saveLeaveType,
+  saveStageRole,
   saveYear,
 } from "@/lib/hr/timeoff-actions";
 import {
@@ -39,6 +40,7 @@ import {
   type LeaveTypeInput,
   type LeaveYear,
   type RequestCategory,
+  type StageRoles,
 } from "@/lib/hr/timeoff-types";
 
 /**
@@ -84,6 +86,8 @@ type Props = {
   locations: { id: string; name: string }[];
   heads: DepartmentHead[];
   hodOptions: HodOption[];
+  /** null until 0842 is applied. */
+  stageRoles: StageRoles | null;
   canEdit: boolean;
   canDelete: boolean;
 };
@@ -732,11 +736,11 @@ function BlackoutsTab({ blackouts, types, locations, canEdit, canDelete }: Props
 
 // ─── Approval flow (0817) ──────────────────────────────────────────────────
 
-const STAGES = [
-  { label: "Department HOD", who: "The head of the person's department. No HOD named, or the HOD is the one on leave → the HR Manager takes it." },
-  { label: "HR Manager", who: "Whoever holds the HR Manager role. Nobody does → the Managing Director." },
-  { label: "ED", who: "The owner — the login holding Managing Director. Only after the ED approves is it approved." },
-];
+const STAGE_HELP = {
+  hod: "The head of the person's department. No HOD named, or the HOD is the one on leave → the HR Manager stage takes it.",
+  hr: "Everyone holding this role. Nobody does → the ED stage takes it.",
+  ed: "Everyone holding this role. Not set → the HR Manager's decision is final and \"Send to ED\" does not appear.",
+};
 
 /**
  * Every leave, permission, on duty, comp-off booking and encashment goes
@@ -744,7 +748,7 @@ const STAGES = [
  * engine's flow (0817); what HR sets here is who heads each department. An HOD
  * acts with their own login — the one whose e-mail is on their staff record.
  */
-function FlowTab({ heads, hodOptions, canEdit }: Props) {
+function FlowTab({ heads, hodOptions, stageRoles, canEdit }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -761,6 +765,66 @@ function FlowTab({ heads, hodOptions, canEdit }: Props) {
       success(staffId ? `HOD of ${h.department_name} saved` : `${h.department_name} has no HOD now`);
       router.refresh();
     });
+  }
+
+  /* 0842: a stage follows a ROLE picked here, by id — a renamed role keeps
+     its stage, and a deleted one shows "Not set" instead of going quiet. */
+  function pickRole(stage: "hr" | "ed", roleId: string) {
+    startTransition(async () => {
+      const r = await saveStageRole(stage, roleId || null);
+      if (!r.ok) {
+        toastError(r.error);
+        return;
+      }
+      success(`${stage === "hr" ? "HR Manager" : "ED"} stage saved`);
+      router.refresh();
+    });
+  }
+
+  function stageCard(n: number, label: string, help: string, picker?: ReactNode) {
+    return (
+      <li className="rounded-lg border bg-card p-3">
+        <div className="flex items-center gap-2">
+          <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
+            {n}
+          </span>
+          <span className="text-sm font-semibold">{label}</span>
+        </div>
+        {picker}
+        <p className="mt-1.5 text-xs text-muted-foreground">{help}</p>
+      </li>
+    );
+  }
+
+  function rolePicker(stage: "hr" | "ed") {
+    if (!stageRoles) {
+      return <p className="mt-2 text-xs text-danger">Run migration 0842 to choose this stage&apos;s role.</p>;
+    }
+    const value = stage === "hr" ? stageRoles.hr_role_id : stageRoles.ed_role_id;
+    const holders = stageRoles.roles.find((r) => r.id === value)?.holders ?? [];
+    return (
+      <div className="mt-2 space-y-1">
+        <Select
+          aria-label={`Role for the ${stage === "hr" ? "HR Manager" : "ED"} stage`}
+          className="w-full"
+          value={value ?? ""}
+          disabled={!canEdit || isPending}
+          onChange={(e) => pickRole(stage, e.target.value)}
+        >
+          <option value="">{stage === "hr" ? "Not set — goes to the ED" : "Not set — HR decides last"}</option>
+          {stageRoles.roles.map((r) => (
+            <option key={r.id} value={r.id}>
+              {r.name}
+            </option>
+          ))}
+        </Select>
+        {value && (
+          <p className={holders.length ? "text-xs" : "text-xs text-danger"}>
+            {holders.length ? holders.join(", ") : "Nobody holds this role yet."}
+          </p>
+        )}
+      </div>
+    );
   }
 
   const columns: Column<DepartmentHead>[] = [
@@ -805,17 +869,9 @@ function FlowTab({ heads, hodOptions, canEdit }: Props) {
   return (
     <div className="space-y-4 pt-3">
       <ol className="grid grid-cols-1 gap-3 md:grid-cols-3">
-        {STAGES.map((st, i) => (
-          <li key={st.label} className="rounded-lg border bg-card p-3">
-            <div className="flex items-center gap-2">
-              <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
-                {i + 1}
-              </span>
-              <span className="text-sm font-semibold">{st.label}</span>
-            </div>
-            <p className="mt-1.5 text-xs text-muted-foreground">{st.who}</p>
-          </li>
-        ))}
+        {stageCard(1, "Department HOD", STAGE_HELP.hod)}
+        {stageCard(2, "HR Manager", STAGE_HELP.hr, rolePicker("hr"))}
+        {stageCard(3, "ED", STAGE_HELP.ed, rolePicker("ed"))}
       </ol>
       <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         Department HODs · {named} of {heads.length} named
