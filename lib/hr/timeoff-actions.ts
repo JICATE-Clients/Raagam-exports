@@ -379,17 +379,21 @@ export async function saveDepartmentHead(departmentId: string, staffId: string |
 }
 
 /** Which role answers the HR Manager stage or the ED stage (0842); null = not set. */
-export async function saveStageRole(stage: "hr" | "ed", roleId: string | null): Promise<R> {
+/** Name the designations whose staff answer the HR Manager or ED stage (0846). */
+/** The staff who answer the HR Manager or ED stage — the whole list, replaced (0847). */
+export async function saveStagePeople(stage: "hr" | "ed", staffIds: string[]): Promise<R> {
   if (!(await can("hr_payroll", "edit"))) return bad("Forbidden");
+  const ids = [...new Set(staffIds)];
+  if (ids.some((id) => !/^[0-9a-f-]{36}$/i.test(id))) return bad("Pick a staff member");
   const s = await createClient();
   const { data, error } = await s
     .from("hr_approval_settings")
-    .update(stage === "hr" ? { hr_role_id: roleId } : { ed_role_id: roleId })
+    .update(stage === "hr" ? { hr_staff_ids: ids } : { ed_staff_ids: ids })
     .eq("id", true)
     .select("id");
   if (error) return bad(dbMessage(error, "Could not save the stage"));
   // RLS turns a refused UPDATE into 0 rows, not an error.
-  if (!data?.length) return bad("Could not save the stage — run migration 0842 first.");
+  if (!data?.length) return bad("Could not save the stage — run migration 0847 first.");
   revalidateTimeoff();
   return { ok: true };
 }

@@ -18,7 +18,8 @@ import type {
   PersonOption,
   QueueItem,
   RequestCategory,
-  StageRoles,
+  StagePeople,
+  StageApprover,
   TimeoffRequest,
 } from "./timeoff-types";
 import { CATEGORY_LABELS, fmtDays, fmtMinutes, hhmm, personKey } from "./timeoff-types";
@@ -224,39 +225,45 @@ export async function listDepartmentHeads(): Promise<DepartmentHead[]> {
  * holders are read with the service role: `user_roles` / `profiles` let a user
  * see only their own rows, and HR needs to see who a stage would reach.
  */
-export async function getStageRoles(): Promise<StageRoles | null> {
+export async function getStagePeople(): Promise<StagePeople | null> {
   if (!(await can("hr_payroll", "view"))) return null;
   const s = await createClient();
-  const set = await s.from("hr_approval_settings").select("hr_role_id, ed_role_id").maybeSingle();
-  // 0842 not applied yet — the screen says so instead of offering a picker.
-  if (set.error?.code === "PGRST205" || set.error?.code === "42P01") return null;
+  const set = await s.from("hr_approval_settings").select("hr_staff_ids, ed_staff_ids").maybeSingle();
+  // 0847 not applied yet — the screen says so instead of offering a picker.
+  if (set.error && ["PGRST205", "42P01", "42703", "PGRST204"].includes(set.error.code ?? "")) return null;
   if (set.error) throw new Error(set.error.message);
+  // Admin client: a self-service login cannot read the staff list, and
+  // profiles_read_own hides every login but the caller's (AGENTS.md).
   const admin = createAdminClient();
-  const [roles, held, people] = await Promise.all([
-    admin.from("roles").select("id, name").order("name"),
-    admin.from("user_roles").select("role_id, user_id"),
-    admin.from("profiles").select("id, full_name, email, is_active"),
+  const row = set.data as { hr_staff_ids: string[] | null; ed_staff_ids: string[] | null } | null;
+  const ids = [...new Set([...(row?.hr_staff_ids ?? []), ...(row?.ed_staff_ids ?? [])])];
+  if (!ids.length) return { hr: [], ed: [] };
+  const [staff, people] = await Promise.all([
+    admin.from("staff").select("id, name, email, is_active, designation:designations!designation_id(name)").in("id", ids),
+    admin.from("profiles").select("email, is_active"),
   ]);
-  for (const r of [roles, held, people]) if (r.error) throw new Error(r.error.message);
-  const nameOf = new Map(
-    ((people.data ?? []) as { id: string; full_name: string | null; email: string | null; is_active: boolean | null }[])
-      .filter((p) => p.is_active !== false)
-      .map((p) => [p.id, p.full_name || p.email || "—"]),
+  for (const r of [staff, people]) if (r.error) throw new Error(r.error.message);
+  // A staff record reaches its login by email — the same link timeoff_my_staff_id() uses.
+  const logins = new Set(
+    ((people.data ?? []) as { email: string | null; is_active: boolean | null }[])
+      .filter((p) => p.is_active !== false && p.email)
+      .map((p) => (p.email as string).trim().toLowerCase()),
   );
-  const heldBy = new Map<string, string[]>();
-  for (const h of (held.data ?? []) as { role_id: string; user_id: string }[]) {
-    const n = nameOf.get(h.user_id);
-    if (n) heldBy.set(h.role_id, [...(heldBy.get(h.role_id) ?? []), n]);
-  }
-  return {
-    hr_role_id: (set.data as { hr_role_id: string | null } | null)?.hr_role_id ?? null,
-    ed_role_id: (set.data as { ed_role_id: string | null } | null)?.ed_role_id ?? null,
-    roles: ((roles.data ?? []) as { id: string; name: string }[]).map((r) => ({
+  type Row = { id: string; name: string; email: string | null; is_active: boolean | null; designation: { name: string } | null };
+  const byId = new Map<string, StageApprover>();
+  for (const r of (staff.data ?? []) as unknown as Row[]) {
+    byId.set(r.id, {
       id: r.id,
       name: r.name,
-      holders: (heldBy.get(r.id) ?? []).sort(),
-    })),
-  };
+      designation: r.designation?.name ?? null,
+      login: !!r.email && logins.has(r.email.trim().toLowerCase()),
+      inactive: r.is_active === false,
+    });
+  }
+  // A staff row deleted since being named simply drops out of the list.
+  const pick = (list: string[] | null) =>
+    (list ?? []).flatMap((id) => byId.get(id) ?? []).sort((x, y) => x.name.localeCompare(y.name));
+  return { hr: pick(row?.hr_staff_ids ?? null), ed: pick(row?.ed_staff_ids ?? null) };
 }
 
 /** Active staff, for the HOD picker. */

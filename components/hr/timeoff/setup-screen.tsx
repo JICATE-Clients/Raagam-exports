@@ -9,6 +9,7 @@ import { Field, FieldRow } from "@/components/ui/field";
 import { ActiveField } from "@/components/ui/active-field";
 import { Toggle } from "@/components/ui/toggle";
 import { Tabs } from "@/components/ui/tabs";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { Sheet } from "@/components/ui/sheet";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusPill } from "@/components/ui/status-pill";
@@ -23,7 +24,7 @@ import {
   deleteLeaveType,
   saveDepartmentHead,
   saveLeaveType,
-  saveStageRole,
+  saveStagePeople,
   saveYear,
 } from "@/lib/hr/timeoff-actions";
 import {
@@ -36,7 +37,7 @@ import {
   type LeaveTypeInput,
   type LeaveYear,
   type RequestCategory,
-  type StageRoles,
+  type StagePeople,
 } from "@/lib/hr/timeoff-types";
 
 /**
@@ -82,8 +83,8 @@ type Props = {
   years: LeaveYear[];
   heads: DepartmentHead[];
   hodOptions: HodOption[];
-  /** null until 0842 is applied. */
-  stageRoles: StageRoles | null;
+  /** null until 0842 and 0845 are applied. */
+  stagePeople: StagePeople | null;
   canEdit: boolean;
   canDelete: boolean;
 };
@@ -575,8 +576,8 @@ function YearsTab({ years, canEdit }: Props) {
 
 const STAGE_HELP = {
   hod: "The head of the person's department. No HOD named, or the HOD is the one on leave → the HR Manager stage takes it.",
-  hr: "Everyone holding this role. Nobody does → the ED stage takes it.",
-  ed: "Everyone holding this role. Not set → the HR Manager's decision is final and \"Send to ED\" does not appear.",
+  hr: "Anyone in HR Approvers can decide — one is enough. Nobody listed → the ED stage takes it.",
+  ed: "Anyone in ED Approvers can decide — one is enough. Nobody listed → the HR Manager's decision is final and \"Send to ED\" does not appear.",
 };
 
 /**
@@ -585,12 +586,16 @@ const STAGE_HELP = {
  * engine's flow (0817); what HR sets here is who heads each department. An HOD
  * acts with their own login — the one whose e-mail is on their staff record.
  */
-function FlowTab({ heads, hodOptions, stageRoles, canEdit }: Props) {
+function FlowTab({ heads, hodOptions, stagePeople, canEdit }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, startTransition] = useTransition();
   useUnsavedGuard(isPending);
   const named = heads.filter((h) => h.hod_staff_id).length;
+  /* Each stage card opens its own section beneath — HOD's department table,
+     or the HR / ED approver list — one at a time (user 2026-11-14: "if i
+     click hod this all dept thing should show, like hr and ed also"). */
+  const [stageOpen, setStageOpen] = useState<"hod" | "hr" | "ed">("hod");
 
   function pick(h: DepartmentHead, staffId: string) {
     startTransition(async () => {
@@ -604,63 +609,111 @@ function FlowTab({ heads, hodOptions, stageRoles, canEdit }: Props) {
     });
   }
 
-  /* 0842: a stage follows a ROLE picked here, by id — a renamed role keeps
-     its stage, and a deleted one shows "Not set" instead of going quiet. */
-  function pickRole(stage: "hr" | "ed", roleId: string) {
+  /* 0847: HR and ED are staff named one by one, like an HOD (user
+     2026-11-14: "like hod i want hr and ed as separate thing"), any number,
+     the same for every department. Saved on each add / remove. */
+  function savePeople(stage: "hr" | "ed", ids: string[], done: string) {
     startTransition(async () => {
-      const r = await saveStageRole(stage, roleId || null);
+      const r = await saveStagePeople(stage, ids);
       if (!r.ok) {
         toastError(r.error);
         return;
       }
-      success(`${stage === "hr" ? "HR Manager" : "ED"} stage saved`);
+      success(done);
       router.refresh();
     });
   }
 
-  function stageCard(n: number, label: string, help: string, picker?: ReactNode) {
+  function stageCard(key: "hod" | "hr" | "ed", n: number, label: string, help: string, count: string) {
+    const on = stageOpen === key;
     return (
-      <li className="rounded-lg border bg-card p-3">
-        <div className="flex items-center gap-2">
-          <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
-            {n}
+      <li>
+        <button
+          type="button"
+          aria-expanded={on}
+          aria-controls="stage-section"
+          onClick={() => setStageOpen(key)}
+          className={
+            "flex h-full w-full flex-col justify-start rounded-lg border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring " +
+            (on ? "border-primary bg-primary/5 ring-1 ring-primary" : "bg-card hover:border-primary/50 hover:bg-muted/40")
+          }
+        >
+          <span className="flex items-center gap-2">
+            <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
+              {n}
+            </span>
+            <span className="text-sm font-semibold">{label}</span>
+            <span className="ml-auto text-xs text-muted-foreground">{count}</span>
           </span>
-          <span className="text-sm font-semibold">{label}</span>
-        </div>
-        {picker}
-        <p className="mt-1.5 text-xs text-muted-foreground">{help}</p>
+          <span className="mt-1.5 block text-xs text-muted-foreground">{help}</span>
+        </button>
       </li>
     );
   }
 
-  function rolePicker(stage: "hr" | "ed") {
-    if (!stageRoles) {
-      return <p className="mt-2 text-xs text-danger">Run migration 0842 to choose this stage&apos;s role.</p>;
+  /* HR and ED: one row each, the stage on the left and a box of names on the
+     right (user 2026-11-14). HR offers the HR department's staff; ED offers
+     every active staff member (there is no ED department). Someone already
+     named always stays in the list, so a transfer never blanks the box. */
+  const hrDeptIds = new Set(heads.filter((h) => h.department_name.trim().toUpperCase() === "HR").map((h) => h.department_id));
+  function approverSection(stage: "hr" | "ed") {
+    const title = stage === "hr" ? "HR Approvers" : "ED Approvers";
+    if (!stagePeople) {
+      return (
+        <section className="space-y-2">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
+          <p className="text-xs text-danger">Run migration 0847 to name who answers this stage.</p>
+        </section>
+      );
     }
-    const value = stage === "hr" ? stageRoles.hr_role_id : stageRoles.ed_role_id;
-    const holders = stageRoles.roles.find((r) => r.id === value)?.holders ?? [];
+    const list = stage === "hr" ? stagePeople.hr : stagePeople.ed;
+    const ids = list.map((p) => p.id);
+    const pool = stage === "hr" ? hodOptions.filter((o) => o.department_id && hrDeptIds.has(o.department_id)) : hodOptions;
+    const options = [
+      ...pool.map((o) => ({ id: o.id, label: o.code ? `${o.name} (${o.code})` : o.name, person: `staff:${o.id}` })),
+      ...list
+        .filter((p) => !pool.some((o) => o.id === p.id))
+        .map((p) => ({ id: p.id, label: p.name, person: `staff:${p.id}`, inactive: p.inactive })),
+    ];
+    const cannot = list.filter((p) => p.inactive || !p.login);
+    const cols: Column<{ key: string }>[] = [
+      { header: "Stage", cell: () => <span className="text-sm font-medium">{stage === "hr" ? "HR" : "ED"}</span> },
+      {
+        header: "Approvers",
+        cell: () => (
+          <MultiSelect
+            compact
+            label={title}
+            className="w-full max-w-xl"
+            options={options}
+            values={ids}
+            disabled={!canEdit || isPending}
+            onChange={(next) => savePeople(stage, next, `${title} saved`)}
+            emptyLabel={stage === "hr" ? "No staff in the HR department" : "No staff found"}
+          />
+        ),
+      },
+    ];
     return (
-      <div className="mt-2 space-y-1">
-        <Select
-          aria-label={`Role for the ${stage === "hr" ? "HR Manager" : "ED"} stage`}
-          className="w-full"
-          value={value ?? ""}
-          disabled={!canEdit || isPending}
-          onChange={(e) => pickRole(stage, e.target.value)}
-        >
-          <option value="">{stage === "hr" ? "Not set — goes to the ED" : "Not set — HR decides last"}</option>
-          {stageRoles.roles.map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.name}
-            </option>
-          ))}
-        </Select>
-        {value && (
-          <p className={holders.length ? "text-xs" : "text-xs text-danger"}>
-            {holders.length ? holders.join(", ") : "Nobody holds this role yet."}
+      <section className="space-y-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          {title} · {list.length}
+        </h3>
+        {/* paginate={false}: one setting row, not a listing. */}
+        <DataTable columns={cols} rows={[{ key: stage }]} getKey={(r) => r.key} paginate={false} />
+        {list.length === 0 && (
+          <p className="text-xs text-warning">
+            {stage === "hr"
+              ? "Nobody named — requests skip HR and go to the ED stage."
+              : "Nobody named — the HR Manager's decision is final."}
           </p>
         )}
-      </div>
+        {cannot.length > 0 && (
+          <p className="text-xs text-warning">
+            Cannot approve: {cannot.map((p) => `${p.name} (${p.inactive ? "inactive" : "no login — staff email must match their login email"})`).join(", ")}
+          </p>
+        )}
+      </section>
     );
   }
 
@@ -706,15 +759,23 @@ function FlowTab({ heads, hodOptions, stageRoles, canEdit }: Props) {
   return (
     <div className="space-y-4 pt-3">
       <ol className="grid grid-cols-1 gap-3 md:grid-cols-3">
-        {stageCard(1, "Department HOD", STAGE_HELP.hod)}
-        {stageCard(2, "HR Manager", STAGE_HELP.hr, rolePicker("hr"))}
-        {stageCard(3, "ED", STAGE_HELP.ed, rolePicker("ed"))}
+        {stageCard("hod", 1, "Department HOD", STAGE_HELP.hod, `${named} of ${heads.length} named`)}
+        {stageCard("hr", 2, "HR Manager", STAGE_HELP.hr, stagePeople ? `${stagePeople.hr.length} named` : "")}
+        {stageCard("ed", 3, "ED", STAGE_HELP.ed, stagePeople ? `${stagePeople.ed.length} named` : "")}
       </ol>
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        Department HODs · {named} of {heads.length} named
-      </h3>
-      {/* paginate={false}: the whole set of departments is one setting, not a listing to page through. */}
-      <DataTable columns={columns} rows={heads} getKey={(h) => h.department_id} empty="No departments yet." paginate={false} />
+      <div id="stage-section" className="space-y-2">
+        {stageOpen === "hod" && (
+          <>
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Department HODs · {named} of {heads.length} named
+            </h3>
+            {/* paginate={false}: the whole set of departments is one setting, not a listing to page through. */}
+            <DataTable columns={columns} rows={heads} getKey={(h) => h.department_id} empty="No departments yet." paginate={false} />
+          </>
+        )}
+        {stageOpen === "hr" && approverSection("hr")}
+        {stageOpen === "ed" && approverSection("ed")}
+      </div>
     </div>
   );
 }

@@ -2,7 +2,7 @@ import { requirePermission, can } from "@/lib/auth/server";
 import { PageHeader } from "@/components/ui/page-header";
 import { SetupScreen } from "@/components/hr/timeoff/setup-screen";
 import {
-  getStageRoles,
+  getStagePeople,
   listDepartmentHeads,
   listHodOptions,
   listLeaveTypes,
@@ -14,14 +14,14 @@ export const metadata = { title: "Time Off Setup" };
 
 export default async function Page() {
   await requirePermission("hr_payroll", "view");
-  const [types, years, viewer, canDelete, heads, hodOptions, stageRoles] = await Promise.all([
+  const [types, years, viewer, canDelete, heads, hodOptions, stagePeople] = await Promise.all([
     listLeaveTypes(),
     listYears(),
     timeoffViewer(),
     can("hr_payroll", "delete"),
     listDepartmentHeads(),
     listHodOptions(),
-    getStageRoles(),
+    getStagePeople(),
   ]);
   return (
     <div className="space-y-4">
@@ -34,7 +34,7 @@ export default async function Page() {
         years={years}
         heads={heads}
         hodOptions={hodOptions}
-        stageRoles={stageRoles}
+        stagePeople={stagePeople}
         canEdit={viewer.canEdit}
         canDelete={canDelete && viewer.canEdit}
       />
