@@ -3,8 +3,8 @@
 import { useMemo, useState, useTransition } from "react";
 import { FilterBar } from "@/components/ui/filter-bar";
 import { useFacetFilter } from "@/components/ui/filter-drawer";
-import { useQuickStatus } from "@/components/orders/bom-queue";
-import { userFacets, userSearchText, userWord } from "./users-filters";
+import { ToggleGroup } from "@/components/ui/segmented";
+import { userFacets, userSearchText } from "./users-filters";
 import { CircleAlert, Mail, Pencil, ShieldCheck } from "lucide-react";
 import { SelectionBar } from "@/components/ui/selection-bar";
 import { useRowSelection } from "@/lib/data-io/use-row-selection";
@@ -23,6 +23,7 @@ import { withCreatedColumns } from "@/components/ui/created-columns";
 import { Truncated } from "@/components/ui/truncated";
 import type { AccessLocation, AccessUser } from "@/lib/permissions/service";
 import type { PermissionTree as PermissionTreeT } from "@/lib/permissions/effective";
+import { EXCEPTION_LIMIT, changesInWords, nearEmails, personChanges, type PersonChanges } from "@/lib/permissions/levels";
 import type { Action, Module } from "@/lib/auth/types";
 import { PersonAccessSheet } from "./person-access-sheet";
 import { InviteSheet } from "./invite-sheet";
@@ -69,6 +70,15 @@ function DeliveryNote({ result, onClose }: { result: Delivery; onClose: () => vo
     </div>
   );
 }
+
+type UserTab = "all" | "not_invited" | "invited" | "active" | "attention";
+const USER_TABS: { value: UserTab; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "not_invited", label: "Not invited" },
+  { value: "invited", label: "Invited" },
+  { value: "active", label: "Active" },
+  { value: "attention", label: "Needs attention" },
+];
 
 /* ------------------------------------------------------------------ */
 /* Root export                                                          */
@@ -198,6 +208,32 @@ export default function UsersClient({
   const rolesByUser: Record<string, UserRoleEntry[]> = {};
   for (const ur of userRoles) (rolesByUser[ur.user_id] ??= []).push(ur);
 
+  /* PER-ROW FACTS (plan approved 2026-11-14, screen A). How each person differs
+     from their role(s), in words, and an email one letter from another
+     person's (D5). Worked out once per data change, not per render of a cell. */
+  const allEmails = useMemo(() => rows.map((r) => r.email ?? "").filter(Boolean), [rows]);
+  const facts = useMemo(() => {
+    const out = new Map<string, { changes: PersonChanges | null; twins: string[]; noRole: boolean; noUnit: boolean }>();
+    for (const r of rows) {
+      const a = accessByEmail.get(r.email?.trim().toLowerCase() ?? "");
+      const held = r.profile ? (userRoles.filter((ur) => ur.user_id === r.profile!.id)) : [];
+      const sa = !!r.profile?.is_super_admin;
+      const changes =
+        !sa && a ? personChanges(held.map((h) => access.roleTrees[h.role_id] ?? {}), a.tree, a.blocks, access.offered) : null;
+      out.set(r.key, {
+        changes,
+        twins: r.email ? nearEmails(r.email, allEmails) : [],
+        noRole: !sa && !!r.profile && held.length === 0,
+        noUnit: !sa && !!r.profile && !(a?.access?.all_locations || (a?.access?.location_ids.length ?? 0) > 0),
+      });
+    }
+    return out;
+  }, [rows, userRoles, accessByEmail, access.roleTrees, access.offered, allEmails]);
+  const needsAttention = (r: UserRow) => {
+    const f = facts.get(r.key);
+    return !!f && (f.noRole || f.noUnit || f.twins.length > 0 || (f.changes?.total ?? 0) > EXCEPTION_LIMIT);
+  };
+
   /* THE GLOBAL FILTER DRAWER (user 2026-09-30) — facets in `users-filters.tsx`,
      the same FilterBar + useFacetFilter pair every Orders list uses, plus a
      search over name, employee code, email, phone and role. */
@@ -208,11 +244,18 @@ export default function UsersClient({
   /* The list with search + Filters applied and the box's own word left off —
      what the box counts over, so each figure is what clicking it would show. */
   const base = rows.filter((r) => facets.matches(r) && (!q || userSearchText(r, userRoles).includes(q)));
-  /* THE PENDING · UPDATED BOX, exactly as Order Entry draws it (user
-     2026-09-30) — `userWord` says what each word means here. */
-  // Updated first and opened on (user 2026-10-01: "the updated tab first, next pending").
-  const quick = useQuickStatus(userWord, { draft: false, countRows: base, updatedFirst: true });
-  const filtered = base.filter(quick.matches);
+  /* STATUS TABS (plan approved 2026-11-14, screen A) replace the Pending ·
+     Updated box: where each person is in getting access, and who needs a look.
+     A switched-off login shows under All (the Filters drawer's Status finds it). */
+  const [tab, setTab] = useState<UserTab>("all");
+  const tabOf: Record<UserTab, (r: UserRow) => boolean> = {
+    all: () => true,
+    not_invited: (r) => !r.profile,
+    invited: (r) => !!r.profile && r.profile.is_active && r.profile.must_change_password,
+    active: (r) => !!r.profile && r.profile.is_active && !r.profile.must_change_password,
+    attention: needsAttention,
+  };
+  const filtered = base.filter(tabOf[tab]);
   const selectedRows = rows.filter((r) => sel.selectedKeys.has(r.key));
   const editing = editingKey ? (rows.find((r) => r.key === editingKey) ?? null) : null;
 
@@ -274,12 +317,12 @@ export default function UsersClient({
 
   const columns: Column<UserRow>[] = [
     {
-      header: "User",
-      className: "w-60",
+      header: "Person",
+      className: "w-64",
       cell: (r) => (
         <div className="flex min-w-0 flex-col gap-0.5">
-          <span className="flex items-center gap-1.5">
-            <span className="truncate font-semibold text-foreground">{r.name ?? "—"}</span>
+          <span className="flex min-w-0 items-center gap-1.5">
+            <Truncated text={r.name ?? "—"} className="font-semibold text-foreground" />
             {r.profile?.is_super_admin && (
               /* A plain chip, not a StatusPill: the info tone carries a
                  pencil glyph, which read as "editable" (redesign issue 1). */
@@ -288,24 +331,22 @@ export default function UsersClient({
               </span>
             )}
           </span>
-          <span className="font-mono text-[11px] text-muted-foreground">{r.code ?? "—"}</span>
+          {r.email ? (
+            <Truncated text={`${r.code ?? "—"} · ${r.email}`} className="text-xs text-muted-foreground" />
+          ) : (
+            <span className="text-xs text-muted-foreground">
+              <span className="font-mono text-[11px]">{r.code ?? "—"}</span>
+              <span className="ml-1 inline-flex items-center gap-1 whitespace-nowrap text-warning">
+                <CircleAlert className="size-3.5" aria-hidden />
+                Email missing
+              </span>
+            </span>
+          )}
         </div>
       ),
     },
     {
-      header: "Email",
-      cell: (r) =>
-        r.email ? (
-          <span className="text-sm text-muted-foreground">{r.email}</span>
-        ) : (
-          <span className="inline-flex items-center gap-1 whitespace-nowrap text-xs text-warning">
-            <CircleAlert className="size-3.5" aria-hidden />
-            Email missing
-          </span>
-        ),
-    },
-    {
-      header: "Roles",
+      header: "Job role",
       cell: (r) => {
         if (r.profile?.is_super_admin) return <span className="text-xs text-muted-foreground">All access</span>;
         // A role hangs off a login — none yet, so the mail icon is the next step.
@@ -331,12 +372,6 @@ export default function UsersClient({
             ) : (
               <Truncated text={assigned.map((ur) => ur.role_name).join(", ")} />
             )}
-            {/* 2026-11-14: a role with screens unticked must not read as the whole role. */}
-            {(() => {
-              const bl = accessOf(r)?.blocks ?? [];
-              const n = new Set(bl.map((b) => b.screen)).size;
-              return n > 0 ? <span className="block text-xs text-danger">{n} screen{n === 1 ? "" : "s"} unticked</span> : null;
-            })()}
           </button>
         );
       },
@@ -370,15 +405,48 @@ export default function UsersClient({
       },
     },
     {
+      /* IN WORDS (plan screen A): what differs from the role, and anything that
+         needs a look — no unit, no role, a typo-twin email. */
+      header: "Changes for this person",
+      cell: (r) => {
+        const f = facts.get(r.key);
+        if (!f) return <span className="text-xs text-muted-foreground">—</span>;
+        const words = f.changes ? changesInWords(f.changes) : [];
+        const many = (f.changes?.total ?? 0) > EXCEPTION_LIMIT;
+        const flags = [
+          f.noRole ? "No job role" : null,
+          f.noUnit ? "No unit" : null,
+          f.twins.length ? `Email like ${f.twins[0]}` : null,
+        ].filter((x): x is string => !!x);
+        if (!words.length && !flags.length) return <span className="text-xs text-muted-foreground">None</span>;
+        return (
+          <button
+            type="button"
+            onClick={() => openEditor(r)}
+            className="block max-w-[16rem] text-left text-sm underline-offset-2 hover:underline"
+            aria-label={`Changes for ${r.name ?? r.email ?? "user"}`}
+          >
+            {words.length > 0 && <Truncated text={words.join(" · ")} className={many ? "text-danger" : "text-foreground"} />}
+            {many && <span className="block text-xs text-muted-foreground">Make it a role of its own</span>}
+            {flags.map((x) => (
+              <span key={x} className="block text-xs text-warning">{x}</span>
+            ))}
+          </button>
+        );
+      },
+    },
+    {
       header: "Login",
       className: "w-40",
       cell: (r) =>
         !r.profile ? (
-          <StatusPill tone="neutral" className="whitespace-nowrap">No login yet</StatusPill>
+          <StatusPill tone="neutral" className="whitespace-nowrap">Not invited</StatusPill>
+        ) : !r.profile.is_active ? (
+          <StatusPill tone="neutral" className="whitespace-nowrap">Switched off</StatusPill>
         ) : r.profile.must_change_password ? (
-          <StatusPill tone="warning" className="whitespace-nowrap">Temporary password</StatusPill>
+          <StatusPill tone="warning" className="whitespace-nowrap">Invited</StatusPill>
         ) : (
-          <StatusPill tone="success" className="whitespace-nowrap">Password set</StatusPill>
+          <StatusPill tone="success" className="whitespace-nowrap">Active</StatusPill>
         ),
     },
     {
@@ -432,7 +500,7 @@ export default function UsersClient({
               onClick={() => openInvite([r])}
             />}
             <RowIconAction
-              label="Roles, units & extra screens"
+              label={needsAttention(r) ? "Fix access" : "Edit access"}
               name={r.name}
               icon={Pencil}
               disabledReason={
@@ -458,14 +526,16 @@ export default function UsersClient({
         activeCount={facets.activeCount}
         onReset={facets.activeCount ? facets.reset : undefined}
         panel={facets.panel}
-        leading={quick.segment}
-        /* Names the word while one is lit — Order Entry's rule: a bare
-           "3 of 12" beside a lit Pending would read as the whole list. */
-        right={
-          quick.value
-            ? `${filtered.length} of ${rows.length} ${quick.value === "pending" ? "Pending" : "Updated"}`
-            : `${filtered.length} of ${rows.length}`
+        leading={
+          <ToggleGroup<UserTab>
+            label="Show"
+            role="tablist"
+            value={tab}
+            onChange={setTab}
+            options={USER_TABS.map((t) => ({ value: t.value, label: t.label, count: base.filter(tabOf[t.value]).length }))}
+          />
         }
+        right={`${filtered.length} of ${rows.length}`}
       />
 
       {/* NO SUMMARY STRIP (user 2026-11-13: "remove it i think no need this").
@@ -493,7 +563,7 @@ export default function UsersClient({
            This reverses the 2026-09-30 "one fixed set of columns" for Pending
            only; Updated and All keep them. */
         columns={withCreatedColumns(
-          quick.value === "pending" ? columns.filter((c) => c.header !== "Roles" && c.header !== "Units *") : columns,
+          tab === "not_invited" ? columns.filter((c) => c.header !== "Job role" && c.header !== "Units *") : columns,
           rows,
         )}
         rows={filtered}
@@ -524,6 +594,7 @@ export default function UsersClient({
           rolesByUser={rolesByUser}
           roleTrees={access.roleTrees}
           offered={access.offered}
+          allEmails={allEmails}
         />
       )}
 
@@ -544,6 +615,15 @@ export default function UsersClient({
           offered={access.offered}
           canEdit={canEdit}
           meId={meId}
+          onInvite={
+            mailBlocked(editing) || (editing.profile && !editing.profile.must_change_password)
+              ? null
+              : () => {
+                  const r = editing;
+                  setEditingKey(null);
+                  openInvite([r]);
+                }
+          }
         />
       )}
 

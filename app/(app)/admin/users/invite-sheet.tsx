@@ -1,59 +1,54 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Mail } from "lucide-react";
+import { Check, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet } from "@/components/ui/sheet";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedGuard } from "@/lib/reload-guard";
-import { ALL_UNITS, AccessRow, RoleChips, UnitChips, unitsPayload } from "@/components/permissions/access-pickers";
-import { AccessMatrix } from "@/components/permissions/access-matrix";
+import { ALL_UNITS, UnitChips, unitsPayload } from "@/components/permissions/access-pickers";
 import { menuCatalog } from "@/lib/permissions/screen-catalog";
 import { treeHas, type PermissionTree as Tree } from "@/lib/permissions/effective";
+import { LEVEL_WORD, cellsOf, levelOf, nearEmails, roleInWords, screensOf } from "@/lib/permissions/levels";
 import type { Action, Module } from "@/lib/auth/types";
 import { saveUserAccess } from "@/lib/permissions/actions";
-import type { AccessLocation, AccessUser, ScreenBlock } from "@/lib/permissions/service";
+import type { AccessLocation, AccessUser } from "@/lib/permissions/service";
 import { assignRole, removeRole } from "@/app/(app)/admin/actions";
 import { createUserFromStaff, resendWelcome } from "@/lib/users/actions";
 import type { RoleOption, UserRoleEntry, UserRow } from "./page";
 
 export type InviteDelivery = { email: string; emailed: boolean; emailProblem?: string; tempPassword?: string };
 
+type Step = 1 | 2 | 3;
+const STEPS: { n: Step; word: string }[] = [
+  { n: 1, word: "Who" },
+  { n: 2, word: "Job & units" },
+  { n: 3, word: "Review & send" },
+];
+
 /**
- * INVITE = ROLE + UNIT + WELCOME MAIL, IN THAT ORDER (user 2026-11-13: "still
- * there is which is asking for inviting user without role … if we invite user
- * should with role and unit and after also allow the role edit after
- * allocating").
+ * INVITE IN THREE STEPS (plan approved 2026-11-14, screen B, D4/D5 —
+ * https://claude.ai/artifact/JopxLF22KNdjwGEjYzMQFt):
+ *   1 WHO            the people, their emails as HR holds them, and any email
+ *                    one letter away from someone else's (the typo twin that
+ *                    made one person into two rows, D5);
+ *   2 JOB & UNITS    the job role(s) as cards with what each opens, and units —
+ *                    both required;
+ *   3 REVIEW & SEND  what they will be able to open, in words, and one button.
  *
- * The ✉ on a Users row (and the bulk "Send welcome mail") used to mail at
- * once — a login with no role and no unit, which signs in to nothing. Now it
- * opens this: the role(s) and unit(s) are asked first, both mandatory, and
- * Send does, per person:
- *   1. units on their email (`saveUserAccess`, their extras untouched);
- *   2. the login, if they have none (`createUserFromStaff`, no mail);
- *   3. the roles (`assignRole`; for one person, unticked ones `removeRole`);
- *   4. the mail (`resendWelcome`, `first` for a new login).
- * The server refuses step 4 without a role and a unit (`inviteMissing`), so
- * this sheet is the courtesy and that is the guard.
+ * NO ACCESS TABLE IN THE INVITE (D4). The 11-13 sheet put the whole access
+ * table under the roles, and an invite started by unticking — that is how one
+ * person got ALL with 1,306 boxes unticked. Adjusting one person is the person
+ * page's job, after the invite. A person's existing changes are kept as they are.
  *
- * ONE PERSON: prefilled with what they hold, set exactly as shown.
- * SEVERAL: the chosen roles are ADDED to each, and the chosen units added to
- * the ones each already has — a bulk invite never takes access away.
- * Everything stays editable afterwards on the pencil (person editor).
- *
- * ROLE WITH ITS ACCESS, EDITABLE (user 2026-11-13: "while inviting you were
- * asking role only but also then there also edit that role access" — "role
- * with edit access"). For ONE person the sheet shows the same `AccessMatrix`
- * as the ✏️ editor under the roles picked: untick a blue cell to block it for
- * them (0840), tick an empty one to give an extra. Step 1 then saves units,
- * extras and blocks together. For SEVERAL the table is not shown — one set of
- * ticks copied onto different people is not a decision anyone made; each is
- * adjusted after with ✏️.
- *
- * `mail={false}` is the bulk "Give role & unit" (screenshot 4148): steps 1–3
- * only — logins made quietly — and Send reads Save. Inviting stays its own
- * deliberate step.
+ * Send does, per person (unchanged): units on their email (`saveUserAccess`),
+ * the login if they have none (`createUserFromStaff`), the roles
+ * (`assignRole`, and for one person `removeRole` on unticked ones), then the
+ * mail (`resendWelcome`), which the server refuses without a role and a unit.
+ * SEVERAL people: roles and units are ADDED to what each has — a bulk invite
+ * never takes access away. `mail={false}` is the bulk "Give role & unit".
  */
 export function InviteSheet({
   people,
@@ -68,6 +63,7 @@ export function InviteSheet({
   rolesByUser,
   roleTrees,
   offered,
+  allEmails,
 }: {
   people: UserRow[];
   /** false = give the roles and units, send nothing. */
@@ -76,43 +72,70 @@ export function InviteSheet({
   skipped?: string[];
   origin: DOMRect | null;
   onClose: () => void;
-  /** One person's delivery, for the note above the list (temp password when the mail failed). */
   onDelivered: (d: InviteDelivery) => void;
   roles: RoleOption[];
   locations: AccessLocation[];
   accessOf: (r: UserRow) => AccessUser | null;
   rolesByUser: Record<string, UserRoleEntry[]>;
-  /** Each role's tree by role id — what the access table shows in blue. */
   roleTrees: Record<string, Tree>;
   offered: Partial<Record<Module, Action[]>>;
+  /** Every email on the Users list — for the one-letter-off warning. */
+  allEmails: string[];
 }) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, start] = useTransition();
   const single = people.length === 1 ? people[0] : null;
+  const catalog = useMemo(() => menuCatalog(), []);
 
   const heldOf = (r: UserRow) => (r.profile ? (rolesByUser[r.profile.id] ?? []) : []);
   const storedUnitsOf = (r: UserRow) => {
     const a = accessOf(r)?.access;
     return a?.all_locations ? [ALL_UNITS] : (a?.location_ids ?? []);
   };
+  const [step, setStep] = useState<Step>(1);
   const [roleIds, setRoleIds] = useState<string[]>(() => (single ? heldOf(single).map((u) => u.role_id) : []));
   const [units, setUnits] = useState<string[]>(() => (single ? storedUnitsOf(single) : []));
   const [tried, setTried] = useState(false);
-  // One person only: their extras and blocks, edited in the access table.
-  const singleAccess = single ? accessOf(single) : null;
-  const [tree, setTree] = useState<Tree>(() => singleAccess?.tree ?? {});
-  const [blocks, setBlocks] = useState<ScreenBlock[]>(() => singleAccess?.blocks ?? []);
-  const catalog = useMemo(() => menuCatalog(), []);
-  const roleNameOf = (id: string) => roles.find((r) => r.id === id)?.name ?? "Unknown role";
   useUnsavedGuard(isPending);
 
   const noRole = roleIds.length === 0;
   const noUnit = units.length === 0;
+  const roleNameOf = (id: string) => roles.find((r) => r.id === id)?.name ?? "Unknown role";
+
+  /* D5: an email one letter from another person's — before a second row is made. */
+  const twins = people
+    .map((p) => ({ p, near: p.email ? nearEmails(p.email, allEmails) : [] }))
+    .filter((x) => x.near.length > 0);
+
+  /* Step 3's summary: each sidebar module the chosen roles open, and how far. */
+  const picked = roleIds.map((id) => roleTrees[id] ?? {});
+  const opens = catalog
+    .map((cm) => ({
+      label: cm.label,
+      level: levelOf(cellsOf(screensOf(cm), offered), (sc, a) => picked.some((t) => treeHas(t, sc, a))),
+    }))
+    .filter((x) => x.level !== "none");
+  const unitWords = units.includes(ALL_UNITS)
+    ? "All units"
+    : units.map((u) => locations.find((l) => l.id === u)?.name ?? "(inactive unit)").join(", ");
+  const singleAccess = single ? accessOf(single) : null;
+  const keptChanges = singleAccess ? singleAccess.blocks.length > 0 || Object.keys(singleAccess.tree).length > 0 : false;
+
+  function next() {
+    if (step === 2) {
+      setTried(true);
+      if (noRole || noUnit) return;
+    }
+    setStep((s) => (s < 3 ? ((s + 1) as Step) : s));
+  }
 
   function send() {
-    setTried(true);
-    if (noRole || noUnit) return;
+    if (noRole || noUnit) {
+      setStep(2);
+      setTried(true);
+      return;
+    }
     start(async () => {
       let sent = 0;
       let firstError: string | null = null;
@@ -126,30 +149,22 @@ export function InviteSheet({
           continue;
         }
 
-        // 1. Units — exactly as shown for one person; added to theirs for several.
+        // 1. Units — exactly as chosen for one person; added to theirs for several.
         const stored = storedUnitsOf(r);
-        const next = single
+        const nextUnits = single
           ? units
           : stored.includes(ALL_UNITS) || units.includes(ALL_UNITS)
             ? [ALL_UNITS]
             : [...new Set([...stored, ...units])];
-        const same = next.length === stored.length && next.every((u) => stored.includes(u));
-        // One person: their extras and blocks from the access table ride along.
-        const treeChanged = !!single && JSON.stringify(tree) !== JSON.stringify(a.tree);
-        const keyOf = (b: ScreenBlock[]) => b.map((x) => `${x.screen}|${x.action}`).sort().join(",");
-        // Only blocks on a cell a picked role gives — anything else blocks nothing.
-        const keptBlocks = blocks.filter((b) =>
-          roleIds.some((id) => treeHas(roleTrees[id] ?? {}, { key: b.screen, module: b.module as Module }, b.action)),
-        );
-        const blocksChanged = !!single && keyOf(keptBlocks) !== keyOf(a.blocks);
-        if (!same || treeChanged || blocksChanged) {
+        const same = nextUnits.length === stored.length && nextUnits.every((u) => stored.includes(u));
+        if (!same || !a.access) {
+          // Their own changes (extras, blocks) are left exactly as they are.
           const res = await saveUserAccess({
             email: a.email,
-            active: treeChanged ? true : (a.access?.is_active ?? true),
+            active: a.access?.is_active ?? true,
             note: a.access?.note ?? null,
-            tree: single ? tree : a.tree,
-            locations: unitsPayload(next),
-            ...(single ? { blocks: keptBlocks } : {}),
+            tree: a.tree,
+            locations: unitsPayload(nextUnits),
           });
           if (!res.ok) {
             fail(res.error);
@@ -220,75 +235,193 @@ export function InviteSheet({
 
   const who = single ? (single.name ?? single.email ?? "this person") : `${people.length} people`;
   const resend = !!single?.profile;
+  const finalWord = !mail ? "Save" : resend ? "Resend invite" : "Send invite";
 
   return (
     <Sheet
       open
       onClose={onClose}
       origin={origin}
-      // One person gets the access table, which needs the room; several get the small sheet.
-      size={single ? "lg" : "sm"}
-      title={!mail ? `Give role & unit · ${who}` : resend ? `Resend welcome mail · ${who}` : `Invite ${who}`}
+      size="md"
+      title={!mail ? `Give role & unit · ${who}` : resend ? `Resend invite · ${who}` : `Invite ${who}`}
       footer={
         <>
-          <Button variant="outline" size="md" onClick={onClose}>Cancel</Button>
-          <Button size="md" disabled={isPending} onClick={send}>
-            {mail && <Mail className="h-4 w-4" aria-hidden />}
-            {isPending ? (mail ? "Sending…" : "Saving…") : !mail ? "Save" : resend ? "Resend" : "Send invite"}
+          <Button variant="outline" size="md" onClick={step === 1 ? onClose : () => setStep((s) => (s - 1) as Step)}>
+            {step === 1 ? "Cancel" : "Back"}
           </Button>
+          {step < 3 ? (
+            <Button size="md" onClick={next}>
+              {step === 1 ? "Next: job & units" : "Next: review"}
+            </Button>
+          ) : (
+            <Button size="md" disabled={isPending} onClick={send}>
+              {mail && <Mail className="h-4 w-4" aria-hidden />}
+              {isPending ? (mail ? "Sending…" : "Saving…") : finalWord}
+            </Button>
+          )}
         </>
       }
     >
-      <div className={`space-y-4 ${single ? "mx-auto max-w-[60rem]" : ""}`}>
-        <p className="text-sm text-muted-foreground">
-          {!mail
-            ? "The roles and units below are added to what each person already has. No mail is sent — use Invite when they should sign in."
-            : single
-              ? `${single.email} gets a sign-in link and a temporary password. They will open only what these roles allow, in these units.`
-              : "Each person gets a sign-in link and a temporary password. The roles and units below are added to what each already has."}
-        </p>
-        {!single && (
-          <p className="text-xs text-muted-foreground">{people.map((p) => p.name ?? p.email).join(", ")}</p>
-        )}
-        {skipped.length > 0 && (
-          <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs">
-            <p className="font-medium text-foreground">Left out ({skipped.length}):</p>
-            <ul className="mt-0.5 list-disc pl-4 text-muted-foreground">
-              {skipped.map((line) => (
-                <li key={line}>{line}</li>
+      {/* 52rem: the step rail (11rem) + one column of cards / chips. */}
+      <div className="mx-auto grid max-w-[52rem] gap-4 sm:grid-cols-[11rem_minmax(0,1fr)]">
+        <ol className="flex gap-1 overflow-x-auto sm:flex-col" aria-label="Steps">
+          {STEPS.map((s) => {
+            const done = s.n < step;
+            const on = s.n === step;
+            return (
+              <li
+                key={s.n}
+                aria-current={on ? "step" : undefined}
+                className={`flex shrink-0 items-center gap-2 rounded-lg px-2 py-1.5 text-sm ${on ? "border border-border bg-surface font-semibold" : "text-muted-foreground"}`}
+              >
+                <span
+                  className={`inline-flex size-5 items-center justify-center rounded-full text-[11px] font-semibold ${
+                    done ? "bg-success text-white" : on ? "bg-primary text-primary-foreground" : "border border-border"
+                  }`}
+                  aria-hidden
+                >
+                  {done ? <Check className="size-3" /> : s.n}
+                </span>
+                {s.word}
+              </li>
+            );
+          })}
+        </ol>
+
+        <div className="min-w-0 space-y-4">
+          {/* ── 1 · WHO ─────────────────────────────────────────────────── */}
+          {step === 1 && (
+            <>
+              <ul className="divide-y divide-border rounded-lg border border-border">
+                {people.map((p) => (
+                  <li key={p.key} className="flex flex-wrap items-baseline justify-between gap-x-3 px-3 py-2 text-sm">
+                    <span className="font-medium text-foreground">{p.name ?? "—"}</span>
+                    <span className="text-muted-foreground">
+                      {p.code && <span className="mr-2 font-mono text-xs">{p.code}</span>}
+                      {p.email}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {twins.map(({ p, near }) => (
+                <div key={p.key} className="rounded-md border-l-4 border-warning bg-warning/10 px-3 py-2 text-sm">
+                  <span className="font-medium">{p.email}</span> is one letter from{" "}
+                  <span className="font-medium">{near.join(", ")}</span>. If they are the same person, correct the email in{" "}
+                  <Link href="/hr/staff" className="text-primary underline-offset-2 hover:underline">HR &amp; Payroll ▸ People ▸ Staff</Link>{" "}
+                  — their login and access move with it. If they are different people, carry on.
+                </div>
               ))}
-            </ul>
-          </div>
-        )}
-        <dl className="divide-y divide-border rounded-lg border border-border bg-surface">
-          <AccessRow label="Roles" required>
-            <RoleChips id="inv-add-role" roles={roles} value={roleIds} onChange={setRoleIds} />
-            {tried && noRole && <p className="mt-1 text-xs text-danger">Give at least one role — with none they open nothing.</p>}
-          </AccessRow>
-          <AccessRow label="Units" required>
-            <UnitChips locations={locations} value={units} onChange={setUnits} />
-          </AccessRow>
-        </dl>
-        {single && singleAccess && (
-          <section className="space-y-2" aria-label="What they can open">
-            <h3 className="text-sm font-semibold text-foreground">What they can open</h3>
-            <p className="text-xs text-muted-foreground">
-              {roleIds.length === 0
-                ? "Add a role above and its access shows here."
-                : "Blue comes from the roles above — untick one to block it for this person only. Tick an empty cell to give an extra."}
-            </p>
-            <AccessMatrix
-              catalog={catalog}
-              offered={offered}
-              roleTrees={roleIds.map((id) => ({ name: roleNameOf(id), tree: roleTrees[id] ?? {} }))}
-              extras={tree}
-              onChange={setTree}
-              blocks={blocks}
-              onBlocksChange={setBlocks}
-            />
-          </section>
-        )}
-        <p className="text-xs text-muted-foreground">You can change their roles, units and extra screens any time with the ✏️ on their row.</p>
+              {skipped.length > 0 && (
+                <div className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs">
+                  <p className="font-medium text-foreground">Left out ({skipped.length}):</p>
+                  <ul className="mt-0.5 list-disc pl-4 text-muted-foreground">
+                    {skipped.map((line) => (
+                      <li key={line}>{line}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Emails come from HR &amp; Payroll ▸ People ▸ Staff. A wrong one is corrected there, not here.
+              </p>
+            </>
+          )}
+
+          {/* ── 2 · JOB & UNITS ─────────────────────────────────────────── */}
+          {step === 2 && (
+            <>
+              <fieldset className="space-y-2">
+                <legend className="text-sm font-semibold text-foreground">
+                  Job role <span className="text-danger">*</span>
+                </legend>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {roles
+                    .filter((r) => r.name !== "Super Admin")
+                    .map((r) => {
+                      const on = roleIds.includes(r.id);
+                      return (
+                        <label
+                          key={r.id}
+                          className={`flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-sm ${
+                            on ? "border-primary bg-primary/10" : "border-border"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            className="mt-0.5 size-4 accent-[var(--primary)]"
+                            checked={on}
+                            onChange={() => setRoleIds((ids) => (on ? ids.filter((x) => x !== r.id) : [...ids, r.id]))}
+                          />
+                          <span className="min-w-0">
+                            <span className="block font-medium text-foreground">{r.name}</span>
+                            <span className="block text-xs text-muted-foreground">{roleInWords(roleTrees[r.id] ?? {}, offered)}</span>
+                          </span>
+                        </label>
+                      );
+                    })}
+                  <Link
+                    href="/admin/access-control"
+                    className="flex items-center rounded-lg border border-dashed border-border px-3 py-2 text-sm text-primary hover:bg-surface"
+                  >
+                    + New role — on Roles &amp; Permissions
+                  </Link>
+                </div>
+                {tried && noRole && <p className="text-xs text-danger">Pick a job role — with none they open nothing.</p>}
+                {!single && <p className="text-xs text-muted-foreground">Added to the roles each person already holds.</p>}
+              </fieldset>
+              <fieldset className="space-y-2">
+                <legend className="text-sm font-semibold text-foreground">
+                  Units <span className="text-danger">*</span>
+                </legend>
+                <UnitChips locations={locations} value={units} onChange={setUnits} />
+              </fieldset>
+            </>
+          )}
+
+          {/* ── 3 · REVIEW & SEND ───────────────────────────────────────── */}
+          {step === 3 && (
+            <div className="space-y-3 text-sm">
+              <dl className="divide-y divide-border rounded-lg border border-border">
+                <div className="grid gap-1 px-3 py-2 sm:grid-cols-[8rem_1fr]">
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Who</dt>
+                  <dd>{single ? `${who} · ${single.email}` : people.map((p) => p.name ?? p.email).join(", ")}</dd>
+                </div>
+                <div className="grid gap-1 px-3 py-2 sm:grid-cols-[8rem_1fr]">
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Job role</dt>
+                  <dd>{roleIds.map(roleNameOf).join(", ")}</dd>
+                </div>
+                <div className="grid gap-1 px-3 py-2 sm:grid-cols-[8rem_1fr]">
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Units</dt>
+                  <dd>{unitWords}</dd>
+                </div>
+                <div className="grid gap-1 px-3 py-2 sm:grid-cols-[8rem_1fr]">
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Can open</dt>
+                  <dd>
+                    {opens.length === 0 ? (
+                      <span className="text-danger">Nothing — this role opens no module yet.</span>
+                    ) : (
+                      <ul className="grid gap-x-4 gap-y-0.5 sm:grid-cols-2">
+                        {opens.map((o) => (
+                          <li key={o.label}>
+                            {o.label} <span className="text-muted-foreground">· {LEVEL_WORD[o.level]}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </dd>
+                </div>
+              </dl>
+              {keptChanges && (
+                <p className="text-xs text-muted-foreground">Their own changes from before are kept. Adjust them on their access page.</p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                {!mail
+                  ? "No mail is sent — use Invite when they should sign in."
+                  : "They get a sign-in link and a temporary password, and choose their own password at first sign-in."}
+              </p>
+            </div>
+          )}
+        </div>
       </div>
     </Sheet>
   );

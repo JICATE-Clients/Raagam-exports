@@ -17,11 +17,12 @@ import { MasterListShell } from "@/components/masters/master-list-shell";
 import { useFacetFilter } from "@/components/ui/filter-drawer";
 import { roleFacets } from "./access-control-filters";
 import type { Column } from "@/components/ui/data-table";
-import { PermissionTree } from "@/components/permissions/permission-tree";
-import { treeSummary } from "@/components/permissions/tree-summary";
+import { ModuleAccessList } from "@/components/permissions/module-access";
+import { applyCells, roleInWords } from "@/lib/permissions/levels";
+import { SUGGESTED_ROLES, suggestedTree, type SuggestedRole } from "@/lib/permissions/suggested-roles";
 import { useUnsavedGuard } from "@/lib/reload-guard";
 import { menuCatalog } from "@/lib/permissions/screen-catalog";
-import type { PermissionTree as Tree } from "@/lib/permissions/effective";
+import { treeHas, type PermissionTree as Tree } from "@/lib/permissions/effective";
 import { deleteRole, saveRoleAccess } from "@/lib/permissions/actions";
 import type { AccessControlData, AccessRole } from "@/lib/permissions/service";
 
@@ -36,6 +37,12 @@ import type { AccessControlData, AccessRole } from "@/lib/permissions/service";
  * login. A person is now set up in ONE editor on Users (`person-access-sheet.tsx`),
  * which uses the same `PermissionTree` and the same `saveUserAccess`, so a
  * role's tree and a person's extra screens still go through one normalisation.
+ *
+ * ROLES ARE JOBS (plan approved 2026-11-14, D1/D2). The permission tree is now
+ * `ModuleAccessList` - one row per sidebar module, Full / View only / Custom /
+ * None - the same control a person's access uses. Suggested job roles not yet
+ * created sit above the list as drafts to review; a role an approval step
+ * routes to cannot be deleted.
  */
 
 type Props = {
@@ -43,9 +50,11 @@ type Props = {
   canCreate: boolean;
   canEdit: boolean;
   canDelete: boolean;
+  /** Role name -> active approval steps routed to it (a bin reason). */
+  approvalSteps: Record<string, number>;
 };
 
-export function AccessControlScreen({ data, canCreate, canEdit, canDelete }: Props) {
+export function AccessControlScreen({ data, canCreate, canEdit, canDelete, approvalSteps }: Props) {
   const router = useRouter();
   const { success, error: toastError } = useToast();
   const [isPending, start] = useTransition();
@@ -64,13 +73,13 @@ export function AccessControlScreen({ data, canCreate, canEdit, canDelete }: Pro
 
   useUnsavedGuard(isPending || (roleOpen && roleDirty));
 
-  function openRole(r: AccessRole | null) {
+  function openRole(r: AccessRole | null, draft?: SuggestedRole) {
     setRoleId(r?.id ?? null);
     setRoleSystem(r?.is_system ?? false);
-    setRoleName(r?.name ?? "");
-    setRoleDesc(r?.description ?? "");
+    setRoleName(r?.name ?? draft?.name ?? "");
+    setRoleDesc(r?.description ?? draft?.description ?? "");
     setRoleHome(r?.home_path ?? "");
-    setRoleTree(r?.tree ?? {});
+    setRoleTree(r?.tree ?? (draft ? suggestedTree(draft, data.offered) : {}));
     setRoleDirty(false);
     setRoleTried(false);
     setRoleOpen(true);
@@ -136,7 +145,11 @@ export function AccessControlScreen({ data, canCreate, canEdit, canDelete }: Pro
     });
   }
 
-  const roleProtected = (r: AccessRole) => r.is_system || r.holders > 0;
+  const stepsOf = (r: AccessRole) => approvalSteps[r.name] ?? 0;
+  const roleProtected = (r: AccessRole) => r.is_system || r.holders > 0 || stepsOf(r) > 0;
+  /* SUGGESTED JOB ROLES not created yet (by name, any case) - drafts to review. */
+  const haveNames = new Set(data.roles.map((r) => r.name.trim().toLowerCase()));
+  const suggestions = SUGGESTED_ROLES.filter((s) => !haveNames.has(s.name.toLowerCase()));
 
   const roleColumns: Column<AccessRole>[] = [
     { header: "Role", cell: (r) => <span className="text-sm font-medium">{r.name}</span> },
@@ -157,7 +170,11 @@ export function AccessControlScreen({ data, canCreate, canEdit, canDelete }: Pro
     },
     { header: "Type", cell: (r) => <StatusPill tone={r.is_system ? "info" : "neutral"}>{r.is_system ? "System" : "Custom"}</StatusPill> },
     { header: "Users", cell: (r) => <span className="text-sm tabular-nums">{r.holders}</span> },
-    { header: "Access", cell: (r) => <span className="text-sm">{treeSummary(r.tree)}</span> },
+    {
+      header: "Access",
+      className: "max-w-[22rem]",
+      cell: (r) => <Truncated text={roleInWords(r.tree, data.offered)} className="block max-w-[22rem] text-sm" />,
+    },
   ];
 
   /** The bin beside the pencil (user 2026-09-30). The row cluster asks for a
@@ -208,7 +225,9 @@ export function AccessControlScreen({ data, canCreate, canEdit, canDelete }: Pro
             ? "A system role cannot be deleted"
             : r.holders > 0
               ? `Held by ${r.holders} user${r.holders === 1 ? "" : "s"} — remove it from them first`
-              : null,
+              : stepsOf(r) > 0
+                ? `${stepsOf(r)} approval step${stepsOf(r) === 1 ? "" : "s"} route to this role — change them first`
+                : null,
         menuAs: "icons",
       }}
       rowLabel={(r) => r.name}
@@ -217,7 +236,7 @@ export function AccessControlScreen({ data, canCreate, canEdit, canDelete }: Pro
           ? (sel, clear) => (
               <ConfirmBulkButton
                 label={`Delete ${sel.length}`}
-                confirmLabel={`Confirm — delete ${sel.filter((r) => !roleProtected(r)).length} (system and held roles are kept)`}
+                confirmLabel={`Confirm — delete ${sel.filter((r) => !roleProtected(r)).length} (system, held and approver roles are kept)`}
                 icon={<Trash2 className="h-4 w-4" aria-hidden />}
                 disabled={isPending}
                 onConfirm={() => runBulk(sel, roleProtected, (r) => deleteRole(r.id), "deleted", clear)}
@@ -225,13 +244,40 @@ export function AccessControlScreen({ data, canCreate, canEdit, canDelete }: Pro
             )
           : undefined
       }
-      mobile={{ title: (r) => r.name, subtitle: (r) => treeSummary(r.tree) }}
+      mobile={{ title: (r) => r.name, subtitle: (r) => roleInWords(r.tree, data.offered) }}
       isPending={isPending}
     />
   );
 
   return (
     <>
+      {canCreate && suggestions.length > 0 && (
+        <section aria-label="Suggested job roles" className="space-y-2 rounded-lg border border-border bg-surface p-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-sm font-semibold text-foreground">Suggested job roles</h2>
+            <p className="text-xs text-muted-foreground">Drafts — open one, adjust it, and Create. Nothing is saved until you do.</p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {suggestions.map((s) => (
+              <div key={s.name} className="flex items-start justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground">
+                    {s.name}
+                    {(approvalSteps[s.name] ?? 0) > 0 && (
+                      <span className="ml-2 text-xs font-normal text-warning">{approvalSteps[s.name]} approval steps wait for it</span>
+                    )}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{s.description}</p>
+                </div>
+                <Button type="button" variant="outline" size="sm" onClick={() => openRole(null, s)}>
+                  Review &amp; create
+                </Button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       {rolesTab}
 
       {/* ── A role: name + description, then its permissions ──────────────── */}
@@ -241,6 +287,11 @@ export function AccessControlScreen({ data, canCreate, canEdit, canDelete }: Pro
         title={roleId ? `Role · ${roleName}` : "New Role"}
         footer={
           <>
+            {roleId && holders.length > 0 && (
+              <span className="mr-auto text-xs text-muted-foreground">
+                Applies to {holders.length} {holders.length === 1 ? "person" : "people"}
+              </span>
+            )}
             <Button variant="outline" size="md" onClick={() => setRoleOpen(false)}>Cancel</Button>
             <Button size="md" disabled={isPending || !(roleId ? canEdit : canCreate)} onClick={saveRole}>
               {isPending ? "Saving…" : roleId ? "Save role" : "Create role"}
@@ -303,12 +354,15 @@ export function AccessControlScreen({ data, canCreate, canEdit, canDelete }: Pro
                 this role (Users ▸ Roles).
               </p>
             )}
-            <PermissionTree
+            <ModuleAccessList
               catalog={catalog}
               offered={data.offered}
-              value={roleTree}
+              has={(sc, a) => treeHas(roleTree, sc, a)}
               readOnly={(!canEdit && !!roleId) || (roleSystem && roleName === "Super Admin")}
-              onChange={(t) => { setRoleTree(t); setRoleDirty(true); }}
+              onCells={(c) => {
+                setRoleTree((t) => applyCells(t, c));
+                setRoleDirty(true);
+              }}
             />
           </div>
         </div>

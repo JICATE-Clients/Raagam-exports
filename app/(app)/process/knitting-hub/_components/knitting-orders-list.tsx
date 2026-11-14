@@ -20,16 +20,26 @@ export function KnittingOrdersList({ rows, canEdit, canDelete = false }: { rows:
   const router = useRouter();
   const [, startTransition] = useTransition();
   const { success, error: toastError } = useToast();
-  /* A row the yarn has gone out on keeps its bin GREYED with the reason (AGENTS.md "Row actions":
-     hiding is for missing permission only). An issued order whose DC was raised is refused by
-     the server with its own sentence. */
+  /* IN KNITTING IS DELETABLE FROM HERE (user 2026-11-14: "give access in ui for delete"). 0843:
+     the delete undoes the order's sent yarn DCs itself — yarn back to its bin — then deletes, in
+     one transaction, and refuses with its own sentence once anything has come back from the
+     knitter. Rows past that point keep the bin GREYED with the reason (AGENTS.md "Row actions":
+     hiding is for missing permission only). */
   const deleteBlocked = (r: KnittingOrderListRow) =>
-    ["draft", "issued", "cancelled"].includes(r.status) ? null : `${KNIT_STATUS_LABELS[r.status]} — yarn is at the knitter: open it and undo its yarn DC (back to the bin), or close it`;
+    ["draft", "issued", "cancelled", "in_process"].includes(r.status)
+      ? null
+      : r.status === "partially_received"
+        ? "Partly Received — fabric has come back: delete its receipts first, then delete the order"
+        : `${KNIT_STATUS_LABELS[r.status]} — finished orders cannot be deleted`;
   const remove = (r: KnittingOrderListRow) =>
     startTransition(async () => {
       const res = await deleteKnittingOrder(r.id);
       if (res.ok) {
-        success(`${r.code ?? "Knitting order"} deleted`);
+        success(
+          r.status === "in_process"
+            ? `${r.code ?? "Knitting order"} deleted — its yarn DC is undone and the yarn is back in its bin`
+            : `${r.code ?? "Knitting order"} deleted`,
+        );
         router.refresh();
       } else toastError(res.error);
     });
