@@ -1658,7 +1658,7 @@ export function ChatAvatar({ c, size }: { c: ConversationSummary; size: "row" | 
           ? "rounded-md"
           : c.kind === "direct" || (channel && !isPrivateChannel)
           ? "rounded-full"
-          : size === "md" ? "rounded-[15px]" : size === "row" ? "rounded-md" : "rounded-xl",
+          : size === "md" ? "rounded-[15px]" : "rounded-xl",
       )}
     >
       {photo ? <PhotoImg src={photo} /> : Icon ? <Icon className="h-5 w-5" /> : (letter ?? initials(c.title.replace(/^#/, "")))}

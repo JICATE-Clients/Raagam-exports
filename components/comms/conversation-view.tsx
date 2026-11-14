@@ -1087,7 +1087,7 @@ export function ConversationView({
         onChanged={() => void refreshLatest()}
         highlightId={focus?.threadParentId ? focus.messageId : null}
         onOpenFile={(a) => void openFile(a)}
-        bubble={chat}
+        bubble={chat ?? "group"}
         mayDelete={mayDelete}
       />
       </div>

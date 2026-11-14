@@ -33,7 +33,7 @@ export function MessageInfoSheet({
   message: CommMessage | null;
   conversation: ConversationDetail;
   meId: string;
-  names: Map<string, string>;
+  names: Map<string, string | null>;
   onClose: () => void;
 }) {
   const m = message;
